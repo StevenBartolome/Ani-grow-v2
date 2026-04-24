@@ -61,6 +61,8 @@ export default function RegisterScreen() {
     };
 
     const handleNext = async () => {
+        if (isLoading) return;
+
         // Step 1: Email
         if (step === 1) {
             setEmailError('');
@@ -73,7 +75,35 @@ export default function RegisterScreen() {
                 setEmailError('Please enter a valid email address.');
                 return;
             }
-            setStep(2);
+
+            // Check if email already exists
+            setIsLoading(true);
+            try {
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('email')
+                    .ilike('email', email.trim())
+                    .maybeSingle();
+
+                if (error) {
+                    console.error('Email check error:', error);
+                    showSnackbar('Unable to verify email. Please try again.');
+                    return;
+                }
+
+                if (data) {
+                    setEmailError('This email is already registered. Please use another email.');
+                    setIsLoading(false);
+                    return;
+                }
+
+                setStep(2);
+            } catch (err) {
+                console.error('[Register] Unexpected error:', err);
+                showSnackbar('An unexpected error occurred.');
+            } finally {
+                setIsLoading(false);
+            }
 
         // Step 2: Personal Details
         } else if (step === 2) {

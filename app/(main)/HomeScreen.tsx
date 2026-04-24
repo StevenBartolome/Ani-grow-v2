@@ -1,15 +1,21 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useTextStyles } from '../../src/constants/textStyles';
 import { MaterialIcons } from '@expo/vector-icons';
+import { ConfirmationModal } from '../../src/components/ConfirmationModal';
 
 export default function HomeScreen() {
+  const router = useRouter();
   const { user, profile, role, signOut } = useAuth();
   const { colors } = useTheme();
   const textStyles = useTextStyles();
+
+  // Modal State
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   // Helper to get role-specific content
   const renderRoleContent = () => {
@@ -47,6 +53,16 @@ export default function HomeScreen() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      setShowLogoutModal(false);
+      await signOut();
+      router.replace('/(auth)/LoginScreen');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -60,7 +76,7 @@ export default function HomeScreen() {
             </Text>
           </View>
           <TouchableOpacity 
-            onPress={signOut}
+            onPress={() => setShowLogoutModal(true)}
             style={[styles.iconButton, { backgroundColor: colors.surface, borderColor: colors.stroke }]}
           >
             <MaterialIcons name="logout" size={20} color={colors.error || '#ef4444'} />
@@ -94,6 +110,16 @@ export default function HomeScreen() {
         </View>
 
       </ScrollView>
+
+      {/* Custom Logout Modal */}
+      <ConfirmationModal
+        visible={showLogoutModal}
+        title="Logout"
+        message="Are you sure you want to log out of your account?"
+        confirmLabel="Logout"
+        onConfirm={handleLogout}
+        onCancel={() => setShowLogoutModal(false)}
+      />
     </SafeAreaView>
   );
 }
