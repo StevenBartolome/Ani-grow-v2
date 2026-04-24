@@ -19,6 +19,8 @@ import { useTextStyles } from '../../src/constants/textStyles';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useAuthStyles } from '../../src/styles/authStyles';
 
+import { supabase } from '../../src/lib/supabase';
+
 export default function ResetPasswordScreen() {
   const router = useRouter();
   
@@ -28,6 +30,7 @@ export default function ResetPasswordScreen() {
 
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState('');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -44,17 +47,44 @@ export default function ResetPasswordScreen() {
   };
 
   const handleSendOtp = async () => {
+    setEmailError('');
     if (!email) {
-      showSnackbar('Please enter your email address.');
+      setEmailError('Please enter your email address.');
       return;
     }
+    
     setLoading(true);
     try {
-      showSnackbar('Sending verification code (Mocked)...', 'success');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 1. Check if user exists
+      const { data, error: checkError } = await supabase
+        .from('users')
+        .select('email')
+        .ilike('email', email.trim())
+        .maybeSingle();
+
+      if (checkError) throw checkError;
+
+      if (!data) {
+        setEmailError('This email address is not registered.');
+        setLoading(false);
+        return;
+      }
+
+      // 2. Send OTP
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          shouldCreateUser: false,
+        }
+      });
+
+      if (otpError) throw otpError;
+
+      showSnackbar('Verification code sent successfully!', 'success');
       setStep(2);
     } catch (error: any) {
-      showSnackbar('Failed to send code.');
+      console.error('Send OTP error:', error);
+      showSnackbar(error.message || 'Failed to send code. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -67,11 +97,18 @@ export default function ResetPasswordScreen() {
     }
     setLoading(true);
     try {
-      showSnackbar('Code verified (Mocked)!', 'success');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const { error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: otp,
+        type: 'magiclink' // Or 'recovery' depending on how you sent it. since we used signInWithOtp, it's magiclink/otp
+      });
+
+      if (error) throw error;
+
+      showSnackbar('Code verified!', 'success');
       setStep(3);
     } catch (error: any) {
-      showSnackbar('Invalid code.');
+      showSnackbar(error.message || 'Invalid code.');
     } finally {
       setLoading(false);
     }
@@ -88,11 +125,18 @@ export default function ResetPasswordScreen() {
     }
     setLoading(true);
     try {
-      showSnackbar('Password changed (Mocked)!', 'success');
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      router.push('/(auth)/LoginScreen');
+      const { error } = await supabase.auth.updateUser({
+        password: password
+      });
+
+      if (error) throw error;
+
+      showSnackbar('Password updated successfully!', 'success');
+      setTimeout(() => {
+        router.push('/(auth)/LoginScreen');
+      }, 2000);
     } catch (error: any) {
-      showSnackbar('Failed to reset password.');
+      showSnackbar(error.message || 'Failed to reset password.');
     } finally {
       setLoading(false);
     }
@@ -162,8 +206,9 @@ export default function ResetPasswordScreen() {
                     label="Email Address"
                     icon="mail-outline"
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={(text) => { setEmail(text); setEmailError(''); }}
                     autoCapitalize="none"
+                    error={emailError}
                   />
                   <TouchableOpacity
                     activeOpacity={0.8}

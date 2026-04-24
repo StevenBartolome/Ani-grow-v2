@@ -17,6 +17,8 @@ import { useTextStyles } from '../../src/constants/textStyles';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useAuthStyles } from '../../src/styles/authStyles';
 
+import { supabase } from '../../src/lib/supabase';
+
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const { colors } = useTheme();
@@ -24,6 +26,7 @@ export default function ForgotPasswordScreen() {
   const authStyles = useAuthStyles();
 
   const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   // Snackbar State
@@ -38,27 +41,52 @@ export default function ForgotPasswordScreen() {
   };
 
   const handleResetPassword = async () => {
+    setEmailError('');
     if (!email) {
-      showSnackbar('Please enter your email address.');
+      setEmailError('Please enter your email address.');
       return;
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
-      showSnackbar('Please enter a valid email address.');
+      setEmailError('Please enter a valid email address.');
       return;
     }
 
     setIsLoading(true);
     try {
-      showSnackbar('Sending reset link (Mocked)...', 'info');
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      showSnackbar('Password reset link sent (Mocked)!', 'success');
+      // Check if email exists in the system
+      const { data, error: checkError } = await supabase
+        .from('users')
+        .select('email')
+        .ilike('email', email.trim())
+        .maybeSingle();
+
+      if (checkError) {
+        console.error('Error checking email existence:', checkError);
+        showSnackbar('Unable to verify email at this time.');
+        return;
+      }
+
+      if (!data) {
+        setEmailError('This email address is not registered.');
+        return;
+      }
+
+      // If exists, send the reset link
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: 'anigrow://reset-password', // Update this based on your deep linking config
+      });
+
+      if (resetError) throw resetError;
+
+      showSnackbar('Password reset link sent! Check your email.', 'success');
       setTimeout(() => {
         router.back();
-      }, 2000);
+      }, 3000);
     } catch (error: any) {
-      showSnackbar('An error occurred.', 'error');
+      console.error('Reset password error:', error);
+      showSnackbar(error.message || 'An error occurred while sending the reset link.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -118,9 +146,10 @@ export default function ForgotPasswordScreen() {
                 label="Email Address"
                 icon="email"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => { setEmail(text); setEmailError(''); }}
                 autoCapitalize="none"
                 keyboardType="email-address"
+                error={emailError}
               />
 
               <TouchableOpacity

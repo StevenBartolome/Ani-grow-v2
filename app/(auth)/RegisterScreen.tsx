@@ -7,6 +7,7 @@ import {
     Platform,
     ScrollView,
     Text,
+    TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
@@ -429,19 +430,71 @@ export default function RegisterScreen() {
                                 </>
                             )}
                             {step === 5 && (
-                                <>
-                                    <View>
-                                        <FloatingLabelInput
-                                            label="Verification Code"
-                                            icon="lock"
-                                            value={registerOtp}
-                                            onChangeText={setRegisterOtp}
-                                            keyboardType="numeric"
-                                            maxLength={6}
-                                        />
-                                        <Text style={[textStyles.body, { fontSize: 12, color: colors.textGrey, marginTop: -12, marginBottom: 20, marginLeft: 4 }]}>
-                                            Enter the 6-digit code sent to {email}.
+                                <View>
+                                    <View style={{ marginBottom: 32 }}>
+                                        <Text style={[textStyles.body, { marginBottom: 16, color: colors.textGrey, textAlign: 'center' }]}>
+                                            Please enter the code sent to {email}
                                         </Text>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', position: 'relative', paddingHorizontal: 4 }}>
+                                            {[0, 1, 2, 3, 4, 5].map((index) => {
+                                                const isFocused = registerOtp.length === index || (registerOtp.length === 6 && index === 5);
+                                                const isFilled = registerOtp.length > index;
+
+                                                return (
+                                                    <View
+                                                        key={index}
+                                                        style={{
+                                                            width: 50,
+                                                            height: 64,
+                                                            borderRadius: 14,
+                                                            backgroundColor: isFocused ? colors.primary + '10' : colors.surface,
+                                                            borderWidth: 2,
+                                                            borderColor: isFocused ? colors.primary : isFilled ? colors.primary + '40' : colors.stroke,
+                                                            justifyContent: 'center',
+                                                            alignItems: 'center',
+                                                            shadowColor: isFocused ? colors.primary : '#000',
+                                                            shadowOffset: { width: 0, height: isFocused ? 4 : 2 },
+                                                            shadowOpacity: isFocused ? 0.3 : 0.05,
+                                                            shadowRadius: isFocused ? 8 : 4,
+                                                            elevation: isFocused ? 6 : 2,
+                                                        }}
+                                                    >
+                                                        <Text 
+                                                            style={[
+                                                                textStyles.h1, 
+                                                                { 
+                                                                    fontSize: 28, 
+                                                                    color: isFocused ? colors.primary : colors.text,
+                                                                    lineHeight: 34
+                                                                }
+                                                            ]}
+                                                        >
+                                                            {registerOtp[index] || ''}
+                                                        </Text>
+                                                    </View>
+                                                );
+                                            })}
+                                            <TextInput
+                                                value={registerOtp}
+                                                onChangeText={(text) => {
+                                                    const numericText = text.replace(/[^0-9]/g, '');
+                                                    if (numericText.length <= 6) {
+                                                        setRegisterOtp(numericText);
+                                                    }
+                                                }}
+                                                keyboardType="number-pad"
+                                                maxLength={6}
+                                                autoFocus
+                                                caretHidden
+                                                style={{
+                                                    position: 'absolute',
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    opacity: 0,
+                                                    zIndex: 10,
+                                                }}
+                                            />
+                                        </View>
                                     </View>
                                     <TouchableOpacity
                                         onPress={handleRegister}
@@ -449,7 +502,7 @@ export default function RegisterScreen() {
                                     >
                                         <Text style={[textStyles.label, { color: colors.primary }]}>Resend Code</Text>
                                     </TouchableOpacity>
-                                </>
+                                </View>
                             )}
 
                             <TouchableOpacity
