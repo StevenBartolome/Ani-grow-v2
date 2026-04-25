@@ -26,7 +26,7 @@ export default function RegisterScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const authStyles = useAuthStyles();
-    const { signUp } = useAuth();
+    const { signUp, signInWithGoogle } = useAuth();
 
     // Personal details
     const [firstName, setFirstName] = useState('');
@@ -206,6 +206,20 @@ export default function RegisterScreen() {
             setStep(5);
         } catch (error: any) {
             showSnackbar(error.message || 'Registration failed.', 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleGoogleSignup = async () => {
+        setIsLoading(true);
+        try {
+            await signInWithGoogle();
+            // Success is handled by automatic navigation
+        } catch (error: any) {
+            if (error.message !== 'canceled') {
+                showSnackbar(error.message || 'Google registration failed.', 'error');
+            }
         } finally {
             setIsLoading(false);
         }
@@ -531,8 +545,9 @@ export default function RegisterScreen() {
                                     </View>
                                     <TouchableOpacity
                                         activeOpacity={0.8}
-                                        style={authStyles.socialButton}
-                                        onPress={() => showSnackbar('Google registration triggered.', 'info')}
+                                        style={[authStyles.socialButton, isLoading && { opacity: 0.7 }]}
+                                        onPress={handleGoogleSignup}
+                                        disabled={isLoading}
                                     >
                                         <Image
                                             source={require('../../assets/branding/google_logo.svg')}

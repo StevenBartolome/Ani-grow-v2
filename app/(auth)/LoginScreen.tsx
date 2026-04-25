@@ -23,7 +23,7 @@ export default function LoginScreen() {
   const { colors } = useTheme();
   const textStyles = useTextStyles();
   const authStyles = useAuthStyles();
-  const { signIn } = useAuth();
+  const { signIn, signInWithGoogle } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -71,6 +71,20 @@ export default function LoginScreen() {
       }, 1000);
     } catch (error: any) {
       showSnackbar(error.message || 'Invalid email or password.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    try {
+      await signInWithGoogle();
+      // No need to show snackbar here as the app will automatically redirect once auth is complete
+    } catch (error: any) {
+      if (error.message !== 'canceled') {
+        showSnackbar(error.message || 'Google login failed.', 'error');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -161,8 +175,9 @@ export default function LoginScreen() {
               {/* Google Button */}
               <TouchableOpacity
                 activeOpacity={0.8}
-                style={authStyles.socialButton}
-                onPress={() => showSnackbar('Google login triggered.', 'info')}
+                style={[authStyles.socialButton, isLoading && { opacity: 0.7 }]}
+                onPress={handleGoogleLogin}
+                disabled={isLoading}
               >
                 <Image
                   source={require('../../assets/branding/google_logo.svg')}
