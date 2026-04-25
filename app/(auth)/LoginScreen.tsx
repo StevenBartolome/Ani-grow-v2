@@ -70,6 +70,16 @@ export default function LoginScreen() {
         router.replace('/(main)/HomeScreen');
       }, 1000);
     } catch (error: any) {
+      if (error.message?.includes('Email not confirmed')) {
+        showSnackbar('Email not confirmed. Redirecting to verification...', 'info');
+        setTimeout(() => {
+            router.push({
+                pathname: '/(auth)/RegisterScreen',
+                params: { email: email.trim(), step: '5' }
+            });
+        }, 1500);
+        return;
+      }
       showSnackbar(error.message || 'Invalid email or password.', 'error');
     } finally {
       setIsLoading(false);

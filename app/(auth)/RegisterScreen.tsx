@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import React, { useState, useEffect } from 'react';
 import {
     KeyboardAvoidingView,
     Platform,
@@ -26,7 +26,8 @@ export default function RegisterScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const authStyles = useAuthStyles();
-    const { signUp, signInWithGoogle } = useAuth();
+    const { signUp, signInWithGoogle, resendVerificationCode } = useAuth();
+    const params = useLocalSearchParams<{ email?: string; step?: string }>();
 
     // Personal details
     const [firstName, setFirstName] = useState('');
@@ -49,6 +50,16 @@ export default function RegisterScreen() {
     const [isLoading, setIsLoading] = useState(false);
     const [step, setStep] = useState(1);
     const [registerOtp, setRegisterOtp] = useState('');
+
+    // Handle initial params
+    useEffect(() => {
+        if (params.email) {
+            setEmail(params.email);
+        }
+        if (params.step) {
+            setStep(parseInt(params.step));
+        }
+    }, [params.email, params.step]);
 
     // Snackbar State
     const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -205,9 +216,24 @@ export default function RegisterScreen() {
             showSnackbar('Code sent! Check your email.', 'success');
             setStep(5);
         } catch (error: any) {
+            // If user is already registered but unconfirmed, proceed to OTP step
+            if (error.message?.includes('already registered')) {
+                showSnackbar('You have an unconfirmed account. Please verify.', 'info');
+                setStep(5);
+                return;
+            }
             showSnackbar(error.message || 'Registration failed.', 'error');
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleResendCode = async () => {
+        try {
+            await resendVerificationCode(email.trim());
+            showSnackbar('New code sent! Check your email.', 'success');
+        } catch (error: any) {
+            showSnackbar(error.message || 'Failed to resend code.', 'error');
         }
     };
 
@@ -511,7 +537,7 @@ export default function RegisterScreen() {
                                         </View>
                                     </View>
                                     <TouchableOpacity
-                                        onPress={handleRegister}
+                                        onPress={handleResendCode}
                                         style={{ alignSelf: 'center', marginTop: 8, marginBottom: 16 }}
                                     >
                                         <Text style={[textStyles.label, { color: colors.primary }]}>Resend Code</Text>

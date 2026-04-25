@@ -17,6 +17,7 @@ import FloatingLabelInput from '../../src/components/FloatingLabelInput';
 import Snackbar from '../../src/components/Snackbar';
 import { useTextStyles } from '../../src/constants/textStyles';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useAuth } from '../../src/context/AuthContext';
 import { useAuthStyles } from '../../src/styles/authStyles';
 
 import { supabase } from '../../src/lib/supabase';
@@ -27,6 +28,7 @@ export default function ResetPasswordScreen() {
   const { colors } = useTheme();
   const textStyles = useTextStyles();
   const authStyles = useAuthStyles();
+  const { resetPassword, updatePassword } = useAuth();
 
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
@@ -71,14 +73,7 @@ export default function ResetPasswordScreen() {
       }
 
       // 2. Send OTP
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: {
-          shouldCreateUser: false,
-        }
-      });
-
-      if (otpError) throw otpError;
+      await resetPassword(email.trim());
 
       showSnackbar('Verification code sent successfully!', 'success');
       setStep(2);
@@ -100,7 +95,7 @@ export default function ResetPasswordScreen() {
       const { error } = await supabase.auth.verifyOtp({
         email: email.trim(),
         token: otp,
-        type: 'magiclink' // Or 'recovery' depending on how you sent it. since we used signInWithOtp, it's magiclink/otp
+        type: 'email' // 'email' is typically used for 6-digit OTP codes
       });
 
       if (error) throw error;
@@ -109,6 +104,18 @@ export default function ResetPasswordScreen() {
       setStep(3);
     } catch (error: any) {
       showSnackbar(error.message || 'Invalid code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    setLoading(true);
+    try {
+      await resetPassword(email.trim());
+      showSnackbar('Verification code resent!', 'success');
+    } catch (error: any) {
+      showSnackbar(error.message || 'Failed to resend code.');
     } finally {
       setLoading(false);
     }
@@ -125,11 +132,7 @@ export default function ResetPasswordScreen() {
     }
     setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: password
-      });
-
-      if (error) throw error;
+      await updatePassword(password);
 
       showSnackbar('Password updated successfully!', 'success');
       setTimeout(() => {
@@ -303,6 +306,12 @@ export default function ResetPasswordScreen() {
                     ) : (
                       <Text style={[textStyles.btnLabel, authStyles.primaryButtonText]}>Verify Code</Text>
                     )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleResendCode}
+                    style={{ alignSelf: 'center', marginTop: 16 }}
+                  >
+                    <Text style={[textStyles.label, { color: colors.primary }]}>Resend Code</Text>
                   </TouchableOpacity>
                 </View>
               )}

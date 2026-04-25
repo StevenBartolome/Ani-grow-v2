@@ -21,6 +21,9 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   signUp: (data: any) => Promise<void>;
+  resendVerificationCode: (email: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -38,6 +41,9 @@ const AuthContext = createContext<AuthContextType>({
   signInWithGoogle: async () => {},
   signOut: async () => {},
   signUp: async () => {},
+  resendVerificationCode: async () => {},
+  resetPassword: async () => {},
+  updatePassword: async () => {},
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -77,7 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshProfile = async () => {
     // Note: This requires a 'users' table in your Supabase database
     const currentUser = (await supabase.auth.getUser()).data.user;
-    if (!currentUser) return;
+    if (!currentUser || !currentUser.email_confirmed_at) return;
     
     try {
       const { data, error } = await supabase
@@ -227,6 +233,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const resendVerificationCode = async (email: string) => {
+    setIsLoading(true);
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+    });
+    setIsLoading(false);
+    if (error) throw error;
+  };
+
+  const resetPassword = async (email: string) => {
+    setIsLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: false,
+      },
+    });
+    setIsLoading(false);
+    if (error) throw error;
+  };
+
+  const updatePassword = async (password: string) => {
+    setIsLoading(true);
+    const { error } = await supabase.auth.updateUser({
+      password,
+    });
+    setIsLoading(false);
+    if (error) throw error;
+  };
+
   return (
     <AuthContext.Provider value={{ 
         user, 
@@ -242,7 +279,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signIn,
         signInWithGoogle,
         signOut,
-        signUp
+        signUp,
+        resendVerificationCode,
+        resetPassword,
+        updatePassword
     }}>
       {children}
     </AuthContext.Provider>
