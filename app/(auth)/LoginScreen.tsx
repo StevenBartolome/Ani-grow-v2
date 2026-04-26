@@ -64,7 +64,19 @@ export default function LoginScreen() {
 
     setIsLoading(true);
     try {
-      await signIn(email.trim(), password);
+      const result = await signIn(email.trim(), password);
+      
+      if (result?.mfaRequired) {
+        showSnackbar('MFA Verification required.', 'info');
+        setTimeout(() => {
+          router.replace({
+            pathname: '/(auth)/MFAChallengeScreen',
+            params: { email: email.trim() }
+          });
+        }, 1000);
+        return;
+      }
+
       showSnackbar('Login successful! Welcome back.', 'success');
       setTimeout(() => {
         router.replace('/(main)/HomeScreen');

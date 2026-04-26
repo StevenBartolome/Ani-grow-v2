@@ -75,12 +75,20 @@ export default function HomeScreen() {
                 {profile?.firstName || user?.email?.split('@')[0]} 👋
             </Text>
           </View>
-          <TouchableOpacity 
-            onPress={() => setShowLogoutModal(true)}
-            style={[styles.iconButton, { backgroundColor: colors.surface, borderColor: colors.stroke }]}
-          >
-            <MaterialIcons name="logout" size={20} color={colors.error || '#ef4444'} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <TouchableOpacity 
+              onPress={() => router.push('/(main)/SettingsScreen')}
+              style={[styles.iconButton, { backgroundColor: colors.surface, borderColor: colors.stroke }]}
+            >
+              <MaterialIcons name="person-outline" size={22} color={colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => setShowLogoutModal(true)}
+              style={[styles.iconButton, { backgroundColor: colors.surface, borderColor: colors.stroke }]}
+            >
+              <MaterialIcons name="logout" size={20} color={colors.error || '#ef4444'} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Role Badge */}

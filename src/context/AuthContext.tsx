@@ -17,13 +17,17 @@ interface AuthContextType {
   isLoading: boolean;
   refreshProfile: () => Promise<void>;
   hasPermission: (key: string) => boolean;
-  signIn: (email: string, pass: string) => Promise<void>;
+  signIn: (email: string, pass: string) => Promise<{ mfaRequired: boolean }>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   signUp: (data: any) => Promise<void>;
   resendVerificationCode: (email: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
+  enrollMFA: () => Promise<{ factorId: string; qrCode: string; secret: string }>;
+  verifyMFA: (factorId: string, code: string, challengeId?: string) => Promise<void>;
+  unenrollMFA: (factorId: string) => Promise<void>;
+  getMFAFactors: () => Promise<any[]>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -35,15 +39,19 @@ const AuthContext = createContext<AuthContextType>({
   effectivePermissions: [],
   systemConfig: null,
   isLoading: true,
-  refreshProfile: async () => {},
+  refreshProfile: async () => { },
   hasPermission: () => false,
-  signIn: async () => {},
-  signInWithGoogle: async () => {},
-  signOut: async () => {},
-  signUp: async () => {},
-  resendVerificationCode: async () => {},
-  resetPassword: async () => {},
-  updatePassword: async () => {},
+  signIn: async (_email: string, _pass: string) => ({ mfaRequired: false }),
+  signInWithGoogle: async () => { },
+  signOut: async () => { },
+  signUp: async (_data: any) => { },
+  resendVerificationCode: async (_email: string) => { },
+  resetPassword: async (_email: string) => { },
+  updatePassword: async (_password: string) => { },
+  enrollMFA: async () => ({ factorId: '', qrCode: '', secret: '' }),
+  verifyMFA: async (_factorId: string, _code: string, _challengeId?: string) => { },
+  unenrollMFA: async (_factorId: string) => { },
+  getMFAFactors: async () => [],
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -58,7 +66,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-         refreshProfile();
+        refreshProfile();
       }
       setIsLoading(false);
     });
@@ -67,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-         refreshProfile();
+        refreshProfile();
       } else {
         setProfile(null);
         setRole(null);
@@ -84,7 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Note: This requires a 'users' table in your Supabase database
     const currentUser = (await supabase.auth.getUser()).data.user;
     if (!currentUser || !currentUser.email_confirmed_at) return;
-    
+
     try {
       const { data, error } = await supabase
         .from('users')
@@ -92,7 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', currentUser.id)
         .single();
 
-      if (error && error.code !== 'PGRST116') throw error; 
+      if (error && error.code !== 'PGRST116') throw error;
 
       if (data) {
         setProfile({
@@ -107,12 +115,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         // [AUTO-REGISTER] If no profile exists, create one (e.g. for Google users)
         console.log('No profile found, creating auto-registration record...');
-        
+
         // Extract names from Google metadata
         const fullName = currentUser.user_metadata?.full_name || '';
         const firstName = currentUser.user_metadata?.given_name || fullName.split(' ')[0] || 'User';
         const lastName = currentUser.user_metadata?.family_name || fullName.split(' ').slice(1).join(' ') || '';
-        
+
         const newProfile = {
           id: currentUser.id,
           email: currentUser.email,
@@ -158,14 +166,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, pass: string) => {
     setIsLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password: pass,
     });
+
     if (error) {
       setIsLoading(false);
       throw error;
     }
+
+    // Check if MFA is required
+    const { data: factorData, error: factorError } = await supabase.auth.mfa.listFactors();
+    if (factorError) {
+      console.error('Error listing MFA factors:', factorError);
+    } else if (factorData.all.length > 0) {
+      const verifiedFactors = factorData.all.filter(f => f.status === 'verified');
+      if (verifiedFactors.length > 0) {
+        // MFA is required. The session is already set but AAL is 1.
+        // We will handle navigation in the LoginScreen based on this check or a returned value.
+        // For now, let's keep it simple and throw a specific "error" or return a status.
+        setIsLoading(false);
+        return { mfaRequired: true };
+      }
+    }
+
+    setIsLoading(false);
+    return { mfaRequired: false };
   };
 
   const signInWithGoogle = async () => {
@@ -173,7 +200,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(true);
       const redirectTo = Linking.createURL('/');
       console.log('Redirecting to:', redirectTo);
-      
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -190,11 +217,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         // On mobile, use WebBrowser for a modal-like experience
         const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-        
+
         if (res.type === 'success') {
           const { url } = res;
           const params = Linking.parse(url);
-          
+
           if (params.queryParams?.access_token) {
             const { error: sessionError } = await supabase.auth.setSession({
               access_token: params.queryParams.access_token as string,
@@ -264,25 +291,77 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (error) throw error;
   };
 
+  const enrollMFA = async () => {
+    const { data, error } = await supabase.auth.mfa.enroll({
+      factorType: 'totp',
+      issuer: 'Ani-Grow',
+      friendlyName: user?.email || 'Ani-Grow User',
+    });
+    if (error) throw error;
+    if (!data) throw new Error('Failed to enroll MFA: No data returned');
+
+    return {
+      factorId: data.id,
+      qrCode: data.totp.uri,
+      secret: data.totp.secret,
+    };
+  };
+
+  const verifyMFA = async (factorId: string, code: string, challengeId?: string) => {
+    let cId = challengeId;
+    if (!cId) {
+      const { data, error: challengeError } = await supabase.auth.mfa.challenge({
+        factorId,
+      });
+      if (challengeError) throw challengeError;
+      if (!data) throw new Error('Failed to create MFA challenge: No data returned');
+      cId = data.id;
+    }
+
+    const { error } = await supabase.auth.mfa.verify({
+      factorId,
+      challengeId: cId,
+      code,
+    });
+    if (error) throw error;
+  };
+
+  const unenrollMFA = async (factorId: string) => {
+    const { error } = await supabase.auth.mfa.unenroll({
+      factorId,
+    });
+    if (error) throw error;
+  };
+
+  const getMFAFactors = async () => {
+    const { data, error } = await supabase.auth.mfa.listFactors();
+    if (error) throw error;
+    return data?.all ?? [];
+  };
+
   return (
-    <AuthContext.Provider value={{ 
-        user, 
-        session,
-        profile, 
-        role, 
-        permissions: {}, 
-        effectivePermissions: [], 
-        systemConfig: null, 
-        isLoading, 
-        refreshProfile, 
-        hasPermission: (key) => true,
-        signIn,
-        signInWithGoogle,
-        signOut,
-        signUp,
-        resendVerificationCode,
-        resetPassword,
-        updatePassword
+    <AuthContext.Provider value={{
+      user,
+      session,
+      profile,
+      role,
+      permissions: {},
+      effectivePermissions: [],
+      systemConfig: null,
+      isLoading,
+      refreshProfile,
+      hasPermission: (key) => true,
+      signIn,
+      signInWithGoogle,
+      signOut,
+      signUp,
+      resendVerificationCode,
+      resetPassword,
+      updatePassword,
+      enrollMFA,
+      verifyMFA,
+      unenrollMFA,
+      getMFAFactors
     }}>
       {children}
     </AuthContext.Provider>
