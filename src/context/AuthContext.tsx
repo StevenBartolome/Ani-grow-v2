@@ -284,11 +284,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updatePassword = async (password: string) => {
     setIsLoading(true);
-    const { error } = await supabase.auth.updateUser({
-      password,
-    });
-    setIsLoading(false);
-    if (error) throw error;
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password,
+      });
+      if (error) {
+        if (error.message.includes('AAL2 session is required')) {
+          throw new Error('Multi-factor authentication is required to change your password. Please verify your identity first.');
+        }
+        throw error;
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const enrollMFA = async () => {

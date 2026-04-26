@@ -28,21 +28,23 @@ export default function ResetPasswordScreen() {
   const { colors } = useTheme();
   const textStyles = useTextStyles();
   const authStyles = useAuthStyles();
-  const { resetPassword, updatePassword } = useAuth();
+  const { resetPassword, updatePassword, verifyMFA } = useAuth();
 
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
   const [otp, setOtp] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [snackbarType, setSnackbarType] = useState<'success' | 'error'>('error');
+  const [snackbarType, setSnackbarType] = useState<'success' | 'error' | 'info'>('error');
 
-  const showSnackbar = (message: string, type: 'success' | 'error' = 'error') => {
+  const showSnackbar = (message: string, type: 'success' | 'error' | 'info' = 'error') => {
     setSnackbarMessage(message);
     setSnackbarType(type);
     setSnackbarVisible(true);
@@ -95,15 +97,52 @@ export default function ResetPasswordScreen() {
       const { error } = await supabase.auth.verifyOtp({
         email: email.trim(),
         token: otp,
-        type: 'email' // 'email' is typically used for 6-digit OTP codes
+        type: 'email'
       });
 
       if (error) throw error;
+
+      // Check if MFA is required
+      const { data: factorData, error: factorError } = await supabase.auth.mfa.listFactors();
+      if (!factorError && factorData.all.length > 0) {
+        const verifiedFactors = factorData.all.filter(f => f.status === 'verified');
+        if (verifiedFactors.length > 0) {
+          setMfaFactorId(verifiedFactors[0].id);
+          showSnackbar('MFA verification required.', 'info');
+          setStep(4); // Move to MFA step
+          setLoading(false);
+          return;
+        }
+      }
 
       showSnackbar('Code verified!', 'success');
       setStep(3);
     } catch (error: any) {
       showSnackbar(error.message || 'Invalid code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyMFA = async () => {
+    if (!mfaCode || mfaCode.length < 6) {
+      showSnackbar('Please enter the 6-digit MFA code.');
+      return;
+    }
+    setLoading(true);
+    try {
+      if (!mfaFactorId) {
+        throw new Error('MFA Factor ID not found. Please try again.');
+      }
+
+      // The AuthContext verifyMFA already handles the challenge internally if challengeId is missing
+      await verifyMFA(mfaFactorId, mfaCode);
+
+      showSnackbar('MFA verified!', 'success');
+      setStep(3); // Now allow password reset
+    } catch (error: any) {
+      console.error('MFA Verify error:', error);
+      showSnackbar(error.message || 'Invalid MFA code.');
     } finally {
       setLoading(false);
     }
@@ -146,7 +185,15 @@ export default function ResetPasswordScreen() {
   };
 
   const handleBack = () => {
-    if (step > 1) {
+    if (step === 4) {
+      setStep(2); // From MFA back to OTP
+    } else if (step === 3) {
+      if (mfaFactorId) {
+        setStep(4); // From New Password back to MFA if it was required
+      } else {
+        setStep(2); // From New Password back to OTP if no MFA
+      }
+    } else if (step > 1) {
       setStep(step - 1);
     } else {
       router.back();
@@ -191,14 +238,16 @@ export default function ResetPasswordScreen() {
               </View>
 
               <Text style={[textStyles.h1, { fontSize: 32, lineHeight: 40, color: colors.text, marginBottom: 8 }]}>
-                {step === 1 ? 'Forgot Password' : step === 2 ? 'Verify Code' : 'Reset Password'}
+                {step === 1 ? 'Forgot Password' : step === 2 ? 'Verify Code' : step === 4 ? 'MFA Verification' : 'Reset Password'}
               </Text>
               <Text style={[textStyles.body, { color: colors.textGrey }]}>
                 {step === 1 
                   ? 'Enter your email to receive a verification code.' 
                   : step === 2 
                     ? `Enter the 6-digit code sent to ${email}` 
-                    : 'Please enter your new password below.'}
+                    : step === 4
+                      ? 'Enter the 6-digit code from your authenticator app.'
+                      : 'Please enter your new password below.'}
               </Text>
             </View>
 
@@ -312,6 +361,31 @@ export default function ResetPasswordScreen() {
                     style={{ alignSelf: 'center', marginTop: 16 }}
                   >
                     <Text style={[textStyles.label, { color: colors.primary }]}>Resend Code</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {step === 4 && (
+                <View>
+                  <FloatingLabelInput
+                    label="MFA Verification Code"
+                    icon="security"
+                    value={mfaCode}
+                    onChangeText={setMfaCode}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                  />
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    style={[authStyles.primaryButton, { marginTop: 16 }]}
+                    onPress={handleVerifyMFA}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#ffffff" />
+                    ) : (
+                      <Text style={[textStyles.btnLabel, authStyles.primaryButtonText]}>Verify MFA</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
               )}
