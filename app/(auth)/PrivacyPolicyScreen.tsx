@@ -2,10 +2,10 @@ import { useRouter } from 'expo-router';
 import React from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BackButton } from '../../src/components/BackButton';
-import { useTextStyles } from '../../src/constants/textStyles';
-import { useTheme } from '../../src/context/ThemeContext';
-import { useSettingsSubPageStyles } from '../../src/styles/settingsSubPageStyles';
+import { BackButton } from '@/components/BackButton';
+import { useTextStyles } from '@/constants/textStyles';
+import { useTheme } from '@/context/ThemeContext';
+import { useSettingsSubPageStyles } from '@/styles/settingsSubPageStyles';
 
 export default function PrivacyPolicyScreen() {
     const styles = useSettingsSubPageStyles();

@@ -4,9 +4,9 @@ import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ThemeProvider } from '../src/context/ThemeContext';
-import { AuthProvider } from '../src/context/AuthContext';
-import { ThemeToggleButton } from '../src/components/ThemeToggleButton';
+import { ThemeProvider } from '@/context/ThemeContext';
+import { AuthProvider } from '@/context/AuthContext';
+import { ThemeToggleButton } from '@/components/ThemeToggleButton';
 
 SplashScreen.preventAutoHideAsync();
 

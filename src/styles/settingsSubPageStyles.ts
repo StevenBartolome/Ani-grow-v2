@@ -1,5 +1,5 @@
 import { StyleSheet, useWindowDimensions } from 'react-native';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme } from '@/context/ThemeContext';
 
 const getHPad = (width: number) => {
     if (width >= 900) return Math.round(width * 0.12);

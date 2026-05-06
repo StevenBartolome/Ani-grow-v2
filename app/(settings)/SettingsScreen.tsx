@@ -1,0 +1,260 @@
+import { MaterialIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import {
+    Alert,
+    Modal,
+    ScrollView,
+    Switch,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '@/context/AuthContext';
+import { BackButton } from '@/components/BackButton';
+import { useTextStyles } from '@/constants/textStyles';
+import { useTheme } from '@/context/ThemeContext';
+import { useSettingsStyles } from '@/styles/settingsStyles';
+import ActionModal from '@/components/ActionModal';
+import { ConfirmationModal } from '@/components/ConfirmationModal';
+
+export default function SettingsScreen() {
+    const { profile, signOut } = useAuth();
+    const settingsStyles = useSettingsStyles();
+    const textStyles = useTextStyles();
+    const { colors, isDark, toggleTheme } = useTheme();
+    const router = useRouter();
+
+    const userName = profile?.displayName || ((profile as any)?.firstName ? `${(profile as any).firstName} ${(profile as any).lastName}` : "User");
+    const userEmail = profile?.email || "Unknown Email";
+    const userBadge = profile?.role === 'super_admin' ? 'Super Admin' : profile?.role === 'admin' ? 'Farm Admin' : 'Employee';
+
+    const [isLogoutModalVisible, setLogoutModalVisible] = useState(false);
+
+    const handleLogoutMenu = () => setLogoutModalVisible(true);
+
+    const confirmLogout = async () => {
+        setLogoutModalVisible(false);
+        try {
+            await signOut();
+            router.replace('/(auth)/LoginScreen');
+        } catch (error) {
+            console.error('Logout Error:', error);
+            Alert.alert('Error', 'Failed to log out. Please try again.');
+        }
+    };
+
+    const languageLabel = 'English';
+
+    return (
+        <SafeAreaView style={settingsStyles.safeArea}>
+            <View style={settingsStyles.container}>
+
+                {/* Header */}
+                <View style={settingsStyles.header}>
+                    <View style={{ width: 44, height: 44 }}>
+                        <BackButton onPress={() => router.back()} />
+                    </View>
+                    <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
+                        Settings
+                    </Text>
+                    <View style={{ width: 44, height: 44 }} />
+                </View>
+
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+
+                    {/* Profile Section */}
+                    <View style={settingsStyles.profileSection}>
+                        <View style={settingsStyles.profileAvatar}>
+                            <Text style={settingsStyles.profileAvatarText}>{userName.charAt(0).toUpperCase()}</Text>
+                        </View>
+                        <Text style={[textStyles.h2, settingsStyles.profileName]}>{userName}</Text>
+                        <Text style={[textStyles.body, settingsStyles.profileEmail]}>{userEmail}</Text>
+                        <View style={settingsStyles.profileBadge}>
+                            <MaterialIcons name="verified" size={14} color={colors.primary} />
+                            <Text style={[settingsStyles.profileBadgeText, { color: colors.primary }]}>{userBadge}</Text>
+                        </View>
+                    </View>
+
+                    {/* General Settings */}
+                    <View style={settingsStyles.section}>
+                        <Text style={settingsStyles.sectionTitle}>General</Text>
+                        <View style={settingsStyles.card}>
+                            {/* Language */}
+                            <TouchableOpacity
+                                style={settingsStyles.row}
+                                activeOpacity={0.7}
+                                onPress={() => router.push('/(settings)/LanguageScreen')}
+                            >
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: colors.primary + '1A' }]}>
+                                        <MaterialIcons name="translate" size={22} color={colors.primary} />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>Language</Text>
+                                </View>
+                                <View style={settingsStyles.rowRight}>
+                                    <Text style={settingsStyles.rowValue}>{languageLabel}</Text>
+                                    <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                                </View>
+                            </TouchableOpacity>
+
+                            {/* Notifications */}
+                            <TouchableOpacity
+                                style={[settingsStyles.row, settingsStyles.rowNoBorder]}
+                                activeOpacity={0.7}
+                                onPress={() => router.push('/(settings)/NotificationSettingsScreen')}
+                            >
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#3B82F6' + '1A' }]}>
+                                        <MaterialIcons name="notifications-none" size={22} color="#3B82F6" />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>Notifications</Text>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {/* App Preferences */}
+                    <View style={settingsStyles.section}>
+                        <Text style={settingsStyles.sectionTitle}>App Preferences</Text>
+                        <View style={settingsStyles.card}>
+                            {/* Dark Mode */}
+                            <View style={[settingsStyles.row, settingsStyles.rowNoBorder]}>
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#8B5CF6' + '1A' }]}>
+                                        <MaterialIcons
+                                            name={isDark ? 'nightlight-round' : 'wb-sunny'}
+                                            size={22}
+                                            color="#8B5CF6"
+                                        />
+                                    </View>
+                                    <View>
+                                        <Text style={settingsStyles.rowTitle}>Dark Mode</Text>
+                                        <Text style={settingsStyles.rowDescription}>Toggle application theme</Text>
+                                    </View>
+                                </View>
+                                <Switch
+                                    value={isDark}
+                                    onValueChange={toggleTheme}
+                                    trackColor={{ false: colors.stroke, true: colors.primary }}
+                                    thumbColor="#FFFFFF"
+                                />
+                            </View>
+                        </View>
+                    </View>
+
+                    {/* Account */}
+                    <View style={settingsStyles.section}>
+                        <Text style={settingsStyles.sectionTitle}>Account</Text>
+                        <View style={settingsStyles.card}>
+                            <TouchableOpacity 
+                                style={settingsStyles.row} 
+                                activeOpacity={0.7}
+                                onPress={() => router.push('/(settings)/EditProfileScreen')}
+                            >
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#3B82F6' + '1A' }]}>
+                                        <MaterialIcons name="manage-accounts" size={22} color="#3B82F6" />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>Edit Profile</Text>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={settingsStyles.row}
+                                activeOpacity={0.7}
+                                onPress={() => router.push('/(settings)/ChangePasswordScreen')}
+                            >
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#F59E0B' + '1A' }]}>
+                                        <MaterialIcons name="lock-outline" size={22} color="#F59E0B" />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>Change Password</Text>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={[settingsStyles.row, settingsStyles.rowNoBorder]}
+                                activeOpacity={0.7}
+                                onPress={() => router.push('/(settings)/MFAScreen')}
+                            >
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#10B981' + '1A' }]}>
+                                        <MaterialIcons name="security" size={22} color="#10B981" />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>Multi-Factor Authentication</Text>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {/* Information */}
+                    <View style={settingsStyles.section}>
+                        <Text style={settingsStyles.sectionTitle}>Information</Text>
+                        <View style={settingsStyles.card}>
+                            <TouchableOpacity style={settingsStyles.row} activeOpacity={0.7} onPress={() => router.push('/(settings)/AboutAppScreen')}>
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#64748B' + '1A' }]}>
+                                        <MaterialIcons name="info-outline" size={22} color="#64748B" />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>About App</Text>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={settingsStyles.row} activeOpacity={0.7} onPress={() => router.push('/(auth)/TermsOfServiceScreen')}>
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#10B981' + '1A' }]}>
+                                        <MaterialIcons name="description" size={22} color="#10B981" />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>Terms of Service</Text>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={[settingsStyles.row, settingsStyles.rowNoBorder]} activeOpacity={0.7} onPress={() => router.push('/(auth)/PrivacyPolicyScreen')}>
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#64748B' + '1A' }]}>
+                                        <MaterialIcons name="shield" size={22} color="#64748B" />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>Privacy Policy</Text>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {/* Logout Button */}
+                    <TouchableOpacity
+                        style={settingsStyles.logoutButton}
+                        activeOpacity={0.8}
+                        onPress={handleLogoutMenu}
+                    >
+                        <MaterialIcons name="logout" size={22} color="#EF4444" />
+                        <Text style={settingsStyles.logoutText}>Log Out</Text>
+                    </TouchableOpacity>
+
+                </ScrollView>
+            </View>
+
+            {/* ─── Logout Confirmation Modal ──────────────────────────────────────────── */}
+            <ActionModal
+                visible={isLogoutModalVisible}
+                type="warning"
+                title="Log Out"
+                message="Are you sure you want to log out of your account?"
+                confirmText="Log Out"
+                cancelText="Cancel"
+                onConfirm={confirmLogout}
+                onCancel={() => setLogoutModalVisible(false)}
+            />
+
+
+        </SafeAreaView>
+    );
+}

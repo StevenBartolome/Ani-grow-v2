@@ -1,6 +1,6 @@
 import { StyleSheet } from 'react-native';
-import { createTheme } from '../constants/theme';
-import { useTheme } from '../context/ThemeContext';
+import { createTheme } from '@/constants/theme';
+import { useTheme } from '@/context/ThemeContext';
 
 export const useAuthStyles = () => {
     const { colors } = useTheme();

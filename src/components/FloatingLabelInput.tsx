@@ -15,9 +15,9 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { useTextStyles } from '../constants/textStyles';
-import { createTheme } from '../constants/theme';
-import { useTheme } from '../context/ThemeContext';
+import { useTextStyles } from '@/constants/textStyles';
+import { createTheme } from '@/constants/theme';
+import { useTheme } from '@/context/ThemeContext';
 
 interface FloatingLabelInputProps extends TextInputProps {
   label: string;

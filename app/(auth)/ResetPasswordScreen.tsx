@@ -12,15 +12,14 @@ import {
   View,
   ActivityIndicator
 } from 'react-native';
-import { BackButton } from '../../src/components/BackButton';
-import FloatingLabelInput from '../../src/components/FloatingLabelInput';
-import Snackbar from '../../src/components/Snackbar';
-import { useTextStyles } from '../../src/constants/textStyles';
-import { useTheme } from '../../src/context/ThemeContext';
-import { useAuth } from '../../src/context/AuthContext';
-import { useAuthStyles } from '../../src/styles/authStyles';
-
-import { supabase } from '../../src/lib/supabase';
+import { BackButton } from '@/components/BackButton';
+import FloatingLabelInput from '@/components/FloatingLabelInput';
+import Snackbar from '@/components/Snackbar';
+import { useTextStyles } from '@/constants/textStyles';
+import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
+import { useAuthStyles } from '@/styles/authStyles';
+import { supabase } from '@/lib/supabase';
 
 export default function ResetPasswordScreen() {
   const router = useRouter();

@@ -1,8 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useTextStyles } from '../constants/textStyles';
-import { useTheme } from '../context/ThemeContext';
+import { useTextStyles } from '@/constants/textStyles';
+import { useTheme } from '@/context/ThemeContext';
 
 export type SnackbarType = 'error' | 'success' | 'info';
 

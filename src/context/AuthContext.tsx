@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Platform } from 'react-native';
-import { UserProfile, BaseUserRole, SystemConfig } from '../types/auth';
-import { supabase } from '../lib/supabase';
+import { UserProfile, BaseUserRole, SystemConfig } from '@/types/auth';
+import { supabase } from '@/lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
+import { createURL, parse } from 'expo-linking';
 
 interface AuthContextType {
   user: User | null;
@@ -198,7 +198,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signInWithGoogle = async () => {
     try {
       setIsLoading(true);
-      const redirectTo = Linking.createURL('/');
+      const redirectTo = createURL('/');
       console.log('Redirecting to:', redirectTo);
 
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -220,7 +220,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (res.type === 'success') {
           const { url } = res;
-          const params = Linking.parse(url);
+          const params = parse(url);
 
           if (params.queryParams?.access_token) {
             const { error: sessionError } = await supabase.auth.setSession({
