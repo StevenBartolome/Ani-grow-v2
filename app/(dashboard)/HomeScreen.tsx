@@ -5,6 +5,8 @@ import React, { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+
+
 import { useAuth } from '@/context/AuthContext';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -255,7 +257,7 @@ export default function HomeScreen() {
                                 <TouchableOpacity
                                     style={homeStyles.actionButton}
                                     activeOpacity={0.7}
-                                    onPress={() => { }}
+                                    onPress={() => router.push('/(animals)/AnimalsScreen' as any)}
                                 >
                                     <View style={[homeStyles.actionIconBox, { backgroundColor: colors.bgLight }]}>
                                         <Image

@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { AnimalIcon } from './AnimalIcon';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 
@@ -10,11 +11,12 @@ export interface SelectionModalProps {
     onSelect: (value: string) => void;
     title: string;
     description: string;
-    icon: keyof typeof MaterialIcons.glyphMap;
+    icon: keyof typeof MaterialIcons.glyphMap | 'pig' | 'chicken';
     options: string[];
     selectedValue: string;
     enableSearch?: boolean;
     requireConfirm?: boolean;
+    isCustomIcon?: boolean;
 }
 
 export function SelectionModal({
@@ -28,6 +30,7 @@ export function SelectionModal({
     selectedValue,
     enableSearch = false,
     requireConfirm = true,
+    isCustomIcon = false,
 }: SelectionModalProps) {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
@@ -59,7 +62,11 @@ export function SelectionModal({
             <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
                 <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center' }}>
                     <View style={{ backgroundColor: colors.primary + '1A', width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-                        <MaterialIcons name={icon} size={32} color={colors.primary} />
+                        {isCustomIcon ? (
+                            <AnimalIcon type={icon as any} size={32} color={colors.primary} />
+                        ) : (
+                            <MaterialIcons name={icon as any} size={32} color={colors.primary} />
+                        )}
                     </View>
 
                     <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>{title}</Text>
