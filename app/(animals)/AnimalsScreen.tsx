@@ -128,10 +128,10 @@ export default function AnimalsScreen() {
 
                     <View style={styles.gridContainer}>
                         {isLoading ? (
-                            <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 32 }} />
+                            <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 32, width: '100%' }} />
                         ) : housings.length === 0 ? (
-                            <View style={{ alignItems: 'center', paddingVertical: 48, paddingHorizontal: 24 }}>
-                                <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: `${colors.primary}15`, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                            <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', paddingVertical: 48, paddingHorizontal: 24, marginTop: 24 }}>
+                                <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: `${colors.primary}15`, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
                                     <MaterialIcons name="home" size={36} color={colors.primary} />
                                 </View>
                                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, textAlign: 'center' }]}>

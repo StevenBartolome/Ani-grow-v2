@@ -71,32 +71,32 @@ function timeAgo(date: Date | null): string {
 
 export default function HomeScreen() {
     const { profile } = useAuth();
-    const homeStyles  = useHomeStyles();
-    const textStyles  = useTextStyles();
-    const { colors }  = useTheme();
-    const router      = useRouter();
+    const homeStyles = useHomeStyles();
+    const textStyles = useTextStyles();
+    const { colors } = useTheme();
+    const router = useRouter();
 
-    const farmId   = (profile as any)?.farm_id;
-    const userId   = (profile as any)?.uid || (profile as any)?.id;
+    const farmId = (profile as any)?.farm_id;
+    const userId = (profile as any)?.uid || (profile as any)?.id;
     const userName = (profile as any)?.first_name
         ? `${(profile as any).first_name} ${(profile as any).last_name ?? ''}`.trim()
         : (profile as any)?.displayName || 'User';
 
     // ── State ─────────────────────────────────────────────────────────────────
-    const [farmName, setFarmName]           = useState('your farm');
-    const [totalAnimals, setTotalAnimals]   = useState(0);
-    const [animalSplit, setAnimalSplit]      = useState({ pigs: 0, chickens: 0 });
-    const [housings, setHousings]           = useState<HousingCard[]>([]);
+    const [farmName, setFarmName] = useState('your farm');
+    const [totalAnimals, setTotalAnimals] = useState(0);
+    const [animalSplit, setAnimalSplit] = useState({ pigs: 0, chickens: 0 });
+    const [housings, setHousings] = useState<HousingCard[]>([]);
     const [unreadNotifCount, setUnreadNotifCount] = useState(0);
-    const [recentAlerts, setRecentAlerts]   = useState<AlertNotif[]>([]);
+    const [recentAlerts, setRecentAlerts] = useState<AlertNotif[]>([]);
     const [activeFeeders, setActiveFeeders] = useState({ online: 0, total: 0 });
-    const [activeScales, setActiveScales]   = useState({ online: 0, total: 0 });
-    const [todayFeedGrams, setTodayFeedGrams]     = useState(0);
+    const [activeScales, setActiveScales] = useState({ online: 0, total: 0 });
+    const [todayFeedGrams, setTodayFeedGrams] = useState(0);
     const [todayWeighSessions, setTodayWeighSessions] = useState(0);
     const [weekMortality, setWeekMortality] = useState(0);
-    const [isLoading, setIsLoading]         = useState(true);
-    const [refreshing, setRefreshing]       = useState(false);
-    const [lastUpdated, setLastUpdated]     = useState<Date | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchStats = useCallback(async () => {
@@ -104,8 +104,8 @@ export default function HomeScreen() {
         try {
             const todayStart = new Date();
             todayStart.setHours(0, 0, 0, 0);
-            const todayISO      = todayStart.toISOString();
-            const sevenDaysAgo  = new Date(todayStart);
+            const todayISO = todayStart.toISOString();
+            const sevenDaysAgo = new Date(todayStart);
             sevenDaysAgo.setDate(todayStart.getDate() - 7);
             const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
 
@@ -136,7 +136,7 @@ export default function HomeScreen() {
             if (farmRes.data) setFarmName(farmRes.data.name);
 
             let feederIds: string[] = [];
-            let scaleIds:  string[] = [];
+            let scaleIds: string[] = [];
             let allBatchIds: string[] = [];
 
             if (batchRes.data) {
@@ -158,9 +158,9 @@ export default function HomeScreen() {
 
             if (deviceRes.data) {
                 const feeders = deviceRes.data.filter((d: any) => d.type === 'anifeed' || d.type === 'feeder');
-                const scales  = deviceRes.data.filter((d: any) => d.type === 'aniweigh' || d.type === 'scale');
+                const scales = deviceRes.data.filter((d: any) => d.type === 'aniweigh' || d.type === 'scale');
                 feederIds = feeders.map((d: any) => d.id);
-                scaleIds  = scales.map((d: any) => d.id);
+                scaleIds = scales.map((d: any) => d.id);
                 setActiveFeeders({ online: feeders.filter((d: any) => d.status === 'online').length, total: feeders.length });
                 setActiveScales({ online: scales.filter((d: any) => d.status === 'online').length, total: scales.length });
             }
@@ -214,10 +214,10 @@ export default function HomeScreen() {
 
     const alertIcon = (type: AlertNotif['type']) => {
         switch (type) {
-            case 'alert':   return { name: 'error',         color: colors.error };
+            case 'alert': return { name: 'error', color: colors.error };
             case 'warning': return { name: 'warning-amber', color: colors.warning };
-            case 'success': return { name: 'check-circle',  color: colors.success };
-            default:        return { name: 'info',          color: colors.info };
+            case 'success': return { name: 'check-circle', color: colors.success };
+            default: return { name: 'info', color: colors.info };
         }
     };
 
@@ -472,7 +472,7 @@ export default function HomeScreen() {
                                         ? <Skeleton w={36} h={24} />
                                         : <Text style={[textStyles.h1, { color: unreadNotifCount > 0 ? colors.warning : colors.text, fontSize: 22 }]}>
                                             {unreadNotifCount}
-                                          </Text>
+                                        </Text>
                                     }
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, marginTop: 3 }]}>
                                         {unreadNotifCount === 0 ? 'All clear' : 'Need attention'}
@@ -503,7 +503,7 @@ export default function HomeScreen() {
                                         ? <Skeleton w={44} h={24} />
                                         : <Text style={[textStyles.h1, { color: colors.text, fontSize: 22 }]}>
                                             {activeFeeders.online}<Text style={{ fontSize: 12, color: colors.textGrey }}>/{activeFeeders.total}</Text>
-                                          </Text>
+                                        </Text>
                                     }
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, marginTop: 3 }]}>
                                         {activeFeeders.total === 0 ? 'No devices' : 'Online'}
@@ -532,7 +532,7 @@ export default function HomeScreen() {
                                         ? <Skeleton w={44} h={24} />
                                         : <Text style={[textStyles.h1, { color: colors.text, fontSize: 22 }]}>
                                             {activeScales.online}<Text style={{ fontSize: 12, color: colors.textGrey }}>/{activeScales.total}</Text>
-                                          </Text>
+                                        </Text>
                                     }
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, marginTop: 3 }]}>
                                         {activeScales.total === 0 ? 'No devices' : 'Online'}
@@ -597,9 +597,9 @@ export default function HomeScreen() {
                                 </Pressable>
                             ) : (
                                 housings.map(h => {
-                                    const pct     = h.capacity > 0 ? Math.min(100, Math.round((h.current_count / h.capacity) * 100)) : 0;
+                                    const pct = h.capacity > 0 ? Math.min(100, Math.round((h.current_count / h.capacity) * 100)) : 0;
                                     const barColor = occupancyColor(pct, colors);
-                                    const isPig    = h.animal_type === 'pig';
+                                    const isPig = h.animal_type === 'pig';
                                     return (
                                         <Pressable
                                             key={h.id}
@@ -682,7 +682,7 @@ export default function HomeScreen() {
                                     ? <Skeleton w={60} h={24} />
                                     : <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>
                                         {formatGrams(todayFeedGrams)}
-                                      </Text>
+                                    </Text>
                                 }
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 }}>
                                     <Text style={[textStyles.body, { color: '#10B981', fontSize: 11 }]}>View logs</Text>
@@ -714,7 +714,7 @@ export default function HomeScreen() {
                                     ? <Skeleton w={36} h={24} />
                                     : <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>
                                         {todayWeighSessions}
-                                      </Text>
+                                    </Text>
                                 }
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 }}>
                                     <Text style={[textStyles.body, { color: '#6C63FF', fontSize: 11 }]}>View logs</Text>
@@ -756,7 +756,7 @@ export default function HomeScreen() {
                                             {weekMortality === 0
                                                 ? 'No deaths recorded this week'
                                                 : `${weekMortality} animal${weekMortality !== 1 ? 's' : ''} deceased this week`}
-                                          </Text>
+                                        </Text>
                                     }
                                 </View>
                                 <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -778,11 +778,11 @@ export default function HomeScreen() {
                         <View style={[homeStyles.quickActionsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
                             <View style={[homeStyles.quickActionRow, { gap: 4 }]}>
                                 {[
-                                    { label: 'Feeds',    icon: 'grain',        route: '/(devices)/ManageFeedsScreen',    color: '#10B981' },
-                                    { label: 'Devices',  icon: 'devices',      route: '/(devices)/DevicesScreen',        color: '#6C63FF' },
-                                    { label: 'Animals',  icon: null,           route: '/(animals)/AnimalsScreen',        color: colors.primary },
-                                    { label: 'Housings', icon: 'home-work',    route: '/(devices)/ManageHousingsScreen', color: '#F97316' },
-                                    { label: 'Health',   icon: 'medical-services', route: '/(animals)/AnimalsScreen',   color: '#EF4444' },
+                                    { label: 'Feeds', icon: 'grain', route: '/(devices)/ManageFeedsScreen', color: '#10B981' },
+                                    { label: 'Devices', icon: 'devices', route: '/(devices)/DevicesScreen', color: '#6C63FF' },
+                                    { label: 'Animals', icon: null, route: '/(animals)/AnimalsScreen', color: colors.primary },
+                                    { label: 'Housings', icon: 'home-work', route: '/(devices)/ManageHousingsScreen', color: '#F97316' },
+                                    { label: 'Health', icon: 'medical-services', route: '/(animals)/AnimalsScreen', color: '#EF4444' },
                                 ].map(item => (
                                     <Pressable
                                         key={item.label}

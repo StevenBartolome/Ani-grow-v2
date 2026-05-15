@@ -20,11 +20,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { anibotChat, ChatMessage, NavLink } from '@/lib/ai';
+import { useAIAssistantStyles, SIDEBAR_W as _SIDEBAR_W, HISTORY_MAX as _HISTORY_MAX } from '@/styles/aiAssistantStyles';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SIDEBAR_W   = 272;
-const HISTORY_MAX = 100;
+const SIDEBAR_W   = _SIDEBAR_W;
+const HISTORY_MAX = _HISTORY_MAX;
 
 const QUICK_PROMPTS = [
     'Give me an overview of my farm',
@@ -426,6 +427,13 @@ function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, o
 export default function AIAssistantScreen() {
     const { colors, isDark } = useTheme();
     const { profile } = useAuth();
+    const router = useRouter();
+    const { styles } = useAIAssistantStyles();
+
+    const handleClose = useCallback(() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        router.back();
+    }, []);
 
     const farmId   = (profile as any)?.farm_id ?? '';
     const userId   = (profile as any)?.uid ?? (profile as any)?.id ?? '';
@@ -653,36 +661,29 @@ export default function AIAssistantScreen() {
     const isEmpty = messages.length === 0;
 
     return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bgLight }}>
+        <SafeAreaView style={styles.safeArea}>
 
             {/* ── Header ─────────────────────────────────────────────────────── */}
-            <View style={{
-                flexDirection: 'row', alignItems: 'center',
-                paddingHorizontal: 12, paddingVertical: 10,
-                backgroundColor: colors.surface,
-                borderBottomWidth: 1, borderBottomColor: colors.stroke,
-            }}>
+            <View style={styles.header}>
                 {/* Sidebar toggle */}
                 <TouchableOpacity
                     onPress={() => setSidebarOpen(true)}
                     activeOpacity={0.6}
-                    style={{ padding: 6, borderRadius: 8, marginRight: 4 }}
+                    style={styles.headerIconBtn}
                 >
                     <MaterialIcons name="menu" size={22} color={colors.textGrey} />
                 </TouchableOpacity>
 
-                {/* Title */}
-                <View style={{ flex: 1, alignItems: 'center' }}>
-                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text }}>
-                        AniBot
-                    </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                        <View style={{
-                            width: 6, height: 6, borderRadius: 3,
-                            backgroundColor: isLoading ? colors.warning : '#22c55e',
-                        }} />
-                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
-                            {isLoading ? 'Thinking' : farmName}
+                {/* Title + status */}
+                <View style={styles.headerTitleWrap}>
+                    <Text style={styles.headerTitle}>AniBot</Text>
+                    <View style={styles.headerStatusRow}>
+                        <View style={[
+                            styles.headerStatusDot,
+                            { backgroundColor: isLoading ? colors.warning : '#22c55e' },
+                        ]} />
+                        <Text style={styles.headerStatusText}>
+                            {isLoading ? 'Thinking…' : farmName}
                         </Text>
                     </View>
                 </View>
@@ -691,18 +692,30 @@ export default function AIAssistantScreen() {
                 <TouchableOpacity
                     onPress={startNewChat}
                     activeOpacity={0.6}
-                    style={{ padding: 6, borderRadius: 8, marginLeft: 4 }}
+                    style={styles.headerIconBtnRight}
                 >
                     <MaterialIcons name="edit-note" size={22} color={colors.textGrey} />
                 </TouchableOpacity>
+
+                {/* Close / go back */}
+                <TouchableOpacity
+                    onPress={handleClose}
+                    activeOpacity={0.7}
+                    style={styles.minimizeBtn}
+                >
+                    <MaterialIcons name="keyboard-arrow-down" size={20} color={colors.textGrey} />
+                </TouchableOpacity>
             </View>
 
-            <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <KeyboardAvoidingView
+                style={styles.keyboardAvoid}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            >
 
                 {/* ── Messages ───────────────────────────────────────────────── */}
                 <ScrollView
                     ref={scrollRef}
-                    contentContainerStyle={{ flexGrow: 1, paddingBottom: 16 }}
+                    contentContainerStyle={styles.messageList}
                     showsVerticalScrollIndicator={false}
                     onScroll={onScroll}
                     scrollEventThrottle={80}
@@ -711,45 +724,27 @@ export default function AIAssistantScreen() {
                 >
                     {/* ── Empty state ─────────────────────────────────────────── */}
                     {isEmpty && (
-                        <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 48, alignItems: 'center' }}>
-                            <View style={{
-                                width: 52, height: 52, borderRadius: 14,
-                                backgroundColor: colors.primary,
-                                alignItems: 'center', justifyContent: 'center',
-                                marginBottom: 20,
-                            }}>
-                                <MaterialIcons name="smart-toy" size={28} color="#fff" />
+                        <View style={styles.emptyWrap}>
+                            <View style={styles.emptyIconBox}>
+                                <MaterialIcons name="smart-toy" size={36} color="#fff" />
                             </View>
-                            <Text style={{
-                                fontFamily: 'Poppins-SemiBold', fontSize: 20,
-                                color: colors.text, textAlign: 'center', marginBottom: 8,
-                            }}>
-                                How can I help you today?
-                            </Text>
-                            <Text style={{
-                                fontFamily: 'Poppins-Regular', fontSize: 14,
-                                color: colors.textGrey, textAlign: 'center',
-                                lineHeight: 21, marginBottom: 36, paddingHorizontal: 8,
-                            }}>
+                            <Text style={styles.emptyTitle}>How can I help you today?</Text>
+                            <Text style={styles.emptySubtitle}>
                                 I have full access to your farm data and can take actions on your behalf.
                             </Text>
-                            <View style={{ width: '100%', gap: 8 }}>
+                            <View style={styles.quickPromptsWrap}>
                                 {QUICK_PROMPTS.map((q, i) => (
                                     <Pressable
                                         key={i}
                                         onPress={() => send(q)}
-                                        style={({ pressed }) => ({
-                                            backgroundColor: pressed ? colors.cardFill : colors.surface,
-                                            borderWidth: 1, borderColor: colors.stroke,
-                                            borderRadius: 10, paddingHorizontal: 16, paddingVertical: 13,
-                                            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                                            opacity: pressed ? 0.8 : 1,
-                                        })}
+                                        style={({ pressed }) => [
+                                            styles.quickPromptItem,
+                                            pressed && styles.quickPromptItemPressed,
+                                        ]}
                                     >
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text, flex: 1 }}>
-                                            {q}
-                                        </Text>
-                                        <MaterialIcons name="chevron-right" size={18} color={colors.textGrey} />
+                                        <View style={styles.quickPromptDot} />
+                                        <Text style={styles.quickPromptText}>{q}</Text>
+                                        <MaterialIcons name="arrow-forward-ios" size={12} color={colors.primary + '90'} />
                                     </Pressable>
                                 ))}
                             </View>
@@ -758,7 +753,7 @@ export default function AIAssistantScreen() {
 
                     {/* ── Conversation ────────────────────────────────────────── */}
                     {!isEmpty && (
-                        <View style={{ paddingTop: 8 }}>
+                        <View style={styles.convWrap}>
                             {messages.map((msg, idx) => {
                                 const isUser    = msg.role === 'user';
                                 const isLast    = idx === messages.length - 1;
@@ -775,21 +770,12 @@ export default function AIAssistantScreen() {
                                             <Pressable
                                                 onPress={() => setActiveMsg(isActive ? null : idx)}
                                                 onLongPress={() => copy(msg.content)}
-                                                style={{ paddingHorizontal: 16, marginBottom: 2, alignItems: 'flex-end' }}
+                                                style={styles.userBubbleWrap}
                                             >
-                                                <View style={{
-                                                    backgroundColor: colors.primary,
-                                                    borderRadius: 18, borderTopRightRadius: 4,
-                                                    paddingHorizontal: 16, paddingVertical: 11,
-                                                    maxWidth: '78%',
-                                                }}>
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: '#fff', lineHeight: 21 }}>
-                                                        {msg.content}
-                                                    </Text>
+                                                <View style={styles.userBubble}>
+                                                    <Text style={styles.userBubbleText}>{msg.content}</Text>
                                                 </View>
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey, marginTop: 4, marginRight: 4 }}>
-                                                    {fmt12(msg.ts)}
-                                                </Text>
+                                                <Text style={styles.bubbleTime}>{fmt12(msg.ts)}</Text>
                                             </Pressable>
                                         )}
 
@@ -798,30 +784,22 @@ export default function AIAssistantScreen() {
                                             <Pressable
                                                 onPress={() => setActiveMsg(isActive ? null : idx)}
                                                 onLongPress={() => copy(msg.content)}
-                                                style={{ paddingHorizontal: 16, marginBottom: 2 }}
+                                                style={styles.botMsgWrap}
                                             >
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                                    <View style={{
-                                                        width: 26, height: 26, borderRadius: 6,
-                                                        backgroundColor: colors.primary,
-                                                        alignItems: 'center', justifyContent: 'center',
-                                                    }}>
+                                                <View style={styles.botAvatarRow}>
+                                                    <View style={styles.botAvatar}>
                                                         <MaterialIcons name="smart-toy" size={14} color="#fff" />
                                                     </View>
-                                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text }}>
-                                                        AniBot
-                                                    </Text>
+                                                    <Text style={styles.botName}>AniBot</Text>
                                                 </View>
-                                                <View style={{ paddingLeft: 34 }}>
+                                                <View style={styles.botContentWrap}>
                                                     <MarkdownText text={msg.content} baseColor={colors.text} dimColor={colors.textGrey} />
                                                     {msg.navigation && msg.navigation.length > 0 && (
-                                                        <View style={{ marginTop: 10, gap: 6 }}>
+                                                        <View style={styles.botNavWrap}>
                                                             {msg.navigation.map((link, j) => <NavButton key={j} link={link} />)}
                                                         </View>
                                                     )}
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey, marginTop: 8 }}>
-                                                        {fmt12(msg.ts)}
-                                                    </Text>
+                                                    <Text style={styles.botMsgTime}>{fmt12(msg.ts)}</Text>
                                                     <MessageActionBar
                                                         isVisible={isActive}
                                                         onCopy={() => copy(msg.content)}
@@ -836,18 +814,14 @@ export default function AIAssistantScreen() {
 
                             {/* Typing indicator */}
                             {isLoading && (
-                                <View style={{ paddingHorizontal: 16, marginTop: 4 }}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                        <View style={{
-                                            width: 26, height: 26, borderRadius: 6,
-                                            backgroundColor: colors.primary,
-                                            alignItems: 'center', justifyContent: 'center',
-                                        }}>
+                                <View style={styles.typingWrap}>
+                                    <View style={styles.botAvatarRow}>
+                                        <View style={styles.botAvatar}>
                                             <MaterialIcons name="smart-toy" size={14} color="#fff" />
                                         </View>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text }}>AniBot</Text>
+                                        <Text style={styles.botName}>AniBot</Text>
                                     </View>
-                                    <View style={{ paddingLeft: 34 }}>
+                                    <View style={styles.botContentWrap}>
                                         <TypingDots color={colors.textGrey} />
                                     </View>
                                 </View>
@@ -861,39 +835,20 @@ export default function AIAssistantScreen() {
                     <TouchableOpacity
                         onPress={() => scrollToBottom()}
                         activeOpacity={0.85}
-                        style={{
-                            position: 'absolute', right: 16, bottom: 72,
-                            width: 34, height: 34, borderRadius: 17,
-                            backgroundColor: colors.surface,
-                            borderWidth: 1, borderColor: colors.stroke,
-                            alignItems: 'center', justifyContent: 'center',
-                            shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: isDark ? 0.4 : 0.1, shadowRadius: 4, elevation: 4,
-                        }}
+                        style={styles.scrollFab}
                     >
                         <MaterialIcons name="keyboard-arrow-down" size={20} color={colors.text} />
                     </TouchableOpacity>
                 )}
 
                 {/* ── Input bar ───────────────────────────────────────────────── */}
-                <View style={{
-                    backgroundColor: colors.surface,
-                    borderTopWidth: 1, borderTopColor: colors.stroke,
-                    paddingHorizontal: 16, paddingVertical: 10,
-                    flexDirection: 'row', alignItems: 'flex-end', gap: 10,
-                }}>
-                    <View style={{
-                        flex: 1,
-                        backgroundColor: colors.inputFill,
-                        borderWidth: 1,
-                        borderColor: input.length > 0 ? colors.primary + '60' : colors.stroke,
-                        borderRadius: 12, overflow: 'hidden',
-                        paddingHorizontal: 14, paddingVertical: 10,
-                        minHeight: 44, maxHeight: 130,
-                        justifyContent: 'center',
-                    }}>
+                <View style={styles.inputBar}>
+                    <View style={[
+                        styles.inputWrap,
+                        input.length > 0 && styles.inputWrapFocused,
+                    ]}>
                         <TextInput
-                            style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text, padding: 0, margin: 0 }}
+                            style={styles.inputField}
                             placeholder="Message AniBot"
                             placeholderTextColor={colors.textGrey}
                             value={input}
@@ -906,12 +861,11 @@ export default function AIAssistantScreen() {
                     <Pressable
                         onPress={() => send(input)}
                         disabled={!input.trim() || isLoading}
-                        style={({ pressed }) => ({
-                            width: 44, height: 44, borderRadius: 10,
-                            backgroundColor: (!input.trim() || isLoading) ? colors.cardFill : colors.primary,
-                            alignItems: 'center', justifyContent: 'center',
-                            opacity: pressed ? 0.8 : 1,
-                        })}
+                        style={({ pressed }) => [
+                            styles.sendBtn,
+                            (!input.trim() || isLoading) ? styles.sendBtnDisabled : styles.sendBtnActive,
+                            { opacity: pressed ? 0.8 : 1 },
+                        ]}
                     >
                         <MaterialIcons
                             name="arrow-upward"
@@ -924,16 +878,9 @@ export default function AIAssistantScreen() {
 
             {/* Copied toast */}
             {copiedToast && (
-                <View style={{
-                    position: 'absolute', bottom: 80, alignSelf: 'center',
-                    backgroundColor: colors.text, borderRadius: 20,
-                    paddingHorizontal: 16, paddingVertical: 8,
-                    flexDirection: 'row', alignItems: 'center', gap: 6,
-                }}>
+                <View style={styles.toast}>
                     <MaterialIcons name="check" size={13} color={colors.surface} />
-                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 13, color: colors.surface }}>
-                        Copied to clipboard
-                    </Text>
+                    <Text style={styles.toastText}>Copied to clipboard</Text>
                 </View>
             )}
 
