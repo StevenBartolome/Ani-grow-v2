@@ -1,4 +1,3 @@
-import { useRouter } from 'expo-router';
 import React, { useState, useEffect } from 'react';
 import { 
   View, 
@@ -22,7 +21,6 @@ import { useSettingsSubPageStyles } from '@/styles/settingsSubPageStyles';
 
 export default function MFAScreen() {
   const styles = useSettingsSubPageStyles();
-  const router = useRouter();
   const { colors } = useTheme();
   const textStyles = useTextStyles();
   const { enrollMFA, verifyMFA, getMFAFactors, unenrollMFA } = useAuth();
@@ -127,7 +125,7 @@ export default function MFAScreen() {
         {/* Header */}
         <View style={styles.header}>
             <View style={{ width: 44, height: 44 }}>
-                <BackButton onPress={() => router.back()} />
+                <BackButton fallbackRoute="/(dashboard)/HomeScreen" />
             </View>
             <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                 {step === 'status' ? 'MFA Settings' : step === 'enroll' ? 'Scan QR Code' : 'Verify MFA'}

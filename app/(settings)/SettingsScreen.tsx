@@ -28,7 +28,8 @@ export default function SettingsScreen() {
 
     const userName = profile?.displayName || ((profile as any)?.firstName ? `${(profile as any).firstName} ${(profile as any).lastName}` : "User");
     const userEmail = profile?.email || "Unknown Email";
-    const userBadge = profile?.role === 'super_admin' ? 'Super Admin' : profile?.role === 'admin' ? 'Farm Admin' : 'Employee';
+    const isAdminRole = ['super_admin', 'farm_admin', 'admin'].includes(profile?.role ?? '');
+    const userBadge = profile?.role === 'super_admin' ? 'Super Admin' : isAdminRole ? 'Farm Admin' : 'Employee';
 
     const [isLogoutModalVisible, setLogoutModalVisible] = useState(false);
 
@@ -54,7 +55,7 @@ export default function SettingsScreen() {
                 {/* Header */}
                 <View style={settingsStyles.header}>
                     <View style={{ width: 44, height: 44 }}>
-                        <BackButton onPress={() => router.back()} />
+                        <BackButton fallbackRoute="/(dashboard)/HomeScreen" />
                     </View>
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                         Settings
@@ -144,6 +145,31 @@ export default function SettingsScreen() {
                             </View>
                         </View>
                     </View>
+
+                    {/* Farm Admin */}
+                    {isAdminRole && profile?.role !== 'super_admin' && (
+                        <View style={settingsStyles.section}>
+                            <Text style={settingsStyles.sectionTitle}>Farm Administration</Text>
+                            <View style={settingsStyles.card}>
+                                <TouchableOpacity
+                                    style={[settingsStyles.row, settingsStyles.rowNoBorder]}
+                                    activeOpacity={0.7}
+                                    onPress={() => router.push('/(settings)/InviteCodesScreen')}
+                                >
+                                    <View style={settingsStyles.rowContent}>
+                                        <View style={[settingsStyles.iconBox, { backgroundColor: colors.primary + '1A' }]}>
+                                            <MaterialIcons name="group-add" size={22} color={colors.primary} />
+                                        </View>
+                                        <View>
+                                            <Text style={settingsStyles.rowTitle}>Invite Codes</Text>
+                                            <Text style={settingsStyles.rowDescription}>Manage staff invite codes</Text>
+                                        </View>
+                                    </View>
+                                    <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    )}
 
                     {/* Account */}
                     <View style={settingsStyles.section}>

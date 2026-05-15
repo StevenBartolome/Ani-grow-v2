@@ -164,17 +164,17 @@ export const useHomeStyles = () => {
         // ─── Farm State Grid ───────────────────────────────────────────────────
         farmStateGrid: {
             paddingHorizontal: hPad,
-            gap: 16,
+            gap: 10,
             marginBottom: 8,
         },
         farmStateRow: {
             flexDirection: 'row',
-            gap: 16,
+            gap: 10,
         },
         farmStateCard: {
             flex: 1,
-            padding: 20,
-            borderRadius: 24,
+            padding: 14,
+            borderRadius: 20,
             borderWidth: 1.5,
             elevation: 2,
             shadowColor: '#000',
@@ -183,9 +183,9 @@ export const useHomeStyles = () => {
             shadowOffset: { width: 0, height: 8 },
         },
         farmStateIconBox: {
-            width: 48,
-            height: 48,
-            borderRadius: 16,
+            width: 36,
+            height: 36,
+            borderRadius: 10,
             alignItems: 'center',
             justifyContent: 'center',
             alignSelf: 'flex-start',

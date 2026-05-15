@@ -1,7 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useState, useEffect } from 'react';
-import { ScrollView, Text, TouchableOpacity, View, Modal } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
@@ -14,55 +13,81 @@ import { useSettingsSubPageStyles } from '@/styles/settingsSubPageStyles';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
-// Mock Types
 interface HousingItem {
     id: string;
     name: string;
-    type: 'Pigs' | 'Chickens';
+    animal_type: 'chicken' | 'pig';
+    capacity: number;
+    current_count: number;
+    status: string;
 }
+
+type FilterType = 'All' | 'Chickens' | 'Pigs';
+
+const ANIMAL_TYPE_LABEL: Record<string, string> = { chicken: 'Chickens', pig: 'Pigs' };
+const LABEL_TO_DB: Record<string, string>        = { Chickens: 'chicken', Pigs: 'pig' };
 
 export default function ManageHousingsScreen() {
     const styles = useSettingsSubPageStyles();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
-    const router = useRouter();
     const deviceStyles = useDevicesStyles();
+    const { profile } = useAuth();
 
-    type FilterType = 'All' | 'Pigs' | 'Chickens';
+    const farmId = (profile as any)?.farm_id;
+
     const [activeFilter, setActiveFilter] = useState<FilterType>('All');
-    const filters: FilterType[] = ['All', 'Pigs', 'Chickens'];
+    const filters: FilterType[] = ['All', 'Chickens', 'Pigs'];
 
     const [housings, setHousings] = useState<HousingItem[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        // Mock loading housings
-        const mockHousings: HousingItem[] = [
-            { id: '1', name: 'Pig Housing 1', type: 'Pigs' },
-            { id: '2', name: 'Chicken Coop A', type: 'Chickens' },
-            { id: '3', name: 'Pig Housing 2', type: 'Pigs' },
-        ];
-        setHousings(mockHousings);
-    }, []);
+    // ── Fetch ─────────────────────────────────────────────────────
+    const fetchHousings = useCallback(async () => {
+        if (!farmId) { setIsLoading(false); return; }
+        setIsLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('housings')
+                .select('id, name, animal_type, capacity, current_count, status')
+                .eq('farm_id', farmId)
+                .order('name', { ascending: true });
+            if (error) throw error;
+            setHousings(data ?? []);
+        } catch (err: any) {
+            showSnackbar(err.message || 'Failed to load housings.', 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    }, [farmId]);
 
-    const filteredHousings = activeFilter === 'All' ? housings : housings.filter(h => h.type === activeFilter);
+    useEffect(() => { fetchHousings(); }, [fetchHousings]);
 
-    // Modal state for Add/Edit
+    const filteredHousings = activeFilter === 'All'
+        ? housings
+        : housings.filter(h => ANIMAL_TYPE_LABEL[h.animal_type] === activeFilter);
+
+    // ── Modal state (Add / Edit) ──────────────────────────────────
     const [editModalVisible, setEditModalVisible] = useState(false);
     const [editingHousingId, setEditingHousingId] = useState<string | null>(null);
     const [tempHousingName, setTempHousingName] = useState('');
-    const [tempHousingType, setTempHousingType] = useState('Pigs');
+    const [tempHousingType, setTempHousingType] = useState<'Chickens' | 'Pigs'>('Pigs');
+    const [tempCapacity, setTempCapacity] = useState('');
     const [housingTypeModalVisible, setHousingTypeModalVisible] = useState(false);
 
-    // Confirmation Modal for Delete/Save
+    // ── Confirmation Modal ────────────────────────────────────────
     const [confirmModalVisible, setConfirmModalVisible] = useState(false);
     const [confirmModalType, setConfirmModalType] = useState<ActionModalType>('confirmation');
     const [confirmModalTitle, setConfirmModalTitle] = useState('');
     const [confirmModalMessage, setConfirmModalMessage] = useState('');
     const [confirmAction, setConfirmAction] = useState<'delete' | 'save' | null>(null);
     const [housingToDelete, setHousingToDelete] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
 
-    // Snackbar State
+    // ── Snackbar ──────────────────────────────────────────────────
     const [snackbarVisible, setSnackbarVisible] = useState(false);
     const [snackbarMessage, setSnackbarMessage] = useState('');
     const [snackbarType, setSnackbarType] = useState<SnackbarType>('success');
@@ -77,36 +102,35 @@ export default function ManageHousingsScreen() {
         setEditingHousingId(null);
         setTempHousingName('');
         setTempHousingType('Pigs');
+        setTempCapacity('');
         setEditModalVisible(true);
     };
 
     const openEditModal = (id: string) => {
-        const housing = housings.find(h => h.id === id);
-        if (housing) {
+        const h = housings.find(x => x.id === id);
+        if (h) {
             setEditingHousingId(id);
-            setTempHousingName(housing.name);
-            setTempHousingType(housing.type);
+            setTempHousingName(h.name);
+            setTempHousingType(ANIMAL_TYPE_LABEL[h.animal_type] as 'Chickens' | 'Pigs');
+            setTempCapacity(h.capacity > 0 ? String(h.capacity) : '');
             setEditModalVisible(true);
         }
     };
 
     const confirmDelete = (id: string) => {
-        const housing = housings.find(h => h.id === id);
-        if (housing) {
+        const h = housings.find(x => x.id === id);
+        if (h) {
             setHousingToDelete(id);
             setConfirmAction('delete');
             setConfirmModalType('warning');
             setConfirmModalTitle('Delete Housing?');
-            setConfirmModalMessage(`Are you sure you want to delete "${housing.name}"?`);
+            setConfirmModalMessage(`Are you sure you want to delete "${h.name}"? All related batches will also be removed.`);
             setConfirmModalVisible(true);
         }
     };
 
     const handleSaveClick = () => {
-        if (!tempHousingName.trim()) {
-            showSnackbar('Please enter a housing name.', 'error');
-            return;
-        }
+        if (!tempHousingName.trim()) { showSnackbar('Please enter a housing name.', 'error'); return; }
         setEditModalVisible(false);
         setConfirmAction('save');
         setConfirmModalType('confirmation');
@@ -116,36 +140,44 @@ export default function ManageHousingsScreen() {
     };
 
     const executeAction = async () => {
-        if (confirmAction === 'delete' && housingToDelete) {
-            try {
-                // Mock delete
-                setHousings(prev => prev.filter(h => h.id !== housingToDelete));
+        setIsSaving(true);
+        try {
+            if (confirmAction === 'delete' && housingToDelete) {
+                const { error } = await supabase
+                    .from('housings')
+                    .delete()
+                    .eq('id', housingToDelete);
+                if (error) throw error;
                 showSnackbar('Housing deleted successfully.', 'success');
-            } catch (e) {
-                showSnackbar('Failed to delete housing.', 'error');
-            }
-        } else if (confirmAction === 'save') {
-            try {
-                const hId = editingHousingId || Date.now().toString();
-                const newHousing: HousingItem = {
-                    id: hId,
-                    name: tempHousingName,
-                    type: tempHousingType as 'Pigs' | 'Chickens'
+            } else if (confirmAction === 'save') {
+                const payload = {
+                    name: tempHousingName.trim(),
+                    animal_type: LABEL_TO_DB[tempHousingType] as 'chicken' | 'pig',
+                    capacity: parseInt(tempCapacity || '0', 10),
+                    updated_at: new Date().toISOString(),
                 };
-                
-                // Mock save
                 if (editingHousingId) {
-                    setHousings(prev => prev.map(h => h.id === editingHousingId ? newHousing : h));
+                    const { error } = await supabase
+                        .from('housings')
+                        .update(payload)
+                        .eq('id', editingHousingId);
+                    if (error) throw error;
+                    showSnackbar('Housing updated successfully.', 'success');
                 } else {
-                    setHousings(prev => [...prev, newHousing]);
+                    const { error } = await supabase
+                        .from('housings')
+                        .insert({ ...payload, farm_id: farmId });
+                    if (error) throw error;
+                    showSnackbar('New housing added successfully.', 'success');
                 }
-                
-                showSnackbar(editingHousingId ? 'Housing updated successfully.' : 'New housing added successfully.', 'success');
-            } catch (e) {
-                showSnackbar('Failed to save housing.', 'error');
             }
+            await fetchHousings();
+        } catch (err: any) {
+            showSnackbar(err.message || 'Action failed.', 'error');
+        } finally {
+            setIsSaving(false);
+            setConfirmModalVisible(false);
         }
-        setConfirmModalVisible(false);
     };
 
     return (
@@ -153,7 +185,7 @@ export default function ManageHousingsScreen() {
             <View style={styles.container}>
                 <View style={styles.header}>
                     <View style={{ width: 44, height: 44 }}>
-                        <BackButton onPress={() => router.back()} />
+                        <BackButton fallbackRoute="/(devices)/DevicesScreen" />
                     </View>
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                         Manage Housings
@@ -179,15 +211,9 @@ export default function ManageHousingsScreen() {
                                         key={filter}
                                         activeOpacity={0.7}
                                         onPress={() => setActiveFilter(filter)}
-                                        style={[
-                                            deviceStyles.filterChip,
-                                            activeFilter === filter && deviceStyles.filterChipActive
-                                        ]}
+                                        style={[deviceStyles.filterChip, activeFilter === filter && deviceStyles.filterChipActive]}
                                     >
-                                        <Text style={[
-                                            deviceStyles.filterChipText,
-                                            activeFilter === filter && deviceStyles.filterChipTextActive
-                                        ]}>
+                                        <Text style={[deviceStyles.filterChipText, activeFilter === filter && deviceStyles.filterChipTextActive]}>
                                             {filter}
                                         </Text>
                                     </TouchableOpacity>
@@ -196,35 +222,46 @@ export default function ManageHousingsScreen() {
                         </View>
 
                         <View style={[styles.card, { paddingVertical: 8 }]}>
-                            {filteredHousings.map((housing, index) => (
-                                <View key={housing.id} style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 16,
-                                    borderBottomWidth: index < filteredHousings.length - 1 ? 1 : 0,
-                                    borderBottomColor: colors.stroke
-                                }}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                                            <MaterialIcons name="home" size={20} color={colors.primary} />
-                                        </View>
-                                        <View>
-                                            <Text style={[textStyles.h3, { color: colors.text }]}>{housing.name}</Text>
-                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>{housing.type}</Text>
-                                        </View>
-                                    </View>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                                        <TouchableOpacity onPress={() => openEditModal(housing.id)}>
-                                            <MaterialIcons name="edit" size={22} color={colors.textGrey} />
-                                        </TouchableOpacity>
-                                        <TouchableOpacity onPress={() => confirmDelete(housing.id)}>
-                                            <MaterialIcons name="delete-outline" size={22} color={colors.error} />
-                                        </TouchableOpacity>
-                                    </View>
+                            {isLoading ? (
+                                <ActivityIndicator size="small" color={colors.primary} style={{ paddingVertical: 32 }} />
+                            ) : filteredHousings.length === 0 ? (
+                                <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+                                    <MaterialIcons name="home" size={40} color={colors.textGrey} />
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, marginTop: 12, fontSize: 15 }]}>No housings yet</Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 4, textAlign: 'center' }]}>
+                                        Tap "Add New" to register your first housing.
+                                    </Text>
                                 </View>
-                            ))}
+                            ) : (
+                                filteredHousings.map((housing, index) => (
+                                    <View key={housing.id} style={{
+                                        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                                        paddingVertical: 12, paddingHorizontal: 16,
+                                        borderBottomWidth: index < filteredHousings.length - 1 ? 1 : 0,
+                                        borderBottomColor: colors.stroke,
+                                    }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                                                <MaterialIcons name="home" size={20} color={colors.primary} />
+                                            </View>
+                                            <View>
+                                                <Text style={[textStyles.h3, { color: colors.text }]}>{housing.name}</Text>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                                    {ANIMAL_TYPE_LABEL[housing.animal_type]} · {housing.current_count}/{housing.capacity > 0 ? housing.capacity : '—'} heads
+                                                </Text>
+                                            </View>
+                                        </View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                            <TouchableOpacity onPress={() => openEditModal(housing.id)}>
+                                                <MaterialIcons name="edit" size={22} color={colors.textGrey} />
+                                            </TouchableOpacity>
+                                            <TouchableOpacity onPress={() => confirmDelete(housing.id)}>
+                                                <MaterialIcons name="delete-outline" size={22} color={colors.error} />
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                ))
+                            )}
                         </View>
                     </View>
                 </ScrollView>
@@ -235,9 +272,8 @@ export default function ManageHousingsScreen() {
                 <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
                     <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center' }}>
                         <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
-                            <MaterialIcons name={editingHousingId ? "edit" : "add-home"} size={32} color={colors.primary} />
+                            <MaterialIcons name={editingHousingId ? 'edit' : 'add-home'} size={32} color={colors.primary} />
                         </View>
-                        
                         <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
                             {editingHousingId ? 'Edit Housing' : 'Add Housing'}
                         </Text>
@@ -245,37 +281,22 @@ export default function ManageHousingsScreen() {
                             Enter the details for this housing location.
                         </Text>
 
-                        <View style={{ width: '100%', marginBottom: 0 }}>
-                            <FloatingLabelInput
-                                label="Housing Name"
-                                icon="home"
-                                value={tempHousingName}
-                                onChangeText={setTempHousingName}
-                                backgroundColor={colors.surface}
-                            />
+                        <View style={{ width: '100%' }}>
+                            <FloatingLabelInput label="Housing Name" icon="home" value={tempHousingName} onChangeText={setTempHousingName} backgroundColor={colors.surface} />
+                        </View>
+
+                        <View style={{ width: '100%' }}>
+                            <FloatingLabelInput label="Capacity (heads)" icon="format-list-numbered" value={tempCapacity} onChangeText={t => setTempCapacity(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" backgroundColor={colors.surface} />
                         </View>
 
                         <View style={{ width: '100%', marginBottom: 28 }}>
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 activeOpacity={0.8}
-                                style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    borderWidth: 1.5,
-                                    borderColor: colors.stroke,
-                                    borderRadius: 30,
-                                    paddingHorizontal: 16,
-                                    height: 58,
-                                    backgroundColor: colors.surface
-                                }}
-                                onPress={() => {
-                                    setEditModalVisible(false);
-                                    setHousingTypeModalVisible(true);
-                                }}
+                                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30, paddingHorizontal: 16, height: 58, backgroundColor: colors.surface }}
+                                onPress={() => { setEditModalVisible(false); setHousingTypeModalVisible(true); }}
                             >
                                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                    <AnimalIcon type={tempHousingType as any} size={20} color={colors.icon} style={{ marginRight: 12 }} />
+                                    <AnimalIcon type={tempHousingType === 'Pigs' ? 'pig' : 'chicken'} size={20} color={colors.icon} style={{ marginRight: 12 }} />
                                     <Text style={[textStyles.body, { color: colors.text }]}>{tempHousingType}</Text>
                                 </View>
                                 <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
@@ -283,19 +304,10 @@ export default function ManageHousingsScreen() {
                         </View>
 
                         <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
-                            <TouchableOpacity
-                                style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }}
-                                onPress={() => setEditModalVisible(false)}
-                                activeOpacity={0.7}
-                            >
+                            <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditModalVisible(false)} activeOpacity={0.7}>
                                 <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
                             </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={{ flex: 1, backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }}
-                                onPress={handleSaveClick}
-                                activeOpacity={0.7}
-                            >
+                            <TouchableOpacity style={{ flex: 1, backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={handleSaveClick} activeOpacity={0.7}>
                                 <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Save</Text>
                             </TouchableOpacity>
                         </View>
@@ -303,18 +315,10 @@ export default function ManageHousingsScreen() {
                 </View>
             </Modal>
 
-            {/* Animal Type Selection Modal inside Add/Edit */}
             <SelectionModal
                 visible={housingTypeModalVisible}
-                onClose={() => {
-                    setHousingTypeModalVisible(false);
-                    setEditModalVisible(true);
-                }}
-                onSelect={(val) => {
-                    setTempHousingType(val);
-                    setHousingTypeModalVisible(false);
-                    setEditModalVisible(true);
-                }}
+                onClose={() => { setHousingTypeModalVisible(false); setEditModalVisible(true); }}
+                onSelect={val => { setTempHousingType(val as 'Pigs' | 'Chickens'); setHousingTypeModalVisible(false); setEditModalVisible(true); }}
                 title="Animal Type"
                 description="Select the type of animal for this housing."
                 icon={tempHousingType === 'Pigs' ? 'pig' : 'chicken'}
@@ -330,18 +334,13 @@ export default function ManageHousingsScreen() {
                 type={confirmModalType}
                 title={confirmModalTitle}
                 message={confirmModalMessage}
-                confirmText={confirmAction === 'delete' ? 'Delete' : 'Confirm'}
+                confirmText={isSaving ? 'Processing...' : confirmAction === 'delete' ? 'Delete' : 'Confirm'}
                 cancelText="Cancel"
                 onConfirm={executeAction}
                 onCancel={() => setConfirmModalVisible(false)}
             />
 
-            <Snackbar
-                visible={snackbarVisible}
-                message={snackbarMessage}
-                type={snackbarType}
-                onDismiss={() => setSnackbarVisible(false)}
-            />
+            <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
         </SafeAreaView>
     );
 }

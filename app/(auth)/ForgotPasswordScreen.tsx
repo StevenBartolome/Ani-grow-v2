@@ -113,7 +113,7 @@ export default function ForgotPasswordScreen() {
               zIndex: 10,
             }}>
               <View style={{ width: 44, height: 44 }}>
-                <BackButton onPress={() => router.back()} />
+                <BackButton fallbackRoute="/(auth)/LoginScreen" />
               </View>
               <View style={{ width: 44, height: 44 }} />
             </View>

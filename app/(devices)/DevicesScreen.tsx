@@ -1,8 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { ActivityIndicator, RefreshControl, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTextStyles } from '@/constants/textStyles';
@@ -10,8 +10,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
+import { supabase } from '@/lib/supabase';
 
-// Mock Types
 interface RegisteredDevice {
     id: string;
     name: string;
@@ -27,8 +27,7 @@ const DeviceCard = ({ device, onPress }: { device: RegisteredDevice; onPress: ()
     const textStyles = useTextStyles();
     const styles = useDevicesStyles();
 
-    const [isOnline, setIsOnline] = useState(device.status === 'online');
-
+    const isOnline = device.status === 'online';
     const isWeigh = device.type === 'AniWeigh';
 
     const iconColor = isWeigh ? colors.smartScale : colors.secondary;
@@ -46,23 +45,17 @@ const DeviceCard = ({ device, onPress }: { device: RegisteredDevice; onPress: ()
         >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <View style={[styles.deviceIconBox, { backgroundColor: bgColor }, !isOnline && styles.deviceIconBoxOffline]}>
-                    <MaterialIcons name={isWeigh ? "monitor-weight" : "grain"} size={26} color={isOnline ? iconColor : colors.textGrey} />
+                    <MaterialIcons name={isWeigh ? 'monitor-weight' : 'grain'} size={26} color={isOnline ? iconColor : colors.textGrey} />
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     {device.animalType && (
-                        <View style={{ 
-                            paddingHorizontal: 10, 
-                            paddingVertical: 3, 
-                            borderRadius: 100, 
+                        <View style={{
+                            paddingHorizontal: 10, paddingVertical: 3, borderRadius: 100,
                             backgroundColor: (device.animalType === 'Pig' ? colors.pig : colors.chicken) + '1A',
                             borderWidth: 1,
                             borderColor: (device.animalType === 'Pig' ? colors.pig : colors.chicken) + '33'
                         }}>
-                            <Text style={{ 
-                                color: device.animalType === 'Pig' ? colors.pig : colors.chicken, 
-                                fontSize: 10, 
-                                fontFamily: 'Poppins-Bold' 
-                            }}>
+                            <Text style={{ color: device.animalType === 'Pig' ? colors.pig : colors.chicken, fontSize: 10, fontFamily: 'Poppins-Bold' }}>
                                 {device.animalType.toUpperCase()}
                             </Text>
                         </View>
@@ -91,6 +84,21 @@ export default function DevicesScreen() {
     const textStyles = useTextStyles();
     const styles = useDevicesStyles();
     const router = useRouter();
+    const { profile, permissions, role, isLoading: authLoading } = useAuth();
+
+    const farmId = (profile as any)?.farm_id;
+
+    const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
+    const canViewDevices = !role || !RESTRICTED_ROLES.includes(role)
+        || permissions['ani_weigh'] === true
+        || permissions['feeding_control'] === true;
+
+    useEffect(() => {
+        if (authLoading || !role) return;
+        if (RESTRICTED_ROLES.includes(role) && !permissions['ani_weigh'] && !permissions['feeding_control']) {
+            router.replace('/(dashboard)/HomeScreen' as any);
+        }
+    }, [authLoading, role, permissions]);
 
     const [activeFilter, setActiveFilter] = useState<FilterType>('All');
     const [devices, setDevices] = useState<RegisteredDevice[]>([]);
@@ -98,20 +106,34 @@ export default function DevicesScreen() {
 
     const filters: FilterType[] = ['All', 'AniFeed', 'AniWeigh'];
 
-    // ─── Loading (Mocked) ───────────────────
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            const mockDevices: RegisteredDevice[] = [
-                { id: '1', name: 'AniWeigh Unit 01', status: 'online', type: 'AniWeigh', animalType: 'Pig' },
-                { id: '2', name: 'AniFeed Unit 01', status: 'online', type: 'AniFeed', animalType: 'Chicken' },
-                { id: '3', name: 'AniFeed Unit 02', status: 'offline', type: 'AniFeed', animalType: 'Pig' },
-            ];
-            setDevices(mockDevices);
-            setLoading(false);
-        }, 800);
+    const fetchDevices = useCallback(async () => {
+        if (!farmId) { setLoading(false); return; }
+        setLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('devices')
+                .select('id, name, type, status, housings(animal_type)')
+                .eq('farm_id', farmId)
+                .order('name', { ascending: true });
+            if (error) throw error;
 
-        return () => clearTimeout(timer);
-    }, []);
+            const mapped: RegisteredDevice[] = (data ?? []).map((d: any) => ({
+                id: d.id,
+                name: d.name,
+                status: d.status === 'online' ? 'online' : 'offline',
+                type: d.type === 'anifeed' ? 'AniFeed' : 'AniWeigh',
+                animalType: d.housings?.animal_type === 'pig' ? 'Pig' :
+                    d.housings?.animal_type === 'chicken' ? 'Chicken' : undefined,
+            }));
+            setDevices(mapped);
+        } catch (err) {
+            console.error('[DevicesScreen] fetch error:', err);
+        } finally {
+            setLoading(false);
+        }
+    }, [farmId]);
+
+    useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
     const filteredDevices = activeFilter === 'All'
         ? devices
@@ -139,9 +161,7 @@ export default function DevicesScreen() {
 
                 <View style={styles.headerContainer}>
                     <View style={styles.headerTextContainer}>
-                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 32 }]}>
-                            Device Monitor
-                        </Text>
+                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 32 }]}>Device Monitor</Text>
                         <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16 }]}>
                             Real-time control center
                         </Text>
@@ -155,67 +175,59 @@ export default function DevicesScreen() {
                             key={filter}
                             activeOpacity={0.7}
                             onPress={() => setActiveFilter(filter)}
-                            style={[
-                                styles.filterChip,
-                                activeFilter === filter && styles.filterChipActive
-                            ]}
+                            style={[styles.filterChip, activeFilter === filter && styles.filterChipActive]}
                         >
-                            <Text style={[
-                                styles.filterChipText,
-                                activeFilter === filter && styles.filterChipTextActive
-                            ]}>
+                            <Text style={[styles.filterChipText, activeFilter === filter && styles.filterChipTextActive]}>
                                 {filter}
                             </Text>
                         </TouchableOpacity>
                     ))}
                 </View>
 
-                <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
-
-                    {/* Section Title */}
+                <ScrollView
+                    style={styles.container}
+                    contentContainerStyle={{ paddingBottom: 100 }}
+                    showsVerticalScrollIndicator={false}
+                    refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchDevices} colors={[colors.primary]} tintColor={colors.primary} />}
+                >
                     <View style={styles.sectionTitleRow}>
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>
-                            Registered Devices
-                        </Text>
+                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Registered Devices</Text>
                     </View>
 
-                    {/* Loading State */}
-                    {loading && (
+                    {loading ? (
                         <View style={{ alignItems: 'center', paddingVertical: 60 }}>
                             <ActivityIndicator size="large" color={colors.primary} />
                             <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading devices...</Text>
                         </View>
-                    )}
-
-                    {/* Empty State */}
-                    {!loading && filteredDevices.length === 0 && (
+                    ) : filteredDevices.length === 0 ? (
                         <View style={{ alignItems: 'center', paddingVertical: 60, paddingHorizontal: 32 }}>
                             <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
                                 <MaterialIcons name="devices" size={36} color={colors.primary} />
                             </View>
                             <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, textAlign: 'center', marginBottom: 8 }]}>
-                                No Devices Registered
+                                {devices.length === 0 ? 'No Devices Registered' : `No ${activeFilter} Devices`}
                             </Text>
                             <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
-                                Add your first AniWeigh or AniFeed device to start monitoring your livestock.
+                                {devices.length === 0
+                                    ? 'Add your first AniWeigh or AniFeed device to start monitoring your livestock.'
+                                    : `No ${activeFilter} devices match the current filter.`}
                             </Text>
-                            <TouchableOpacity
-                                style={{ backgroundColor: colors.primary, paddingHorizontal: 28, paddingVertical: 14, borderRadius: 100 }}
-                                activeOpacity={0.8}
-                                onPress={() => router.push('/(devices)/AddDeviceScreen')}
-                            >
-                                <Text style={[textStyles.btnLabel, { color: colors.onPrimary }]}>Add Device</Text>
-                            </TouchableOpacity>
+                            {devices.length === 0 && (
+                                <TouchableOpacity
+                                    style={{ backgroundColor: colors.primary, paddingHorizontal: 28, paddingVertical: 14, borderRadius: 100 }}
+                                    activeOpacity={0.8}
+                                    onPress={() => router.push('/(devices)/AddDeviceScreen')}
+                                >
+                                    <Text style={[textStyles.btnLabel, { color: colors.onPrimary }]}>Add Device</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
-                    )}
-
-                    {/* Grid Section */}
-                    {!loading && filteredDevices.length > 0 && (
+                    ) : (
                         <View style={styles.gridContainer}>
                             {filteredDevices.map(device => (
-                                <DeviceCard 
-                                    key={device.id} 
-                                    device={device} 
+                                <DeviceCard
+                                    key={device.id}
+                                    device={device}
                                     onPress={() => {
                                         if (device.type === 'AniWeigh') {
                                             router.push(`/(devices)/AniWeighScreen?deviceId=${device.id}` as any);
@@ -234,4 +246,3 @@ export default function DevicesScreen() {
         </SafeAreaView>
     );
 }
-

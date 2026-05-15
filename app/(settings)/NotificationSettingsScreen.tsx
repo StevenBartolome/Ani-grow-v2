@@ -1,4 +1,3 @@
-import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ScrollView, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,7 +10,6 @@ export default function NotificationSettingsScreen() {
     const styles = useSettingsSubPageStyles();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
-    const router = useRouter();
 
     const [pushEnabled, setPushEnabled] = useState(true);
     const [emailEnabled, setEmailEnabled] = useState(false);
@@ -23,7 +21,7 @@ export default function NotificationSettingsScreen() {
                 {/* Header */}
                 <View style={styles.header}>
                     <View style={{ width: 44, height: 44 }}>
-                        <BackButton onPress={() => router.back()} />
+                        <BackButton fallbackRoute="/(dashboard)/HomeScreen" />
                     </View>
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                         Notifications

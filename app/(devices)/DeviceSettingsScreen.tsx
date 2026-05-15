@@ -128,7 +128,7 @@ export default function DeviceSettingsScreen() {
                 {/* Header */}
                 <View style={styles.header}>
                     <View style={{ width: 44, height: 44 }}>
-                        <BackButton onPress={() => router.back()} />
+                        <BackButton fallbackRoute="/(devices)/DevicesScreen" />
                     </View>
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                         Device Settings

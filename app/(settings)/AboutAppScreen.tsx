@@ -1,5 +1,4 @@
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
 import React from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -12,7 +11,6 @@ export default function AboutAppScreen() {
     const styles = useSettingsSubPageStyles();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
-    const router = useRouter();
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -20,7 +18,7 @@ export default function AboutAppScreen() {
                 {/* Header */}
                 <View style={styles.header}>
                     <View style={{ width: 44, height: 44 }}>
-                        <BackButton onPress={() => router.back()} />
+                        <BackButton fallbackRoute="/(dashboard)/HomeScreen" />
                     </View>
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                         About App

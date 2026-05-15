@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeToggleButton } from '@/components/ThemeToggleButton';
+import { AniBotFAB } from '@/components/AniBotFAB';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,6 +35,7 @@ export default function RootLayout() {
       <ThemeProvider>
         <AuthProvider>
           <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(ai)/AIAssistantScreen" />
             <Stack.Screen name="(auth)/LoginScreen" />
             <Stack.Screen name="(auth)/RegisterScreen" />
             <Stack.Screen name="(auth)/ForgotPasswordScreen" />
@@ -43,6 +45,7 @@ export default function RootLayout() {
             <Stack.Screen name="(auth)/MFAChallengeScreen" />
           </Stack>
           <ThemeToggleButton />
+          <AniBotFAB />
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

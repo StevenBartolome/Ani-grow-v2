@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, RefreshControl, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
@@ -13,14 +13,24 @@ import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAniWeighStyles } from '@/styles/aniweighStyles';
-import { useDevicesStyles } from '@/styles/devicesStyles';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { AIInsightCard } from '@/components/AIInsightCard';
+import { supabase } from '@/lib/supabase';
 
-// Mock Types
-interface LiveWeight {
-    weight_g: number;
-    weight_oz: number;
-    timestamp: number;
+interface DeviceInfo {
+    name: string;
+    status: string;
+    housingId: string | null;
+    housingName: string;
+    animalType: 'Pig' | 'Chicken';
+}
+
+interface WeightThreshold {
+    id: string | null;
+    underweightMaxGrams: number;
+    normalMinGrams: number;
+    normalMaxGrams: number;
+    overweightMinGrams: number;
 }
 
 interface WeighLogEntry {
@@ -29,28 +39,54 @@ interface WeighLogEntry {
     status: 'underweight' | 'normal' | 'overweight';
     timestamp: number;
     animal: string;
-    unit: 'kg' | 'g';
+    housingId: string | null;
+    housingName: string;
+    deviceId: string;
+    deviceName: string;
 }
 
 interface SegregationStats {
     total: number;
     underweight: { count: number; percentage: number };
-    normal: { count: number; percentage: number };
-    overweight: { count: number; percentage: number };
+    normal:      { count: number; percentage: number };
+    overweight:  { count: number; percentage: number };
 }
 
-const STALE_TIMEOUT_MS = 10_000; // 10 seconds to consider device offline
+function formatLogTime(timestamp: number): string {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = date.toDateString() === yesterday.toDateString();
+
+    const hours = date.getHours();
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    const timeStr = `${displayHours}:${minutes} ${ampm}`;
+
+    if (isToday) return `Today, ${timeStr}`;
+    if (isYesterday) return `Yesterday, ${timeStr}`;
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${months[date.getMonth()]} ${date.getDate()}, ${timeStr}`;
+}
+
+function getFormattedDate(): string {
+    const now = new Date();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+}
 
 export default function AniWeighScreen() {
     const { systemConfig, profile } = useAuth();
-    const farmId = profile?.farmId || '';
+    const farmId = (profile as any)?.farm_id || '';
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const aniweighStyles = useAniWeighStyles();
-    const devicesStyles = useDevicesStyles();
     const router = useRouter();
     const params = useLocalSearchParams<{ deviceId?: string }>();
-    const deviceId = params.deviceId || 'aniweigh_01';
+    const deviceId = params.deviceId ?? '';
 
     if (systemConfig?.featureFlags && !systemConfig.featureFlags.weighingEnabled) {
         return (
@@ -60,269 +96,407 @@ export default function AniWeighScreen() {
                 <Text style={[textStyles.body, { textAlign: 'center', marginTop: 10, color: colors.textGrey, paddingHorizontal: 40 }]}>
                     This feature is currently disabled by the system administrator.
                 </Text>
-                <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 30, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 8 }}>
+                <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/(devices)/DevicesScreen' as any)} style={{ marginTop: 30, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 8 }}>
                     <Text style={{ color: '#fff', fontWeight: 'bold' }}>Go Back</Text>
                 </TouchableOpacity>
             </SafeAreaView>
         );
     }
 
-    // Device info
-    const [deviceName, setDeviceName] = useState('AniWeigh');
-
-    const [animalType, setAnimalType] = useState('Chicken');
-    const [housing, setHousing] = useState('Chicken Coop A');
-    const isPigMode = animalType === 'Pig';
-    const [statsExpanded, setStatsExpanded] = useState(false);
-    const [isKg, setIsKg] = useState(true);
-
-    // ─── Live Weight State ───────────────────────────────────────────
-    const [liveWeight, setLiveWeight] = useState<LiveWeight | null>({ weight_g: 1250, weight_oz: 44.1, timestamp: Date.now() });
+    // ─── State ───────────────────────────────────────────────────
+    const [isLoading, setIsLoading] = useState(true);
     const [isConnected, setIsConnected] = useState(true);
-    const [lastDataTime, setLastDataTime] = useState<number>(Date.now());
-    const lastRecordedWeight = useRef<number | null>(null);
-    const lastReportedDeviceStatus = useRef<'online' | 'offline' | null>('online');
+    const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
+    // Ref so realtime callback always has the latest deviceInfo without stale closure
+    const deviceInfoRef = useRef<DeviceInfo | null>(null);
+    const [threshold, setThreshold] = useState<WeightThreshold | null>(null);
+    const [weightLogs, setWeightLogs] = useState<WeighLogEntry[]>([]);
+    const [segregationStats, setSegregationStats] = useState<SegregationStats>({ total: 0, underweight: { count: 0, percentage: 0 }, normal: { count: 0, percentage: 0 }, overweight: { count: 0, percentage: 0 } });
+    const [statsExpanded, setStatsExpanded] = useState(false);
+    const [farmHousings, setFarmHousings] = useState<{ id: string; name: string; animal_type: string }[]>([]);
 
-    // ─── Weight Logs State ───────────────────────────────────────────
-    const [weightLogs, setWeightLogs] = useState<WeighLogEntry[]>([
-        { id: 'w1', weight_g: 1250, status: 'normal', timestamp: Date.now() - 3600000, animal: 'Chicken', unit: 'kg' },
-        { id: 'w2', weight_g: 750, status: 'underweight', timestamp: Date.now() - 7200000, animal: 'Chicken', unit: 'kg' },
-        { id: 'w3', weight_g: 1600, status: 'overweight', timestamp: Date.now() - 10800000, animal: 'Chicken', unit: 'kg' },
-    ]);
-    const [segregationStats, setSegregationStats] = useState<SegregationStats>({
-        total: 3,
-        underweight: { count: 1, percentage: 33 },
-        normal: { count: 1, percentage: 33 },
-        overweight: { count: 1, percentage: 34 },
-    });
+    // Range settings modal
+    const [rangeSettingsVisible, setRangeSettingsVisible] = useState(false);
+    const [tempUnderweight, setTempUnderweight] = useState('0.8');
+    const [tempOverweight, setTempOverweight] = useState('1.5');
+    const [rangeUnit, setRangeUnit] = useState<'kg' | 'g'>('kg');
+    const [tempRangeUnit, setTempRangeUnit] = useState<'kg' | 'g'>('kg');
 
-    // Modal State
+    // Edit modal
+    const [editModalVisible, setEditModalVisible] = useState(false);
+    const [editTarget, setEditTarget] = useState<'Animal Type' | 'Housing' | null>(null);
+
+    // Action modal
     const [modalVisible, setModalVisible] = useState(false);
     const [modalType, setModalType] = useState<ActionModalType>('info');
     const [modalTitle, setModalTitle] = useState('');
     const [modalMessage, setModalMessage] = useState('');
+    const [pendingEditVal, setPendingEditVal] = useState('');
 
-    // Edit Settings Modal State
-    const [editModalVisible, setEditModalVisible] = useState(false);
-    const [editTarget, setEditTarget] = useState<'Animal Type' | 'Housing' | null>(null);
-    const [editValue, setEditValue] = useState('');
-
-    const openEditModal = (target: 'Animal Type' | 'Housing', currentValue: string) => {
-        setEditTarget(target);
-        setEditValue(currentValue);
-        setEditModalVisible(true);
-    };
-
-    const handleEditConfirmClick = (val: string = editValue) => {
-        setEditValue(val);
-        setEditModalVisible(false);
-        setModalType('confirmation');
-        setModalTitle(`Update ${editTarget}?`);
-        setModalMessage(`Are you sure you want to update the ${editTarget} to "${val}"?`);
-        setModalVisible(true);
-    };
-
-    const [rangeSettingsVisible, setRangeSettingsVisible] = useState(false);
-    const [currentUnderweight, setCurrentUnderweight] = useState('0.8');
-    const [currentOverweight, setCurrentOverweight] = useState('1.5');
-    const [rangeUnit, setRangeUnit] = useState<'kg' | 'g'>('kg');
-    
-    // Temp states for Modal
-    const [tempUnderweight, setTempUnderweight] = useState('0.8');
-    const [tempOverweight, setTempOverweight] = useState('1.5');
-    const [tempRangeUnit, setTempRangeUnit] = useState<'kg' | 'g'>('kg');
-
-    // Snackbar State
+    // Snackbar
     const [snackbarVisible, setSnackbarVisible] = useState(false);
     const [snackbarMessage, setSnackbarMessage] = useState('');
     const [snackbarType, setSnackbarType] = useState<SnackbarType>('success');
 
-    const showSnackbar = (message: string, type: SnackbarType = 'success') => {
-        setSnackbarMessage(message);
-        setSnackbarType(type);
-        setSnackbarVisible(true);
+    // Live reading (from Supabase Realtime / simulator)
+    const [liveWeightG, setLiveWeightG] = useState<number | null>(null);
+    const [liveStatus, setLiveStatus] = useState<'underweight' | 'normal' | 'overweight' | null>(null);
+    const [liveFlash, setLiveFlash] = useState(false);
+
+    const showSnackbar = (msg: string, type: SnackbarType = 'success') => {
+        setSnackbarMessage(msg); setSnackbarType(type); setSnackbarVisible(true);
     };
 
-    const openRangeSettings = () => {
-        setTempUnderweight(currentUnderweight);
-        setTempOverweight(currentOverweight);
-        setTempRangeUnit(rangeUnit);
-        setRangeSettingsVisible(true);
-    };
+    // ─── Stats-only refresh (used by realtime callback) ──────────
+    const fetchStats = useCallback(async () => {
+        if (!deviceId) return;
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const { data } = await supabase
+            .from('weigh_sessions')
+            .select('status')
+            .eq('device_id', deviceId)
+            .gte('recorded_at', todayStart.toISOString());
+        if (data) {
+            const rows = data as any[];
+            const total = rows.length;
+            const under  = rows.filter(r => r.status === 'underweight').length;
+            const normal = rows.filter(r => r.status === 'normal').length;
+            const over   = rows.filter(r => r.status === 'overweight').length;
+            const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0;
+            setSegregationStats({ total, underweight: { count: under, percentage: pct(under) }, normal: { count: normal, percentage: pct(normal) }, overweight: { count: over, percentage: pct(over) } });
+        }
+    }, [deviceId]);
 
-    const handleSaveRanges = async () => {
-        setCurrentUnderweight(tempUnderweight);
-        setCurrentOverweight(tempOverweight);
-        setRangeUnit(tempRangeUnit);
-        setRangeSettingsVisible(false);
-        
-        showSnackbar(`Weight range updated (${tempRangeUnit}).`);
-    };
+    // ─── Fetch ───────────────────────────────────────────────────
+    const fetchAll = useCallback(async (silent = false) => {
+        if (!deviceId || !farmId) { if (!silent) setIsLoading(false); return; }
+        if (!silent) setIsLoading(true);
+        try {
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
 
-    // ─── Subscriptions (Mocked) ──────────────────────────
-    useEffect(() => {
-        // Mock data updates
-        return () => {};
+            const [deviceResult, housingsResult, todayStatsResult] = await Promise.all([
+                supabase
+                    .from('devices')
+                    .select('id, name, status, housing_id, housings(name, animal_type)')
+                    .eq('id', deviceId)
+                    .single(),
+                supabase
+                    .from('housings')
+                    .select('id, name, animal_type')
+                    .eq('farm_id', farmId)
+                    .eq('status', 'Active'),
+                supabase
+                    .from('weigh_sessions')
+                    .select('status')
+                    .eq('device_id', deviceId)
+                    .gte('recorded_at', todayStart.toISOString()),
+            ]);
+
+            if (deviceResult.data) {
+                const d = deviceResult.data as any;
+                const info: DeviceInfo = {
+                    name: d.name,
+                    status: d.status,
+                    housingId: d.housing_id ?? null,
+                    housingName: d.housings?.name ?? 'Unassigned',
+                    animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
+                };
+                setDeviceInfo(info);
+                deviceInfoRef.current = info;   // keep ref in sync
+                setIsConnected(d.status === 'online');
+
+                // Fetch weight threshold for this device + animal type
+                const { data: threshData } = await supabase
+                    .from('weight_thresholds')
+                    .select('*')
+                    .eq('device_id', deviceId)
+                    .eq('animal_type', info.animalType.toLowerCase())
+                    .maybeSingle();
+
+                if (threshData) {
+                    const t = threshData as any;
+                    setThreshold({ id: t.id, underweightMaxGrams: t.underweight_max_grams, normalMinGrams: t.normal_min_grams, normalMaxGrams: t.normal_max_grams, overweightMinGrams: t.overweight_min_grams });
+                    const ukg = (t.underweight_max_grams / 1000).toFixed(2);
+                    const okg = (t.overweight_min_grams / 1000).toFixed(2);
+                    setTempUnderweight(ukg);
+                    setTempOverweight(okg);
+                    setRangeUnit('kg');
+                    setTempRangeUnit('kg');
+                }
+
+                // Fetch recent sessions for this device only
+                const { data: logsData } = await supabase
+                    .from('weigh_sessions')
+                    .select('id, net_weight_grams, status, animal_type, recorded_at')
+                    .eq('device_id', deviceId)
+                    .order('recorded_at', { ascending: false })
+                    .limit(3);
+
+                if (logsData) {
+                    setWeightLogs((logsData as any[]).map(s => ({
+                        id: s.id,
+                        weight_g: s.net_weight_grams,
+                        status: s.status,
+                        timestamp: new Date(s.recorded_at).getTime(),
+                        animal: s.animal_type === 'pig' ? 'Pig' : 'Chicken',
+                        housingId: info.housingId,
+                        housingName: info.housingName,
+                        deviceId: deviceId,
+                        deviceName: info.name,
+                    })));
+                }
+            }
+
+            if (housingsResult.data) setFarmHousings(housingsResult.data as any);
+
+            if (todayStatsResult.data) {
+                const rows = todayStatsResult.data;
+                const total = rows.length;
+                const under  = rows.filter((r: any) => r.status === 'underweight').length;
+                const normal = rows.filter((r: any) => r.status === 'normal').length;
+                const over   = rows.filter((r: any) => r.status === 'overweight').length;
+                const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0;
+                setSegregationStats({ total, underweight: { count: under, percentage: pct(under) }, normal: { count: normal, percentage: pct(normal) }, overweight: { count: over, percentage: pct(over) } });
+            }
+        } catch (err) {
+            console.error('[AniWeighScreen] fetch error:', err);
+        } finally {
+            if (!silent) setIsLoading(false);
+        }
     }, [deviceId, farmId]);
 
-    const handleConnectionToggle = () => {
-        if (isConnected) {
-            setModalType('confirmation');
-            setModalTitle('Disconnect AniWeigh?');
-            setModalMessage('Are you sure you want to disconnect this device from the network? Live data will be paused.');
-            setModalVisible(true);
-        } else {
-            setModalType('confirmation');
-            setModalTitle('Connect AniWeigh?');
-            setModalMessage('Please make sure your AniWeigh device is turned on and ready to connect to the network before proceeding.');
-            setModalVisible(true);
-        }
-    };
+    useEffect(() => { fetchAll(); }, [fetchAll]);
 
-    const handleModalConfirm = () => {
-        if (modalType === 'confirmation') {
-            if (modalTitle.includes('Disconnect')) {
-                setIsConnected(false);
-                lastReportedDeviceStatus.current = 'offline';
-                showSnackbar('AniWeigh disconnected successfully.');
-            } else if (modalTitle.includes('Connect')) {
-                setIsConnected(true);
-                lastReportedDeviceStatus.current = 'online';
-                showSnackbar('AniWeigh connected successfully.');
-            } else if (modalTitle.includes('Update')) {
-                if (editTarget === 'Animal Type') setAnimalType(editValue);
-                if (editTarget === 'Housing') setHousing(editValue);
-                showSnackbar(`${editTarget} updated successfully.`);
-            }
-        }
-        setModalVisible(false);
-    };
+    const [refreshing, setRefreshing] = useState(false);
+    const onRefresh = useCallback(async () => { setRefreshing(true); await fetchAll(); setRefreshing(false); }, [fetchAll]);
 
-    const getFormattedDate = () => {
-        const now = new Date();
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
-    };
+    // ─── Realtime subscription — mirrors the IoT data stream ────────
+    useEffect(() => {
+        if (!deviceId) return;
 
+        // Seed initial live value from most recent record
+        supabase
+            .from('weigh_sessions')
+            .select('net_weight_grams, status')
+            .eq('device_id', deviceId)
+            .order('recorded_at', { ascending: false })
+            .limit(1)
+            .single()
+            .then(({ data }) => {
+                if (data) {
+                    setLiveWeightG((data as any).net_weight_grams);
+                    setLiveStatus((data as any).status);
+                }
+            });
+
+        const channel = supabase
+            .channel(`aniweigh-live-${deviceId}`)
+            .on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'weigh_sessions', filter: `device_id=eq.${deviceId}` },
+                (payload) => {
+                    const row = payload.new as any;
+
+                    // 1. Update live-scale display immediately
+                    setLiveWeightG(row.net_weight_grams);
+                    setLiveStatus(row.status);
+                    setLiveFlash(true);
+                    setTimeout(() => setLiveFlash(false), 600);
+
+                    // 2. Prepend new entry directly into logs — no extra fetch needed.
+                    //    Using deviceInfoRef avoids stale closure issues.
+                    const info = deviceInfoRef.current;
+                    const newEntry: WeighLogEntry = {
+                        id: row.id,
+                        weight_g: row.net_weight_grams,
+                        status: row.status ?? 'normal',
+                        timestamp: row.recorded_at
+                            ? new Date(row.recorded_at).getTime()
+                            : Date.now(),
+                        animal: row.animal_type === 'pig' ? 'Pig' : 'Chicken',
+                        housingId: info?.housingId ?? null,
+                        housingName: info?.housingName ?? 'Unassigned',
+                        deviceId: row.device_id,
+                        deviceName: info?.name ?? 'AniWeigh',
+                    };
+                    setWeightLogs(prev => [newEntry, ...prev].slice(0, 8));
+
+                    // 3. Refresh only today's stats counter — do NOT call fetchAll()
+                    //    because fetchAll re-fetches logs from DB and would overwrite
+                    //    the entry we just injected, causing the "flicker then revert" bug.
+                    fetchStats();
+                }
+            )
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, [deviceId, fetchStats]);
+
+    // ─── Derived values ──────────────────────────────────────────
+    const animalType = deviceInfo?.animalType ?? 'Chicken';
+    const housing    = deviceInfo?.housingName ?? 'Unassigned';
     const animalColor = animalType === 'Pig' ? colors.pig : colors.chicken;
+    const isPigMode = animalType === 'Pig';
 
-    const getEditOptions = () => {
-        switch (editTarget) {
-            case 'Animal Type': return ['Pig', 'Chicken'];
-            case 'Housing': return animalType === 'Pig' ? ['Pig Housing 1', 'Pig Housing 2', 'Pig Housing 3', 'Pig Housing 4', 'Pig Housing 5', 'Pig Housing 6', 'Pig Housing 7', 'Pig Housing 8', 'Isolation Pen'] : ['Chicken Coop A', 'Chicken Coop B', 'Chicken Coop C', 'Chicken Coop D', 'Chicken Coop E'];
-            default: return [];
-        }
-    };
+    const numUnder = threshold ? threshold.underweightMaxGrams / 1000 : 0.8;
+    const numOver  = threshold ? threshold.overweightMinGrams / 1000  : 1.5;
 
-    // ─── Derived display values ──────────────────────────────────────
-    const liveWeightKg = liveWeight ? liveWeight.weight_g / 1000 : 0;
-    const liveWeightDisplay = isKg
-        ? liveWeightKg.toFixed(1)
-        : (liveWeight ? liveWeight.weight_g.toFixed(0) : '0');
-    const weightUnit = isKg ? 'kg' : 'g';
-
-    const numUnder = (parseFloat(currentUnderweight) || 0.8) * (rangeUnit === 'kg' ? 1 : 0.001);
-    const numOver = (parseFloat(currentOverweight) || 1.5) * (rangeUnit === 'kg' ? 1 : 0.001);
-
-    let currentStatus = 'Normal';
-    let statusColor = colors.primary;
-
-    if (isConnected && liveWeight) {
-        if (liveWeightKg < numUnder) {
-            currentStatus = 'Underweight';
-            statusColor = colors.warning;
-        } else if (liveWeightKg > numOver) {
-            currentStatus = 'Overweight';
-            statusColor = colors.error;
-        }
-    } else {
-        currentStatus = '--';
-        statusColor = colors.textGrey;
-    }
-
-    // ─── Format log timestamp ────────────────────────────────────────
-    const formatLogTime = (timestamp: number) => {
-        const date = new Date(timestamp);
-        const now = new Date();
-        const isToday = date.toDateString() === now.toDateString();
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const isYesterday = date.toDateString() === yesterday.toDateString();
-
-        const hours = date.getHours();
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        const displayHours = hours % 12 || 12;
-        const timeStr = `${displayHours}:${minutes} ${ampm}`;
-
-        if (isToday) return `Today, ${timeStr}`;
-        if (isYesterday) return `Yesterday, ${timeStr}`;
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return `${months[date.getMonth()]} ${date.getDate()}, ${timeStr}`;
-    };
-
-    const getLogIcon = (status: string) => {
-        switch (status) {
-            case 'underweight':
-                return { icon: 'warning' as const, color: colors.warning };
-            case 'overweight':
-                return { icon: 'error' as const, color: colors.error };
-            default:
-                return { icon: 'check-circle' as const, color: colors.primary };
-        }
-    };
-
-    const getLogMessage = (log: WeighLogEntry) => {
-        const unit: 'kg' | 'g' = log.unit || rangeUnit || 'kg';
-        const value = unit === 'kg'
-            ? log.weight_g / 1000
-            : log.weight_g;
-        const formatted = unit === 'kg'
-            ? value.toFixed(2)
-            : value.toFixed(0);
-        const weightStr = `${formatted} ${unit}`;
-        const animal = log.animal || animalType;
-        switch (log.status) {
-            case 'underweight':
-                return `Underweight ${animal} detected at ${weightStr}.`;
-            case 'overweight':
-                return `Overweight ${animal} detected at ${weightStr}.`;
-            default:
-                return `${animal} weighed at ${weightStr} — Normal.`;
-        }
-    };
-
-    // ─── Last updated label for stats (today only) ───────────────────
     const todayStr = new Date().toDateString();
     const todayLogs = weightLogs.filter(l => new Date(l.timestamp).toDateString() === todayStr);
     const lastUpdatedLabel = todayLogs.length > 0
         ? `Last updated: ${formatLogTime(todayLogs[0].timestamp)}`
         : 'No data today';
 
+
+    // ─── Connection toggle ────────────────────────────────────────
+    const handleConnectionToggle = () => {
+        if (isConnected) {
+            setModalType('confirmation'); setModalTitle('Disconnect AniWeigh?');
+            setModalMessage('Are you sure you want to disconnect this device? Live data will be paused.');
+        } else {
+            setModalType('confirmation'); setModalTitle('Connect AniWeigh?');
+            setModalMessage('Please make sure your AniWeigh device is on and ready to connect.');
+        }
+        setModalVisible(true);
+    };
+
+    const handleModalConfirm = async () => {
+        setModalVisible(false);
+        if (modalTitle.includes('Disconnect')) {
+            await supabase.from('devices').update({ status: 'offline' }).eq('id', deviceId);
+            setIsConnected(false);
+            showSnackbar('AniWeigh disconnected.');
+        } else if (modalTitle.includes('Connect')) {
+            await supabase.from('devices').update({ status: 'online' }).eq('id', deviceId);
+            setIsConnected(true);
+            showSnackbar('AniWeigh connected.');
+        } else if (modalTitle.includes('Update')) {
+            // Housing update confirm
+            const h = farmHousings.find(h => h.name === pendingEditVal);
+            if (h) {
+                await supabase.from('devices').update({ housing_id: h.id }).eq('id', deviceId);
+                setDeviceInfo(prev => {
+                    const updated = prev ? { ...prev, housingId: h.id, housingName: h.name, animalType: h.animal_type === 'pig' ? 'Pig' : 'Chicken' } as DeviceInfo : null;
+                    deviceInfoRef.current = updated;
+                    return updated;
+                });
+                showSnackbar('Housing updated.');
+                // Re-fetch threshold for new animal type
+                fetchAll();
+            }
+        }
+    };
+
+    // ─── Range settings ───────────────────────────────────────────
+    const openRangeSettings = () => {
+        const uVal = threshold ? (rangeUnit === 'kg' ? threshold.underweightMaxGrams / 1000 : threshold.underweightMaxGrams).toFixed(2) : '0.8';
+        const oVal = threshold ? (rangeUnit === 'kg' ? threshold.overweightMinGrams / 1000  : threshold.overweightMinGrams).toFixed(2) : '1.5';
+        setTempUnderweight(uVal);
+        setTempOverweight(oVal);
+        setTempRangeUnit(rangeUnit);
+        setRangeSettingsVisible(true);
+    };
+
+    const handleSaveRanges = async () => {
+        const under = parseFloat(tempUnderweight);
+        const over  = parseFloat(tempOverweight);
+        if (isNaN(under) || isNaN(over) || under >= over) {
+            showSnackbar('Underweight max must be less than overweight min.', 'error');
+            return;
+        }
+        const toGrams = (v: number) => Math.round(tempRangeUnit === 'kg' ? v * 1000 : v);
+        const underGrams = toGrams(under);
+        const overGrams  = toGrams(over);
+        const payload = {
+            device_id: deviceId,
+            farm_id: farmId,
+            animal_type: animalType.toLowerCase(),
+            underweight_max_grams: underGrams,
+            normal_min_grams: underGrams + 1,
+            normal_max_grams: overGrams - 1,
+            overweight_min_grams: overGrams,
+            updated_at: new Date().toISOString(),
+        };
+        try {
+            if (threshold?.id) {
+                await supabase.from('weight_thresholds').update(payload).eq('id', threshold.id);
+                setThreshold(prev => prev ? { ...prev, underweightMaxGrams: underGrams, normalMinGrams: underGrams + 1, normalMaxGrams: overGrams - 1, overweightMinGrams: overGrams } : null);
+            } else {
+                const { data } = await supabase.from('weight_thresholds').insert(payload).select('id').single();
+                setThreshold({ id: (data as any)?.id ?? null, underweightMaxGrams: underGrams, normalMinGrams: underGrams + 1, normalMaxGrams: overGrams - 1, overweightMinGrams: overGrams });
+            }
+            setRangeUnit(tempRangeUnit);
+            setRangeSettingsVisible(false);
+            showSnackbar(`Weight range updated (${tempRangeUnit}).`);
+        } catch {
+            showSnackbar('Failed to save weight range.', 'error');
+        }
+    };
+
+    // ─── Edit modal (Housing / Animal Type) ─────────────────────
+    const openEditModal = (target: 'Animal Type' | 'Housing') => {
+        setEditTarget(target);
+        setEditModalVisible(true);
+    };
+
+    const getEditOptions = (): string[] => {
+        if (editTarget === 'Animal Type') return ['Pig', 'Chicken'];
+        if (editTarget === 'Housing') {
+            return farmHousings
+                .filter(h => h.animal_type === animalType.toLowerCase())
+                .map(h => h.name);
+        }
+        return [];
+    };
+
+    const handleEditConfirm = (val: string) => {
+        setEditModalVisible(false);
+        if (editTarget === 'Animal Type') {
+            // Selecting animal type → show housings of that type for the user to pick
+            showSnackbar(`Change the Housing to a ${val} housing to switch type.`, 'info');
+        } else if (editTarget === 'Housing') {
+            setPendingEditVal(val);
+            setModalType('confirmation');
+            setModalTitle(`Update Housing?`);
+            setModalMessage(`Change this device's housing to "${val}"?`);
+            setModalVisible(true);
+        }
+    };
+
+    // ─── Log helpers ─────────────────────────────────────────────
+    const getLogIcon = (status: string) => {
+        switch (status) {
+            case 'underweight': return { icon: 'warning' as const,      color: colors.warning };
+            case 'overweight':  return { icon: 'error' as const,        color: colors.error };
+            default:            return { icon: 'check-circle' as const, color: colors.primary };
+        }
+    };
+
+    const getLogMessage = (log: WeighLogEntry) => {
+        const kg = (log.weight_g / 1000).toFixed(2);
+        const animal = log.animal;
+        switch (log.status) {
+            case 'underweight': return `Underweight ${animal} detected at ${kg} kg.`;
+            case 'overweight':  return `Overweight ${animal} detected at ${kg} kg.`;
+            default:            return `${animal} weighed at ${kg} kg — Normal.`;
+        }
+    };
+
     return (
         <SafeAreaView style={[aniweighStyles.safeArea, { backgroundColor: colors.bgLight }]}>
             {/* Header */}
             <View style={aniweighStyles.header}>
                 <View style={{ width: 44, height: 44 }}>
-                    <BackButton onPress={() => router.back()} />
+                    <BackButton fallbackRoute="/(devices)/DevicesScreen" />
                 </View>
                 <View style={aniweighStyles.headerActions}>
                     <TouchableOpacity
-                        style={[
-                            aniweighStyles.actionButton,
-                            {
-                                backgroundColor: isConnected ? colors.primary + '1A' : colors.surface,
-                                borderWidth: isConnected ? 0 : 1.5,
-                                borderColor: isConnected ? 'transparent' : colors.stroke
-                            }
-                        ]}
+                        style={[aniweighStyles.actionButton, { backgroundColor: isConnected ? colors.primary + '1A' : colors.surface, borderWidth: isConnected ? 0 : 1.5, borderColor: isConnected ? 'transparent' : colors.stroke }]}
                         onPress={handleConnectionToggle}
                     >
-                        <MaterialIcons
-                            name={isConnected ? "cloud-done" : "cloud-off"}
-                            size={20}
-                            color={isConnected ? colors.primary : colors.textGrey}
-                        />
+                        <MaterialIcons name={isConnected ? 'cloud-done' : 'cloud-off'} size={20} color={isConnected ? colors.primary : colors.textGrey} />
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[aniweighStyles.actionButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, marginRight: 8 }]}
@@ -341,269 +515,325 @@ export default function AniWeighScreen() {
                 </View>
             </View>
 
-            <ScrollView contentContainerStyle={aniweighStyles.contentContainer} showsVerticalScrollIndicator={false}>
-
-                {/* Title Section (Date, Name, Batch details) */}
-                <View style={aniweighStyles.titleSection}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.smartScale + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 8 }}>
-                            <MaterialIcons name="monitor-weight" size={12} color={colors.smartScale} />
-                            <Text style={[textStyles.label, { color: colors.smartScale, fontSize: 10, marginLeft: 4 }]}>AniWeigh</Text>
-                        </View>
-                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 13 }]}>{getFormattedDate()}</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 28 }]}>{deviceName}</Text>
-                        <View style={[aniweighStyles.connectionBadge, { backgroundColor: isConnected ? colors.primary + '1A' : colors.error + '1A' }]}>
-                            <View style={[aniweighStyles.connectionDot, { backgroundColor: isConnected ? colors.primary : colors.error }]} />
-                            <Text style={[textStyles.label, { color: isConnected ? colors.primary : colors.error, fontSize: 12, marginLeft: 6 }]}>
-                                {isConnected ? 'Online' : 'Offline'}
-                            </Text>
-                        </View>
-                    </View>
-
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
-                        <View style={[aniweighStyles.tagsContainer, { marginTop: 0 }]}>
-                            <TouchableOpacity style={[aniweighStyles.tag, { backgroundColor: animalColor + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Animal Type', animalType)}>
-                                <AnimalIcon type={animalType as any} size={14} color={animalColor} />
-                                <Text style={[textStyles.label, { color: animalColor, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{animalType}</Text>
-                                <MaterialIcons name="arrow-drop-down" size={16} color={animalColor} />
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[aniweighStyles.tag, { backgroundColor: colors.info + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Housing', housing)}>
-                                <MaterialIcons name="home" size={14} color={colors.info} />
-                                <Text style={[textStyles.label, { color: colors.info, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{housing}</Text>
-                                <MaterialIcons name="arrow-drop-down" size={16} color={colors.info} />
-                            </TouchableOpacity>
-                        </View>
-                    </ScrollView>
+            {isLoading ? (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
                 </View>
+            ) : (
+                <ScrollView contentContainerStyle={aniweighStyles.contentContainer} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
 
-                {/* Statistics Section (Expandable) */}
-                <View style={[aniweighStyles.statsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
-                    <TouchableOpacity
-                        activeOpacity={0.7}
-                        style={aniweighStyles.statsHeader}
-                        onPress={() => setStatsExpanded(!statsExpanded)}
-                    >
-                        <View>
-                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 16 }]}>Segregation Stats</Text>
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{lastUpdatedLabel}</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Text style={[textStyles.h2, { color: colors.text, marginRight: 12 }]}>
-                                {segregationStats.total}{' '}
-                                <Text style={{ fontSize: 14, color: colors.textGrey }}>Today</Text>
-                            </Text>
-                            <MaterialIcons name={statsExpanded ? "expand-less" : "expand-more"} size={24} color={colors.textGrey} />
-                        </View>
-                    </TouchableOpacity>
-
-                    {statsExpanded && (
-                        <View style={[aniweighStyles.statsExpandedContent, { borderTopColor: colors.stroke }]}>
-                            {/* Visual Bar */}
-                            <View style={aniweighStyles.statsVisualBar}>
-                                <View style={[aniweighStyles.statsVisualSegment, { flex: segregationStats.underweight.percentage || 1, backgroundColor: colors.warning, borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }]} />
-                                <View style={[aniweighStyles.statsVisualSegment, { flex: segregationStats.normal.percentage || 1, backgroundColor: colors.primary }]} />
-                                <View style={[aniweighStyles.statsVisualSegment, { flex: segregationStats.overweight.percentage || 1, backgroundColor: colors.error, borderTopRightRadius: 8, borderBottomRightRadius: 8 }]} />
+                    {/* Title Section */}
+                    <View style={aniweighStyles.titleSection}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.smartScale + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 8 }}>
+                                <MaterialIcons name="monitor-weight" size={12} color={colors.smartScale} />
+                                <Text style={[textStyles.label, { color: colors.smartScale, fontSize: 10, marginLeft: 4 }]}>AniWeigh</Text>
                             </View>
-
-                            {/* Legend / Details */}
-                            <View style={aniweighStyles.statDetailRow}>
-                                <View style={aniweighStyles.statLegend}>
-                                    <View style={[aniweighStyles.legendDot, { backgroundColor: colors.warning }]} />
-                                    <View>
-                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Underweight</Text>
-                                        <Text style={[textStyles.label, { color: colors.text }]}>{segregationStats.underweight.count} ({segregationStats.underweight.percentage}%)</Text>
-                                    </View>
-                                </View>
-                                <View style={aniweighStyles.statLegend}>
-                                    <View style={[aniweighStyles.legendDot, { backgroundColor: colors.primary }]} />
-                                    <View>
-                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Normal</Text>
-                                        <Text style={[textStyles.label, { color: colors.text }]}>{segregationStats.normal.count} ({segregationStats.normal.percentage}%)</Text>
-                                    </View>
-                                </View>
-                                <View style={aniweighStyles.statLegend}>
-                                    <View style={[aniweighStyles.legendDot, { backgroundColor: colors.error }]} />
-                                    <View>
-                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Overweight</Text>
-                                        <Text style={[textStyles.label, { color: colors.text }]}>{segregationStats.overweight.count} ({segregationStats.overweight.percentage}%)</Text>
-                                    </View>
-                                </View>
+                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 13 }]}>{getFormattedDate()}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Text style={[textStyles.h1, { color: colors.text, fontSize: 28 }]}>{deviceInfo?.name ?? 'AniWeigh'}</Text>
+                            <View style={[aniweighStyles.connectionBadge, { backgroundColor: isConnected ? colors.primary + '1A' : colors.error + '1A' }]}>
+                                <View style={[aniweighStyles.connectionDot, { backgroundColor: isConnected ? colors.primary : colors.error }]} />
+                                <Text style={[textStyles.label, { color: isConnected ? colors.primary : colors.error, fontSize: 12, marginLeft: 6 }]}>
+                                    {isConnected ? 'Online' : 'Offline'}
+                                </Text>
                             </View>
                         </View>
-                    )}
 
-                    {/* Link to Segregation Records Page */}
-                    <TouchableOpacity
-                        style={[aniweighStyles.recordsLink, { borderTopColor: colors.stroke }]}
-                        activeOpacity={0.7}
-                        onPress={() => router.push(`/(devices)/SegregationRecordsScreen?deviceId=${deviceId}` as any)}
-                    >
-                        <Text style={[textStyles.label, { color: colors.primary }]}>View All Segregation Records</Text>
-                        <MaterialIcons name="chevron-right" size={20} color={colors.primary} />
-                    </TouchableOpacity>
-                </View>
-
-                {/* Live Scaling View */}
-                <View style={aniweighStyles.liveSection}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 18 }]}>Live Scaling</Text>
-                        <TouchableOpacity onPress={openRangeSettings} style={{ padding: 4, marginRight: 8 }}>
-                            <MaterialIcons name="tune" size={24} color={colors.textGrey} />
-                        </TouchableOpacity>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+                            <View style={[aniweighStyles.tagsContainer, { marginTop: 0 }]}>
+                                <TouchableOpacity style={[aniweighStyles.tag, { backgroundColor: animalColor + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Animal Type')}>
+                                    <AnimalIcon type={animalType as any} size={14} color={animalColor} />
+                                    <Text style={[textStyles.label, { color: animalColor, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{animalType}</Text>
+                                    <MaterialIcons name="arrow-drop-down" size={16} color={animalColor} />
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[aniweighStyles.tag, { backgroundColor: colors.info + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Housing')}>
+                                    <MaterialIcons name="home" size={14} color={colors.info} />
+                                    <Text style={[textStyles.label, { color: colors.info, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{housing}</Text>
+                                    <MaterialIcons name="arrow-drop-down" size={16} color={colors.info} />
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
                     </View>
-                    <View style={[aniweighStyles.liveCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
 
-                        <View style={aniweighStyles.liveScaleCircle}>
-                            <View style={[aniweighStyles.liveScaleInnerCircle, { borderColor: isConnected ? statusColor : colors.stroke }]}>
-                                {isConnected && liveWeight ? (
-                                    <>
-                                        <Text style={[textStyles.h1, { color: colors.text, fontSize: liveWeightDisplay.length > 3 ? 40 : 48, lineHeight: 56 }]}>
-                                            {liveWeightDisplay}
-                                        </Text>
-                                        <Text style={[textStyles.body, { color: colors.textGrey }]}>{weightUnit}</Text>
-                                    </>
-                                ) : (
-                                    <Text style={[textStyles.body, { color: colors.textGrey }]}>Offline</Text>
-                                )}
-                            </View>
-                        </View>
-
-                        {/* Unit Toggle */}
+                    {/* Segregation Stats */}
+                    <View style={[aniweighStyles.statsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
                         <TouchableOpacity
                             activeOpacity={0.7}
-                            style={[aniweighStyles.unitToggle, { backgroundColor: colors.bgLight, borderColor: colors.stroke }]}
-                            onPress={() => setIsKg(!isKg)}
+                            style={aniweighStyles.statsHeader}
+                            onPress={() => setStatsExpanded(!statsExpanded)}
                         >
-                            <Text style={[textStyles.label, { color: isKg ? colors.primary : colors.textGrey, paddingHorizontal: 12, paddingVertical: 4 }]}>
-                                KG
-                            </Text>
-                            <View style={{ width: 1, height: 16, backgroundColor: colors.stroke }} />
-                            <Text style={[textStyles.label, { color: !isKg ? colors.primary : colors.textGrey, paddingHorizontal: 12, paddingVertical: 4 }]}>
-                                GRAMS
-                            </Text>
+                            <View>
+                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 16 }]}>Segregation Stats</Text>
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{lastUpdatedLabel}</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Text style={[textStyles.h2, { color: colors.text, marginRight: 12 }]}>
+                                    {segregationStats.total}{' '}
+                                    <Text style={{ fontSize: 14, color: colors.textGrey }}>Today</Text>
+                                </Text>
+                                <MaterialIcons name={statsExpanded ? 'expand-less' : 'expand-more'} size={24} color={colors.textGrey} />
+                            </View>
                         </TouchableOpacity>
 
-                        <View style={aniweighStyles.liveStatsContainer}>
-                            <View style={aniweighStyles.liveStatItem}>
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Detected</Text>
-                                <Text style={[textStyles.h2, { color: colors.text }]}>{isPigMode ? 'Pig' : 'Chicken'}</Text>
-                            </View>
-                            <View style={[aniweighStyles.liveStatDivider, { backgroundColor: colors.stroke }]} />
-                            <View style={aniweighStyles.liveStatItem}>
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Status</Text>
-                                <Text style={[textStyles.h2, { color: statusColor }]}>{currentStatus}</Text>
-                            </View>
-                        </View>
-
-                    </View>
-                </View>
-
-                {/* Device Logs */}
-                <View style={aniweighStyles.logsSection}>
-                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 18, marginBottom: 16 }]}>Recent Logs</Text>
-                    {weightLogs.length === 0 ? (
-                        <View style={{ alignItems: 'center', paddingVertical: 24 }}>
-                            <MaterialIcons name="history" size={32} color={colors.textGrey} />
-                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 8 }]}>No weigh events recorded yet.</Text>
-                        </View>
-                    ) : (
-                        weightLogs.slice(0, 4).map((log, index) => {
-                            const { icon, color } = getLogIcon(log.status);
-                            return (
-                                <View key={log.id ?? index} style={aniweighStyles.logItem}>
-                                    <View style={[aniweighStyles.logIcon, { backgroundColor: color + '1A' }]}>
-                                        <MaterialIcons name={icon} size={16} color={color} />
-                                    </View>
-                                    <View style={aniweighStyles.logContent}>
-                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>{getLogMessage(log)}</Text>
-                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12 }]}>{formatLogTime(log.timestamp)}</Text>
-                                    </View>
+                        {statsExpanded && (
+                            <View style={[aniweighStyles.statsExpandedContent, { borderTopColor: colors.stroke }]}>
+                                <View style={aniweighStyles.statsVisualBar}>
+                                    <View style={[aniweighStyles.statsVisualSegment, { flex: segregationStats.underweight.percentage || 1, backgroundColor: colors.warning, borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }]} />
+                                    <View style={[aniweighStyles.statsVisualSegment, { flex: segregationStats.normal.percentage || 1, backgroundColor: colors.primary }]} />
+                                    <View style={[aniweighStyles.statsVisualSegment, { flex: segregationStats.overweight.percentage || 1, backgroundColor: colors.error, borderTopRightRadius: 8, borderBottomRightRadius: 8 }]} />
                                 </View>
-                            );
-                        })
-                    )}
-                </View>
+                                <View style={aniweighStyles.statDetailRow}>
+                                    {[
+                                        { label: 'Underweight', color: colors.warning, ...segregationStats.underweight },
+                                        { label: 'Normal',      color: colors.primary, ...segregationStats.normal },
+                                        { label: 'Overweight',  color: colors.error,   ...segregationStats.overweight },
+                                    ].map(s => (
+                                        <View key={s.label} style={aniweighStyles.statLegend}>
+                                            <View style={[aniweighStyles.legendDot, { backgroundColor: s.color }]} />
+                                            <View>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{s.label}</Text>
+                                                <Text style={[textStyles.label, { color: colors.text }]}>{s.count} ({s.percentage}%)</Text>
+                                            </View>
+                                        </View>
+                                    ))}
+                                </View>
+                            </View>
+                        )}
 
-            </ScrollView>
+                        <TouchableOpacity
+                            style={[aniweighStyles.recordsLink, { borderTopColor: colors.stroke }]}
+                            activeOpacity={0.7}
+                            onPress={() => router.push(`/(devices)/SegregationRecordsScreen?deviceId=${deviceId}` as any)}
+                        >
+                            <Text style={[textStyles.label, { color: colors.primary }]}>View All Segregation Records</Text>
+                            <MaterialIcons name="chevron-right" size={20} color={colors.primary} />
+                        </TouchableOpacity>
+                    </View>
 
+                    {/* AI Weight Analysis */}
+                    <AIInsightCard
+                        title="AI Weight Analysis"
+                        context={{
+                            type: 'weight',
+                            animalType: animalType,
+                            housingName: housing,
+                            data: {
+                                todayTotal: segregationStats.total,
+                                underweight: segregationStats.underweight,
+                                normal: segregationStats.normal,
+                                overweight: segregationStats.overweight,
+                                recentWeights: weightLogs.slice(0, 5).map(l => ({
+                                    kg: (l.weight_g / 1000).toFixed(2),
+                                    status: l.status,
+                                    time: new Date(l.timestamp).toISOString(),
+                                })),
+                                thresholds: threshold
+                                    ? { underweightMaxKg: threshold.underweightMaxGrams / 1000, overweightMinKg: threshold.overweightMinGrams / 1000 }
+                                    : null,
+                            },
+                        }}
+                    />
+
+                    {/* Live Scaling (IoT placeholder) */}
+                    <View style={aniweighStyles.liveSection}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 18 }]}>Live Scaling</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                    Range: &lt;{numUnder}kg · &gt;{numOver}kg
+                                </Text>
+                                <TouchableOpacity onPress={openRangeSettings} style={{ padding: 4 }}>
+                                    <MaterialIcons name="tune" size={24} color={colors.textGrey} />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                        <View style={[aniweighStyles.liveCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
+                            <View style={aniweighStyles.liveScaleCircle}>
+                                <View style={[aniweighStyles.liveScaleInnerCircle, {
+                                    borderColor: liveWeightG != null
+                                        ? (liveStatus === 'underweight' ? colors.warning : liveStatus === 'overweight' ? colors.error : colors.primary)
+                                        : colors.stroke,
+                                    backgroundColor: liveFlash ? (colors.primary + '15') : 'transparent',
+                                }]}>
+                                    {liveWeightG != null ? (
+                                        <>
+                                            <Text style={[textStyles.h1, { color: colors.text, fontSize: 28 }]}>
+                                                {(liveWeightG / 1000).toFixed(2)}
+                                            </Text>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>kg</Text>
+                                            <MaterialIcons name="sensors" size={14} color={colors.primary} style={{ marginTop: 4 }} />
+                                        </>
+                                    ) : (
+                                        <>
+                                            <MaterialIcons name="sensors-off" size={36} color={colors.textGrey} />
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 8, textAlign: 'center' }]}>
+                                                Live data{'\n'}pending
+                                            </Text>
+                                        </>
+                                    )}
+                                </View>
+                            </View>
+                            <View style={aniweighStyles.liveStatsContainer}>
+                                <View style={aniweighStyles.liveStatItem}>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Detected</Text>
+                                    <Text style={[textStyles.h2, { color: colors.text }]}>{isPigMode ? 'Pig' : 'Chicken'}</Text>
+                                </View>
+                                <View style={[aniweighStyles.liveStatDivider, { backgroundColor: colors.stroke }]} />
+                                <View style={aniweighStyles.liveStatItem}>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Status</Text>
+                                    <Text style={[textStyles.h2, {
+                                        color: liveStatus === 'underweight' ? colors.warning
+                                             : liveStatus === 'overweight'  ? colors.error
+                                             : liveStatus === 'normal'      ? colors.primary
+                                             : colors.textGrey
+                                    }]}>
+                                        {liveStatus ? (liveStatus.charAt(0).toUpperCase() + liveStatus.slice(1)) : '—'}
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+                    </View>
+
+                    {/* Recent Logs */}
+                    <View style={aniweighStyles.logsSection}>
+                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 18, marginBottom: 12 }]}>Recent Logs</Text>
+
+                        {weightLogs.length === 0 ? (
+                            <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+                                <MaterialIcons name="history" size={32} color={colors.textGrey} />
+                                <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 8 }]}>No weigh events recorded yet.</Text>
+                            </View>
+                        ) : (
+                            weightLogs.slice(0, 3).map((log, index) => {
+                                const statusColor = log.status === 'underweight' ? colors.warning : log.status === 'overweight' ? colors.error : colors.primary;
+                                const statusIcon: any = log.status === 'underweight' ? 'arrow-downward' : log.status === 'overweight' ? 'arrow-upward' : 'check';
+                                const kg = (log.weight_g / 1000).toFixed(2);
+                                return (
+                                    <View
+                                        key={log.id ?? index}
+                                        style={{
+                                            backgroundColor: colors.surface,
+                                            borderRadius: 16,
+                                            borderWidth: 1,
+                                            borderColor: colors.stroke,
+                                            marginBottom: 10,
+                                            overflow: 'hidden',
+                                            flexDirection: 'row',
+                                        }}
+                                    >
+                                        {/* Left accent strip */}
+                                        <View style={{ width: 4, backgroundColor: statusColor }} />
+
+                                        {/* Card content */}
+                                        <View style={{ flex: 1, padding: 12 }}>
+                                            {/* Top row: housing label + weight */}
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                                                <View style={{ flex: 1, marginRight: 12 }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
+                                                        <MaterialIcons name="home" size={13} color={colors.textGrey} />
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginLeft: 3 }]} numberOfLines={1}>{log.housingName}</Text>
+                                                    </View>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: statusColor + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                                                        <MaterialIcons name={statusIcon} size={11} color={statusColor} />
+                                                        <Text style={[textStyles.label, { color: statusColor, fontSize: 11, marginLeft: 3, fontWeight: '700' }]}>
+                                                            {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                                <View style={{ alignItems: 'flex-end' }}>
+                                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 24, lineHeight: 28 }]}>{kg}</Text>
+                                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>kg</Text>
+                                                </View>
+                                            </View>
+
+                                            {/* Bottom chips */}
+                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
+                                                    <AnimalIcon type={log.animal as any} size={11} color={colors.textGrey} />
+                                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{log.animal}</Text>
+                                                </View>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
+                                                    <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
+                                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{formatLogTime(log.timestamp)}</Text>
+                                                </View>
+                                            </View>
+                                        </View>
+                                    </View>
+                                );
+                            })
+                        )}
+
+                        {/* View All link */}
+                        {weightLogs.length > 0 && (
+                            <TouchableOpacity
+                                onPress={() => router.push(`/(devices)/RecentLogsScreen?deviceId=${deviceId}&animalType=${animalType}` as any)}
+                                activeOpacity={0.7}
+                                style={{
+                                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                                    paddingVertical: 12, marginTop: 2,
+                                    borderWidth: 1, borderColor: colors.stroke,
+                                    borderRadius: 12, backgroundColor: colors.surface,
+                                }}
+                            >
+                                <Text style={[textStyles.label, { color: colors.primary, fontSize: 13 }]}>View All Logs</Text>
+                                <MaterialIcons name="chevron-right" size={18} color={colors.primary} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+
+                </ScrollView>
+            )}
+
+            {/* Connection / Housing confirm modal */}
             <ActionModal
                 visible={modalVisible}
                 type={modalType}
                 title={modalTitle}
                 message={modalMessage}
-                confirmText={modalTitle.includes('Disconnect') ? 'Disconnect' : 'Connect'}
+                confirmText={modalTitle.includes('Disconnect') ? 'Disconnect' : modalTitle.includes('Connect') ? 'Connect' : 'Confirm'}
                 cancelText="Cancel"
                 onConfirm={handleModalConfirm}
                 onCancel={() => setModalVisible(false)}
             />
 
-            {/* Range Settings Modal */}
+            {/* Range settings modal */}
             <Modal visible={rangeSettingsVisible} transparent animationType="fade">
-                <View style={[aniweighStyles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
+                <View style={[aniweighStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
                     <View style={[aniweighStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center' }]}>
-
-                        {/* Icon Background */}
                         <View style={[aniweighStyles.iconContainer, { backgroundColor: colors.primary + '1A' }]}>
                             <MaterialIcons name="tune" size={32} color={colors.primary} />
                         </View>
+                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
+                            Weight Range ({isPigMode ? 'Pig' : 'Chicken'})
+                        </Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 16 }]}>
+                            Set weight thresholds for segregation status.
+                        </Text>
 
-                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Weight Range ({isPigMode ? 'Pig' : 'Chicken'})</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 16 }]}>Set the target weight thresholds for determining segregation status.</Text>
-
-                        {/* Unit Toggle for Modal */}
                         <TouchableOpacity
                             activeOpacity={0.7}
                             style={[aniweighStyles.unitToggle, { backgroundColor: colors.bgLight, borderColor: colors.stroke, marginBottom: 24, alignSelf: 'center', position: 'relative', top: 0, right: 0 }]}
                             onPress={() => setTempRangeUnit(tempRangeUnit === 'kg' ? 'g' : 'kg')}
                         >
-                            <Text style={[textStyles.label, { color: tempRangeUnit === 'kg' ? colors.primary : colors.textGrey, paddingHorizontal: 12, paddingVertical: 4 }]}>
-                                KG
-                            </Text>
+                            <Text style={[textStyles.label, { color: tempRangeUnit === 'kg' ? colors.primary : colors.textGrey, paddingHorizontal: 12, paddingVertical: 4 }]}>KG</Text>
                             <View style={{ width: 1, height: 16, backgroundColor: colors.stroke }} />
-                            <Text style={[textStyles.label, { color: tempRangeUnit === 'g' ? colors.primary : colors.textGrey, paddingHorizontal: 12, paddingVertical: 4 }]}>
-                                GRAMS
-                            </Text>
+                            <Text style={[textStyles.label, { color: tempRangeUnit === 'g' ? colors.primary : colors.textGrey, paddingHorizontal: 12, paddingVertical: 4 }]}>GRAMS</Text>
                         </TouchableOpacity>
 
                         <View style={{ width: '100%', marginBottom: 0 }}>
-                            <FloatingLabelInput
-                                label={`Underweight Max (${tempRangeUnit})`}
-                                icon="scale"
-                                value={tempUnderweight}
-                                onChangeText={setTempUnderweight}
-                                keyboardType="numeric"
-                                backgroundColor={colors.surface}
-                            />
+                            <FloatingLabelInput label={`Underweight Max (${tempRangeUnit})`} icon="scale" value={tempUnderweight} onChangeText={setTempUnderweight} keyboardType="numeric" backgroundColor={colors.surface} />
                         </View>
-
                         <View style={{ width: '100%', marginBottom: 8 }}>
-                            <FloatingLabelInput
-                                label={`Overweight Min (${tempRangeUnit})`}
-                                icon="scale"
-                                value={tempOverweight}
-                                onChangeText={setTempOverweight}
-                                keyboardType="numeric"
-                                backgroundColor={colors.surface}
-                            />
+                            <FloatingLabelInput label={`Overweight Min (${tempRangeUnit})`} icon="scale" value={tempOverweight} onChangeText={setTempOverweight} keyboardType="numeric" backgroundColor={colors.surface} />
                         </View>
 
-                        {/* Actions - Side by Side */}
                         <View style={[aniweighStyles.actionContainer, { width: '100%' }]}>
-                            <TouchableOpacity
-                                style={[aniweighStyles.btn, { backgroundColor: colors.cardFill }]}
-                                onPress={() => setRangeSettingsVisible(false)}
-                                activeOpacity={0.7}
-                            >
+                            <TouchableOpacity style={[aniweighStyles.btn, { backgroundColor: colors.cardFill }]} onPress={() => setRangeSettingsVisible(false)} activeOpacity={0.7}>
                                 <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
                             </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={[aniweighStyles.btn, { backgroundColor: colors.primary }]}
-                                onPress={handleSaveRanges}
-                                activeOpacity={0.7}
-                            >
+                            <TouchableOpacity style={[aniweighStyles.btn, { backgroundColor: colors.primary }]} onPress={handleSaveRanges} activeOpacity={0.7}>
                                 <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Save</Text>
                             </TouchableOpacity>
                         </View>
@@ -611,14 +841,14 @@ export default function AniWeighScreen() {
                 </View>
             </Modal>
 
-            {/* Edit Field Modal */}
+            {/* Edit Animal Type / Housing */}
             {editTarget && (
                 <SelectionModal
                     visible={editModalVisible}
                     onClose={() => setEditModalVisible(false)}
-                    onSelect={(val) => handleEditConfirmClick(val)}
+                    onSelect={handleEditConfirm}
                     title={`Edit ${editTarget}`}
-                    description={`Change the value for ${editTarget}.`}
+                    description={`Select a new ${editTarget.toLowerCase()} for this device.`}
                     icon="edit"
                     options={getEditOptions()}
                     selectedValue={editTarget === 'Animal Type' ? animalType : housing}
@@ -626,13 +856,7 @@ export default function AniWeighScreen() {
                 />
             )}
 
-            {/* Snackbar Overlay */}
-            <Snackbar
-                visible={snackbarVisible}
-                message={snackbarMessage}
-                type={snackbarType}
-                onDismiss={() => setSnackbarVisible(false)}
-            />
+            <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
         </SafeAreaView>
     );
 }

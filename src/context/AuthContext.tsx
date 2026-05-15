@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { Platform } from 'react-native';
 import { UserProfile, BaseUserRole, SystemConfig } from '@/types/auth';
 import { supabase } from '@/lib/supabase';
@@ -89,9 +89,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const refreshProfile = async () => {
-    // Note: This requires a 'users' table in your Supabase database
     const currentUser = (await supabase.auth.getUser()).data.user;
-    if (!currentUser || !currentUser.email_confirmed_at) return;
+    if (!currentUser) return;
+    // OAuth users (Google) skip email confirmation flow — treat them as confirmed
+    const isOAuthUser = (currentUser.app_metadata?.provider !== 'email');
+    if (!isOAuthUser && !currentUser.email_confirmed_at) return;
 
     try {
       const { data, error } = await supabase
@@ -127,7 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           first_name: firstName,
           last_name: lastName,
           username: (currentUser.email?.split('@')[0] || 'user') + Math.floor(Math.random() * 1000),
-          role: 'caretaker',
+          role: 'farm_admin',
           status: 'active',
           platform: Platform.OS === 'web' ? 'web' : 'mobile',
           custom_permissions: { add: [], remove: [] },
@@ -138,7 +140,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const { data: createdData, error: createError } = await supabase
           .from('users')
-          .insert(newProfile)
+          .upsert(newProfile, { onConflict: 'id' })
           .select()
           .single();
 
@@ -347,18 +349,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return data?.all ?? [];
   };
 
+  const ADMIN_ROLES = useMemo(() => ['super_admin', 'farm_admin', 'admin'], []);
+
+  const rawPermissions = useMemo<Record<string, boolean>>(
+    () => (profile as any)?.permissions ?? {},
+    [profile]
+  );
+
+  const resolvedPermissions = useMemo<Record<string, boolean>>(
+    () => ADMIN_ROLES.includes(role ?? '')
+      ? { dashboard: true, ani_weigh: true, animals_guide: true, health_records: true, analytics: true, feeding_control: true }
+      : rawPermissions,
+    [role, rawPermissions, ADMIN_ROLES]
+  );
+
+  const effectivePermissionsList = useMemo(
+    () => Object.entries(resolvedPermissions).filter(([, v]) => v === true).map(([k]) => k),
+    [resolvedPermissions]
+  );
+
+  const hasPermission = useCallback((key: string) => {
+    if (!role) return false;
+    if (ADMIN_ROLES.includes(role)) return true;
+    return resolvedPermissions[key] === true;
+  }, [role, resolvedPermissions, ADMIN_ROLES]);
+
   return (
     <AuthContext.Provider value={{
       user,
       session,
       profile,
       role,
-      permissions: {},
-      effectivePermissions: [],
+      permissions: resolvedPermissions,
+      effectivePermissions: effectivePermissionsList,
       systemConfig: null,
       isLoading,
       refreshProfile,
-      hasPermission: (key) => true,
+      hasPermission,
       signIn,
       signInWithGoogle,
       signOut,

@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -12,7 +11,6 @@ export default function LanguageScreen() {
     const languageStyles = useSettingsSubPageStyles();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
-    const router = useRouter();
 
     const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'fil'>('en');
 
@@ -22,7 +20,7 @@ export default function LanguageScreen() {
                 {/* Header */}
                 <View style={languageStyles.header}>
                     <View style={{ width: 44, height: 44 }}>
-                        <BackButton onPress={() => router.back()} />
+                        <BackButton fallbackRoute="/(dashboard)/HomeScreen" />
                     </View>
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                         Language
