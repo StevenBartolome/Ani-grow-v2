@@ -53,12 +53,11 @@ export function AIInsightCard({
   }, [fetch, staticContent]);
 
   // Determine colors based on variant
-  let gradientColors = [colors.primary, '#43A047'];
-  if (variant === 'purple') {
-    gradientColors = [colors.prediction || '#8E24AA', '#BA68C8'];
-  } else if (variant === 'orange') {
-    gradientColors = [colors.warning || '#F39C12', '#F39C12'];
-  }
+  const gradientColors = variant === 'purple'
+    ? [colors.prediction || '#8E24AA', '#BA68C8'] as [string, string]
+    : variant === 'orange'
+    ? [colors.warning || '#F39C12', '#F39C12'] as [string, string]
+    : [colors.primary, '#43A047'] as [string, string];
 
   const splitInsight = (text: string) => {
     if (!text) return { headline: '', body: '' };
