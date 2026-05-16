@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { BackButton } from '@/components/BackButton';
 import { SelectionModal } from '@/components/SelectionModal';
+import { AIInsightCard } from '@/components/AIInsightCard';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
@@ -318,23 +319,11 @@ export default function GrowthReportScreen() {
                     </View>
                 </View>
 
-                {/* AniBot Insight */}
-                <LinearGradient
-                    colors={[colors.primary, '#43A047']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={animalStyles.insightCard}
-                >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                        <View style={animalStyles.insightIconBox}>
-                            <MaterialIcons name="auto-awesome" size={20} color="#FFF" />
-                        </View>
-                        <Text style={[textStyles.h3, { color: '#FFF', marginLeft: 12 }]}>AniBot Insight</Text>
-                    </View>
-                    <Text style={[textStyles.body, { color: '#FFF', opacity: 0.9, lineHeight: 22 }]}>
-                        Your animals are showing steady growth. The normal group is exceeding weight targets by 2%. Monitor the underweight group for feed competition.
-                    </Text>
-                </LinearGradient>
+                <AIInsightCard 
+                    title="AniBot Insight"
+                    staticContent="Your animals are showing steady growth. The normal group is exceeding weight targets by 2%. Monitor the underweight group for feed competition."
+                    variant="green"
+                />
 
             </ScrollView>
 

@@ -1,9 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     ActivityIndicator, Modal, RefreshControl, ScrollView, Text,
-    TextInput, TouchableOpacity, View,
+    TextInput, TouchableOpacity, View, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -150,6 +150,36 @@ export default function HealthRecordsScreen() {
     const [addSeverity,   setAddSeverity]   = useState<Severity>('low');
     const [addDate,       setAddDate]       = useState(new Date().toISOString().split('T')[0]);
     const [addFollowup,   setAddFollowup]   = useState('');
+
+    // ── Animations ────────────────────────────────────────────────────────────
+    const slideAdd    = useRef(new Animated.Value(600)).current;
+    const slideDetail = useRef(new Animated.Value(600)).current;
+
+    useEffect(() => {
+        if (addVisible) {
+            Animated.spring(slideAdd, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+        } else {
+            slideAdd.setValue(600);
+        }
+    }, [addVisible]);
+
+    useEffect(() => {
+        if (!!detailRecord) {
+            Animated.spring(slideDetail, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+        } else {
+            slideDetail.setValue(600);
+        }
+    }, [detailRecord]);
+
+    const slideTrash  = useRef(new Animated.Value(600)).current;
+
+    useEffect(() => {
+        if (trashVisible) {
+            Animated.spring(slideTrash, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+        } else {
+            slideTrash.setValue(600);
+        }
+    }, [trashVisible]);
 
     // Pickers
     const [typePickerVisible,     setTypePickerVisible]     = useState(false);
@@ -609,7 +639,7 @@ export default function HealthRecordsScreen() {
             )}
 
             {/* ════════════ DETAIL MODAL ════════════ */}
-            <Modal visible={!!detailRecord} transparent animationType="slide">
+            <Modal visible={!!detailRecord} transparent animationType="fade">
                 <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
                     {detailRecord && (() => {
                         const cfg = RECORD_TYPES[detailRecord.record_type];
@@ -617,7 +647,7 @@ export default function HealthRecordsScreen() {
                         const batchName = detailRecord.batch_id ? batchMap[detailRecord.batch_id]?.name ?? '—' : '—';
                         const batchType = detailRecord.batch_id ? batchMap[detailRecord.batch_id]?.animal_type ?? '' : '';
                         return (
-                            <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '85%' }}>
+                            <Animated.View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '85%', transform: [{ translateY: slideDetail }] }}>
                                 {/* Top color strip */}
                                 <View style={{ height: 5, backgroundColor: cfg.color, borderTopLeftRadius: 28, borderTopRightRadius: 28 }} />
 
@@ -719,16 +749,16 @@ export default function HealthRecordsScreen() {
                                         </TouchableOpacity>
                                     </View>
                                 </ScrollView>
-                            </View>
+                            </Animated.View>
                         );
                     })()}
                 </View>
             </Modal>
 
             {/* ════════════ ADD RECORD MODAL ════════════ */}
-            <Modal visible={addVisible} transparent animationType="slide">
+            <Modal visible={addVisible} transparent animationType="fade">
                 <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-                    <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '92%' }}>
+                    <Animated.View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '92%', transform: [{ translateY: slideAdd }] }}>
                         <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 36 }} showsVerticalScrollIndicator={false}>
                             {/* Handle */}
                             <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 20 }} />
@@ -887,7 +917,7 @@ export default function HealthRecordsScreen() {
                                 </TouchableOpacity>
                             </View>
                         </ScrollView>
-                    </View>
+                    </Animated.View>
                 </View>
             </Modal>
 
@@ -988,9 +1018,9 @@ export default function HealthRecordsScreen() {
             />
 
             {/* ════════════ RECENTLY DELETED DRAWER ════════════ */}
-            <Modal visible={trashVisible} transparent animationType="slide">
+            <Modal visible={trashVisible} transparent animationType="fade">
                 <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-                    <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '80%' }}>
+                    <Animated.View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '80%', transform: [{ translateY: slideTrash }] }}>
                         {/* Handle */}
                         <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12 }} />
 
@@ -1085,7 +1115,7 @@ export default function HealthRecordsScreen() {
                                 })
                             )}
                         </ScrollView>
-                    </View>
+                    </Animated.View>
                 </View>
             </Modal>
 

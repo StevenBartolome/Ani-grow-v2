@@ -7,6 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { BackButton } from '@/components/BackButton';
 import { SelectionModal } from '@/components/SelectionModal';
+import { AIInsightCard } from '@/components/AIInsightCard';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
@@ -201,23 +202,11 @@ export default function FeedReportScreen() {
                     </View>
                 </View>
 
-                {/* Consumption Insight */}
-                <LinearGradient
-                    colors={[colors.primary, '#43A047']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={animalStyles.insightCard}
-                >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                        <View style={animalStyles.insightIconBox}>
-                            <MaterialIcons name="auto-awesome" size={20} color="#FFF" />
-                        </View>
-                        <Text style={[textStyles.h3, { color: '#FFF', marginLeft: 12 }]}>AniBot Analysis</Text>
-                    </View>
-                    <Text style={[textStyles.body, { color: '#FFF', opacity: 0.9, lineHeight: 22 }]}>
-                        Normal weight group consumed 68% of total feed (B-Meg). Underweight group shows steady intake of Purina (Booster).
-                    </Text>
-                </LinearGradient>
+                <AIInsightCard 
+                    title="AniBot Analysis"
+                    staticContent="Normal weight group consumed 68% of total feed (B-Meg). Underweight group shows steady intake of Purina (Booster)."
+                    variant="green"
+                />
 
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, marginTop: 16, marginBottom: 16 }]}>Feed Cost</Text>
 
@@ -274,23 +263,11 @@ export default function FeedReportScreen() {
                     </View>
                 </View>
 
-                {/* Cost Insight */}
-                <LinearGradient
-                    colors={[colors.warning, '#F97316']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={animalStyles.insightCard}
-                >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                        <View style={animalStyles.insightIconBox}>
-                            <MaterialIcons name="auto-awesome" size={20} color="#FFF" />
-                        </View>
-                        <Text style={[textStyles.h3, { color: '#FFF', marginLeft: 12 }]}>Cost Efficiency</Text>
-                    </View>
-                    <Text style={[textStyles.body, { color: '#FFF', opacity: 0.9, lineHeight: 22 }]}>
-                        Total cost is optimized. Purina (Booster) for underweight animals cost ₱42.50/kg, which is investment-heavy but necessary for recovery.
-                    </Text>
-                </LinearGradient>
+                <AIInsightCard 
+                    title="Cost Efficiency"
+                    staticContent="Total cost is optimized. Purina (Booster) for underweight animals cost ₱42.50/kg, which is investment-heavy but necessary for recovery."
+                    variant="orange"
+                />
 
             </ScrollView>
 

@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
+import { AIInsightCard } from '@/components/AIInsightCard';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useGuideStyles } from '@/styles/guideStyles';
@@ -211,25 +212,13 @@ export default function GuideScreen() {
                         </View>
                     </View>
 
-                    {/* AniBot Insight */}
-                    <LinearGradient
-                        colors={[colors.primary, '#43A047']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.insightCard}
-                    >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                            <View style={styles.insightIconBox}>
-                                <MaterialIcons name="auto-awesome" size={20} color="#FFF" />
-                            </View>
-                            <Text style={[textStyles.h3, { color: '#FFF', marginLeft: 12 }]}>AniBot Insight</Text>
-                        </View>
-                        <Text style={[textStyles.body, { color: '#FFF', opacity: 0.9, lineHeight: 22 }]}>
-                            {animalFilter === 'Pigs' 
-                                ? "For Day 22, piglets are rapidly gaining weight. Ensure the creeping feeder is well-stocked and water flow rate is optimal to support their growing digestion."
-                                : "At Day 22, your flock is transitioning well into the Booster Phase. Start gradually dropping the ambient temperature and double check the hanging feeders for any blockages."}
-                        </Text>
-                    </LinearGradient>
+                    <AIInsightCard 
+                        title="AniBot Insight"
+                        staticContent={animalFilter === 'Pigs' 
+                            ? "For Day 22, piglets are rapidly gaining weight. Ensure the creeping feeder is well-stocked and water flow rate is optimal to support their growing digestion."
+                            : "At Day 22, your flock is transitioning well into the Booster Phase. Start gradually dropping the ambient temperature and double check the hanging feeders for any blockages."}
+                        variant="green"
+                    />
 
                     {/* Timeline List View */}
                     <Text style={[textStyles.h3, { color: colors.text, fontSize: 18, marginBottom: 16 }]}>Growth Phases</Text>

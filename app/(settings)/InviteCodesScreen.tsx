@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -11,6 +11,7 @@ import {
     Text,
     TouchableOpacity,
     View,
+    Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -108,6 +109,17 @@ export default function InviteCodesScreen() {
     const [selectedRole, setSelectedRole] = useState<InviteRole>('caretaker');
     const [permissions, setPermissions] = useState<Permissions>({ ...DEFAULT_PERMISSIONS });
     const [generating, setGenerating] = useState(false);
+
+    // ── Animations ────────────────────────────────────────────────────────────
+    const slideAnim = useRef(new Animated.Value(600)).current;
+
+    useEffect(() => {
+        if (modalVisible) {
+            Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+        } else {
+            slideAnim.setValue(600);
+        }
+    }, [modalVisible]);
 
     const fetchCodes = useCallback(async (isRefresh = false) => {
         if (!farmId) { setLoading(false); return; }
@@ -492,7 +504,7 @@ export default function InviteCodesScreen() {
             <Modal
                 visible={modalVisible}
                 transparent
-                animationType="slide"
+                animationType="fade"
                 onRequestClose={() => setModalVisible(false)}
             >
                 <View style={{
@@ -500,13 +512,14 @@ export default function InviteCodesScreen() {
                     backgroundColor: 'rgba(0,0,0,0.5)',
                     justifyContent: 'flex-end',
                 }}>
-                    <View style={{
+                    <Animated.View style={{
                         backgroundColor: colors.surface,
                         borderTopLeftRadius: 28,
                         borderTopRightRadius: 28,
                         padding: 24,
                         paddingBottom: 40,
                         maxHeight: '85%',
+                        transform: [{ translateY: slideAnim }],
                     }}>
                         {/* Modal handle */}
                         <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginBottom: 20 }} />
@@ -647,7 +660,7 @@ export default function InviteCodesScreen() {
                                 </TouchableOpacity>
                             </View>
                         </ScrollView>
-                    </View>
+                    </Animated.View>
                 </View>
             </Modal>
         </SafeAreaView>

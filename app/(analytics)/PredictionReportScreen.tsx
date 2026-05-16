@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { BackButton } from '@/components/BackButton';
 import { SelectionModal } from '@/components/SelectionModal';
+import { AIInsightCard } from '@/components/AIInsightCard';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
@@ -259,23 +260,11 @@ export default function PredictionReportScreen() {
                     </View>
                 </View>
 
-                {/* AniBot Insight */}
-                <LinearGradient
-                    colors={[colors.prediction || '#8E24AA', '#BA68C8']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={animalStyles.insightCard}
-                >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                        <View style={animalStyles.insightIconBox}>
-                            <MaterialIcons name="auto-awesome" size={20} color="#FFF" />
-                        </View>
-                        <Text style={[textStyles.h3, { color: '#FFF', marginLeft: 12 }]}>AniBot Prediction</Text>
-                    </View>
-                    <Text style={[textStyles.body, { color: '#FFF', opacity: 0.9, lineHeight: 22 }]}>
-                        Based on current feeding trends, your {animalType.toLowerCase()} will reach optimal harvest weight 4 days earlier than initially expected. Consider adjusting the feed mixture in the final week for fat marbling.
-                    </Text>
-                </LinearGradient>
+                <AIInsightCard 
+                    title="AniBot Prediction"
+                    staticContent={`Based on current feeding trends, your ${animalType.toLowerCase()} will reach optimal harvest weight 4 days earlier than initially expected. Consider adjusting the feed mixture in the final week for fat marbling.`}
+                    variant="purple"
+                />
 
             </ScrollView>
 
