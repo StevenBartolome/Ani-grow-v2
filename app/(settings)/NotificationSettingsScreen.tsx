@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { ScrollView, Switch, Text, View } from 'react-native';
+﻿import React, { useState } from 'react';
+import { ScrollView, Switch, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
 import { useTextStyles } from '@/constants/textStyles';

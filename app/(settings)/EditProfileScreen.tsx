@@ -1,7 +1,8 @@
-import { MaterialIcons } from '@expo/vector-icons';
+﻿import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect } from 'react';
-import { ScrollView, Text, TouchableOpacity, View, TextInput } from 'react-native';
+import { ScrollView, TouchableOpacity, View, TextInput } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { BackButton } from '@/components/BackButton';
@@ -128,8 +129,7 @@ export default function EditProfileScreen() {
                                             style={[
                                                 textStyles.h2, 
                                                 { 
-                                                    color: colors.text, 
-                                                    fontSize: 16, 
+                                                    color: colors.text, fontSize: 16, 
                                                     minWidth: 100, 
                                                     padding: 0, 
                                                     margin: 0, 

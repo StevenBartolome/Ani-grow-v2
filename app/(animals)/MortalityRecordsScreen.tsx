@@ -6,7 +6,6 @@ import {
     Modal,
     RefreshControl,
     ScrollView,
-    Text,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -17,6 +16,7 @@ import ActionModal, { ActionModalType } from '@/components/ActionModal';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import { SelectionModal } from '@/components/SelectionModal';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
+import { Text } from '@/components/Text';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { supabase } from '@/lib/supabase';

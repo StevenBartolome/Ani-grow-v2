@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -152,8 +153,7 @@ export default function GuideScreen() {
                         ]}
                     >
                         <Text style={[
-                            styles.filterChipText,
-                            animalFilter === filter && styles.filterChipTextActive
+                            styles.filterChipText, animalFilter === filter && styles.filterChipTextActive
                         ]}>
                             {filter}
                         </Text>

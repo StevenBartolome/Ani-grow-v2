@@ -8,11 +8,11 @@ import {
     RefreshControl,
     ScrollView,
     Switch,
-    Text,
     TouchableOpacity,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Text } from '@/components/Text';
 
 import { BackButton } from '@/components/BackButton';
 import { useTextStyles } from '@/constants/textStyles';
@@ -227,8 +227,7 @@ export default function InviteCodesScreen() {
                         <Text style={{
                             fontFamily: 'Poppins-Bold',
                             fontSize: 20,
-                            color: colors.text,
-                            letterSpacing: 2,
+                            color: colors.text, letterSpacing: 2,
                         }}>
                             {invite.code}
                         </Text>
@@ -523,8 +522,7 @@ export default function InviteCodesScreen() {
                             <Text style={{
                                 fontFamily: 'Poppins-SemiBold',
                                 fontSize: 13,
-                                color: colors.text,
-                                marginBottom: 10,
+                                color: colors.text, marginBottom: 10,
                             }}>
                                 Role
                             </Text>
@@ -563,8 +561,7 @@ export default function InviteCodesScreen() {
                             <Text style={{
                                 fontFamily: 'Poppins-SemiBold',
                                 fontSize: 13,
-                                color: colors.text,
-                                marginBottom: 10,
+                                color: colors.text, marginBottom: 10,
                             }}>
                                 Permissions
                             </Text>

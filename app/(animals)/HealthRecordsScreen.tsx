@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-    ActivityIndicator, Modal, RefreshControl, ScrollView, Text,
+    ActivityIndicator, Modal, RefreshControl, ScrollView,
     TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import { BackButton } from '@/components/BackButton';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import ActionModal from '@/components/ActionModal';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
+import { Text } from '@/components/Text';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnimalStyles } from '@/styles/animalStyles';
@@ -342,8 +343,7 @@ export default function HealthRecordsScreen() {
         borderRadius: 14,
         paddingHorizontal: 14,
         paddingVertical: 12,
-        color: colors.text,
-        fontFamily: 'Poppins-Regular' as const,
+        color: colors.text, fontFamily: 'Poppins-Regular' as const,
         fontSize: 14,
         backgroundColor: colors.inputFill,
     });

@@ -7,11 +7,11 @@ import {
     Pressable,
     RefreshControl,
     ScrollView,
-    Text,
     TouchableOpacity,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Text } from '@/components/Text';
 
 import { useAuth } from '@/context/AuthContext';
 import { useTextStyles } from '@/constants/textStyles';

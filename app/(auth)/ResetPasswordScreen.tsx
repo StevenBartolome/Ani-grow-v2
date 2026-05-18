@@ -6,7 +6,6 @@ import {
   Platform,
   SafeAreaView,
   ScrollView,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -15,6 +14,7 @@ import {
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import Snackbar from '@/components/Snackbar';
+import { Text } from '@/components/Text';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -311,8 +311,7 @@ export default function ResetPasswordScreen() {
                                 textStyles.h1, 
                                 { 
                                   fontSize: 28, 
-                                  color: isFocused ? colors.primary : colors.text,
-                                  lineHeight: 34
+                                  color: isFocused ? colors.primary : colors.text, lineHeight: 34
                                 }
                               ]}
                             >

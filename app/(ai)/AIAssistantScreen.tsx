@@ -10,7 +10,6 @@ import {
     Platform,
     Pressable,
     ScrollView,
-    Text,
     TextInput,
     TouchableOpacity,
     View,
@@ -19,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { Text } from '@/components/Text';
 import { anibotChat, ChatMessage, NavLink } from '@/lib/ai';
 import { useAIAssistantStyles, SIDEBAR_W as _SIDEBAR_W, HISTORY_MAX as _HISTORY_MAX } from '@/styles/aiAssistantStyles';
 
@@ -387,8 +387,7 @@ function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, o
                                                     <Text numberOfLines={1} style={{
                                                         fontFamily: isActive ? 'Poppins-Medium' : 'Poppins-Regular',
                                                         fontSize: 13,
-                                                        color: isActive ? colors.primary : colors.text,
-                                                    }}>
+                                                        color: isActive ? colors.primary : colors.textGrey }}>
                                                         {conv.title}
                                                     </Text>
                                                     <Text numberOfLines={1} style={{
@@ -569,8 +568,10 @@ export default function AIAssistantScreen() {
             const apiMsgs = history.map(({ role, content }) => ({ role, content }));
             const reply   = await anibotChat(apiMsgs, { farmId, farmName, userId });
             const botMsg: StoredMessage = {
-                role: 'assistant', content: reply.text, ts: Date.now(),
-                navigation: reply.navigation.length > 0 ? reply.navigation : undefined,
+                role: 'assistant',
+                content: reply.text,
+                ts: Date.now(),
+                navigation: reply.navigation && reply.navigation.length > 0 ? reply.navigation : undefined,
             };
             const updated = [...history, botMsg];
             setMessages(updated);
