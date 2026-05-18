@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-    ActivityIndicator, Modal, RefreshControl, ScrollView, Text,
+    ActivityIndicator, Modal, Platform, RefreshControl, ScrollView, Text,
     TextInput, TouchableOpacity, View, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,6 +15,7 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnimalStyles } from '@/styles/animalStyles';
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -70,6 +71,48 @@ interface HealthRecord {
 
 const TRASH_DAYS = 30; // auto-purge after this many days
 
+const COMMON_VACCINES = [
+    // Poultry / Chicken
+    'Newcastle Disease - La Sota (Live)',
+    'Newcastle Disease - B1 (Live)',
+    'Newcastle Disease - Komarov (Killed)',
+    'Gumboro / Infectious Bursal Disease (IBD) - Live',
+    'Gumboro / Infectious Bursal Disease (IBD) - Killed',
+    "Marek's Disease",
+    'Infectious Bronchitis (IB) - H120',
+    'Infectious Bronchitis (IB) - Massachusetts',
+    'Avian Influenza H5N1 (Killed)',
+    'Avian Influenza H5N2 (Killed)',
+    'Fowl Pox',
+    'Fowl Cholera (Pasteurella multocida)',
+    'Infectious Laryngotracheitis (ILT)',
+    'Egg Drop Syndrome (EDS-76)',
+    'Avian Encephalomyelitis (AE)',
+    'Mycoplasma Gallisepticum (MG)',
+    'Infectious Coryza (IC)',
+    // Pigs
+    'Hog Cholera / Classical Swine Fever (CSF)',
+    'Foot and Mouth Disease (FMD)',
+    "Pseudorabies / Aujeszky's Disease",
+    'PRRS - Porcine Reproductive & Respiratory Syndrome',
+    'Swine Erysipelas',
+    'Porcine Parvovirus (PPV)',
+    'PCV2 - Porcine Circovirus Type 2',
+    'Mycoplasma hyopneumoniae',
+    'Actinobacillus pleuropneumoniae (APP)',
+    "Haemophilus parasuis / Glässer's Disease",
+    'Swine Influenza (SIV)',
+    'E. coli / Colibacillosis (Neonatal Diarrhea)',
+    'Streptococcus suis',
+    'Transmissible Gastroenteritis (TGE)',
+    'Bordetella bronchiseptica (Atrophic Rhinitis)',
+    // General
+    'Rabies',
+    'Anthrax',
+    'Tetanus',
+    'Leptospirosis',
+];
+
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
 const fmtDate = (d: string) =>
@@ -90,6 +133,99 @@ const LabeledField = ({ label, value, color }: { label: string; value: string; c
     );
 };
 
+// ─── DatePickerField ──────────────────────────────────────────────────────────
+
+function DatePickerField({
+    label, value, onChange, required,
+}: { label: string; value: string; onChange: (d: string) => void; required?: boolean }) {
+    const { colors } = useTheme();
+    const border = value ? colors.primary : colors.stroke;
+    const bg     = value ? colors.primary + '0A' : colors.cardFill;
+    // On web, pass type="date" as an extra prop — react-native-web forwards it to
+    // the underlying <input> DOM element, giving a native browser date picker.
+    const webProps = Platform.OS === 'web' ? ({ type: 'date' } as any) : {};
+    return (
+        <View>
+            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 11, color: colors.textGrey, marginBottom: 5, letterSpacing: 0.5 }}>
+                {label}{required ? ' *' : ''}
+            </Text>
+            <TextInput
+                {...webProps}
+                style={{ borderWidth: 1.5, borderColor: border, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: bg, fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text }}
+                value={value}
+                onChangeText={onChange}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={colors.textGrey}
+                keyboardType="numeric"
+            />
+        </View>
+    );
+}
+
+// ─── VaccinePickerModal ───────────────────────────────────────────────────────
+
+function VaccinePickerModal({
+    visible, search, onSearch, onSelect, onClose, colors,
+}: {
+    visible: boolean; search: string; onSearch: (s: string) => void;
+    onSelect: (name: string) => void; onClose: () => void; colors: any;
+}) {
+    const filtered = COMMON_VACCINES.filter(v => v.toLowerCase().includes(search.toLowerCase()));
+    return (
+        <Modal visible={visible} transparent animationType="fade">
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+                <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', paddingBottom: 24 }}>
+                    <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
+                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: 12 }}>Select Vaccine</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.primary, borderRadius: 14, marginHorizontal: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8, backgroundColor: colors.cardFill }}>
+                        <MaterialIcons name="search" size={18} color={colors.primary} style={{ marginRight: 6 }} />
+                        <TextInput
+                            style={{ flex: 1, fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text }}
+                            placeholder="Search vaccine…"
+                            placeholderTextColor={colors.textGrey}
+                            value={search}
+                            onChangeText={onSearch}
+                            autoFocus
+                        />
+                        {search.length > 0 && (
+                            <TouchableOpacity onPress={() => onSearch('')}>
+                                <MaterialIcons name="close" size={16} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                        {search.trim().length > 0 && !COMMON_VACCINES.includes(search.trim()) && (
+                            <TouchableOpacity
+                                onPress={() => onSelect(search.trim())}
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.stroke }}
+                            >
+                                <MaterialIcons name="add-circle-outline" size={18} color={colors.primary} />
+                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 14, color: colors.primary }}>Use "{search.trim()}"</Text>
+                            </TouchableOpacity>
+                        )}
+                        {filtered.map((vaccine, i) => (
+                            <TouchableOpacity
+                                key={i}
+                                onPress={() => onSelect(vaccine)}
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: colors.stroke + '60' }}
+                            >
+                                <MaterialIcons name="vaccines" size={16} color="#27AE60" />
+                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text, flex: 1 }}>{vaccine}</Text>
+                            </TouchableOpacity>
+                        ))}
+                        {filtered.length === 0 && search.length > 0 && (
+                            <Text style={{ textAlign: 'center', color: colors.textGrey, fontFamily: 'Poppins-Regular', fontSize: 13, marginTop: 20 }}>No match — type above to use custom name</Text>
+                        )}
+                    </ScrollView>
+                    <TouchableOpacity onPress={onClose} style={{ marginHorizontal: 20, marginTop: 12, paddingVertical: 13, borderRadius: 14, backgroundColor: colors.cardFill, alignItems: 'center' }}>
+                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.textGrey }}>Cancel</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </Modal>
+    );
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function HealthRecordsScreen() {
@@ -99,8 +235,9 @@ export default function HealthRecordsScreen() {
     const textStyles  = useTextStyles();
     const styles      = useAnimalStyles();
     const { profile } = useAuth();
+    const { activeFarmIds } = useFarmFilter();
 
-    const farmId = (profile as any)?.farm_id;
+    const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const userId = (profile as any)?.uid || (profile as any)?.id;
 
     // ── Data state ────────────────────────────────────────────────────────────
@@ -150,6 +287,8 @@ export default function HealthRecordsScreen() {
     const [addSeverity,   setAddSeverity]   = useState<Severity>('low');
     const [addDate,       setAddDate]       = useState(new Date().toISOString().split('T')[0]);
     const [addFollowup,   setAddFollowup]   = useState('');
+    const [vaccineSearch,        setVaccineSearch]        = useState('');
+    const [vaccinePickerVisible, setVaccinePickerVisible] = useState(false);
 
     // ── Animations ────────────────────────────────────────────────────────────
     const slideAdd    = useRef(new Animated.Value(600)).current;
@@ -259,6 +398,10 @@ export default function HealthRecordsScreen() {
     const handleAdd = async () => {
         if (!addTitle.trim())   { showSnackbar('Please enter a title.', 'error');  return; }
         if (!addBatchId)        { showSnackbar('Please select a batch.', 'error'); return; }
+        if (addAffected && selectedAddBatch && parseInt(addAffected) > selectedAddBatch.current_count) {
+            showSnackbar(`Animals affected (${addAffected}) exceeds available count (${selectedAddBatch.current_count}).`, 'error');
+            return;
+        }
         setIsSaving(true);
         try {
             const { error } = await supabase.from('health_records').insert({
@@ -277,6 +420,20 @@ export default function HealthRecordsScreen() {
                 recorded_by:    userId,
             });
             if (error) throw error;
+            // Sync to vaccination_records for web visibility (best-effort)
+            if (addType === 'vaccination') {
+                supabase.from('vaccination_records').insert({
+                    farm_id: farmId || null,
+                    batch_id: addBatchId || null,
+                    housing_id: (selectedAddBatch as any)?.housing_id || null,
+                    vaccine_name: addTitle.trim(),
+                    administered_date: addDate,
+                    animals_vaccinated: addAffected ? parseInt(addAffected) : null,
+                    dose_per_animal: addDosage ? parseFloat(addDosage) : null,
+                    unit: 'ml',
+                    notes: addNotes.trim() || null,
+                }).then(() => {}); // fire and forget
+            }
             showSnackbar('Health record added successfully.');
             setAddVisible(false);
             resetForm();
@@ -796,37 +953,59 @@ export default function HealthRecordsScreen() {
                                 <MaterialIcons name="keyboard-arrow-down" size={22} color={colors.textGrey} />
                             </TouchableOpacity>
 
-                            {/* ── Title ── */}
-                            {fieldLabel('TITLE *')}
-                            <TextInput
-                                style={[inputStyle(!!addTitle), { marginBottom: 14 }]}
-                                placeholder={RECORD_TYPES[addType].hint}
-                                placeholderTextColor={colors.textGrey}
-                                value={addTitle}
-                                onChangeText={setAddTitle}
-                            />
+                            {/* ── Title / Vaccine Name ── */}
+                            {fieldLabel(addType === 'vaccination' ? 'VACCINE NAME *' : 'TITLE *')}
+                            {addType === 'vaccination' ? (
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={[inputStyle(!!addTitle), { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }]}
+                                    onPress={() => { setVaccineSearch(addTitle); setVaccinePickerVisible(true); }}
+                                >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                                        <MaterialIcons name="vaccines" size={18} color={addTitle ? '#27AE60' : colors.textGrey} />
+                                        <Text style={{ color: addTitle ? colors.text : colors.textGrey, fontFamily: 'Poppins-Regular', fontSize: 14 }} numberOfLines={1}>
+                                            {addTitle || 'Select vaccine…'}
+                                        </Text>
+                                    </View>
+                                    <MaterialIcons name="keyboard-arrow-down" size={22} color={colors.textGrey} />
+                                </TouchableOpacity>
+                            ) : (
+                                <TextInput
+                                    style={[inputStyle(!!addTitle), { marginBottom: 14 }]}
+                                    placeholder={RECORD_TYPES[addType].hint}
+                                    placeholderTextColor={colors.textGrey}
+                                    value={addTitle}
+                                    onChangeText={setAddTitle}
+                                />
+                            )}
 
-                            {/* ── Medication + Dosage ── */}
-                            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 14 }}>
-                                <View style={{ flex: 1 }}>
-                                    {fieldLabel('MEDICATION / VACCINE')}
+                            {/* ── Medication (non-vaccination only) + Dosage in ml ── */}
+                            {addType !== 'vaccination' && (
+                                <View style={{ marginBottom: 14 }}>
+                                    {fieldLabel('MEDICATION')}
                                     <TextInput
                                         style={inputStyle(!!addMed)}
-                                        placeholder="Drug or vaccine name"
+                                        placeholder="Drug name"
                                         placeholderTextColor={colors.textGrey}
                                         value={addMed}
                                         onChangeText={setAddMed}
                                     />
                                 </View>
-                                <View style={{ flex: 1 }}>
-                                    {fieldLabel('DOSAGE')}
+                            )}
+                            <View style={{ marginBottom: 14 }}>
+                                {fieldLabel('DOSAGE PER ANIMAL (ml)')}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: addDosage ? colors.primary : colors.stroke, borderRadius: 14, backgroundColor: addDosage ? colors.primary + '0A' : colors.cardFill, overflow: 'hidden' }}>
                                     <TextInput
-                                        style={inputStyle(!!addDosage)}
-                                        placeholder="e.g. 0.5ml / head"
+                                        style={{ flex: 1, paddingHorizontal: 14, paddingVertical: 12, fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text }}
+                                        placeholder="0.00"
                                         placeholderTextColor={colors.textGrey}
                                         value={addDosage}
-                                        onChangeText={setAddDosage}
+                                        onChangeText={t => setAddDosage(t.replace(/[^0-9.]/g, ''))}
+                                        keyboardType="decimal-pad"
                                     />
+                                    <View style={{ paddingHorizontal: 12, paddingVertical: 12, backgroundColor: colors.cardFill, borderLeftWidth: 1, borderLeftColor: colors.stroke }}>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.textGrey }}>ml</Text>
+                                    </View>
                                 </View>
                             </View>
 
@@ -835,13 +1014,18 @@ export default function HealthRecordsScreen() {
                                 <View style={{ flex: 1 }}>
                                     {fieldLabel('ANIMALS AFFECTED')}
                                     <TextInput
-                                        style={inputStyle(!!addAffected)}
+                                        style={[inputStyle(!!addAffected), selectedAddBatch != null && addAffected !== '' && parseInt(addAffected) > selectedAddBatch.current_count ? { borderColor: colors.error, backgroundColor: colors.error + '0A' } : {}]}
                                         placeholder={selectedAddBatch ? `Max ${selectedAddBatch.current_count}` : 'Count'}
                                         placeholderTextColor={colors.textGrey}
                                         value={addAffected}
                                         onChangeText={t => setAddAffected(t.replace(/[^0-9]/g, ''))}
                                         keyboardType="numeric"
                                     />
+                                    {selectedAddBatch != null && addAffected !== '' && parseInt(addAffected) > selectedAddBatch.current_count && (
+                                        <Text style={{ color: colors.error, fontSize: 10, fontFamily: 'Poppins-Regular', marginTop: 3 }}>
+                                            {'Exceeds ' + selectedAddBatch.current_count + ' available'}
+                                        </Text>
+                                    )}
                                 </View>
                                 <View style={{ flex: 1 }}>
                                     {fieldLabel('SEVERITY *')}
@@ -864,24 +1048,10 @@ export default function HealthRecordsScreen() {
                             {/* ── Date + Follow-up ── */}
                             <View style={{ flexDirection: 'row', gap: 12, marginBottom: 14 }}>
                                 <View style={{ flex: 1 }}>
-                                    {fieldLabel('DATE RECORDED *')}
-                                    <TextInput
-                                        style={inputStyle(!!addDate)}
-                                        value={addDate}
-                                        onChangeText={setAddDate}
-                                        placeholder="YYYY-MM-DD"
-                                        placeholderTextColor={colors.textGrey}
-                                    />
+                                    <DatePickerField label="DATE RECORDED" value={addDate} onChange={setAddDate} required />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    {fieldLabel('FOLLOW-UP DATE')}
-                                    <TextInput
-                                        style={inputStyle(!!addFollowup)}
-                                        value={addFollowup}
-                                        onChangeText={setAddFollowup}
-                                        placeholder="YYYY-MM-DD"
-                                        placeholderTextColor={colors.textGrey}
-                                    />
+                                    <DatePickerField label="FOLLOW-UP DATE" value={addFollowup} onChange={setAddFollowup} />
                                 </View>
                             </View>
 
@@ -1120,6 +1290,16 @@ export default function HealthRecordsScreen() {
             </Modal>
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
+
+            {/* ── Vaccine Picker ── */}
+            <VaccinePickerModal
+                visible={vaccinePickerVisible}
+                search={vaccineSearch}
+                onSearch={setVaccineSearch}
+                onSelect={name => { setAddTitle(name); setVaccinePickerVisible(false); setVaccineSearch(''); }}
+                onClose={() => { setVaccinePickerVisible(false); setVaccineSearch(''); }}
+                colors={colors}
+            />
         </SafeAreaView>
     );
 }

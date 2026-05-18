@@ -10,6 +10,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAnimalStyles } from '@/styles/animalStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
 
 interface HousingSummary {
@@ -32,8 +33,9 @@ export default function AnimalsScreen() {
     const styles = useAnimalStyles();
     const router = useRouter();
     const { profile, permissions, role, isLoading: authLoading } = useAuth();
+    const { activeFarmIds } = useFarmFilter();
 
-    const farmId = (profile as any)?.farm_id;
+    const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
 
     const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
 

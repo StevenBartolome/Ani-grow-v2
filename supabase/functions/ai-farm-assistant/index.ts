@@ -75,70 +75,79 @@ const INSIGHT_SYSTEM = `You are FarmAI, an intelligent agricultural assistant fo
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
+const FARM_ID_PARAM = {
+  farm_id: { type: 'string', description: 'Optional: target a specific farm by ID (multi-farm admins only). Omit to use the primary active farm.' },
+};
+
 const TOOLS = [
   // ── Read tools ──────────────────────────────────────────────────────────────
   {
     name: 'get_farm_overview',
-    description: 'Get farm name, all housings (id, name, animal_type, current_count, capacity, status), and all devices (id, name, type, status). Call this first before any write action that needs IDs.',
-    input_schema: { type: 'object', properties: {}, required: [] },
+    description: 'Get farm name, all housings (id, name, animal_type, current_count, capacity, status), and all devices (id, name, type, status). Call this first before any write action that needs IDs. Multi-farm admins: pass farm_id to query a specific farm.',
+    input_schema: { type: 'object', properties: { ...FARM_ID_PARAM }, required: [] },
   },
   {
     name: 'get_animals',
-    description: 'Get all animal batches with housing info, counts, mortality stats, arrival date, supplier.',
+    description: 'Get all animal batches with housing info, counts, mortality stats, arrival date, supplier. Multi-farm admins: pass farm_id to query a specific farm.',
     input_schema: {
       type: 'object',
       properties: {
         housing_id: { type: 'string', description: 'Optional: filter by housing ID' },
+        ...FARM_ID_PARAM,
       },
     },
   },
   {
     name: 'get_health_records',
-    description: 'Get health records (vaccination, treatment, illness, observation, deworming, vitamins, mortality).',
+    description: 'Get health records (vaccination, treatment, illness, observation, deworming, vitamins, mortality). Multi-farm admins: pass farm_id to query a specific farm.',
     input_schema: {
       type: 'object',
       properties: {
         batch_id: { type: 'string', description: 'Optional: filter by batch ID' },
         record_type: { type: 'string', description: 'Optional: filter by type' },
         limit: { type: 'number', description: 'Max records (default 15)' },
+        ...FARM_ID_PARAM,
       },
     },
   },
   {
     name: 'get_mortality_records',
-    description: 'Get all deceased/mortality events with cause of death, count, date. Also returns per-batch mortality summary.',
+    description: 'Get all deceased/mortality events with cause of death, count, date. Also returns per-batch mortality summary. Multi-farm admins: pass farm_id to query a specific farm.',
     input_schema: {
       type: 'object',
       properties: {
         batch_id: { type: 'string', description: 'Optional: filter by batch ID' },
         limit: { type: 'number', description: 'Max records (default 20)' },
+        ...FARM_ID_PARAM,
       },
     },
   },
   {
     name: 'get_weight_logs',
-    description: 'Get recent weight measurements from AniWeigh scales.',
+    description: 'Get recent weight measurements from AniWeigh scales. Multi-farm admins: pass farm_id to query a specific farm.',
     input_schema: {
       type: 'object',
       properties: {
         limit: { type: 'number', description: 'Max records (default 10)' },
+        ...FARM_ID_PARAM,
       },
     },
   },
   {
     name: 'get_feed_logs',
-    description: 'Get recent feed dispense logs from AniFeed devices.',
+    description: 'Get recent feed dispense logs from AniFeed devices. Multi-farm admins: pass farm_id to query a specific farm.',
     input_schema: {
       type: 'object',
       properties: {
         limit: { type: 'number', description: 'Max records (default 10)' },
+        ...FARM_ID_PARAM,
       },
     },
   },
   {
     name: 'get_feeds',
-    description: 'Get available feed types/inventory registered on the farm (name, brand, category, animal_type, stock_kg, supplier).',
-    input_schema: { type: 'object', properties: {}, required: [] },
+    description: 'Get available feed types/inventory registered on the farm (name, brand, category, animal_type, stock_kg, supplier). Multi-farm admins: pass farm_id to query a specific farm.',
+    input_schema: { type: 'object', properties: { ...FARM_ID_PARAM }, required: [] },
   },
 
   // ── Animal / batch write tools ───────────────────────────────────────────────
@@ -292,7 +301,14 @@ const TOOLS = [
 
 // ─── Tool executor ────────────────────────────────────────────────────────────
 
-async function executeTool(db: any, farmId: string, userId: string, name: string, input: any): Promise<any> {
+async function executeTool(db: any, farmId: string, userId: string, name: string, input: any, allowedFarmIds?: string[]): Promise<any> {
+  // READ tools support an optional farm_id override for multi-farm admins
+  const READ_TOOLS = ['get_farm_overview','get_animals','get_health_records','get_mortality_records','get_weight_logs','get_feed_logs','get_feeds'];
+  const effectiveFarmId = (
+    input.farm_id &&
+    READ_TOOLS.includes(name) &&
+    (allowedFarmIds ?? [farmId]).includes(input.farm_id)
+  ) ? input.farm_id : farmId;
   const today = new Date().toISOString().split('T')[0];
 
   try {
@@ -302,17 +318,17 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
       case 'get_farm_overview': {
         const [farmRes, housingRes, deviceRes] = await Promise.all([
-          db.from('farms').select('name').eq('id', farmId).single(),
-          db.from('housings').select('id, name, animal_type, current_count, capacity, status').eq('farm_id', farmId).order('name'),
-          db.from('devices').select('id, name, type, status').eq('farm_id', farmId),
+          db.from('farms').select('name').eq('id', effectiveFarmId).single(),
+          db.from('housings').select('id, name, animal_type, current_count, capacity, status').eq('farm_id', effectiveFarmId).order('name'),
+          db.from('devices').select('id, name, type, status').eq('farm_id', effectiveFarmId),
         ]);
-        return { farm: farmRes.data, housings: housingRes.data ?? [], devices: deviceRes.data ?? [] };
+        return { farm_id: effectiveFarmId, farm: farmRes.data, housings: housingRes.data ?? [], devices: deviceRes.data ?? [] };
       }
 
       case 'get_animals': {
-        const { data: housings } = await db.from('housings').select('id').eq('farm_id', farmId);
+        const { data: housings } = await db.from('housings').select('id').eq('farm_id', effectiveFarmId);
         const housingIds = (housings ?? []).map((h: any) => h.id);
-        if (housingIds.length === 0) return { batches: [] };
+        if (housingIds.length === 0) return { farm_id: effectiveFarmId, batches: [] };
 
         let query = db
           .from('batches')
@@ -323,6 +339,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
         const { data } = await query;
         return {
+          farm_id: effectiveFarmId,
           batches: (data ?? []).map((b: any) => ({
             ...b,
             total_deceased: Math.max(0, (b.estimated_count ?? 0) - (b.current_count ?? 0)),
@@ -334,11 +351,11 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
       }
 
       case 'get_health_records': {
-        const { data: housings } = await db.from('housings').select('id').eq('farm_id', farmId);
+        const { data: housings } = await db.from('housings').select('id').eq('farm_id', effectiveFarmId);
         const housingIds = (housings ?? []).map((h: any) => h.id);
         const { data: farmBatches } = await db.from('batches').select('id').in('housing_id', housingIds);
         const batchIds = (farmBatches ?? []).map((b: any) => b.id);
-        if (batchIds.length === 0) return { records: [] };
+        if (batchIds.length === 0) return { farm_id: effectiveFarmId, records: [] };
 
         let query = db
           .from('health_records')
@@ -352,11 +369,11 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
         if (input.record_type) query = query.eq('record_type', input.record_type);
 
         const { data } = await query;
-        return { records: data ?? [] };
+        return { farm_id: effectiveFarmId, records: data ?? [] };
       }
 
       case 'get_mortality_records': {
-        const { data: housings } = await db.from('housings').select('id').eq('farm_id', farmId);
+        const { data: housings } = await db.from('housings').select('id').eq('farm_id', effectiveFarmId);
         const housingIds = (housings ?? []).map((h: any) => h.id);
         const { data: farmBatches } = await db
           .from('batches').select('id, name, estimated_count, current_count, housings(name)').in('housing_id', housingIds);
@@ -387,13 +404,13 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
             : '0.0%',
         }));
 
-        return { mortality_events: mortalityEvents ?? [], batch_mortality_summary: batchSummary };
+        return { farm_id: effectiveFarmId, mortality_events: mortalityEvents ?? [], batch_mortality_summary: batchSummary };
       }
 
       case 'get_weight_logs': {
-        const { data: devices } = await db.from('devices').select('id, name').eq('farm_id', farmId).eq('type', 'scale');
+        const { data: devices } = await db.from('devices').select('id, name').eq('farm_id', effectiveFarmId).eq('type', 'scale');
         const deviceIds = (devices ?? []).map((d: any) => d.id);
-        if (deviceIds.length === 0) return { logs: [], message: 'No AniWeigh scales found.' };
+        if (deviceIds.length === 0) return { farm_id: effectiveFarmId, logs: [], message: 'No AniWeigh scales found.' };
 
         const { data } = await db
           .from('weigh_sessions')
@@ -403,13 +420,13 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
           .limit(input.limit ?? 10);
 
         const devMap = Object.fromEntries((devices ?? []).map((d: any) => [d.id, d.name]));
-        return { logs: (data ?? []).map((r: any) => ({ ...r, device_name: devMap[r.device_id] })) };
+        return { farm_id: effectiveFarmId, logs: (data ?? []).map((r: any) => ({ ...r, device_name: devMap[r.device_id] })) };
       }
 
       case 'get_feed_logs': {
-        const { data: devices } = await db.from('devices').select('id, name').eq('farm_id', farmId).eq('type', 'feeder');
+        const { data: devices } = await db.from('devices').select('id, name').eq('farm_id', effectiveFarmId).eq('type', 'feeder');
         const deviceIds = (devices ?? []).map((d: any) => d.id);
-        if (deviceIds.length === 0) return { logs: [], message: 'No AniFeed devices found.' };
+        if (deviceIds.length === 0) return { farm_id: effectiveFarmId, logs: [], message: 'No AniFeed devices found.' };
 
         const { data } = await db
           .from('dispense_records')
@@ -419,17 +436,17 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
           .limit(input.limit ?? 10);
 
         const devMap = Object.fromEntries((devices ?? []).map((d: any) => [d.id, d.name]));
-        return { logs: (data ?? []).map((r: any) => ({ ...r, device_name: devMap[r.device_id] })) };
+        return { farm_id: effectiveFarmId, logs: (data ?? []).map((r: any) => ({ ...r, device_name: devMap[r.device_id] })) };
       }
 
       case 'get_feeds': {
         const { data, error } = await db
           .from('feeds')
           .select('id, name, brand, category, animal_type, stock_kg, supplier')
-          .eq('farm_id', farmId)
+          .eq('farm_id', effectiveFarmId)
           .order('name');
         if (error) return { error: error.message };
-        return { feeds: data ?? [] };
+        return { farm_id: effectiveFarmId, feeds: data ?? [] };
       }
 
       // ── Animal / batch write ─────────────────────────────────────────────────
@@ -747,6 +764,55 @@ serve(async (req: Request) => {
     const { type, context, messages } = await req.json();
     const ctx = context ?? {};
 
+    // ── Audio transcription via Groq Whisper ──────────────────────────────────
+    if (type === 'transcribe') {
+      const groqApiKey = Deno.env.get('GROQ_API_KEY');
+      if (!groqApiKey) {
+        // Graceful degradation — transcription unavailable but don't crash
+        return new Response(JSON.stringify({ transcript: '', unavailable: true }), {
+          status: 200, headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+      const { audioData, mimeType = 'audio/webm' } = ctx;
+      if (!audioData || audioData.length < 100) {
+        return new Response(JSON.stringify({ transcript: '', unavailable: true }), {
+          status: 200, headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+      try {
+        const binaryStr = atob(audioData);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+        const cleanMime = mimeType.split(';')[0].trim(); // strip codecs suffix
+        const ext = cleanMime.split('/').pop() ?? 'webm';
+        const formData = new FormData();
+        formData.append('file', new Blob([bytes], { type: cleanMime }), `audio.${ext}`);
+        formData.append('model', 'whisper-large-v3-turbo');
+        // No 'language' param — auto-detect supports Tagalog, English, and Taglish
+        const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${groqApiKey}` },
+          body: formData,
+        });
+        if (!groqRes.ok) {
+          const errText = await groqRes.text();
+          console.error('[AniBot] Groq error:', errText);
+          return new Response(JSON.stringify({ transcript: '', unavailable: true }), {
+            status: 200, headers: { ...CORS, 'Content-Type': 'application/json' },
+          });
+        }
+        const { text } = await groqRes.json();
+        return new Response(JSON.stringify({ transcript: text ?? '' }), {
+          status: 200, headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      } catch (transcribeErr) {
+        console.error('[AniBot] transcribe error:', transcribeErr);
+        return new Response(JSON.stringify({ transcript: '', unavailable: true }), {
+          status: 200, headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // ── Insight (no tool use) ─────────────────────────────────────────────────
     if (type === 'insight') {
       let system = INSIGHT_SYSTEM;
@@ -766,17 +832,53 @@ serve(async (req: Request) => {
 
     // ── AniBot chat with agentic tool use ─────────────────────────────────────
     if (type === 'chat') {
-      const farmId = ctx.farmId;
-      const userId = ctx.userId ?? '';
+      const farmId  = ctx.farmId ?? ctx.farmIds?.[0];
+      const farmIds: string[] = ctx.farmIds ?? (farmId ? [farmId] : []);
+      const userId  = ctx.userId ?? '';
       if (!farmId) throw new Error('farmId required for AniBot chat');
 
       let system = ANIBOT_SYSTEM;
-      if (ctx.farmName) system += `\n\nFarm name: ${ctx.farmName}`;
+      if (ctx.farmName) system += `\n\nActive farm: ${ctx.farmName}`;
+      const managedFarms: { id: string; name: string }[] = ctx.managedFarms ?? [];
+      if (farmIds.length > 1) {
+        const farmList = farmIds.map((id: string) => {
+          const name = managedFarms.find((f: any) => f.id === id)?.name ?? id;
+          return `• "${name}" (farm_id: ${id})`;
+        }).join('\n');
+        system += `\n\n─── MULTI-FARM ADMIN ───
+You manage ${farmIds.length} farms. The user has selected "All Farms" mode so you can access all of them.
 
-      const loopMessages: any[] = (messages ?? []).map((m: any) => ({
-        role: m.role,
-        content: m.content,
-      }));
+Managed farms:
+${farmList}
+
+Primary/active farm: "${ctx.farmName}" (farm_id: ${farmId})
+
+READ TOOL RULES:
+- All read tools (get_farm_overview, get_animals, get_health_records, get_mortality_records, get_weight_logs, get_feed_logs, get_feeds) accept an optional "farm_id" parameter.
+- To query a specific farm, pass its farm_id. To query the primary farm, omit farm_id.
+- For cross-farm reports (e.g. "give me a summary of all farms"), call each read tool once per farm, passing the correct farm_id each time, then synthesize the results.
+
+WRITE TOOL RULES:
+- Write tools always operate on the primary farm unless the user explicitly names another farm.
+- If the user says "add animals to Farm X", first call get_farm_overview with Farm X's farm_id to get its housing IDs, then use register_batch.`;
+      }
+
+      // Support image analysis — attach image to the last user message if present
+      const imageData      = ctx.imageData as string | undefined;
+      const imageMediaType = (ctx.imageMediaType as string | undefined) ?? 'image/jpeg';
+
+      const loopMessages: any[] = (messages ?? []).map((m: any, idx: number) => {
+        if (m.role === 'user' && idx === (messages?.length ?? 0) - 1 && imageData) {
+          return {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: imageMediaType, data: imageData } },
+              { type: 'text', text: m.content || 'Please analyze this image and provide insights relevant to my farm.' },
+            ],
+          };
+        }
+        return { role: m.role, content: m.content };
+      });
 
       let finalText = 'I was unable to generate a response. Please try again.';
 
@@ -793,7 +895,7 @@ serve(async (req: Request) => {
 
         const toolResults = await Promise.all(
           toolBlocks.map(async (toolUse: any) => {
-            const result = await executeTool(db, farmId, userId, toolUse.name, toolUse.input ?? {});
+            const result = await executeTool(db, farmId, userId, toolUse.name, toolUse.input ?? {}, farmIds);
             return { type: 'tool_result', tool_use_id: toolUse.id, content: JSON.stringify(result) };
           })
         );

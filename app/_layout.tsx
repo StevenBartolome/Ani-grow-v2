@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
+import { FarmFilterProvider } from '@/context/FarmFilterContext';
 import { ThemeToggleButton } from '@/components/ThemeToggleButton';
 import { AniBotFAB } from '@/components/AniBotFAB';
 
@@ -34,6 +35,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider>
         <AuthProvider>
+          <FarmFilterProvider>
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(ai)/AIAssistantScreen" />
             <Stack.Screen name="(auth)/LoginScreen" />
@@ -46,6 +48,7 @@ export default function RootLayout() {
           </Stack>
           <ThemeToggleButton />
           <AniBotFAB />
+          </FarmFilterProvider>
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

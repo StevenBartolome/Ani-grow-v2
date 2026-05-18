@@ -39,7 +39,20 @@
       ],
       "expo-font",
       "expo-image",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "AniGrow needs access to your photo library to attach images to AniBot.",
+          "cameraPermission": "AniGrow needs access to your camera to take photos for AniBot."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "AniGrow needs access to your microphone so you can send voice messages to AniBot."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

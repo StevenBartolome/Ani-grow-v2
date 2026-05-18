@@ -151,6 +151,26 @@ export default function SettingsScreen() {
                         <View style={settingsStyles.section}>
                             <Text style={settingsStyles.sectionTitle}>Farm Administration</Text>
                             <View style={settingsStyles.card}>
+
+                                {/* My Farms */}
+                                <TouchableOpacity
+                                    style={settingsStyles.row}
+                                    activeOpacity={0.7}
+                                    onPress={() => router.push('/(settings)/FarmsScreen')}
+                                >
+                                    <View style={settingsStyles.rowContent}>
+                                        <View style={[settingsStyles.iconBox, { backgroundColor: '#10B981' + '1A' }]}>
+                                            <MaterialIcons name="add-home-work" size={22} color="#10B981" />
+                                        </View>
+                                        <View>
+                                            <Text style={settingsStyles.rowTitle}>My Farms</Text>
+                                            <Text style={settingsStyles.rowDescription}>Add farms, switch active farm</Text>
+                                        </View>
+                                    </View>
+                                    <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                                </TouchableOpacity>
+
+                                {/* Invite Codes */}
                                 <TouchableOpacity
                                     style={[settingsStyles.row, settingsStyles.rowNoBorder]}
                                     activeOpacity={0.7}

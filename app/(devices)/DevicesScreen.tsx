@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { supabase } from '@/lib/supabase';
@@ -85,8 +86,9 @@ export default function DevicesScreen() {
     const styles = useDevicesStyles();
     const router = useRouter();
     const { profile, permissions, role, isLoading: authLoading } = useAuth();
+    const { activeFarmIds } = useFarmFilter();
 
-    const farmId = (profile as any)?.farm_id;
+    const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
 
     const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
     const canViewDevices = !role || !RESTRICTED_ROLES.includes(role)

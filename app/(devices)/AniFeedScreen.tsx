@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import ActionModal, { ActionModalType } from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
@@ -71,7 +72,8 @@ function getFormattedDate(): string {
 
 export default function AniFeedScreen() {
     const { systemConfig, profile } = useAuth();
-    const farmId = (profile as any)?.farm_id || '';
+    const { activeFarmIds } = useFarmFilter();
+    const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const anifeedStyles = useAniFeedStyles();

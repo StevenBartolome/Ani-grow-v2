@@ -15,6 +15,7 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnimalStyles } from '@/styles/animalStyles';
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
 
 interface Housing {
@@ -43,8 +44,9 @@ export default function AnimalDetailsScreen() {
     const { colors } = useTheme();
     const styles = useAnimalStyles();
     const { profile } = useAuth();
+    const { activeFarmIds } = useFarmFilter();
 
-    const farmId = (profile as any)?.farm_id;
+    const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const userId = (profile as any)?.uid || (profile as any)?.id;
 
     const [housing, setHousing] = useState<Housing | null>(null);

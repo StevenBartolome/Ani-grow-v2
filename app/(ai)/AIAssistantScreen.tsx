@@ -1,11 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
+import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Animated,
+    Image,
     KeyboardAvoidingView,
     Platform,
     Pressable,
@@ -18,8 +22,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTheme } from '@/context/ThemeContext';
-import { anibotChat, ChatMessage, NavLink } from '@/lib/ai';
+import { anibotChat, ChatMessage, NavLink, transcribeAudio } from '@/lib/ai';
 import { useAIAssistantStyles, SIDEBAR_W as _SIDEBAR_W, HISTORY_MAX as _HISTORY_MAX } from '@/styles/aiAssistantStyles';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -50,6 +55,13 @@ interface Conversation {
 interface StoredMessage extends ChatMessage {
     ts: number;
     navigation?: NavLink[];
+    imageUri?: string;   // local URI stored for display in user bubbles
+}
+
+interface AttachedImage {
+    uri: string;
+    base64: string;
+    mediaType: string;
 }
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
@@ -438,6 +450,19 @@ export default function AIAssistantScreen() {
     const farmId   = (profile as any)?.farm_id ?? '';
     const userId   = (profile as any)?.uid ?? (profile as any)?.id ?? '';
     const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? 'Your Farm';
+    const { managedFarms, isFarmAdmin, isMultiFarm } = useFarmFilter();
+
+    // ── AniBot farm scope (admin-only) ────────────────────────────────────────
+    // null = "All Farms", string = specific farm ID
+    const [anibotFarmId, setAnibotFarmId] = useState<string | null>(null);
+
+    const anibotActiveFarmId  = anibotFarmId ?? managedFarms[0]?.id ?? farmId;
+    const anibotActiveFarmIds = anibotFarmId
+        ? [anibotFarmId]
+        : managedFarms.length > 0 ? managedFarms.map(f => f.id) : [farmId];
+    const anibotActiveFarmName = anibotFarmId
+        ? (managedFarms.find(f => f.id === anibotFarmId)?.name ?? farmName)
+        : isMultiFarm ? 'All Farms' : farmName;
 
     // ── State ─────────────────────────────────────────────────────────────────
     const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -450,6 +475,19 @@ export default function AIAssistantScreen() {
     const [showScrollBtn, setShowScrollBtn] = useState(false);
     const [copiedToast, setCopiedToast]     = useState(false);
     const [sidebarOpen, setSidebarOpen]     = useState(false);
+
+    // ── Image attachment ──────────────────────────────────────────────────────
+    const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
+
+    // ── Voice recording ───────────────────────────────────────────────────────
+    const [recording,      setRecording]      = useState<Audio.Recording | null>(null);
+    const webMediaRecorderRef                 = useRef<MediaRecorder | null>(null); // ref so stop handler always sees current value
+    const webChunksRef                        = useRef<Blob[]>([]);
+    const analyserRef                         = useRef<AnalyserNode | null>(null);
+    const animFrameRef                        = useRef<number | null>(null);
+    const [isRecording,    setIsRecording]    = useState(false);
+    const [isTranscribing, setIsTranscribing] = useState(false);
+    const [audioLevel,     setAudioLevel]     = useState(0); // 0–1 for waveform indicator
 
     const scrollRef       = useRef<ScrollView>(null);
     const atBottom        = useRef(true);
@@ -502,12 +540,7 @@ export default function AIAssistantScreen() {
             }
 
             setConversations(convs);
-            if (convs.length > 0) {
-                const most = [...convs].sort((a, b) => b.updatedAt - a.updatedAt)[0];
-                setActiveConvId(most.id);
-                const raw = await AsyncStorage.getItem(msgsKey(most.id));
-                if (raw) { try { setMessages(JSON.parse(raw)); } catch {} }
-            }
+            // Always open as a new chat — history is accessible via the sidebar
             setHistoryReady(true);
         })();
     }, [farmId]);
@@ -532,21 +565,217 @@ export default function AIAssistantScreen() {
     }, [farmId]);
 
     const saveMsgs = useCallback(async (cid: string, msgs: StoredMessage[]) => {
-        await AsyncStorage.setItem(msgsKey(cid), JSON.stringify(msgs.slice(-HISTORY_MAX)));
+        // Strip blob: imageURIs before persisting — they're session-only on web
+        const toSave = Platform.OS === 'web'
+            ? msgs.map(m => m.imageUri?.startsWith('blob:') ? { ...m, imageUri: undefined } : m)
+            : msgs;
+        await AsyncStorage.setItem(msgsKey(cid), JSON.stringify(toSave.slice(-HISTORY_MAX)));
     }, []);
+
+    // ── Image handlers ────────────────────────────────────────────────────────
+    const handlePickImage = useCallback(async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') { return; }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            quality: 0.7,
+            base64: true,
+        });
+        if (!result.canceled && result.assets[0]) {
+            const asset = result.assets[0];
+            setAttachedImage({
+                uri:       asset.uri,
+                base64:    asset.base64 ?? '',
+                mediaType: asset.mimeType ?? 'image/jpeg',
+            });
+        }
+    }, []);
+
+    const handleTakePhoto = useCallback(async () => {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') { return; }
+        const result = await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            quality: 0.7,
+            base64: true,
+        });
+        if (!result.canceled && result.assets[0]) {
+            const asset = result.assets[0];
+            setAttachedImage({
+                uri:       asset.uri,
+                base64:    asset.base64 ?? '',
+                mediaType: asset.mimeType ?? 'image/jpeg',
+            });
+        }
+    }, []);
+
+    // ── Voice handlers ────────────────────────────────────────────────────────
+    const stopAudioMeter = useCallback(() => {
+        if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
+        if (analyserRef.current)  { analyserRef.current = null; }
+        setAudioLevel(0);
+    }, []);
+
+    const handleStartRecording = useCallback(async () => {
+        try {
+            if (Platform.OS === 'web') {
+                const stream = await (navigator as any).mediaDevices.getUserMedia({ audio: true });
+
+                // Real-time audio level meter via Web Audio API
+                try {
+                    const audioCtx = new (window as any).AudioContext();
+                    const analyser: AnalyserNode = audioCtx.createAnalyser();
+                    analyser.fftSize = 256;
+                    audioCtx.createMediaStreamSource(stream).connect(analyser);
+                    analyserRef.current = analyser;
+                    const dataArr = new Uint8Array(analyser.frequencyBinCount);
+                    const tick = () => {
+                        analyser.getByteFrequencyData(dataArr);
+                        const avg = dataArr.reduce((a, b) => a + b, 0) / dataArr.length;
+                        setAudioLevel(Math.min(1, avg / 60));
+                        animFrameRef.current = requestAnimationFrame(tick);
+                    };
+                    tick();
+                } catch {}
+
+                const mimeType = (window as any).MediaRecorder?.isTypeSupported?.('audio/webm;codecs=opus')
+                    ? 'audio/webm;codecs=opus'
+                    : 'audio/webm';
+                const mr = new (window as any).MediaRecorder(stream, { mimeType });
+                webChunksRef.current = [];
+                mr.ondataavailable = (e: BlobEvent) => { if (e.data && e.data.size > 0) webChunksRef.current.push(e.data); };
+                mr.onerror = (e: Event) => console.error('[AniBot] MediaRecorder error:', e);
+                mr.start(100);
+                webMediaRecorderRef.current = mr;
+            } else {
+                const { status } = await Audio.requestPermissionsAsync();
+                if (status !== 'granted') return;
+                await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+                const { recording: rec } = await Audio.Recording.createAsync(
+                    Audio.RecordingOptionsPresets.HIGH_QUALITY
+                );
+                setRecording(rec);
+            }
+            setIsRecording(true);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        } catch (e) {
+            console.error('[AniBot] startRecording error', e);
+        }
+    }, []);
+
+    const handleStopRecording = useCallback(async () => {
+        setIsRecording(false);
+        stopAudioMeter();
+        setIsTranscribing(true);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        try {
+            if (Platform.OS === 'web') {
+                const mr = webMediaRecorderRef.current;
+                if (!mr) {
+                    // Recording never started (e.g. mic permission denied)
+                    setInput(prev => prev || '🎤 Voice message (transcription unavailable)');
+                    setIsTranscribing(false);
+                    return;
+                }
+
+                const recMime = mr.mimeType || 'audio/webm';
+                const blob = await new Promise<Blob>((resolve) => {
+                    mr.onstop = () => {
+                        // Stop all mic tracks to release the mic indicator
+                        try { mr.stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()); } catch {}
+                        resolve(new Blob(webChunksRef.current, { type: recMime }));
+                    };
+                    const state = (mr as any).state as string;
+                    if (state === 'recording' || state === 'paused') {
+                        // requestData() flushes any buffered audio before stop() fires ondataavailable
+                        try { mr.requestData(); } catch {}
+                        mr.stop();
+                    } else {
+                        // Already inactive — resolve with whatever chunks we have
+                        try { mr.stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()); } catch {}
+                        resolve(new Blob(webChunksRef.current, { type: recMime }));
+                    }
+                });
+                webMediaRecorderRef.current = null;
+
+                if (blob.size < 200) {
+                    // Too short — show fallback
+                    setInput(prev => prev || '🎤 Voice message (transcription unavailable)');
+                    setIsTranscribing(false);
+                    return;
+                }
+
+                const cleanMime = blob.type.split(';')[0] || 'audio/webm';
+                const base64 = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const result = reader.result as string;
+                        const b64 = result?.split(',')[1];
+                        if (b64) resolve(b64);
+                        else reject(new Error('FileReader: empty result'));
+                    };
+                    reader.onerror = (err) => reject(err);
+                    reader.readAsDataURL(blob);
+                });
+
+                const transcript = await transcribeAudio(base64, cleanMime);
+                if (transcript) {
+                    setInput(prev => prev ? `${prev} ${transcript}` : transcript);
+                } else {
+                    setInput(prev => prev || '🎤 Voice message (transcription unavailable)');
+                }
+            } else {
+                if (!recording) {
+                    setInput(prev => prev || '🎤 Voice message (transcription unavailable)');
+                    setIsTranscribing(false);
+                    return;
+                }
+                await recording.stopAndUnloadAsync();
+                await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+                const uri = recording.getURI();
+                setRecording(null);
+                if (!uri) {
+                    setInput(prev => prev || '🎤 Voice message (transcription unavailable)');
+                    setIsTranscribing(false);
+                    return;
+                }
+                const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' as any });
+                const transcript = await transcribeAudio(base64, 'audio/m4a');
+                if (transcript) {
+                    setInput(prev => prev ? `${prev} ${transcript}` : transcript);
+                } else {
+                    setInput(prev => prev || '🎤 Voice message (transcription unavailable)');
+                }
+            }
+        } catch (e) {
+            console.error('[AniBot] stopRecording error', e);
+            // Always give the user visible feedback on failure
+            setInput(prev => prev || '🎤 Voice message (transcription unavailable)');
+        } finally {
+            setIsTranscribing(false);
+        }
+    }, [recording, stopAudioMeter]);
 
     // ── Send ──────────────────────────────────────────────────────────────────
     const send = useCallback(async (text: string, historyOverride?: StoredMessage[]) => {
         const trimmed = text.trim();
-        if (!trimmed || isLoading) return;
+        if ((!trimmed && !attachedImage) || isLoading) return;
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         setActiveMsg(null);
 
         const base    = historyOverride ?? messages;
-        const userMsg: StoredMessage = { role: 'user', content: trimmed, ts: Date.now() };
+        const imgSnapshot = attachedImage;       // capture before clearing
+        const userMsg: StoredMessage = {
+            role:     'user',
+            content:  trimmed || '📷 [Image attached]',
+            ts:       Date.now(),
+            imageUri: imgSnapshot?.uri,           // stored for display only (no base64)
+        };
         const history = [...base, userMsg];
         setMessages(history);
         setInput('');
+        setAttachedImage(null);                   // clear attachment
         setIsLoading(true);
         scrollToBottom();
 
@@ -567,7 +796,15 @@ export default function AIAssistantScreen() {
 
         try {
             const apiMsgs = history.map(({ role, content }) => ({ role, content }));
-            const reply   = await anibotChat(apiMsgs, { farmId, farmName, userId });
+            const reply   = await anibotChat(apiMsgs, {
+                farmId:         anibotActiveFarmId,
+                farmName:       anibotActiveFarmName,
+                userId,
+                farmIds:        anibotActiveFarmIds,
+                managedFarms,
+                imageData:      imgSnapshot?.base64,
+                imageMediaType: imgSnapshot?.mediaType,
+            });
             const botMsg: StoredMessage = {
                 role: 'assistant', content: reply.text, ts: Date.now(),
                 navigation: reply.navigation.length > 0 ? reply.navigation : undefined,
@@ -596,7 +833,7 @@ export default function AIAssistantScreen() {
             setIsLoading(false);
             scrollToBottom();
         }
-    }, [messages, isLoading, farmId, farmName, userId, scrollToBottom, saveConvs, saveMsgs]);
+    }, [messages, isLoading, attachedImage, anibotActiveFarmId, anibotActiveFarmName, anibotActiveFarmIds, managedFarms, userId, scrollToBottom, saveConvs, saveMsgs]);
 
     // ── Conversation actions ───────────────────────────────────────────────────
     const selectConversation = useCallback(async (id: string) => {
@@ -683,7 +920,7 @@ export default function AIAssistantScreen() {
                             { backgroundColor: isLoading ? colors.warning : '#22c55e' },
                         ]} />
                         <Text style={styles.headerStatusText}>
-                            {isLoading ? 'Thinking…' : farmName}
+                            {isLoading ? 'Thinking…' : anibotActiveFarmName}
                         </Text>
                     </View>
                 </View>
@@ -706,6 +943,81 @@ export default function AIAssistantScreen() {
                     <MaterialIcons name="keyboard-arrow-down" size={20} color={colors.textGrey} />
                 </TouchableOpacity>
             </View>
+
+            {/* ── Farm Scope Selector (admin with multiple farms only) ──────── */}
+            {isFarmAdmin && isMultiFarm && (
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={{
+                        flexGrow: 0,
+                        borderBottomWidth: 1,
+                        borderBottomColor: colors.stroke,
+                        backgroundColor: colors.bg,
+                    }}
+                    contentContainerStyle={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        gap: 8,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                    }}
+                >
+                    {/* All Farms chip */}
+                    <TouchableOpacity
+                        onPress={() => setAnibotFarmId(null)}
+                        activeOpacity={0.7}
+                        style={{
+                            flexDirection: 'row', alignItems: 'center', gap: 5,
+                            paddingHorizontal: 12, paddingVertical: 5,
+                            borderRadius: 20,
+                            backgroundColor: anibotFarmId === null ? colors.primary : colors.cardFill,
+                            borderWidth: 1,
+                            borderColor: anibotFarmId === null ? colors.primary : colors.stroke,
+                        }}
+                    >
+                        <MaterialIcons
+                            name="domain"
+                            size={13}
+                            color={anibotFarmId === null ? '#fff' : colors.textGrey}
+                        />
+                        <Text style={{
+                            fontFamily: 'Poppins-Medium', fontSize: 12,
+                            color: anibotFarmId === null ? '#fff' : colors.textGrey,
+                        }}>All Farms</Text>
+                    </TouchableOpacity>
+
+                    {/* Per-farm chips */}
+                    {managedFarms.map(farm => {
+                        const selected = anibotFarmId === farm.id;
+                        return (
+                            <TouchableOpacity
+                                key={farm.id}
+                                onPress={() => setAnibotFarmId(farm.id)}
+                                activeOpacity={0.7}
+                                style={{
+                                    flexDirection: 'row', alignItems: 'center', gap: 5,
+                                    paddingHorizontal: 12, paddingVertical: 5,
+                                    borderRadius: 20,
+                                    backgroundColor: selected ? colors.primary : colors.cardFill,
+                                    borderWidth: 1,
+                                    borderColor: selected ? colors.primary : colors.stroke,
+                                }}
+                            >
+                                <MaterialIcons
+                                    name="agriculture"
+                                    size={13}
+                                    color={selected ? '#fff' : colors.textGrey}
+                                />
+                                <Text style={{
+                                    fontFamily: 'Poppins-Medium', fontSize: 12,
+                                    color: selected ? '#fff' : colors.textGrey,
+                                }}>{farm.name}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </ScrollView>
+            )}
 
             <KeyboardAvoidingView
                 style={styles.keyboardAvoid}
@@ -772,9 +1084,23 @@ export default function AIAssistantScreen() {
                                                 onLongPress={() => copy(msg.content)}
                                                 style={styles.userBubbleWrap}
                                             >
-                                                <View style={styles.userBubble}>
-                                                    <Text style={styles.userBubbleText}>{msg.content}</Text>
-                                                </View>
+                                                {msg.imageUri && (
+                                                    <Image
+                                                        source={{ uri: msg.imageUri }}
+                                                        style={{
+                                                            width: 180, height: 180,
+                                                            borderRadius: 12,
+                                                            marginBottom: 6,
+                                                            alignSelf: 'flex-end',
+                                                        }}
+                                                        resizeMode="cover"
+                                                    />
+                                                )}
+                                                {(msg.content !== '📷 [Image attached]' || !msg.imageUri) && (
+                                                    <View style={styles.userBubble}>
+                                                        <Text style={styles.userBubbleText}>{msg.content}</Text>
+                                                    </View>
+                                                )}
                                                 <Text style={styles.bubbleTime}>{fmt12(msg.ts)}</Text>
                                             </Pressable>
                                         )}
@@ -841,38 +1167,135 @@ export default function AIAssistantScreen() {
                     </TouchableOpacity>
                 )}
 
+                {/* ── Image attachment preview ─────────────────────────────── */}
+                {attachedImage && (
+                    <View style={{
+                        flexDirection: 'row', alignItems: 'center',
+                        paddingHorizontal: 14, paddingBottom: 8,
+                    }}>
+                        <View style={{ position: 'relative' }}>
+                            <Image
+                                source={{ uri: attachedImage.uri }}
+                                style={{ width: 64, height: 64, borderRadius: 10 }}
+                                resizeMode="cover"
+                            />
+                            <TouchableOpacity
+                                onPress={() => setAttachedImage(null)}
+                                style={{
+                                    position: 'absolute', top: -6, right: -6,
+                                    width: 20, height: 20, borderRadius: 10,
+                                    backgroundColor: colors.error,
+                                    alignItems: 'center', justifyContent: 'center',
+                                }}
+                            >
+                                <MaterialIcons name="close" size={13} color="#fff" />
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={{
+                            fontFamily: 'Poppins-Regular', fontSize: 12,
+                            color: colors.textGrey, marginLeft: 10,
+                        }}>Image attached</Text>
+                    </View>
+                )}
+
                 {/* ── Input bar ───────────────────────────────────────────────── */}
                 <View style={styles.inputBar}>
+                    {/* Camera / Gallery buttons */}
+                    <TouchableOpacity
+                        onPress={handleTakePhoto}
+                        activeOpacity={0.7}
+                        style={{
+                            width: 36, height: 36, borderRadius: 18,
+                            alignItems: 'center', justifyContent: 'center',
+                            backgroundColor: colors.cardFill,
+                            borderWidth: 1, borderColor: colors.stroke,
+                        }}
+                    >
+                        <MaterialIcons name="photo-camera" size={18} color={colors.textGrey} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={handlePickImage}
+                        activeOpacity={0.7}
+                        style={{
+                            width: 36, height: 36, borderRadius: 18,
+                            alignItems: 'center', justifyContent: 'center',
+                            backgroundColor: colors.cardFill,
+                            borderWidth: 1, borderColor: colors.stroke,
+                        }}
+                    >
+                        <MaterialIcons name="image" size={18} color={colors.textGrey} />
+                    </TouchableOpacity>
+
+                    {/* Text input */}
                     <View style={[
                         styles.inputWrap,
-                        input.length > 0 && styles.inputWrapFocused,
+                        (input.length > 0 || !!attachedImage) && styles.inputWrapFocused,
+                        { flex: 1 },
                     ]}>
                         <TextInput
                             style={styles.inputField}
-                            placeholder="Message AniBot"
+                            placeholder={isTranscribing ? 'Transcribing…' : 'Message AniBot'}
                             placeholderTextColor={colors.textGrey}
                             value={input}
                             onChangeText={setInput}
                             multiline
                             returnKeyType="default"
                             blurOnSubmit={false}
+                            editable={!isTranscribing}
                         />
                     </View>
-                    <Pressable
-                        onPress={() => send(input)}
-                        disabled={!input.trim() || isLoading}
-                        style={({ pressed }) => [
-                            styles.sendBtn,
-                            (!input.trim() || isLoading) ? styles.sendBtnDisabled : styles.sendBtnActive,
-                            { opacity: pressed ? 0.8 : 1 },
-                        ]}
-                    >
-                        <MaterialIcons
-                            name="arrow-upward"
-                            size={20}
-                            color={(!input.trim() || isLoading) ? colors.textGrey : '#fff'}
-                        />
-                    </Pressable>
+
+                    {/* Mic button (hold to record) or Send button */}
+                    {!input.trim() && !attachedImage ? (
+                        <View style={{ alignItems: 'center', gap: 2 }}>
+                            {/* Live waveform bars — visible while recording */}
+                            {isRecording && (
+                                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 16, marginBottom: 2 }}>
+                                    {[0.5, 0.8, 1.0, 0.8, 0.5].map((m, i) => (
+                                        <View key={i} style={{
+                                            width: 3,
+                                            height: Math.max(3, audioLevel * 16 * m),
+                                            backgroundColor: colors.error,
+                                            borderRadius: 2,
+                                        }} />
+                                    ))}
+                                </View>
+                            )}
+                            <TouchableOpacity
+                                onPressIn={handleStartRecording}
+                                onPressOut={handleStopRecording}
+                                activeOpacity={0.8}
+                                style={{
+                                    width: 40, height: 40, borderRadius: 20,
+                                    alignItems: 'center', justifyContent: 'center',
+                                    backgroundColor: isRecording ? colors.error : colors.cardFill,
+                                    borderWidth: 1, borderColor: isRecording ? colors.error : colors.stroke,
+                                }}
+                            >
+                                <MaterialIcons
+                                    name={isTranscribing ? 'hourglass-empty' : isRecording ? 'graphic-eq' : 'mic'}
+                                    size={20}
+                                    color={isRecording ? '#fff' : colors.textGrey}
+                                />
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <Pressable
+                            onPress={() => send(input)}
+                            disabled={(!input.trim() && !attachedImage) || isLoading}
+                            style={({ pressed }) => [
+                                styles.sendBtn,
+                                ((!input.trim() && !attachedImage) || isLoading) ? styles.sendBtnDisabled : styles.sendBtnActive,
+                                { opacity: pressed ? 0.8 : 1 },
+                            ]}
+                        >
+                            <MaterialIcons
+                                name="arrow-upward"
+                                size={20}
+                                color={((!input.trim() && !attachedImage) || isLoading) ? colors.textGrey : '#fff'}
+                            />
+                        </Pressable>
+                    )}
                 </View>
             </KeyboardAvoidingView>
 

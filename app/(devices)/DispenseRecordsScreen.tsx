@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAniFeedStyles } from '@/styles/anifeedStyles';
@@ -54,7 +55,8 @@ export default function DispenseRecordsScreen() {
     const textStyles = useTextStyles();
     const styles = useAniFeedStyles();
     const { profile } = useAuth();
-    const farmId = (profile as any)?.farm_id ?? '';
+    const { activeFarmIds } = useFarmFilter();
+    const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const { deviceId } = useLocalSearchParams<{ deviceId?: string }>();
 
     const [records, setRecords] = useState<DispenseRecord[]>([]);

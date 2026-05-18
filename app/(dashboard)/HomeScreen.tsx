@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useHomeStyles } from '@/styles/homeStyles';
@@ -36,6 +37,13 @@ interface HousingCard {
     animal_type: 'chicken' | 'pig';
     capacity: number;
     current_count: number;
+}
+
+interface FarmBreakdown {
+    farmId: string;
+    farmName: string;
+    pigs: number;
+    chickens: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -76,16 +84,24 @@ export default function HomeScreen() {
     const { colors } = useTheme();
     const router = useRouter();
 
-    const farmId = (profile as any)?.farm_id;
     const userId = (profile as any)?.uid || (profile as any)?.id;
     const userName = (profile as any)?.first_name
         ? `${(profile as any).first_name} ${(profile as any).last_name ?? ''}`.trim()
         : (profile as any)?.displayName || 'User';
 
+    // ── Multi-farm filter ─────────────────────────────────────────────────────
+    const {
+        activeFarmIds,
+        managedFarms,
+        isMultiFarm,
+        isFarmAdmin,
+    } = useFarmFilter();
+
     // ── State ─────────────────────────────────────────────────────────────────
-    const [farmName, setFarmName] = useState('your farm');
-    const [totalAnimals, setTotalAnimals] = useState(0);
-    const [animalSplit, setAnimalSplit] = useState({ pigs: 0, chickens: 0 });
+    const [farmName, setFarmName]           = useState('your farm');
+    const [farmBreakdown, setFarmBreakdown] = useState<FarmBreakdown[]>([]);
+    const [totalAnimals, setTotalAnimals]   = useState(0);
+    const [animalSplit, setAnimalSplit]     = useState({ pigs: 0, chickens: 0 });
     const [housings, setHousings] = useState<HousingCard[]>([]);
     const [unreadNotifCount, setUnreadNotifCount] = useState(0);
     const [recentAlerts, setRecentAlerts] = useState<AlertNotif[]>([]);
@@ -100,7 +116,7 @@ export default function HomeScreen() {
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchStats = useCallback(async () => {
-        if (!farmId) { setIsLoading(false); return; }
+        if (!activeFarmIds.length) { setIsLoading(false); return; }
         try {
             const todayStart = new Date();
             todayStart.setHours(0, 0, 0, 0);
@@ -110,30 +126,44 @@ export default function HomeScreen() {
             const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
 
             // ── Round 1: core data ────────────────────────────────────────────
+            const isSingle = activeFarmIds.length === 1;
+
             const [farmRes, batchRes, notifRes, deviceRes, housingRes] = await Promise.all([
-                supabase.from('farms').select('name').eq('id', farmId).single(),
+                // Farm name(s) — for single farm use .single(), multi use .in()
+                isSingle
+                    ? supabase.from('farms').select('name').eq('id', activeFarmIds[0]).single()
+                    : supabase.from('farms').select('id, name').in('id', activeFarmIds),
+                // Batches — include farm_id via housing join + farm name for breakdown
                 supabase
                     .from('batches')
-                    .select('id, current_count, animal_type, housings!inner(farm_id)')
-                    .eq('housings.farm_id', farmId)
+                    .select('id, current_count, animal_type, housings!inner(farm_id, farms(id, name))')
+                    .in('housings.farm_id', activeFarmIds)
                     .eq('status', 'active'),
+                // Notifications — all selected farms
                 supabase
                     .from('notifications')
                     .select('id, title, message, type, is_read')
-                    .or(userId ? `user_id.eq.${userId},farm_id.eq.${farmId}` : `farm_id.eq.${farmId}`)
+                    .in('farm_id', activeFarmIds)
                     .eq('is_read', false)
                     .order('created_at', { ascending: false })
-                    .limit(5),
-                supabase.from('devices').select('id, type, status').eq('farm_id', farmId),
+                    .limit(10),
+                // Devices — all selected farms
+                supabase.from('devices').select('id, type, status').in('farm_id', activeFarmIds),
+                // Housings — all selected farms
                 supabase
                     .from('housings')
-                    .select('id, name, animal_type, capacity, current_count')
-                    .eq('farm_id', farmId)
+                    .select('id, name, animal_type, capacity, current_count, farm_id')
+                    .in('farm_id', activeFarmIds)
                     .eq('status', 'Active')
                     .order('name'),
             ]);
 
-            if (farmRes.data) setFarmName(farmRes.data.name);
+            // Set farm display name
+            if (isSingle && (farmRes as any).data?.name) {
+                setFarmName((farmRes as any).data.name);
+            } else if (!isSingle && managedFarms.length > 0) {
+                setFarmName(`${activeFarmIds.length} Farms`);
+            }
 
             let feederIds: string[] = [];
             let scaleIds: string[] = [];
@@ -143,10 +173,33 @@ export default function HomeScreen() {
                 const total = batchRes.data.reduce((s: number, b: any) => s + (b.current_count ?? 0), 0);
                 setTotalAnimals(total);
                 allBatchIds = batchRes.data.map((b: any) => b.id);
+
                 const pigs = batchRes.data
                     .filter((b: any) => b.animal_type === 'pig')
                     .reduce((s: number, b: any) => s + (b.current_count ?? 0), 0);
                 setAnimalSplit({ pigs, chickens: total - pigs });
+
+                // Per-farm breakdown (shown when multi-farm)
+                if (isMultiFarm) {
+                    const breakdown: FarmBreakdown[] = activeFarmIds.map(fid => {
+                        const farmBatches = batchRes.data!.filter(
+                            (b: any) => b.housings?.farm_id === fid
+                        );
+                        const fName =
+                            farmBatches[0]?.housings?.farms?.name ||
+                            managedFarms.find(f => f.id === fid)?.name || fid;
+                        const fp = farmBatches
+                            .filter((b: any) => b.animal_type === 'pig')
+                            .reduce((s: number, b: any) => s + (b.current_count ?? 0), 0);
+                        const fc = farmBatches
+                            .filter((b: any) => b.animal_type === 'chicken')
+                            .reduce((s: number, b: any) => s + (b.current_count ?? 0), 0);
+                        return { farmId: fid, farmName: fName, pigs: fp, chickens: fc };
+                    });
+                    setFarmBreakdown(breakdown);
+                } else {
+                    setFarmBreakdown([]);
+                }
             }
 
             if (notifRes.data) {
@@ -195,9 +248,11 @@ export default function HomeScreen() {
             setIsLoading(false);
             setRefreshing(false);
         }
-    }, [farmId, userId]);
+    }, [activeFarmIds, userId, isMultiFarm, managedFarms]);
 
-    useEffect(() => { fetchStats(); }, [fetchStats]);
+    useEffect(() => {
+        if (activeFarmIds.length > 0) fetchStats();
+    }, [fetchStats, activeFarmIds]);
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -430,20 +485,48 @@ export default function HomeScreen() {
                                         ? <Skeleton w={40} h={24} />
                                         : <Text style={[textStyles.h1, { color: colors.text, fontSize: 22 }]}>{totalAnimals}</Text>
                                     }
-                                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-                                        {animalSplit.pigs > 0 && (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                <AnimalIcon type="pig" size={10} color={colors.textGrey} />
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.pigs}</Text>
-                                            </View>
-                                        )}
-                                        {animalSplit.chickens > 0 && (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                <AnimalIcon type="chicken" size={10} color={colors.textGrey} />
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.chickens}</Text>
-                                            </View>
-                                        )}
-                                    </View>
+
+                                    {/* Single-farm: show pig/chicken split */}
+                                    {!isMultiFarm && (
+                                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+                                            {animalSplit.pigs > 0 && (
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                                    <AnimalIcon type="pig" size={10} color={colors.textGrey} />
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.pigs}</Text>
+                                                </View>
+                                            )}
+                                            {animalSplit.chickens > 0 && (
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                                    <AnimalIcon type="chicken" size={10} color={colors.textGrey} />
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.chickens}</Text>
+                                                </View>
+                                            )}
+                                        </View>
+                                    )}
+
+                                    {/* Multi-farm: show per-farm breakdown */}
+                                    {isMultiFarm && !isLoading && farmBreakdown.length > 0 && (
+                                        <View style={{ marginTop: 4, gap: 2 }}>
+                                            {farmBreakdown.map((fb, i) => {
+                                                const farmTotal = fb.pigs + fb.chickens;
+                                                if (farmTotal === 0) return null;
+                                                const farmColors = ['#10B981', '#6C63FF', '#F97316', '#EF4444', '#3B82F6'];
+                                                const fc = farmColors[i % farmColors.length];
+                                                return (
+                                                    <View key={fb.farmId} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                                        <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: fc }} />
+                                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 9, flex: 1 }]} numberOfLines={1}>
+                                                            {fb.farmName}
+                                                        </Text>
+                                                        <Text style={[textStyles.label, { color: colors.text, fontSize: 9 }]}>
+                                                            {farmTotal}
+                                                        </Text>
+                                                    </View>
+                                                );
+                                            })}
+                                        </View>
+                                    )}
+
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
                                         <Text style={[textStyles.body, { color: colors.primary, fontSize: 10 }]}>View animals</Text>
                                         <MaterialIcons name="arrow-forward" size={10} color={colors.primary} />
@@ -781,8 +864,8 @@ export default function HomeScreen() {
                                     { label: 'Feeds', icon: 'grain', route: '/(devices)/ManageFeedsScreen', color: '#10B981' },
                                     { label: 'Devices', icon: 'devices', route: '/(devices)/DevicesScreen', color: '#6C63FF' },
                                     { label: 'Animals', icon: null, route: '/(animals)/AnimalsScreen', color: colors.primary },
+                                    { label: 'Vaccines', icon: 'vaccines', route: '/(health)/VaccineScreen', color: '#EF4444' },
                                     { label: 'Housings', icon: 'home-work', route: '/(devices)/ManageHousingsScreen', color: '#F97316' },
-                                    { label: 'Health', icon: 'medical-services', route: '/(animals)/AnimalsScreen', color: '#EF4444' },
                                 ].map(item => (
                                     <Pressable
                                         key={item.label}
@@ -813,6 +896,7 @@ export default function HomeScreen() {
 
                 <FloatingNavBar />
             </View>
+
         </SafeAreaView>
     );
 }

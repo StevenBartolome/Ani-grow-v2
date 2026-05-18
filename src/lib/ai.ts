@@ -27,6 +27,10 @@ export interface AniBotContext {
   farmId: string;
   farmName?: string;
   userId?: string;
+  farmIds?: string[];                          // multi-farm: all managed farm IDs
+  managedFarms?: { id: string; name: string }[]; // full list with names for system prompt
+  imageData?: string;                          // base64 image for vision analysis
+  imageMediaType?: string;                     // e.g. 'image/jpeg'
 }
 
 export interface AniBotReply {
@@ -78,7 +82,15 @@ export async function anibotChat(
 
   const data = await callEdgeFunction({
     type: 'chat',
-    context: { farmId: botCtx.farmId, farmName: botCtx.farmName, userId: botCtx.userId },
+    context: {
+      farmId:         botCtx.farmId,
+      farmIds:        botCtx.farmIds ?? [botCtx.farmId],
+      farmName:       botCtx.farmName,
+      userId:         botCtx.userId,
+      managedFarms:   botCtx.managedFarms,
+      imageData:      botCtx.imageData,
+      imageMediaType: botCtx.imageMediaType,
+    },
     messages: apiMessages,
   });
 
@@ -86,4 +98,24 @@ export async function anibotChat(
     text: data?.result ?? '',
     navigation: data?.navigation ?? [],
   };
+}
+
+// ─── Voice transcription (Groq Whisper via edge function) ─────────────────────
+
+/**
+ * Transcribe recorded audio to text.
+ * Requires GROQ_API_KEY to be set in Supabase secrets.
+ * Returns the transcript string, or '' if unavailable.
+ */
+export async function transcribeAudio(audioBase64: string, mimeType: string): Promise<string> {
+  try {
+    const data = await callEdgeFunction({
+      type: 'transcribe',
+      context: { audioData: audioBase64, mimeType },
+    });
+    if (data?.unavailable) return '';
+    return data?.transcript ?? '';
+  } catch {
+    return ''; // Graceful fallback — caller handles empty string
+  }
 }

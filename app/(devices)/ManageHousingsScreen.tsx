@@ -14,6 +14,7 @@ import { useDevicesStyles } from '@/styles/devicesStyles';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
 
 interface HousingItem {
@@ -36,8 +37,9 @@ export default function ManageHousingsScreen() {
     const { colors } = useTheme();
     const deviceStyles = useDevicesStyles();
     const { profile } = useAuth();
+    const { activeFarmIds } = useFarmFilter();
 
-    const farmId = (profile as any)?.farm_id;
+    const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
 
     const [activeFilter, setActiveFilter] = useState<FilterType>('All');
     const filters: FilterType[] = ['All', 'Chickens', 'Pigs'];

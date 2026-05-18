@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useDevicesStyles } from '@/styles/devicesStyles';
@@ -54,7 +55,8 @@ export default function RecentLogsScreen() {
     const textStyles = useTextStyles();
     const styles = useDevicesStyles();
     const { profile } = useAuth();
-    const farmId = (profile as any)?.farm_id ?? '';
+    const { activeFarmIds } = useFarmFilter();
+    const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const { deviceId } = useLocalSearchParams<{ deviceId?: string; animalType?: string }>();
 
     type StatusFilter = 'all' | 'underweight' | 'normal' | 'overweight';
