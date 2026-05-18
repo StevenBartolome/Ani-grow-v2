@@ -10,11 +10,11 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '../../src/context/AuthContext';
-import { useTheme } from '../../src/context/ThemeContext';
-import { useTextStyles } from '../../src/constants/textStyles';
-import FloatingLabelInput from '../../src/components/FloatingLabelInput';
-import Snackbar, { SnackbarType } from '../../src/components/Snackbar';
+import { useAuth } from '@/context/AuthContext';
+import { useTheme } from '@/context/ThemeContext';
+import { useTextStyles } from '@/constants/textStyles';
+import FloatingLabelInput from '@/components/FloatingLabelInput';
+import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { MaterialIcons } from '@expo/vector-icons';
 
 export default function MFAChallengeScreen() {
@@ -72,7 +72,7 @@ export default function MFAChallengeScreen() {
       await verifyMFA(factorId, code);
       showSnackbar('MFA verified! Redirecting...', 'success');
       setTimeout(() => {
-        router.replace('/(main)/HomeScreen');
+        router.replace('/(dashboard)/HomeScreen');
       }, 1500);
     } catch (error: any) {
       showSnackbar(error.message || 'Invalid verification code.', 'error');

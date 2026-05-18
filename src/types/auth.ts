@@ -1,4 +1,4 @@
-export type BaseUserRole = 'super_admin' | 'admin' | 'employee' | string;
+export type BaseUserRole = 'super_admin' | 'farm_admin' | 'caretaker' | 'veterinarian' | 'flockman' | string;
 
 export interface CustomPermissions {
   add: string[];

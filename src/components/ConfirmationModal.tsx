@@ -7,8 +7,8 @@ import {
   View,
   TouchableWithoutFeedback,
 } from 'react-native';
-import { useTheme } from '../context/ThemeContext';
-import { useTextStyles } from '../constants/textStyles';
+import { useTheme } from '@/context/ThemeContext';
+import { useTextStyles } from '@/constants/textStyles';
 
 interface ConfirmationModalProps {
   visible: boolean;

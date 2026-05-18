@@ -10,13 +10,13 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import FloatingLabelInput from '../../src/components/FloatingLabelInput';
-import Snackbar, { SnackbarType } from '../../src/components/Snackbar';
-import { useTextStyles } from '../../src/constants/textStyles';
-import { useTheme } from '../../src/context/ThemeContext';
-import { useAuthStyles } from '../../src/styles/authStyles';
-import { useAuth } from '../../src/context/AuthContext';
-import { supabase } from '../../src/lib/supabase';
+import FloatingLabelInput from '@/components/FloatingLabelInput';
+import Snackbar, { SnackbarType } from '@/components/Snackbar';
+import { useTextStyles } from '@/constants/textStyles';
+import { useTheme } from '@/context/ThemeContext';
+import { useAuthStyles } from '@/styles/authStyles';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -78,9 +78,7 @@ export default function LoginScreen() {
       }
 
       showSnackbar('Login successful! Welcome back.', 'success');
-      setTimeout(() => {
-        router.replace('/(main)/HomeScreen');
-      }, 1000);
+        router.replace('/(dashboard)/HomeScreen');
     } catch (error: any) {
       if (error.message?.includes('Email not confirmed')) {
         showSnackbar('Email not confirmed. Redirecting to verification...', 'info');

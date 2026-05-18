@@ -1,15 +1,30 @@
 import React from 'react';
 import { TouchableOpacity, StyleSheet, Platform, ViewStyle } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../context/ThemeContext';
+import { useRouter } from 'expo-router';
+import { useTheme } from '@/context/ThemeContext';
 
 interface BackButtonProps {
-    onPress: () => void;
+    onPress?: () => void;
+    fallbackRoute?: string;
     style?: ViewStyle;
 }
 
-export function BackButton({ onPress, style }: BackButtonProps) {
+export function BackButton({ onPress, fallbackRoute = '/(dashboard)/HomeScreen', style }: BackButtonProps) {
     const { colors } = useTheme();
+    const router = useRouter();
+
+    const handlePress = () => {
+        if (onPress) {
+            onPress();
+            return;
+        }
+        if (router.canGoBack()) {
+            router.back();
+        } else {
+            router.replace(fallbackRoute as any);
+        }
+    };
 
     return (
         <TouchableOpacity
@@ -22,7 +37,7 @@ export function BackButton({ onPress, style }: BackButtonProps) {
                 },
                 style
             ]}
-            onPress={onPress}
+            onPress={handlePress}
             activeOpacity={0.8}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >

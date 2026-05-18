@@ -10,14 +10,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BackButton } from '../../src/components/BackButton';
-import FloatingLabelInput from '../../src/components/FloatingLabelInput';
-import Snackbar, { SnackbarType } from '../../src/components/Snackbar';
-import { useTextStyles } from '../../src/constants/textStyles';
-import { useTheme } from '../../src/context/ThemeContext';
-import { useAuthStyles } from '../../src/styles/authStyles';
-
-import { supabase } from '../../src/lib/supabase';
+import { BackButton } from '@/components/BackButton';
+import FloatingLabelInput from '@/components/FloatingLabelInput';
+import Snackbar, { SnackbarType } from '@/components/Snackbar';
+import { useTextStyles } from '@/constants/textStyles';
+import { useTheme } from '@/context/ThemeContext';
+import { useAuthStyles } from '@/styles/authStyles';
+import { supabase } from '@/lib/supabase';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -114,7 +113,7 @@ export default function ForgotPasswordScreen() {
               zIndex: 10,
             }}>
               <View style={{ width: 44, height: 44 }}>
-                <BackButton onPress={() => router.back()} />
+                <BackButton fallbackRoute="/(auth)/LoginScreen" />
               </View>
               <View style={{ width: 44, height: 44 }} />
             </View>

@@ -1,5 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
+import { AnimalIcon } from './AnimalIcon';
 import {
   Pressable,
   StyleSheet,
@@ -15,13 +16,13 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { useTextStyles } from '../constants/textStyles';
-import { createTheme } from '../constants/theme';
-import { useTheme } from '../context/ThemeContext';
+import { useTextStyles } from '@/constants/textStyles';
+import { createTheme } from '@/constants/theme';
+import { useTheme } from '@/context/ThemeContext';
 
 interface FloatingLabelInputProps extends TextInputProps {
   label: string;
-  icon?: keyof typeof MaterialIcons.glyphMap;
+  icon?: keyof typeof MaterialIcons.glyphMap | 'pig' | 'chicken';
   isPassword?: boolean;
   error?: string;
   backgroundColor?: string;
@@ -102,12 +103,21 @@ export default function FloatingLabelInput({
         >
 
           {icon && (
-            <MaterialIcons
-              name={icon}
-              size={20}
-              color={isFocused ? colors.primary : colors.icon}
-              style={styles.icon}
-            />
+            (icon === 'pig' || icon === 'chicken') ? (
+              <AnimalIcon 
+                type={icon === 'pig' ? 'Pig' : 'Chicken'} 
+                size={20} 
+                color={isFocused ? colors.primary : colors.icon}
+                style={styles.icon}
+              />
+            ) : (
+              <MaterialIcons
+                name={icon as any}
+                size={20}
+                color={isFocused ? colors.primary : colors.icon}
+                style={styles.icon}
+              />
+            )
           )}
 
           <TextInput
