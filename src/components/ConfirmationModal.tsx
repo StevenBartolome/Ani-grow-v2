@@ -2,11 +2,11 @@ import React from 'react';
 import {
   Modal,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
   TouchableWithoutFeedback,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { useTheme } from '@/context/ThemeContext';
 import { useTextStyles } from '@/constants/textStyles';
 

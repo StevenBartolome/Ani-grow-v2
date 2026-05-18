@@ -2,7 +2,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, TouchableOpacity, View, RefreshControl } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTextStyles } from '@/constants/textStyles';
@@ -36,6 +37,7 @@ export default function AnimalsScreen() {
     const { activeFarmIds } = useFarmFilter();
 
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
+    const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
 
     const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
 
@@ -98,9 +100,14 @@ export default function AnimalsScreen() {
                             style={{ width: 36, height: 36, marginRight: 10 }}
                             contentFit="contain"
                         />
-                        <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 28 }]}>
-                            Ani-Grow
-                        </Text>
+                        <View>
+                            <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
+                                Ani-Grow
+                            </Text>
+                            <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
+                                {farmName}
+                            </Text>
+                        </View>
                     </View>
                     <View style={{ width: 40, height: 40 }} />
                 </View>
@@ -118,8 +125,14 @@ export default function AnimalsScreen() {
                     style={styles.container}
                     contentContainerStyle={{ paddingBottom: 100 }}
                     showsVerticalScrollIndicator={false}
-                    onRefresh={fetchHousings}
-                    refreshing={isLoading}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={isLoading}
+                            onRefresh={fetchHousings}
+                            colors={[colors.primary]}
+                            tintColor={colors.primary}
+                        />
+                    }
                 >
                     <View style={styles.sectionTitleRow}>
                         <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Housings</Text>

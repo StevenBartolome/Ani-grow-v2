@@ -3,7 +3,7 @@ import { View, StyleProp, ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 
 interface AnimalIconProps {
-  type: 'Pig' | 'Chicken' | 'Pigs' | 'Chickens';
+  type: 'Pig' | 'Chicken' | 'Pigs' | 'Chickens' | 'pig' | 'chicken';
   size?: number;
   color?: string;
   style?: StyleProp<ViewStyle>;

@@ -14,11 +14,11 @@ import {
     Platform,
     Pressable,
     ScrollView,
-    Text,
     TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';

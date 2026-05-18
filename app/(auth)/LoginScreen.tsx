@@ -5,10 +5,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Text,
   TouchableOpacity,
   View
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';

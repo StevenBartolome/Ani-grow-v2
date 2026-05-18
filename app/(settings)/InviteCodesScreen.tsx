@@ -8,11 +8,11 @@ import {
     RefreshControl,
     ScrollView,
     Switch,
-    Text,
     TouchableOpacity,
     View,
     Animated,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';

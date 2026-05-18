@@ -2,11 +2,12 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-    ActivityIndicator, RefreshControl, ScrollView, Text, View,
+    ActivityIndicator, RefreshControl, ScrollView, View,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, {
-    Circle, Defs, LinearGradient, Path, Stop, Text as SvgText,
+    Circle, Defs, LinearGradient, Path, Stop as SvgText,
 } from 'react-native-svg';
 
 import { BackButton } from '@/components/BackButton';

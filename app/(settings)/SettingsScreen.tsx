@@ -6,11 +6,11 @@ import {
     Modal,
     ScrollView,
     Switch,
-    Text,
     TouchableOpacity,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Text } from '@/components/Text';
 import { useAuth } from '@/context/AuthContext';
 import { BackButton } from '@/components/BackButton';
 import { useTextStyles } from '@/constants/textStyles';
@@ -23,7 +23,7 @@ export default function SettingsScreen() {
     const { profile, signOut } = useAuth();
     const settingsStyles = useSettingsStyles();
     const textStyles = useTextStyles();
-    const { colors, isDark, toggleTheme } = useTheme();
+    const { colors, isDark, toggleTheme, language } = useTheme();
     const router = useRouter();
 
     const userName = profile?.displayName || ((profile as any)?.firstName ? `${(profile as any).firstName} ${(profile as any).lastName}` : "User");
@@ -46,7 +46,7 @@ export default function SettingsScreen() {
         }
     };
 
-    const languageLabel = 'English';
+    const languageLabel = language === 'fil' ? 'Filipino' : 'English';
 
     return (
         <SafeAreaView style={settingsStyles.safeArea}>
@@ -95,7 +95,7 @@ export default function SettingsScreen() {
                                     <Text style={settingsStyles.rowTitle}>Language</Text>
                                 </View>
                                 <View style={settingsStyles.rowRight}>
-                                    <Text style={settingsStyles.rowValue}>{languageLabel}</Text>
+                                    <Text style={settingsStyles.rowValue} translate={false}>{languageLabel}</Text>
                                     <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
                                 </View>
                             </TouchableOpacity>
@@ -156,7 +156,7 @@ export default function SettingsScreen() {
                                 <TouchableOpacity
                                     style={settingsStyles.row}
                                     activeOpacity={0.7}
-                                    onPress={() => router.push('/(settings)/FarmsScreen')}
+                                    onPress={() => router.push('/(settings)/FarmsScreen' as any)}
                                 >
                                     <View style={settingsStyles.rowContent}>
                                         <View style={[settingsStyles.iconBox, { backgroundColor: '#10B981' + '1A' }]}>

@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   View, 
-  Text, 
   TouchableOpacity, 
   StyleSheet, 
   KeyboardAvoidingView, 
   Platform, 
   ScrollView 
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';

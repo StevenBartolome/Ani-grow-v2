@@ -16,10 +16,10 @@ import {
     Modal,
     Pressable,
     ScrollView,
-    Text,
     TouchableOpacity,
     View,
 } from 'react-native';
+import { Text } from '@/components/Text';
 
 import { ManagedFarm, useFarmFilter } from '@/context/FarmFilterContext';
 import { useTextStyles } from '@/constants/textStyles';

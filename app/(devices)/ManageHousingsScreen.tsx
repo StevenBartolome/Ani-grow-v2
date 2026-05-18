@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View, Modal } from 'react-native';
+import { ActivityIndicator, ScrollView, TouchableOpacity, View, Modal } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
