@@ -433,13 +433,13 @@ export default function HomeScreen() {
                                     <View style={{ flexDirection: 'row', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
                                         {animalSplit.pigs > 0 && (
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                <AnimalIcon type="pig" size={10} color={colors.textGrey} />
+                                                <AnimalIcon type="Pig" size={10} color={colors.textGrey} />
                                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.pigs}</Text>
                                             </View>
                                         )}
                                         {animalSplit.chickens > 0 && (
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                <AnimalIcon type="chicken" size={10} color={colors.textGrey} />
+                                                <AnimalIcon type="Chicken" size={10} color={colors.textGrey} />
                                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.chickens}</Text>
                                             </View>
                                         )}
@@ -618,7 +618,7 @@ export default function HomeScreen() {
                                                 alignItems: 'center', justifyContent: 'center',
                                                 marginBottom: 12,
                                             }}>
-                                                <AnimalIcon type={h.animal_type} size={20} color={isPig ? '#E67E22' : '#D4A017'} />
+                                                <AnimalIcon type={h.animal_type === 'pig' ? 'Pig' : 'Chicken'} size={20} color={isPig ? '#E67E22' : '#D4A017'} />
                                             </View>
 
                                             {/* Name */}

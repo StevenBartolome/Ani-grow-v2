@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTextStyles } from '@/constants/textStyles';
@@ -116,8 +116,14 @@ export default function AnimalsScreen() {
                     style={styles.container}
                     contentContainerStyle={{ paddingBottom: 100 }}
                     showsVerticalScrollIndicator={false}
-                    onRefresh={fetchHousings}
-                    refreshing={isLoading}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={isLoading}
+                            onRefresh={fetchHousings}
+                            colors={[colors.primary]}
+                            tintColor={colors.primary}
+                        />
+                    }
                 >
                     <View style={styles.sectionTitleRow}>
                         <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Housings</Text>

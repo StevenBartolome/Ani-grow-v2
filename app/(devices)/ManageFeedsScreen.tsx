@@ -304,7 +304,7 @@ export default function ManageFeedsScreen() {
                                 onPress={() => { setEditModalVisible(false); setFeedTypeModalVisible(true); }}
                             >
                                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                    <AnimalIcon type={tempFeedType === 'Pigs' ? 'pig' : 'chicken'} size={20} color={colors.icon} style={{ marginRight: 12 }} />
+                                    <AnimalIcon type={tempFeedType === 'Pigs' ? 'Pig' : 'Chicken'} size={20} color={colors.icon} style={{ marginRight: 12 }} />
                                     <Text style={[textStyles.body, { color: colors.text }]}>{tempFeedType}</Text>
                                 </View>
                                 <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
