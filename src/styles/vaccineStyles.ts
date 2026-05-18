@@ -7,11 +7,11 @@ export const useVaccineStyles = () => {
     return StyleSheet.create({
         safeArea: {
             flex: 1,
-            backgroundColor: colors.background,
+            backgroundColor: colors.bg,
         },
         container: {
             flex: 1,
-            backgroundColor: colors.background,
+            backgroundColor: colors.bg,
         },
         header: {
             flexDirection: 'row',
@@ -20,7 +20,7 @@ export const useVaccineStyles = () => {
             paddingVertical: 12,
             borderBottomWidth: 1,
             borderBottomColor: colors.stroke,
-            backgroundColor: colors.background,
+            backgroundColor: colors.bg,
         },
         tabBar: {
             flexDirection: 'row',

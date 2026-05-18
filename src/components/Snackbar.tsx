@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 

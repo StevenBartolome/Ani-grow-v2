@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   View, 
-  Text, 
   TouchableOpacity, 
   ScrollView, 
   Image,
   ActivityIndicator,
   StyleSheet
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';

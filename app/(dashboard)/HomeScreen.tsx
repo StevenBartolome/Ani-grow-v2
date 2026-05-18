@@ -7,10 +7,10 @@ import {
     Pressable,
     RefreshControl,
     ScrollView,
-    Text,
     TouchableOpacity,
     View,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
@@ -186,7 +186,7 @@ export default function HomeScreen() {
                             (b: any) => b.housings?.farm_id === fid
                         );
                         const fName =
-                            farmBatches[0]?.housings?.farms?.name ||
+                            (farmBatches[0] as any)?.housings?.farms?.name ||
                             managedFarms.find(f => f.id === fid)?.name || fid;
                         const fp = farmBatches
                             .filter((b: any) => b.animal_type === 'pig')
@@ -293,9 +293,14 @@ export default function HomeScreen() {
                             style={homeStyles.logo}
                             contentFit="contain"
                         />
-                        <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 28 }]}>
-                            Ani-Grow
-                        </Text>
+                        <View>
+                            <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
+                                Ani-Grow
+                            </Text>
+                            <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
+                                {farmName}
+                            </Text>
+                        </View>
                     </View>
                     <View style={homeStyles.headerRight}>
                         <TouchableOpacity

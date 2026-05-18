@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, TouchableOpacity, View } from 'react-native';
+import { Text } from '@/components/Text';
 
 import * as Crypto from 'expo-crypto';
 import { SafeAreaView } from 'react-native-safe-area-context';

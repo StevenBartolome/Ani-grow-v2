@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, TextInput, TouchableOpacity, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { AnimalIcon } from './AnimalIcon';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';

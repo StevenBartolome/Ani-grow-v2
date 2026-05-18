@@ -6,12 +6,12 @@ import {
   Platform,
   SafeAreaView,
   ScrollView,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
   ActivityIndicator
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import Snackbar from '@/components/Snackbar';

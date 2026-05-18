@@ -2,9 +2,10 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-    ActivityIndicator, Modal, Platform, RefreshControl, ScrollView, Text,
+    ActivityIndicator, Modal, Platform, RefreshControl, ScrollView,
     TextInput, TouchableOpacity, View, Animated,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';

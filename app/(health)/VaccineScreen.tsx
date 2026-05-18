@@ -17,11 +17,11 @@ import {
     Platform,
     Pressable,
     ScrollView,
-    Text,
     TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
@@ -68,6 +68,7 @@ interface VaccinationRecord {
 
 interface VaccinationSchedule {
     id: string;
+    vaccine_id?: string;
     vaccine_name: string;
     scheduled_date: string;
     housing_id?: string;

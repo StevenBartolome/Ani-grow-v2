@@ -2,18 +2,22 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, TouchableOpacity, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTextStyles } from '@/constants/textStyles';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 
 export default function AnalyticsScreen() {
+    const { profile } = useAuth();
     const { colors } = useTheme();
     const textStyles = useTextStyles();
+    const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
     const styles = useAnalyticsStyles();
     const deviceStyles = useDevicesStyles();
     const router = useRouter();
@@ -57,9 +61,14 @@ export default function AnalyticsScreen() {
                             style={{ width: 36, height: 36, marginRight: 10 }}
                             contentFit="contain"
                         />
-                        <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 28 }]}>
-                            Ani-Grow
-                        </Text>
+                        <View>
+                            <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
+                                Ani-Grow
+                            </Text>
+                            <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
+                                {farmName}
+                            </Text>
+                        </View>
                     </View>
                     <View style={{ width: 40, height: 40 }} />
                 </View>
