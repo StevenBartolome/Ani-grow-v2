@@ -44,7 +44,7 @@ export const FloatingNavBar = () => {
 
     const handleNavigation = (route: string) => {
         if (route !== pathname) {
-            router.push(route as any);
+            router.replace(route as any);
         }
     };
 
@@ -52,11 +52,10 @@ export const FloatingNavBar = () => {
     const gradientEnd = colors.bgLight;
 
     return (
-        <View style={styles.wrapper} pointerEvents="box-none">
+        <View style={[styles.wrapper, { pointerEvents: 'box-none' }]}>
             <LinearGradient
                 colors={[gradientStart, gradientEnd]}
-                style={styles.gradient}
-                pointerEvents="none"
+                style={[styles.gradient, { pointerEvents: 'none' }]}
             />
 
             <View style={styles.container}>

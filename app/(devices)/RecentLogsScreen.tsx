@@ -212,199 +212,189 @@ export default function RecentLogsScreen() {
         return filteredLogs.slice(start, start + pageSize);
     }, [filteredLogs, safePage]);
 
+    const activeFilterCount = (filterStatus !== 'all' ? 1 : 0) + (filterAnimal !== 'all' ? 1 : 0) + (filterHousingId !== 'all' ? 1 : 0);
+
     return (
         <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgLight }]}>
-            {/* Header */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke }}>
-                <View style={{ width: 44, height: 44 }}>
+
+            {/* ── Header ─────────────────────────────────────────────── */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke }}>
+                <View style={{ width: 40 }}>
                     <BackButton fallbackRoute="/(devices)/DevicesScreen" />
                 </View>
                 <View style={{ alignItems: 'center' }}>
-                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>All Recent Logs</Text>
-                    {isFiltered && (
-                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 11 }]}>Filtered • {filteredLogs.length} results</Text>
-                    )}
+                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>Weight Logs</Text>
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                        {isFiltered ? `${filteredLogs.length} of ${logs.length} entries` : `${logs.length} entries`}
+                    </Text>
                 </View>
                 <TouchableOpacity
                     activeOpacity={0.7}
-                    style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
-                    onPress={() => setShowFilters(!showFilters)}
+                    style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: showFilters ? colors.primary + '15' : 'transparent' }}
+                    onPress={() => setShowFilters(v => !v)}
                 >
-                    <MaterialIcons
-                        name={showFilters ? 'filter-list-off' : 'filter-list'}
-                        size={24}
-                        color={isFiltered ? colors.primary : showFilters ? colors.primary : colors.textGrey}
-                    />
+                    <MaterialIcons name="tune" size={22} color={activeFilterCount > 0 || showFilters ? colors.primary : colors.textGrey} />
+                    {activeFilterCount > 0 && (
+                        <View style={{ position: 'absolute', top: 7, right: 7, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary, borderWidth: 1.5, borderColor: colors.surface }} />
+                    )}
                 </TouchableOpacity>
             </View>
 
-            {/* Filter panel */}
+            {/* ── Filter Panel ────────────────────────────────────────── */}
             {showFilters && (
-                <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14 }}>
-                    {/* Status */}
-                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Status</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                            {(['all', 'underweight', 'normal', 'overweight'] as StatusFilter[]).map(s => {
-                                const isActive = filterStatus === s;
-                                const chipColor = s === 'underweight' ? colors.warning : s === 'overweight' ? colors.error : s === 'normal' ? colors.primary : colors.textGrey;
-                                return (
-                                    <TouchableOpacity
-                                        key={s}
-                                        onPress={() => setFilterStatus(s)}
-                                        activeOpacity={0.7}
-                                        style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: isActive ? chipColor + '20' : colors.cardFill, borderWidth: 1, borderColor: isActive ? chipColor : 'transparent' }}
-                                    >
-                                        <Text style={[textStyles.label, { color: isActive ? chipColor : colors.textGrey, fontSize: 12 }]}>
-                                            {s === 'all' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}
-                                        </Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
+                <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke, paddingTop: 12, paddingBottom: 12, gap: 8 }}>
+
+                    {/* Status row */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, flexDirection: 'row', gap: 8 }}>
+                        {(['all', 'underweight', 'normal', 'overweight'] as StatusFilter[]).map(s => {
+                            const active = filterStatus === s;
+                            const c = s === 'underweight' ? colors.warning : s === 'overweight' ? colors.error : s === 'normal' ? colors.primary : colors.textGrey;
+                            const icon: any = s === 'underweight' ? 'arrow-downward' : s === 'overweight' ? 'arrow-upward' : s === 'normal' ? 'check-circle' : 'monitor-weight';
+                            return (
+                                <TouchableOpacity key={s} onPress={() => setFilterStatus(s)} activeOpacity={0.75}
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: active ? c : colors.bgLight, borderWidth: 1, borderColor: active ? c : colors.stroke }}>
+                                    <MaterialIcons name={icon} size={13} color={active ? '#fff' : colors.textGrey} />
+                                    <Text style={[textStyles.label, { fontSize: 12, color: active ? '#fff' : colors.textGrey }]}>
+                                        {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
                     </ScrollView>
 
-                    {/* Animal type */}
-                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Animal</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: housingOptions.length > 0 ? 12 : 0 }}>
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                            {(['all', 'Pig', 'Chicken'] as AnimalFilter[]).map(a => {
-                                const isActive = filterAnimal === a;
-                                const chipColor = a === 'Pig' ? colors.pig : a === 'Chicken' ? colors.chicken : colors.textGrey;
-                                return (
-                                    <TouchableOpacity
-                                        key={a}
-                                        onPress={() => setFilterAnimal(a)}
-                                        activeOpacity={0.7}
-                                        style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: isActive ? chipColor + '20' : colors.cardFill, borderWidth: 1, borderColor: isActive ? chipColor : 'transparent' }}
-                                    >
-                                        <Text style={[textStyles.label, { color: isActive ? chipColor : colors.textGrey, fontSize: 12 }]}>
-                                            {a === 'all' ? 'All Animals' : a}
-                                        </Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
-                    </ScrollView>
+                    {/* Divider */}
+                    <View style={{ height: 1, backgroundColor: colors.stroke, marginHorizontal: 16 }} />
 
-                    {/* Housing — only shown when there are multiple housings */}
-                    {housingOptions.length > 1 && (
-                        <>
-                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Housing</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                <View style={{ flexDirection: 'row', gap: 8 }}>
-                                    <TouchableOpacity
-                                        onPress={() => setFilterHousingId('all')}
-                                        activeOpacity={0.7}
-                                        style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: filterHousingId === 'all' ? colors.info + '20' : colors.cardFill, borderWidth: 1, borderColor: filterHousingId === 'all' ? colors.info : 'transparent' }}
-                                    >
-                                        <Text style={[textStyles.label, { color: filterHousingId === 'all' ? colors.info : colors.textGrey, fontSize: 12 }]}>All Housings</Text>
-                                    </TouchableOpacity>
-                                    {housingOptions.map(h => (
-                                        <TouchableOpacity
-                                            key={h.id}
-                                            onPress={() => setFilterHousingId(h.id)}
-                                            activeOpacity={0.7}
-                                            style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: filterHousingId === h.id ? colors.info + '20' : colors.cardFill, borderWidth: 1, borderColor: filterHousingId === h.id ? colors.info : 'transparent' }}
-                                        >
-                                            <Text style={[textStyles.label, { color: filterHousingId === h.id ? colors.info : colors.textGrey, fontSize: 12 }]}>{h.name}</Text>
+                    {/* Animal + Housing row */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                        {(['all', 'Pig', 'Chicken'] as AnimalFilter[]).map(a => {
+                            const active = filterAnimal === a;
+                            const c = a === 'Pig' ? colors.pig : a === 'Chicken' ? colors.chicken : colors.textGrey;
+                            return (
+                                <TouchableOpacity key={a} onPress={() => setFilterAnimal(a)} activeOpacity={0.75}
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: active ? c : colors.bgLight, borderWidth: 1, borderColor: active ? c : colors.stroke }}>
+                                    {a !== 'all' && <AnimalIcon type={a.toLowerCase() as any} size={12} color={active ? '#fff' : colors.textGrey} />}
+                                    {a === 'all' && <MaterialIcons name="pets" size={13} color={active ? '#fff' : colors.textGrey} />}
+                                    <Text style={[textStyles.label, { fontSize: 12, color: active ? '#fff' : colors.textGrey }]}>
+                                        {a === 'all' ? 'All Animals' : a}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+
+                        {housingOptions.length > 1 && (
+                            <>
+                                <View style={{ width: 1, height: 20, backgroundColor: colors.stroke }} />
+                                {[{ id: 'all', name: 'All Housings' }, ...housingOptions].map(h => {
+                                    const active = filterHousingId === h.id;
+                                    return (
+                                        <TouchableOpacity key={h.id} onPress={() => setFilterHousingId(h.id)} activeOpacity={0.75}
+                                            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: active ? colors.info : colors.bgLight, borderWidth: 1, borderColor: active ? colors.info : colors.stroke }}>
+                                            <MaterialIcons name="home" size={13} color={active ? '#fff' : colors.textGrey} />
+                                            <Text style={[textStyles.label, { fontSize: 12, color: active ? '#fff' : colors.textGrey }]}>{h.name}</Text>
                                         </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </ScrollView>
-                        </>
+                                    );
+                                })}
+                            </>
+                        )}
+                    </ScrollView>
+
+                    {activeFilterCount > 0 && (
+                        <TouchableOpacity onPress={() => { setFilterStatus('all'); setFilterAnimal('all'); setFilterHousingId('all'); }} activeOpacity={0.7}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16 }}>
+                            <MaterialIcons name="close" size={13} color={colors.error} />
+                            <Text style={[textStyles.label, { color: colors.error, fontSize: 11 }]}>Clear all filters</Text>
+                        </TouchableOpacity>
                     )}
                 </View>
             )}
 
-            <ScrollView contentContainerStyle={{ padding: 16 }} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
+            {/* ── Log List ─────────────────────────────────────────────── */}
+            <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }} showsVerticalScrollIndicator={false}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
+
                 {loading ? (
-                    <View style={{ alignItems: 'center', marginTop: 40 }}>
+                    <View style={{ alignItems: 'center', marginTop: 60 }}>
                         <ActivityIndicator size="large" color={colors.primary} />
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading logs...</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading logs…</Text>
                     </View>
+
                 ) : logs.length === 0 ? (
-                    <View style={{ alignItems: 'center', marginTop: 40 }}>
-                        <MaterialIcons name="history" size={48} color={colors.textGrey} />
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginTop: 16 }]}>No Logs Found</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 8, textAlign: 'center' }]}>
-                            When your device records weights, they will appear here.
+                    <View style={{ alignItems: 'center', marginTop: 60 }}>
+                        <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                            <MaterialIcons name="monitor-weight" size={34} color={colors.textGrey} />
+                        </View>
+                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 6 }]}>No Logs Yet</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40 }]}>
+                            Weight sessions recorded by your AniWeigh devices will appear here.
                         </Text>
                     </View>
+
                 ) : filteredLogs.length === 0 ? (
-                    <View style={{ alignItems: 'center', marginTop: 40 }}>
-                        <MaterialIcons name="search-off" size={48} color={colors.textGrey} />
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginTop: 16 }]}>No Matches</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 8, textAlign: 'center' }]}>
-                            No entries match your active filters.
-                        </Text>
-                        <TouchableOpacity
-                            onPress={() => { setFilterStatus('all'); setFilterAnimal('all'); setFilterHousingId('all'); }}
-                            style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary + '20', borderRadius: 20 }}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 13 }]}>Clear Filters</Text>
+                    <View style={{ alignItems: 'center', marginTop: 60 }}>
+                        <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                            <MaterialIcons name="search-off" size={34} color={colors.textGrey} />
+                        </View>
+                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 6 }]}>No Matches</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40, marginBottom: 20 }]}>Try adjusting your filters.</Text>
+                        <TouchableOpacity onPress={() => { setFilterStatus('all'); setFilterAnimal('all'); setFilterHousingId('all'); }} activeOpacity={0.7}
+                            style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary, borderRadius: 10 }}>
+                            <Text style={[textStyles.label, { color: '#fff', fontSize: 13 }]}>Clear Filters</Text>
                         </TouchableOpacity>
                     </View>
+
                 ) : (
                     <>
                         {pagedLogs.map((log, index) => {
                             const statusColor = log.status === 'underweight' ? colors.warning : log.status === 'overweight' ? colors.error : colors.primary;
                             const statusIcon: any = log.status === 'underweight' ? 'arrow-downward' : log.status === 'overweight' ? 'arrow-upward' : 'check';
                             const kg = (log.weight_g / 1000).toFixed(2);
-                            return (
-                                <View
-                                    key={log.id ?? index}
-                                    style={{
-                                        backgroundColor: colors.surface,
-                                        borderRadius: 16,
-                                        borderWidth: 1,
-                                        borderColor: colors.stroke,
-                                        marginBottom: 10,
-                                        overflow: 'hidden',
-                                        flexDirection: 'row',
-                                    }}
-                                >
-                                    {/* Left accent strip */}
-                                    <View style={{ width: 4, backgroundColor: statusColor }} />
 
-                                    {/* Card content */}
-                                    <View style={{ flex: 1, padding: 12 }}>
-                                        {/* Top row: housing + weight */}
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                                            <View style={{ flex: 1, marginRight: 12 }}>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
-                                                    <MaterialIcons name="home" size={13} color={colors.textGrey} />
-                                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginLeft: 3 }]} numberOfLines={1}>{log.housingName}</Text>
+                            return (
+                                <View key={log.id ?? index} style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, overflow: 'hidden' }}>
+                                    {/* Thin status bar across top */}
+                                    <View style={{ height: 3, backgroundColor: statusColor }} />
+
+                                    <View style={{ flexDirection: 'row', padding: 14, gap: 14, alignItems: 'center' }}>
+                                        {/* Status icon box */}
+                                        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: statusColor + '18', alignItems: 'center', justifyContent: 'center' }}>
+                                            <MaterialIcons name={statusIcon} size={26} color={statusColor} />
+                                        </View>
+
+                                        {/* Main content */}
+                                        <View style={{ flex: 1 }}>
+                                            {/* Weight + status badge */}
+                                            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 5 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
+                                                    <Text style={[textStyles.h1, { color: colors.text, fontSize: 26, lineHeight: 30 }]}>{kg}</Text>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>kg</Text>
                                                 </View>
-                                                {/* Status badge */}
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: statusColor + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
-                                                    <MaterialIcons name={statusIcon} size={11} color={statusColor} />
-                                                    <Text style={[textStyles.label, { color: statusColor, fontSize: 11, marginLeft: 3, fontWeight: '700' }]}>
+                                                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: statusColor + '18' }}>
+                                                    <Text style={[textStyles.label, { color: statusColor, fontSize: 11 }]}>
                                                         {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
                                                     </Text>
                                                 </View>
                                             </View>
-                                            {/* Weight — prominent right side */}
-                                            <View style={{ alignItems: 'flex-end' }}>
-                                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 24, lineHeight: 28 }]}>{kg}</Text>
-                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>kg</Text>
-                                            </View>
-                                        </View>
 
-                                        {/* Bottom chips */}
-                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
-                                                <AnimalIcon type={log.animal as any} size={11} color={colors.textGrey} />
-                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{log.animal}</Text>
+                                            {/* Housing · Animal */}
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                                                <MaterialIcons name="home" size={12} color={colors.textGrey} />
+                                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontFamily: 'Poppins-Medium', flex: 1 }]} numberOfLines={1}>{log.housingName}</Text>
+                                                <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: colors.stroke }} />
+                                                <AnimalIcon type={log.animal as any} size={12} color={colors.textGrey} />
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{log.animal}</Text>
                                             </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
-                                                <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
-                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{formatLogTime(log.timestamp)}</Text>
-                                            </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
-                                                <MaterialIcons name="monitor-weight" size={11} color={colors.textGrey} />
-                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{log.deviceName}</Text>
+
+                                            {/* Time · Device */}
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                                    <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>{formatLogTime(log.timestamp)}</Text>
+                                                </View>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                                    <MaterialIcons name="monitor-weight" size={11} color={colors.textGrey} />
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>{log.deviceName}</Text>
+                                                </View>
                                             </View>
                                         </View>
                                     </View>
@@ -412,27 +402,19 @@ export default function RecentLogsScreen() {
                             );
                         })}
 
-                        {/* Pagination */}
+                        {/* ── Pagination ──────────────────────────────────── */}
                         {filteredLogs.length > pageSize && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, paddingHorizontal: 4 }}>
-                                <TouchableOpacity
-                                    activeOpacity={0.7}
-                                    onPress={() => setPage(p => Math.max(1, p - 1))}
-                                    disabled={safePage <= 1}
-                                    style={{ paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: colors.stroke, backgroundColor: safePage <= 1 ? colors.bgLight : colors.surface, opacity: safePage <= 1 ? 0.5 : 1 }}
-                                >
-                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 13 }]}>← Prev</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4 }}>
+                                <TouchableOpacity activeOpacity={0.7} onPress={() => setPage(p => Math.max(1, p - 1))} disabled={safePage <= 1}
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, opacity: safePage <= 1 ? 0.4 : 1 }}>
+                                    <MaterialIcons name="chevron-left" size={18} color={colors.text} />
+                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 13 }]}>Prev</Text>
                                 </TouchableOpacity>
-                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12 }]}>
-                                    {safePage} / {totalPages}
-                                </Text>
-                                <TouchableOpacity
-                                    activeOpacity={0.7}
-                                    onPress={() => setPage(p => Math.min(totalPages, p + 1))}
-                                    disabled={safePage >= totalPages}
-                                    style={{ paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: colors.stroke, backgroundColor: safePage >= totalPages ? colors.bgLight : colors.surface, opacity: safePage >= totalPages ? 0.5 : 1 }}
-                                >
-                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 13 }]}>Next →</Text>
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Page {safePage} of {totalPages}</Text>
+                                <TouchableOpacity activeOpacity={0.7} onPress={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, opacity: safePage >= totalPages ? 0.4 : 1 }}>
+                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 13 }]}>Next</Text>
+                                    <MaterialIcons name="chevron-right" size={18} color={colors.text} />
                                 </TouchableOpacity>
                             </View>
                         )}

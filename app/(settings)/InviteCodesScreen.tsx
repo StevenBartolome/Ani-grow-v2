@@ -11,6 +11,7 @@ import {
     TouchableOpacity,
     View,
     Animated,
+    Platform,
 } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -115,7 +116,7 @@ export default function InviteCodesScreen() {
 
     useEffect(() => {
         if (modalVisible) {
-            Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+            Animated.spring(slideAnim, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
         } else {
             slideAnim.setValue(600);
         }

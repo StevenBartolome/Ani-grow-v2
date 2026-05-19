@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Modal, TouchableOpacity, TouchableWithoutFeedback } from 'react-native';
+import { View, StyleSheet, Modal, TouchableOpacity, Pressable, Platform } from 'react-native';
 import { Text } from '@/components/Text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
@@ -48,10 +48,22 @@ export default function ActionModal({
             animationType="fade"
             onRequestClose={onCancel}
         >
-            <TouchableWithoutFeedback onPress={onCancel}>
+            <Pressable onPress={onCancel} style={{ flex: 1 }}>
                 <View style={styles.overlay}>
-                    <TouchableWithoutFeedback>
-                        <View style={[styles.modalContainer, { backgroundColor: colors.surface, shadowColor: colors.shadow, shadowOpacity: 1 }]}>
+                    <Pressable>
+                        <View style={[
+                            styles.modalContainer, 
+                            { backgroundColor: colors.surface },
+                            Platform.select({
+                                web: {
+                                    boxShadow: `0px 10px 20px ${colors.shadow || 'rgba(0,0,0,0.1)'}`,
+                                },
+                                default: {
+                                    shadowColor: colors.shadow,
+                                    shadowOpacity: 1,
+                                }
+                            })
+                        ]}>
                             
                             {/* Icon Background */}
                             <View style={[styles.iconContainer, { backgroundColor: iconColor + '1A' }]}>
@@ -88,9 +100,9 @@ export default function ActionModal({
                             </View>
                             
                         </View>
-                    </TouchableWithoutFeedback>
+                    </Pressable>
                 </View>
-            </TouchableWithoutFeedback>
+            </Pressable>
         </Modal>
     );
 }
@@ -109,11 +121,18 @@ const styles = StyleSheet.create({
         borderRadius: 24,
         padding: 24,
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.1,
-        shadowRadius: 20,
-        elevation: 10,
+        ...Platform.select({
+            web: {
+                boxShadow: '0px 10px 20px rgba(0, 0, 0, 0.1)',
+            },
+            default: {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 10 },
+                shadowOpacity: 0.1,
+                shadowRadius: 20,
+                elevation: 10,
+            }
+        })
     },
     iconContainer: {
         width: 64,

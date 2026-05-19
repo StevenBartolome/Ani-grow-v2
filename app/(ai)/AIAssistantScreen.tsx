@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import { Audio } from 'expo-av';
+import { Audio } from '@/lib/nativeAudio';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -29,7 +29,7 @@ import { useAIAssistantStyles, SIDEBAR_W as _SIDEBAR_W, HISTORY_MAX as _HISTORY_
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SIDEBAR_W   = _SIDEBAR_W;
+const SIDEBAR_W = _SIDEBAR_W;
 const HISTORY_MAX = _HISTORY_MAX;
 
 const QUICK_PROMPTS = [
@@ -66,11 +66,11 @@ interface AttachedImage {
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 
-const convsKey  = (fid: string) => `anibot_convs_${fid}`;
-const msgsKey   = (cid: string) => `anibot_msgs_${cid}`;
+const convsKey = (fid: string) => `anibot_convs_${fid}`;
+const msgsKey = (cid: string) => `anibot_msgs_${cid}`;
 const legacyKey = (fid: string) => `anibot_history_${fid}`;
 const newConvId = () => `conv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-const trunc     = (s: string, n: number) => s.length > n ? s.slice(0, n).trimEnd() + '…' : s;
+const trunc = (s: string, n: number) => s.length > n ? s.slice(0, n).trimEnd() + '…' : s;
 
 // ─── Grouping ─────────────────────────────────────────────────────────────────
 
@@ -80,7 +80,7 @@ function groupLabel(ts: number) {
     const diff = Math.floor((Date.now() - ts) / 86400000);
     if (diff === 0) return 'Today';
     if (diff === 1) return 'Yesterday';
-    if (diff <= 7)  return 'Previous 7 Days';
+    if (diff <= 7) return 'Previous 7 Days';
     if (diff <= 30) return 'Previous 30 Days';
     return new Date(ts).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
@@ -182,8 +182,8 @@ function TypingDots({ color }: { color: string }) {
     useEffect(() => {
         const anims = dots.map((dot, i) => Animated.loop(Animated.sequence([
             Animated.delay(i * 120),
-            Animated.timing(dot, { toValue: -5, duration: 280, useNativeDriver: true }),
-            Animated.timing(dot, { toValue: 0,  duration: 280, useNativeDriver: true }),
+            Animated.timing(dot, { toValue: -5, duration: 280, useNativeDriver: Platform.OS !== 'web' }),
+            Animated.timing(dot, { toValue: 0, duration: 280, useNativeDriver: Platform.OS !== 'web' }),
             Animated.delay(560),
         ])));
         anims.forEach(a => a.start());
@@ -241,7 +241,7 @@ function MessageActionBar({ onCopy, onRegenerate, isVisible }: { onCopy: () => v
     const { colors } = useTheme();
     const opacity = useRef(new Animated.Value(0)).current;
     useEffect(() => {
-        Animated.timing(opacity, { toValue: isVisible ? 1 : 0, duration: 150, useNativeDriver: true }).start();
+        Animated.timing(opacity, { toValue: isVisible ? 1 : 0, duration: 150, useNativeDriver: Platform.OS !== 'web' }).start();
     }, [isVisible]);
     if (!isVisible) return null;
     const Btn = ({ label, icon, onPress }: { label: string; icon: string; onPress: () => void }) => (
@@ -277,32 +277,32 @@ interface SidebarProps {
 
 function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, onDelete }: SidebarProps) {
     const { colors, isDark } = useTheme();
-    const slideX    = useRef(new Animated.Value(-SIDEBAR_W)).current;
+    const slideX = useRef(new Animated.Value(-SIDEBAR_W)).current;
     const backdropO = useRef(new Animated.Value(0)).current;
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
     useEffect(() => {
         Animated.parallel([
-            Animated.timing(slideX,    { toValue: visible ? 0 : -SIDEBAR_W, duration: 240, useNativeDriver: true }),
-            Animated.timing(backdropO, { toValue: visible ? 1 : 0,           duration: 240, useNativeDriver: true }),
+            Animated.timing(slideX, { toValue: visible ? 0 : -SIDEBAR_W, duration: 240, useNativeDriver: Platform.OS !== 'web' }),
+            Animated.timing(backdropO, { toValue: visible ? 1 : 0, duration: 240, useNativeDriver: Platform.OS !== 'web' }),
         ]).start();
         if (!visible) setDeleteTarget(null);
     }, [visible]);
 
     const sorted = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
-    const groups  = groupConversations(sorted);
+    const groups = groupConversations(sorted);
     const sidebarBg = isDark ? '#0f0f0f' : '#f7f7f5';
 
     return (
         <>
             {/* Backdrop */}
             <Animated.View
-                pointerEvents={visible ? 'auto' : 'none'}
                 style={{
                     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                     backgroundColor: 'rgba(0,0,0,0.45)',
                     opacity: backdropO,
                     zIndex: 100,
+                    pointerEvents: visible ? 'auto' : 'none',
                 }}
             >
                 <Pressable style={{ flex: 1 }} onPress={onClose} />
@@ -379,7 +379,7 @@ function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, o
                                     </Text>
                                     {group.items.map(conv => {
                                         const isActive = conv.id === activeId;
-                                        const isDel    = deleteTarget === conv.id;
+                                        const isDel = deleteTarget === conv.id;
                                         return (
                                             <Pressable
                                                 key={conv.id}
@@ -447,8 +447,8 @@ export default function AIAssistantScreen() {
         router.back();
     }, []);
 
-    const farmId   = (profile as any)?.farm_id ?? '';
-    const userId   = (profile as any)?.uid ?? (profile as any)?.id ?? '';
+    const farmId = (profile as any)?.farm_id ?? '';
+    const userId = (profile as any)?.uid ?? (profile as any)?.id ?? '';
     const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? 'Your Farm';
     const { managedFarms, isFarmAdmin, isMultiFarm } = useFarmFilter();
 
@@ -456,7 +456,7 @@ export default function AIAssistantScreen() {
     // null = "All Farms", string = specific farm ID
     const [anibotFarmId, setAnibotFarmId] = useState<string | null>(null);
 
-    const anibotActiveFarmId  = anibotFarmId ?? managedFarms[0]?.id ?? farmId;
+    const anibotActiveFarmId = anibotFarmId ?? managedFarms[0]?.id ?? farmId;
     const anibotActiveFarmIds = anibotFarmId
         ? [anibotFarmId]
         : managedFarms.length > 0 ? managedFarms.map(f => f.id) : [farmId];
@@ -466,32 +466,32 @@ export default function AIAssistantScreen() {
 
     // ── State ─────────────────────────────────────────────────────────────────
     const [conversations, setConversations] = useState<Conversation[]>([]);
-    const [activeConvId, setActiveConvId]   = useState<string | null>(null);
-    const [messages, setMessages]           = useState<StoredMessage[]>([]);
-    const [input, setInput]                 = useState('');
-    const [isLoading, setIsLoading]         = useState(false);
-    const [historyReady, setHistoryReady]   = useState(false);
-    const [activeMsg, setActiveMsg]         = useState<number | null>(null);
+    const [activeConvId, setActiveConvId] = useState<string | null>(null);
+    const [messages, setMessages] = useState<StoredMessage[]>([]);
+    const [input, setInput] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [historyReady, setHistoryReady] = useState(false);
+    const [activeMsg, setActiveMsg] = useState<number | null>(null);
     const [showScrollBtn, setShowScrollBtn] = useState(false);
-    const [copiedToast, setCopiedToast]     = useState(false);
-    const [sidebarOpen, setSidebarOpen]     = useState(false);
+    const [copiedToast, setCopiedToast] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
 
     // ── Image attachment ──────────────────────────────────────────────────────
     const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
 
     // ── Voice recording ───────────────────────────────────────────────────────
-    const [recording,      setRecording]      = useState<Audio.Recording | null>(null);
-    const webMediaRecorderRef                 = useRef<MediaRecorder | null>(null); // ref so stop handler always sees current value
-    const webChunksRef                        = useRef<Blob[]>([]);
-    const analyserRef                         = useRef<AnalyserNode | null>(null);
-    const animFrameRef                        = useRef<number | null>(null);
-    const [isRecording,    setIsRecording]    = useState(false);
+    const [recording, setRecording] = useState<any>(null);
+    const webMediaRecorderRef = useRef<MediaRecorder | null>(null); // ref so stop handler always sees current value
+    const webChunksRef = useRef<Blob[]>([]);
+    const analyserRef = useRef<AnalyserNode | null>(null);
+    const animFrameRef = useRef<number | null>(null);
+    const [isRecording, setIsRecording] = useState(false);
     const [isTranscribing, setIsTranscribing] = useState(false);
-    const [audioLevel,     setAudioLevel]     = useState(0); // 0–1 for waveform indicator
+    const [audioLevel, setAudioLevel] = useState(0); // 0–1 for waveform indicator
 
-    const scrollRef       = useRef<ScrollView>(null);
-    const atBottom        = useRef(true);
-    const toastTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const scrollRef = useRef<ScrollView>(null);
+    const atBottom = useRef(true);
+    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const activeConvIdRef = useRef<string | null>(null);
     const conversationsRef = useRef<Conversation[]>([]);
 
@@ -504,7 +504,7 @@ export default function AIAssistantScreen() {
         (async () => {
             let convs: Conversation[] = [];
             const convsRaw = await AsyncStorage.getItem(convsKey(farmId));
-            if (convsRaw) { try { convs = JSON.parse(convsRaw); } catch {} }
+            if (convsRaw) { try { convs = JSON.parse(convsRaw); } catch { } }
 
             // Migrate legacy single-conversation history
             if (convs.length === 0) {
@@ -514,12 +514,12 @@ export default function AIAssistantScreen() {
                         const legacyMsgs: StoredMessage[] = JSON.parse(legacyRaw);
                         if (legacyMsgs.length > 0) {
                             const firstUser = legacyMsgs.find(m => m.role === 'user');
-                            const lastMsg   = legacyMsgs[legacyMsgs.length - 1];
+                            const lastMsg = legacyMsgs[legacyMsgs.length - 1];
                             const id = newConvId();
                             const conv: Conversation = {
                                 id,
-                                title:     trunc(firstUser?.content ?? 'Previous chat', 40),
-                                preview:   trunc(lastMsg.content.replace(/\[NAV:[^\]]+\]/g, '').trim(), 60),
+                                title: trunc(firstUser?.content ?? 'Previous chat', 40),
+                                preview: trunc(lastMsg.content.replace(/\[NAV:[^\]]+\]/g, '').trim(), 60),
                                 createdAt: legacyMsgs[0].ts,
                                 updatedAt: lastMsg.ts,
                             };
@@ -535,7 +535,7 @@ export default function AIAssistantScreen() {
                             setHistoryReady(true);
                             return;
                         }
-                    } catch {}
+                    } catch { }
                 }
             }
 
@@ -585,8 +585,8 @@ export default function AIAssistantScreen() {
         if (!result.canceled && result.assets[0]) {
             const asset = result.assets[0];
             setAttachedImage({
-                uri:       asset.uri,
-                base64:    asset.base64 ?? '',
+                uri: asset.uri,
+                base64: asset.base64 ?? '',
                 mediaType: asset.mimeType ?? 'image/jpeg',
             });
         }
@@ -603,8 +603,8 @@ export default function AIAssistantScreen() {
         if (!result.canceled && result.assets[0]) {
             const asset = result.assets[0];
             setAttachedImage({
-                uri:       asset.uri,
-                base64:    asset.base64 ?? '',
+                uri: asset.uri,
+                base64: asset.base64 ?? '',
                 mediaType: asset.mimeType ?? 'image/jpeg',
             });
         }
@@ -613,7 +613,7 @@ export default function AIAssistantScreen() {
     // ── Voice handlers ────────────────────────────────────────────────────────
     const stopAudioMeter = useCallback(() => {
         if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
-        if (analyserRef.current)  { analyserRef.current = null; }
+        if (analyserRef.current) { analyserRef.current = null; }
         setAudioLevel(0);
     }, []);
 
@@ -637,7 +637,7 @@ export default function AIAssistantScreen() {
                         animFrameRef.current = requestAnimationFrame(tick);
                     };
                     tick();
-                } catch {}
+                } catch { }
 
                 const mimeType = (window as any).MediaRecorder?.isTypeSupported?.('audio/webm;codecs=opus')
                     ? 'audio/webm;codecs=opus'
@@ -683,17 +683,17 @@ export default function AIAssistantScreen() {
                 const blob = await new Promise<Blob>((resolve) => {
                     mr.onstop = () => {
                         // Stop all mic tracks to release the mic indicator
-                        try { mr.stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()); } catch {}
+                        try { mr.stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()); } catch { }
                         resolve(new Blob(webChunksRef.current, { type: recMime }));
                     };
                     const state = (mr as any).state as string;
                     if (state === 'recording' || state === 'paused') {
                         // requestData() flushes any buffered audio before stop() fires ondataavailable
-                        try { mr.requestData(); } catch {}
+                        try { mr.requestData(); } catch { }
                         mr.stop();
                     } else {
                         // Already inactive — resolve with whatever chunks we have
-                        try { mr.stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()); } catch {}
+                        try { mr.stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()); } catch { }
                         resolve(new Blob(webChunksRef.current, { type: recMime }));
                     }
                 });
@@ -764,12 +764,12 @@ export default function AIAssistantScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         setActiveMsg(null);
 
-        const base    = historyOverride ?? messages;
+        const base = historyOverride ?? messages;
         const imgSnapshot = attachedImage;       // capture before clearing
         const userMsg: StoredMessage = {
-            role:     'user',
-            content:  trimmed || '📷 [Image attached]',
-            ts:       Date.now(),
+            role: 'user',
+            content: trimmed || '📷 [Image attached]',
+            ts: Date.now(),
             imageUri: imgSnapshot?.uri,           // stored for display only (no base64)
         };
         const history = [...base, userMsg];
@@ -796,13 +796,13 @@ export default function AIAssistantScreen() {
 
         try {
             const apiMsgs = history.map(({ role, content }) => ({ role, content }));
-            const reply   = await anibotChat(apiMsgs, {
-                farmId:         anibotActiveFarmId,
-                farmName:       anibotActiveFarmName,
+            const reply = await anibotChat(apiMsgs, {
+                farmId: anibotActiveFarmId,
+                farmName: anibotActiveFarmName,
                 userId,
-                farmIds:        anibotActiveFarmIds,
+                farmIds: anibotActiveFarmIds,
                 managedFarms,
-                imageData:      imgSnapshot?.base64,
+                imageData: imgSnapshot?.base64,
                 imageMediaType: imgSnapshot?.mediaType,
             });
             const botMsg: StoredMessage = {
@@ -812,8 +812,8 @@ export default function AIAssistantScreen() {
             const updated = [...history, botMsg];
             setMessages(updated);
 
-            const preview  = trunc(reply.text.replace(/\[NAV:[^\]]+\]/g, '').trim(), 60);
-            const fConvId  = convId;
+            const preview = trunc(reply.text.replace(/\[NAV:[^\]]+\]/g, '').trim(), 60);
+            const fConvId = convId;
             setConversations(prev => {
                 const next = prev.map(c => c.id === fConvId ? { ...c, preview, updatedAt: Date.now() } : c);
                 saveConvs(next);
@@ -843,7 +843,7 @@ export default function AIAssistantScreen() {
         setActiveMsg(null);
         setSidebarOpen(false);
         const raw = await AsyncStorage.getItem(msgsKey(id));
-        if (raw) { try { setMessages(JSON.parse(raw)); } catch {} }
+        if (raw) { try { setMessages(JSON.parse(raw)); } catch { } }
     }, [activeConvId]);
 
     const startNewChat = useCallback(() => {
@@ -877,7 +877,7 @@ export default function AIAssistantScreen() {
         if (isLoading || messages.length < 2) return;
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         const withoutLast = messages.slice(0, -1);
-        const lastUser    = [...withoutLast].reverse().find(m => m.role === 'user');
+        const lastUser = [...withoutLast].reverse().find(m => m.role === 'user');
         if (!lastUser) return;
         const before = withoutLast.slice(0, withoutLast.lastIndexOf(lastUser));
         setMessages(before);
@@ -1067,10 +1067,10 @@ export default function AIAssistantScreen() {
                     {!isEmpty && (
                         <View style={styles.convWrap}>
                             {messages.map((msg, idx) => {
-                                const isUser    = msg.role === 'user';
-                                const isLast    = idx === messages.length - 1;
-                                const showDate  = diffDay(messages[idx - 1], msg);
-                                const isActive  = activeMsg === idx;
+                                const isUser = msg.role === 'user';
+                                const isLast = idx === messages.length - 1;
+                                const showDate = diffDay(messages[idx - 1], msg);
+                                const isActive = activeMsg === idx;
                                 const isLastBot = !isUser && isLast && !isLoading;
 
                                 return (

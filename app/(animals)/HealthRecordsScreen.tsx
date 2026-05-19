@@ -297,7 +297,7 @@ export default function HealthRecordsScreen() {
 
     useEffect(() => {
         if (addVisible) {
-            Animated.spring(slideAdd, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+            Animated.spring(slideAdd, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
         } else {
             slideAdd.setValue(600);
         }
@@ -305,7 +305,7 @@ export default function HealthRecordsScreen() {
 
     useEffect(() => {
         if (!!detailRecord) {
-            Animated.spring(slideDetail, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+            Animated.spring(slideDetail, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
         } else {
             slideDetail.setValue(600);
         }
@@ -315,7 +315,7 @@ export default function HealthRecordsScreen() {
 
     useEffect(() => {
         if (trashVisible) {
-            Animated.spring(slideTrash, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+            Animated.spring(slideTrash, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
         } else {
             slideTrash.setValue(600);
         }
@@ -593,10 +593,17 @@ export default function HealthRecordsScreen() {
                             width: 44, height: 44, borderRadius: 22,
                             backgroundColor: colors.primary,
                             alignItems: 'center', justifyContent: 'center',
-                            elevation: 4,
-                            shadowColor: colors.primary,
-                            shadowOffset: { width: 0, height: 3 },
-                            shadowOpacity: 0.35, shadowRadius: 6,
+                            ...Platform.select({
+                                web: {
+                                    boxShadow: `0px 3px 6px ${colors.primary}59`,
+                                },
+                                default: {
+                                    elevation: 4,
+                                    shadowColor: colors.primary,
+                                    shadowOffset: { width: 0, height: 3 },
+                                    shadowOpacity: 0.35, shadowRadius: 6,
+                                }
+                            })
                         }}
                         onPress={() => setAddVisible(true)}
                     >

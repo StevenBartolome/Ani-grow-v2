@@ -4,11 +4,38 @@ import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { LogBox, Platform } from 'react-native';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { FarmFilterProvider } from '@/context/FarmFilterContext';
-import { ThemeToggleButton } from '@/components/ThemeToggleButton';
 import { AniBotFAB } from '@/components/AniBotFAB';
+
+// Silence non-critical deprecation and third-party package warnings
+LogBox.ignoreLogs([
+  '[expo-av]: Expo AV has been deprecated',
+  '"shadow*" style props are deprecated',
+  'props.pointerEvents is deprecated',
+]);
+
+// Intercept browser console warnings to keep devtools completely clean
+if (Platform.OS === 'web') {
+  const originalWarn = console.warn;
+  console.warn = (...args: any[]) => {
+    const message = args.join(' ');
+    if (
+      message.includes('[expo-av]: Expo AV has been deprecated') ||
+      message.includes('"shadow*" style props are deprecated') ||
+      message.includes('shadowColor') ||
+      message.includes('shadowOffset') ||
+      message.includes('shadowOpacity') ||
+      message.includes('shadowRadius') ||
+      message.includes('props.pointerEvents is deprecated')
+    ) {
+      return;
+    }
+    originalWarn(...args);
+  };
+}
 
 SplashScreen.preventAutoHideAsync();
 
@@ -37,7 +64,13 @@ export default function RootLayout() {
         <AuthProvider>
           <FarmFilterProvider>
           <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(ai)/AIAssistantScreen" />
+            {/* Main nav screens — instant switch, no slide */}
+            <Stack.Screen name="(dashboard)/HomeScreen"    options={{ animation: 'none' }} />
+            <Stack.Screen name="(devices)/DevicesScreen"   options={{ animation: 'none' }} />
+            <Stack.Screen name="(animals)/AnimalsScreen"   options={{ animation: 'none' }} />
+            <Stack.Screen name="(analytics)/AnalyticsScreen" options={{ animation: 'none' }} />
+            <Stack.Screen name="(guide)/GuideScreen"       options={{ animation: 'none' }} />
+            <Stack.Screen name="AIAssistantScreen" />
             <Stack.Screen name="(auth)/LoginScreen" />
             <Stack.Screen name="(auth)/RegisterScreen" />
             <Stack.Screen name="(auth)/ForgotPasswordScreen" />
@@ -46,7 +79,6 @@ export default function RootLayout() {
             <Stack.Screen name="(auth)/TermsOfServiceScreen" />
             <Stack.Screen name="(auth)/MFAChallengeScreen" />
           </Stack>
-          <ThemeToggleButton />
           <AniBotFAB />
           </FarmFilterProvider>
         </AuthProvider>

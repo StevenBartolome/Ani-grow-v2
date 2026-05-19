@@ -1,11 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
-import React, { useEffect, useRef } from 'react';
-import { Animated, TouchableOpacity, View } from 'react-native';
+import React from 'react';
+import { Platform, TouchableOpacity, View } from 'react-native';
+import { Text } from '@/components/Text';
+import { useTheme } from '@/context/ThemeContext';
 
-const BOT_COLOR = '#8B5CF6';
-
-// Screens where the FAB should NOT appear
 const HIDDEN_ON = [
     'aiassistantscreen',
     'loginscreen',
@@ -20,64 +19,67 @@ const HIDDEN_ON = [
 export function AniBotFAB() {
     const router   = useRouter();
     const pathname = usePathname();
+    const { colors } = useTheme();
 
     const isHidden = HIDDEN_ON.some(p => pathname.toLowerCase().includes(p));
-
-    // Pulse animation
-    const pulseAnim = useRef(new Animated.Value(1)).current;
-
-    useEffect(() => {
-        if (isHidden) return;
-        const pulse = Animated.loop(
-            Animated.sequence([
-                Animated.timing(pulseAnim, { toValue: 1.08, duration: 900, useNativeDriver: true }),
-                Animated.timing(pulseAnim, { toValue: 1,    duration: 900, useNativeDriver: true }),
-            ])
-        );
-        pulse.start();
-        return () => pulse.stop();
-    }, [isHidden, pulseAnim]);
-
     if (isHidden) return null;
 
+    // The route name must match the Stack.Screen name (no group prefix — groups are transparent)
+    const handlePress = () => router.push('/AIAssistantScreen' as any);
+
     return (
-        <View
-            pointerEvents="box-none"
+        <TouchableOpacity
+            onPress={handlePress}
+            activeOpacity={0.82}
             style={{
                 position: 'absolute',
-                bottom: 100,   // sits above the floating nav bar
-                right: 20,
+                right: 0,
+                bottom: 210,
                 zIndex: 999,
+                backgroundColor: colors.primary,
+                borderTopLeftRadius: 14,
+                borderBottomLeftRadius: 14,
+                paddingVertical: 14,
+                paddingLeft: 12,
+                paddingRight: 10,
+                alignItems: 'center',
+                gap: 10,
+                overflow: 'visible',
+                ...Platform.select({
+                    web: { boxShadow: `-3px 3px 14px rgba(0,0,0,0.25)` } as any,
+                    default: {
+                        shadowColor: '#000',
+                        shadowOffset: { width: -2, height: 3 },
+                        shadowOpacity: 0.22,
+                        shadowRadius: 8,
+                        elevation: 10,
+                    },
+                }),
             }}
         >
-            {/* Glow ring */}
-            <Animated.View
-                style={{
-                    position: 'absolute',
-                    width: 58, height: 58,
-                    borderRadius: 29,
-                    backgroundColor: BOT_COLOR + '30',
-                    top: -4, left: -4,
-                    transform: [{ scale: pulseAnim }],
-                }}
-            />
+            {/* Robot icon */}
+            <MaterialIcons name="smart-toy" size={20} color="#fff" />
 
-            <TouchableOpacity
-                onPress={() => router.push('/(ai)/AIAssistantScreen' as any)}
-                activeOpacity={0.85}
-                style={{
-                    width: 50, height: 50, borderRadius: 25,
-                    backgroundColor: BOT_COLOR,
-                    alignItems: 'center', justifyContent: 'center',
-                    shadowColor: BOT_COLOR,
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.45,
-                    shadowRadius: 10,
-                    elevation: 10,
-                }}
-            >
-                <MaterialIcons name="smart-toy" size={26} color="#fff" />
-            </TouchableOpacity>
-        </View>
+            {/* "AniBot" rotated 90° so it reads bottom-to-top */}
+            <View style={{ width: 20, height: 56, overflow: 'visible' }}>
+                <Text
+                    style={{
+                        color: '#fff',
+                        fontSize: 12,
+                        fontFamily: 'Poppins-SemiBold',
+                        letterSpacing: 0.5,
+                        position: 'absolute',
+                        width: 56,
+                        height: 16,
+                        left: -18,
+                        top: 20,
+                        textAlign: 'center',
+                        transform: [{ rotate: '-90deg' }],
+                    }}
+                >
+                    AniBot
+                </Text>
+            </View>
+        </TouchableOpacity>
     );
 }

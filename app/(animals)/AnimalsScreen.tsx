@@ -100,14 +100,9 @@ export default function AnimalsScreen() {
                             style={{ width: 36, height: 36, marginRight: 10 }}
                             contentFit="contain"
                         />
-                        <View>
-                            <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
-                                Ani-Grow
-                            </Text>
-                            <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
-                                {farmName}
-                            </Text>
-                        </View>
+                        <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
+                            Ani-Grow
+                        </Text>
                     </View>
                     <View style={{ width: 40, height: 40 }} />
                 </View>

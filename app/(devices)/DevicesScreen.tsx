@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState, useCallback } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -27,55 +27,75 @@ type FilterType = 'All' | 'AniFeed' | 'AniWeigh';
 const DeviceCard = ({ device, onPress }: { device: RegisteredDevice; onPress: () => void }) => {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
-    const styles = useDevicesStyles();
 
     const isOnline = device.status === 'online';
     const isWeigh = device.type === 'AniWeigh';
 
-    const iconColor = isWeigh ? colors.smartScale : colors.secondary;
-    const bgColor = isWeigh ? colors.smartScale + '1A' : colors.secondary + '1A';
+    const accentColor = isWeigh ? colors.smartScale : colors.secondary;
+    const animalColor = device.animalType === 'Pig' ? colors.pig : colors.chicken;
 
     return (
         <TouchableOpacity
-            activeOpacity={0.7}
-            style={[
-                styles.deviceCard,
-                { backgroundColor: colors.surface, borderColor: colors.stroke },
-                !isOnline && styles.deviceCardOffline
-            ]}
+            activeOpacity={0.75}
+            style={{
+                flex: 1,
+                backgroundColor: colors.surface,
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: colors.stroke,
+                padding: 16,
+                opacity: isOnline ? 1 : 0.6,
+                overflow: 'hidden',
+            }}
             onPress={onPress}
         >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <View style={[styles.deviceIconBox, { backgroundColor: bgColor }, !isOnline && styles.deviceIconBoxOffline]}>
-                    <MaterialIcons name={isWeigh ? 'monitor-weight' : 'grain'} size={26} color={isOnline ? iconColor : colors.textGrey} />
+            {/* Top row: icon box + status dot */}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+                <View style={{
+                    width: 46, height: 46, borderRadius: 13,
+                    backgroundColor: isOnline ? accentColor + '1A' : colors.bgLight,
+                    alignItems: 'center', justifyContent: 'center',
+                }}>
+                    <MaterialIcons
+                        name={isWeigh ? 'monitor-weight' : 'grain'}
+                        size={24}
+                        color={isOnline ? accentColor : colors.textGrey}
+                    />
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    {device.animalType && (
-                        <View style={{
-                            paddingHorizontal: 10, paddingVertical: 3, borderRadius: 100,
-                            backgroundColor: (device.animalType === 'Pig' ? colors.pig : colors.chicken) + '1A',
-                            borderWidth: 1,
-                            borderColor: (device.animalType === 'Pig' ? colors.pig : colors.chicken) + '33'
-                        }}>
-                            <Text style={{ color: device.animalType === 'Pig' ? colors.pig : colors.chicken, fontSize: 10, fontFamily: 'Poppins-Bold' }}>
-                                {device.animalType.toUpperCase()}
-                            </Text>
-                        </View>
-                    )}
-                    <View style={styles.deviceStatusDotContainer}>
-                        {isOnline && <View style={styles.deviceStatusDot} />}
-                    </View>
-                </View>
-            </View>
-            <View style={[styles.deviceInfoBottom, { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }]}>
-                <View style={{ flex: 1 }}>
-                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }, !isOnline && styles.deviceTextOffline]} numberOfLines={2}>
-                        {device.name}
-                    </Text>
-                    <Text style={[textStyles.body, { color: isOnline ? colors.primary : colors.textGrey, fontSize: 12, marginTop: 2 }]}>
+
+                {/* Status dot */}
+                <View style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 4,
+                    backgroundColor: isOnline ? colors.primary + '15' : colors.bgLight,
+                    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20,
+                    borderWidth: 1, borderColor: isOnline ? colors.primary + '30' : colors.stroke,
+                }}>
+                    <View style={{
+                        width: 6, height: 6, borderRadius: 3,
+                        backgroundColor: isOnline ? colors.primary : colors.textGrey,
+                    }} />
+                    <Text style={[textStyles.label, { fontSize: 10, color: isOnline ? colors.primary : colors.textGrey }]}>
                         {isOnline ? 'Online' : 'Offline'}
                     </Text>
                 </View>
+            </View>
+
+            {/* Device name */}
+            <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, marginBottom: 10 }]} numberOfLines={2}>
+                {device.name}
+            </Text>
+
+            {/* Bottom: type label + animal tag — pinned to bottom */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 8 }}>
+                <Text style={[textStyles.label, { color: accentColor, fontSize: 11 }]}>{device.type}</Text>
+                {device.animalType && (
+                    <View style={{
+                        backgroundColor: animalColor + '18',
+                        paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+                    }}>
+                        <Text style={[textStyles.label, { color: animalColor, fontSize: 11 }]}>{device.animalType}</Text>
+                    </View>
+                )}
             </View>
         </TouchableOpacity>
     );
@@ -86,8 +106,15 @@ export default function DevicesScreen() {
     const textStyles = useTextStyles();
     const styles = useDevicesStyles();
     const router = useRouter();
+    const { width } = useWindowDimensions();
     const { profile, permissions, role, isLoading: authLoading } = useAuth();
     const { activeFarmIds } = useFarmFilter();
+
+    // Responsive grid: 2 cols on phones, 3+ on tablets
+    const numCols = width >= 768 ? 3 : 2;
+    const hPad = width >= 900 ? Math.round(width * 0.12) : width >= 600 ? Math.round(width * 0.07) : 20;
+    const cardGap = 12;
+    const cardWidth = (width - hPad * 2 - cardGap * (numCols - 1)) / numCols;
 
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
@@ -154,14 +181,9 @@ export default function DevicesScreen() {
                             style={{ width: 36, height: 36, marginRight: 10 }}
                             contentFit="contain"
                         />
-                        <View>
-                            <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
-                                Ani-Grow
-                            </Text>
-                            <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
-                                {farmName}
-                            </Text>
-                        </View>
+                        <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
+                            Ani-Grow
+                        </Text>
                     </View>
                     <TouchableOpacity style={styles.addButton} onPress={() => router.push('/(devices)/AddDeviceScreen')}>
                         <MaterialIcons name="add" size={22} color={colors.textGrey} />
@@ -199,10 +221,6 @@ export default function DevicesScreen() {
                     showsVerticalScrollIndicator={false}
                     refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchDevices} colors={[colors.primary]} tintColor={colors.primary} />}
                 >
-                    <View style={styles.sectionTitleRow}>
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Registered Devices</Text>
-                    </View>
-
                     {loading ? (
                         <View style={{ alignItems: 'center', paddingVertical: 60 }}>
                             <ActivityIndicator size="large" color={colors.primary} />
@@ -210,7 +228,7 @@ export default function DevicesScreen() {
                         </View>
                     ) : filteredDevices.length === 0 ? (
                         <View style={{ alignItems: 'center', paddingVertical: 60, paddingHorizontal: 32 }}>
-                            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                            <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
                                 <MaterialIcons name="devices" size={36} color={colors.primary} />
                             </View>
                             <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, textAlign: 'center', marginBottom: 8 }]}>
@@ -232,19 +250,45 @@ export default function DevicesScreen() {
                             )}
                         </View>
                     ) : (
-                        <View style={styles.gridContainer}>
-                            {filteredDevices.map(device => (
-                                <DeviceCard
-                                    key={device.id}
-                                    device={device}
-                                    onPress={() => {
-                                        if (device.type === 'AniWeigh') {
-                                            router.push(`/(devices)/AniWeighScreen?deviceId=${device.id}` as any);
-                                        } else {
-                                            router.push(`/(devices)/AniFeedScreen?deviceId=${device.id}` as any);
-                                        }
-                                    }}
-                                />
+                        <View style={{ paddingHorizontal: hPad, paddingBottom: 24 }}>
+                            {/* Section header */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Registered Devices</Text>
+                                <View style={{ flexDirection: 'row', gap: 6 }}>
+                                    {[
+                                        { label: 'Online', count: filteredDevices.filter(d => d.status === 'online').length, color: colors.primary },
+                                        { label: 'Offline', count: filteredDevices.filter(d => d.status === 'offline').length, color: colors.textGrey },
+                                    ].filter(s => s.count > 0).map(s => (
+                                        <View key={s.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: s.color + '15', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+                                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: s.color }} />
+                                            <Text style={[textStyles.label, { color: s.color, fontSize: 11 }]}>{s.count} {s.label}</Text>
+                                        </View>
+                                    ))}
+                                </View>
+                            </View>
+
+                            {/* Grid */}
+                            {Array.from({ length: Math.ceil(filteredDevices.length / numCols) }).map((_, rowIdx) => (
+                                <View key={rowIdx} style={{ flexDirection: 'row', gap: cardGap, marginBottom: cardGap }}>
+                                    {filteredDevices.slice(rowIdx * numCols, rowIdx * numCols + numCols).map(device => (
+                                        <View key={device.id} style={{ width: cardWidth }}>
+                                            <DeviceCard
+                                                device={device}
+                                                onPress={() => {
+                                                    if (device.type === 'AniWeigh') {
+                                                        router.push(`/(devices)/AniWeighScreen?deviceId=${device.id}` as any);
+                                                    } else {
+                                                        router.push(`/(devices)/AniFeedScreen?deviceId=${device.id}` as any);
+                                                    }
+                                                }}
+                                            />
+                                        </View>
+                                    ))}
+                                    {/* Fill empty slot in last row so cards don't stretch */}
+                                    {filteredDevices.slice(rowIdx * numCols, rowIdx * numCols + numCols).length < numCols && (
+                                        <View style={{ width: cardWidth }} />
+                                    )}
+                                </View>
                             ))}
                         </View>
                     )}

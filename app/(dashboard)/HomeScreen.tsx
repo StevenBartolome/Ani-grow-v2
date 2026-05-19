@@ -20,6 +20,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useHomeStyles } from '@/styles/homeStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { FarmSwitcherDrawer } from '@/components/FarmSwitcherDrawer';
 import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -113,6 +114,7 @@ export default function HomeScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const [switcherOpen, setSwitcherOpen]   = useState(false);
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchStats = useCallback(async () => {
@@ -297,9 +299,19 @@ export default function HomeScreen() {
                             <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
                                 Ani-Grow
                             </Text>
-                            <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
-                                {farmName}
-                            </Text>
+                            <TouchableOpacity
+                                onPress={() => isMultiFarm && setSwitcherOpen(true)}
+                                disabled={!isMultiFarm}
+                                activeOpacity={0.62}
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 1 }}
+                            >
+                                <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
+                                    {farmName}
+                                </Text>
+                                {isMultiFarm && (
+                                    <MaterialIcons name="arrow-drop-down" size={16} color={colors.textGrey} />
+                                )}
+                            </TouchableOpacity>
                         </View>
                     </View>
                     <View style={homeStyles.headerRight}>
@@ -350,20 +362,17 @@ export default function HomeScreen() {
                         <Text style={[textStyles.h1, { fontSize: 26, color: colors.text, lineHeight: 32 }]}>
                             {getGreeting()},
                         </Text>
-                        <Text style={[textStyles.h1, { fontSize: 26, color: colors.primary, lineHeight: 32 }]}>
+                        <Text translate={false} style={[textStyles.h1, { fontSize: 26, color: colors.primary, lineHeight: 32 }]}>
                             {userName.split(' ')[0]}!
                         </Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 6 }}>
-                            <MaterialIcons name="location-on" size={13} color={colors.textGrey} />
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                                {farmName}
-                            </Text>
-                            {lastUpdated && (
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
-                                    · {timeAgo(lastUpdated)}
+                        {lastUpdated && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 }}>
+                                <MaterialIcons name="update" size={12} color={colors.textGrey} />
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                    Updated {timeAgo(lastUpdated)}
                                 </Text>
-                            )}
-                        </View>
+                            </View>
+                        )}
                     </View>
 
                     <View style={homeStyles.content}>
@@ -476,65 +485,73 @@ export default function HomeScreen() {
                                         { backgroundColor: colors.surface, borderColor: colors.stroke, opacity: pressed ? 0.85 : 1 },
                                     ]}
                                 >
-                                    <View style={[homeStyles.farmStateIconBox, { backgroundColor: colors.primary + '1A' }]}>
-                                        <Image
-                                            source={require('../../assets/icons/animals-filled.svg')}
-                                            style={{ width: 18, height: 18 }}
-                                            contentFit="contain"
-                                        />
-                                    </View>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 8, marginBottom: 1 }]}>
-                                        Total Animals
-                                    </Text>
-                                    {isLoading
-                                        ? <Skeleton w={40} h={24} />
-                                        : <Text style={[textStyles.h1, { color: colors.text, fontSize: 22 }]}>{totalAnimals}</Text>
-                                    }
-
-                                    {/* Single-farm: show pig/chicken split */}
-                                    {!isMultiFarm && (
-                                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-                                            {animalSplit.pigs > 0 && (
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                    <AnimalIcon type="pig" size={10} color={colors.textGrey} />
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.pigs}</Text>
-                                                </View>
-                                            )}
-                                            {animalSplit.chickens > 0 && (
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                    <AnimalIcon type="chicken" size={10} color={colors.textGrey} />
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.chickens}</Text>
-                                                </View>
-                                            )}
+                                    {/* Top section */}
+                                    <View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                            <View style={[homeStyles.farmStateIconBox, { backgroundColor: colors.primary + '1A' }]}>
+                                                <Image
+                                                    source={require('../../assets/icons/animals-filled.svg')}
+                                                    style={{ width: 18, height: 18 }}
+                                                    contentFit="contain"
+                                                />
+                                            </View>
+                                            <MaterialIcons name="chevron-right" size={14} color={colors.textGrey} />
                                         </View>
-                                    )}
 
-                                    {/* Multi-farm: show per-farm breakdown */}
-                                    {isMultiFarm && !isLoading && farmBreakdown.length > 0 && (
-                                        <View style={{ marginTop: 4, gap: 2 }}>
-                                            {farmBreakdown.map((fb, i) => {
-                                                const farmTotal = fb.pigs + fb.chickens;
-                                                if (farmTotal === 0) return null;
-                                                const farmColors = ['#10B981', '#6C63FF', '#F97316', '#EF4444', '#3B82F6'];
-                                                const fc = farmColors[i % farmColors.length];
-                                                return (
-                                                    <View key={fb.farmId} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                                        <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: fc }} />
-                                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 9, flex: 1 }]} numberOfLines={1}>
-                                                            {fb.farmName}
-                                                        </Text>
-                                                        <Text style={[textStyles.label, { color: colors.text, fontSize: 9 }]}>
-                                                            {farmTotal}
-                                                        </Text>
+                                        {isLoading
+                                            ? <Skeleton w={40} h={24} />
+                                            : <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, lineHeight: 28 }]}>{totalAnimals}</Text>
+                                        }
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2 }]}>
+                                            Total Animals
+                                        </Text>
+
+                                        {/* Single-farm: show pig/chicken split */}
+                                        {!isMultiFarm && (
+                                            <View style={{ flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                                                {animalSplit.pigs > 0 && (
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                                        <AnimalIcon type="pig" size={10} color={colors.textGrey} />
+                                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.pigs}</Text>
                                                     </View>
-                                                );
-                                            })}
-                                        </View>
-                                    )}
+                                                )}
+                                                {animalSplit.chickens > 0 && (
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                                        <AnimalIcon type="chicken" size={10} color={colors.textGrey} />
+                                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.chickens}</Text>
+                                                    </View>
+                                                )}
+                                            </View>
+                                        )}
 
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                                        {/* Multi-farm: show per-farm breakdown */}
+                                        {isMultiFarm && !isLoading && farmBreakdown.length > 0 && (
+                                            <View style={{ marginTop: 6, gap: 3 }}>
+                                                {farmBreakdown.map((fb, i) => {
+                                                    const farmTotal = fb.pigs + fb.chickens;
+                                                    if (farmTotal === 0) return null;
+                                                    const farmColors = ['#10B981', '#6C63FF', '#F97316', '#EF4444', '#3B82F6'];
+                                                    const fc = farmColors[i % farmColors.length];
+                                                    return (
+                                                        <View key={fb.farmId} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                                            <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: fc }} />
+                                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 9, flex: 1 }]} numberOfLines={1}>
+                                                                {fb.farmName}
+                                                            </Text>
+                                                            <Text style={[textStyles.label, { color: colors.text, fontSize: 9 }]}>
+                                                                {farmTotal}
+                                                            </Text>
+                                                        </View>
+                                                    );
+                                                })}
+                                            </View>
+                                        )}
+                                    </View>
+
+                                    {/* Bottom badge */}
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 }}>
+                                        <MaterialIcons name="pets" size={10} color={colors.primary} />
                                         <Text style={[textStyles.body, { color: colors.primary, fontSize: 10 }]}>View animals</Text>
-                                        <MaterialIcons name="arrow-forward" size={10} color={colors.primary} />
                                     </View>
                                 </Pressable>
 
@@ -550,24 +567,46 @@ export default function HomeScreen() {
                                         },
                                     ]}
                                 >
-                                    <View style={[homeStyles.farmStateIconBox, { backgroundColor: '#F97316' + '1A' }]}>
-                                        <MaterialIcons name="notifications-active" size={18} color="#F97316" />
-                                    </View>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 8, marginBottom: 1 }]}>
-                                        Active Alerts
-                                    </Text>
-                                    {isLoading
-                                        ? <Skeleton w={36} h={24} />
-                                        : <Text style={[textStyles.h1, { color: unreadNotifCount > 0 ? colors.warning : colors.text, fontSize: 22 }]}>
-                                            {unreadNotifCount}
+                                    {/* Top section */}
+                                    <View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                            <View style={[homeStyles.farmStateIconBox, { backgroundColor: '#F97316' + '1A' }]}>
+                                                <MaterialIcons name="notifications-active" size={18} color="#F97316" />
+                                            </View>
+                                            <MaterialIcons name="chevron-right" size={14} color={colors.textGrey} />
+                                        </View>
+
+                                        {isLoading
+                                            ? <Skeleton w={36} h={24} />
+                                            : <Text style={[textStyles.h1, { color: unreadNotifCount > 0 ? colors.warning : colors.text, fontSize: 24, lineHeight: 28 }]}>
+                                                {unreadNotifCount}
+                                            </Text>
+                                        }
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2 }]}>
+                                            Active Alerts
                                         </Text>
-                                    }
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, marginTop: 3 }]}>
-                                        {unreadNotifCount === 0 ? 'All clear' : 'Need attention'}
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                                        <Text style={[textStyles.body, { color: '#F97316', fontSize: 10 }]}>View alerts</Text>
-                                        <MaterialIcons name="arrow-forward" size={10} color="#F97316" />
+                                    </View>
+
+                                    {/* Bottom badge */}
+                                    <View style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        marginTop: 8,
+                                        backgroundColor: unreadNotifCount > 0 ? '#F97316' + '1A' : colors.bgLight,
+                                        borderRadius: 6,
+                                        paddingHorizontal: 6,
+                                        paddingVertical: 3,
+                                        alignSelf: 'flex-start',
+                                    }}>
+                                        <MaterialIcons
+                                            name={unreadNotifCount === 0 ? 'check-circle' : 'warning'}
+                                            size={10}
+                                            color={unreadNotifCount === 0 ? '#10B981' : '#F97316'}
+                                        />
+                                        <Text style={[textStyles.body, { color: unreadNotifCount === 0 ? '#10B981' : '#F97316', fontSize: 10 }]}>
+                                            {unreadNotifCount === 0 ? 'All clear' : 'Needs attention'}
+                                        </Text>
                                     </View>
                                 </Pressable>
                             </View>
@@ -581,24 +620,42 @@ export default function HomeScreen() {
                                         { backgroundColor: colors.surface, borderColor: colors.stroke, opacity: pressed ? 0.85 : 1 },
                                     ]}
                                 >
-                                    <View style={[homeStyles.farmStateIconBox, { backgroundColor: '#10B981' + '1A' }]}>
-                                        <MaterialIcons name="grain" size={18} color="#10B981" />
-                                    </View>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 8, marginBottom: 1 }]}>
-                                        AniFeed
-                                    </Text>
-                                    {isLoading
-                                        ? <Skeleton w={44} h={24} />
-                                        : <Text style={[textStyles.h1, { color: colors.text, fontSize: 22 }]}>
-                                            {activeFeeders.online}<Text style={{ fontSize: 12, color: colors.textGrey }}>/{activeFeeders.total}</Text>
+                                    {/* Top section */}
+                                    <View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                            <View style={[homeStyles.farmStateIconBox, { backgroundColor: colors.secondary + '1A' }]}>
+                                                <MaterialIcons name="grain" size={18} color={colors.secondary} />
+                                            </View>
+                                            <MaterialIcons name="chevron-right" size={14} color={colors.textGrey} />
+                                        </View>
+
+                                        {isLoading
+                                            ? <Skeleton w={44} h={24} />
+                                            : <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, lineHeight: 28 }]}>
+                                                {activeFeeders.online}<Text style={{ fontSize: 13, color: colors.textGrey }}>/{activeFeeders.total}</Text>
+                                            </Text>
+                                        }
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2 }]}>
+                                            AniFeed
                                         </Text>
-                                    }
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, marginTop: 3 }]}>
-                                        {activeFeeders.total === 0 ? 'No devices' : 'Online'}
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                                        <Text style={[textStyles.body, { color: '#10B981', fontSize: 10 }]}>Manage</Text>
-                                        <MaterialIcons name="arrow-forward" size={10} color="#10B981" />
+                                    </View>
+
+                                    {/* Bottom badge */}
+                                    <View style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        marginTop: 8,
+                                        backgroundColor: activeFeeders.total === 0 ? colors.bgLight : colors.secondary + '1A',
+                                        borderRadius: 6,
+                                        paddingHorizontal: 6,
+                                        paddingVertical: 3,
+                                        alignSelf: 'flex-start',
+                                    }}>
+                                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: activeFeeders.total === 0 ? colors.textGrey : colors.secondary }} />
+                                        <Text style={[textStyles.body, { color: activeFeeders.total === 0 ? colors.textGrey : colors.secondary, fontSize: 10 }]}>
+                                            {activeFeeders.total === 0 ? 'No devices' : 'Online'}
+                                        </Text>
                                     </View>
                                 </Pressable>
 
@@ -610,81 +667,121 @@ export default function HomeScreen() {
                                         { backgroundColor: colors.surface, borderColor: colors.stroke, opacity: pressed ? 0.85 : 1 },
                                     ]}
                                 >
-                                    <View style={[homeStyles.farmStateIconBox, { backgroundColor: '#6C63FF' + '1A' }]}>
-                                        <MaterialIcons name="monitor-weight" size={18} color="#6C63FF" />
-                                    </View>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 8, marginBottom: 1 }]}>
-                                        AniWeigh
-                                    </Text>
-                                    {isLoading
-                                        ? <Skeleton w={44} h={24} />
-                                        : <Text style={[textStyles.h1, { color: colors.text, fontSize: 22 }]}>
-                                            {activeScales.online}<Text style={{ fontSize: 12, color: colors.textGrey }}>/{activeScales.total}</Text>
+                                    {/* Top section */}
+                                    <View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                            <View style={[homeStyles.farmStateIconBox, { backgroundColor: '#6C63FF' + '1A' }]}>
+                                                <MaterialIcons name="monitor-weight" size={18} color="#6C63FF" />
+                                            </View>
+                                            <MaterialIcons name="chevron-right" size={14} color={colors.textGrey} />
+                                        </View>
+
+                                        {isLoading
+                                            ? <Skeleton w={44} h={24} />
+                                            : <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, lineHeight: 28 }]}>
+                                                {activeScales.online}<Text style={{ fontSize: 13, color: colors.textGrey }}>/{activeScales.total}</Text>
+                                            </Text>
+                                        }
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2 }]}>
+                                            AniWeigh
                                         </Text>
-                                    }
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, marginTop: 3 }]}>
-                                        {activeScales.total === 0 ? 'No devices' : 'Online'}
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                                        <Text style={[textStyles.body, { color: '#6C63FF', fontSize: 10 }]}>Manage</Text>
-                                        <MaterialIcons name="arrow-forward" size={10} color="#6C63FF" />
+                                    </View>
+
+                                    {/* Bottom badge */}
+                                    <View style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        marginTop: 8,
+                                        backgroundColor: activeScales.total === 0 ? colors.bgLight : '#6C63FF' + '1A',
+                                        borderRadius: 6,
+                                        paddingHorizontal: 6,
+                                        paddingVertical: 3,
+                                        alignSelf: 'flex-start',
+                                    }}>
+                                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: activeScales.total === 0 ? colors.textGrey : '#6C63FF' }} />
+                                        <Text style={[textStyles.body, { color: activeScales.total === 0 ? colors.textGrey : '#6C63FF', fontSize: 10 }]}>
+                                            {activeScales.total === 0 ? 'No devices' : 'Online'}
+                                        </Text>
                                     </View>
                                 </Pressable>
                             </View>
                         </View>
 
-                        {/* ── Housing Occupancy ────────────────────────────────── */}
-                        <View style={[homeStyles.sectionHeaderRow, { marginTop: 4 }]}>
-                            <Text style={[homeStyles.sectionTitle, { color: colors.text, marginBottom: 0, paddingHorizontal: 0 }]}>
-                                Your Housings
-                            </Text>
-                            <TouchableOpacity
-                                onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
-                                activeOpacity={0.7}
-                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                            >
-                                <Text style={[textStyles.body, { color: colors.primary, fontSize: 13 }]}>View All</Text>
-                                <MaterialIcons name="chevron-right" size={16} color={colors.primary} />
-                            </TouchableOpacity>
+                        {/* ── Quick Actions ─────────────────────────────────────── */}
+                        <Text style={[homeStyles.sectionTitle, { color: colors.text, marginTop: 8 }]}>Quick Actions</Text>
+                        <View style={[homeStyles.quickActionsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
+                            <View style={[homeStyles.quickActionRow, { gap: 4 }]}>
+                                {[
+                                    { label: 'Feeds', icon: 'grain', route: '/(devices)/ManageFeedsScreen', color: colors.secondary },
+                                    { label: 'Devices', icon: 'devices', route: '/(devices)/DevicesScreen', color: '#6C63FF' },
+                                    { label: 'Animals', icon: null, route: '/(animals)/AnimalsScreen', color: colors.primary },
+                                    { label: 'Vaccines', icon: 'vaccines', route: '/(health)/VaccineScreen', color: '#EF4444' },
+                                    { label: 'Housings', icon: 'home-work', route: '/(devices)/ManageHousingsScreen', color: '#F97316' },
+                                ].map(item => (
+                                    <Pressable
+                                        key={item.label}
+                                        style={({ pressed }) => [homeStyles.actionButton, { opacity: pressed ? 0.7 : 1 }]}
+                                        onPress={() => router.push(item.route as any)}
+                                    >
+                                        <View style={[homeStyles.actionIconBox, { backgroundColor: item.color + '15' }]}>
+                                            {item.icon === null ? (
+                                                <Image
+                                                    source={require('../../assets/icons/animals-filled.svg')}
+                                                    style={{ width: 26, height: 26 }}
+                                                    contentFit="contain"
+                                                />
+                                            ) : (
+                                                <MaterialIcons name={item.icon as any} size={24} color={item.color} />
+                                            )}
+                                        </View>
+                                        <Text style={[textStyles.label, { color: colors.text, marginTop: 8, fontSize: 11 }]}>
+                                            {item.label}
+                                        </Text>
+                                    </Pressable>
+                                ))}
+                            </View>
                         </View>
 
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={{ paddingLeft: 20, paddingRight: 8, paddingBottom: 8 }}
-                        >
+                        {/* ── Your Housings ─────────────────────────────────────── */}
+                        <View style={[homeStyles.quickActionsCard, { backgroundColor: colors.surface, borderColor: colors.stroke, marginTop: 0, marginBottom: 0 }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]}>Your Housings</Text>
+                                <TouchableOpacity
+                                    onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
+                                    activeOpacity={0.7}
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
+                                >
+                                    <Text style={[textStyles.body, { color: colors.primary, fontSize: 12 }]}>View All</Text>
+                                    <MaterialIcons name="chevron-right" size={14} color={colors.primary} />
+                                </TouchableOpacity>
+                            </View>
+
                             {isLoading ? (
-                                [0, 1, 2].map(i => (
-                                    <View key={i} style={{
-                                        width: 150, marginRight: 12,
-                                        backgroundColor: colors.surface,
-                                        borderRadius: 18, borderWidth: 1, borderColor: colors.stroke,
-                                        padding: 16, gap: 10,
-                                    }}>
-                                        <Skeleton w={32} h={32} radius={10} />
-                                        <Skeleton w="80%" h={14} />
-                                        <Skeleton w="60%" h={10} />
-                                        <Skeleton w="100%" h={6} radius={3} />
+                                [0, 1].map(i => (
+                                    <View key={i} style={{ marginBottom: i === 0 ? 14 : 0 }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                            <Skeleton w={28} h={28} radius={8} />
+                                            <Skeleton w="45%" h={13} />
+                                            <View style={{ flex: 1 }} />
+                                            <Skeleton w={36} h={13} />
+                                            <Skeleton w={32} h={20} radius={5} />
+                                        </View>
+                                        <Skeleton w="100%" h={4} radius={2} />
                                     </View>
                                 ))
                             ) : housings.length === 0 ? (
                                 <Pressable
                                     onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
-                                    style={({ pressed }) => ({
-                                        width: 180, opacity: pressed ? 0.8 : 1,
-                                        backgroundColor: colors.surface,
-                                        borderRadius: 18, borderWidth: 1,
-                                        borderColor: colors.stroke, borderStyle: 'dashed',
-                                        padding: 20, alignItems: 'center', justifyContent: 'center',
-                                    })}
+                                    style={{ alignItems: 'center', paddingVertical: 12, gap: 6 }}
                                 >
-                                    <MaterialIcons name="add-home" size={28} color={colors.primary} />
-                                    <Text style={[textStyles.body, { color: colors.primary, fontSize: 13, marginTop: 8, textAlign: 'center' }]}>
-                                        Add Housing
+                                    <MaterialIcons name="add-home" size={26} color={colors.primary} />
+                                    <Text style={[textStyles.body, { color: colors.primary, fontSize: 12 }]}>
+                                        Add your first housing
                                     </Text>
                                 </Pressable>
                             ) : (
-                                housings.map(h => {
+                                housings.slice(0, 5).map((h, idx) => {
                                     const pct = h.capacity > 0 ? Math.min(100, Math.round((h.current_count / h.capacity) * 100)) : 0;
                                     const barColor = occupancyColor(pct, colors);
                                     const isPig = h.animal_type === 'pig';
@@ -692,48 +789,37 @@ export default function HomeScreen() {
                                         <Pressable
                                             key={h.id}
                                             onPress={() => router.push({ pathname: '/(animals)/AnimalDetails' as any, params: { housingId: h.id } })}
-                                            style={({ pressed }) => ({
-                                                width: 150, marginRight: 12, opacity: pressed ? 0.85 : 1,
-                                                backgroundColor: colors.surface,
-                                                borderRadius: 18, borderWidth: 1, borderColor: colors.stroke,
-                                                padding: 16,
-                                            })}
+                                            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
                                         >
-                                            {/* Animal type icon */}
-                                            <View style={{
-                                                width: 36, height: 36, borderRadius: 10,
-                                                backgroundColor: (isPig ? '#E67E22' : '#F1C40F') + '1A',
-                                                alignItems: 'center', justifyContent: 'center',
-                                                marginBottom: 12,
-                                            }}>
-                                                <AnimalIcon type={h.animal_type} size={20} color={isPig ? '#E67E22' : '#D4A017'} />
+                                            {idx > 0 && (
+                                                <View style={{ height: 1, backgroundColor: colors.stroke, marginVertical: 12 }} />
+                                            )}
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                                <View style={{
+                                                    width: 28, height: 28, borderRadius: 8,
+                                                    backgroundColor: (isPig ? '#E67E22' : '#F1C40F') + '1A',
+                                                    alignItems: 'center', justifyContent: 'center',
+                                                }}>
+                                                    <AnimalIcon type={h.animal_type} size={15} color={isPig ? '#E67E22' : '#D4A017'} />
+                                                </View>
+                                                <Text numberOfLines={1} style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1, fontFamily: 'Poppins-Medium' }]}>
+                                                    {h.name}
+                                                </Text>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                                                    {h.current_count}/{h.capacity}
+                                                </Text>
+                                                <View style={{ backgroundColor: barColor + '20', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 }}>
+                                                    <Text style={[textStyles.label, { color: barColor, fontSize: 10 }]}>{pct}%</Text>
+                                                </View>
                                             </View>
-
-                                            {/* Name */}
-                                            <Text numberOfLines={2} style={[textStyles.h3, { color: colors.text, fontSize: 13, lineHeight: 18, marginBottom: 4 }]}>
-                                                {h.name}
-                                            </Text>
-
-                                            {/* Count / Capacity */}
-                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 8 }]}>
-                                                <Text style={{ color: barColor, fontFamily: 'Poppins-SemiBold' }}>{h.current_count}</Text>
-                                                {' / '}{h.capacity}
-                                            </Text>
-
-                                            {/* Progress bar */}
-                                            <View style={{ height: 5, backgroundColor: colors.cardFill, borderRadius: 3, overflow: 'hidden' }}>
-                                                <View style={{ width: `${pct}%`, height: 5, backgroundColor: barColor, borderRadius: 3 }} />
+                                            <View style={{ height: 4, backgroundColor: colors.cardFill, borderRadius: 2, overflow: 'hidden', marginLeft: 38 }}>
+                                                <View style={{ width: `${pct}%` as any, height: 4, backgroundColor: barColor, borderRadius: 2 }} />
                                             </View>
-
-                                            {/* Pct label */}
-                                            <Text style={[textStyles.body, { color: barColor, fontSize: 10, marginTop: 4 }]}>
-                                                {pct}% full
-                                            </Text>
                                         </Pressable>
                                     );
                                 })
                             )}
-                        </ScrollView>
+                        </View>
 
                         {/* ── Today's Activity ─────────────────────────────────── */}
                         <View style={[homeStyles.sectionHeaderRow, { marginTop: 20 }]}>
@@ -758,10 +844,10 @@ export default function HomeScreen() {
                             >
                                 <View style={{
                                     width: 36, height: 36, borderRadius: 10,
-                                    backgroundColor: '#10B981' + '1A',
+                                    backgroundColor: colors.secondary + '1A',
                                     alignItems: 'center', justifyContent: 'center', marginBottom: 12,
                                 }}>
-                                    <MaterialIcons name="grain" size={20} color="#10B981" />
+                                    <MaterialIcons name="grain" size={20} color={colors.secondary} />
                                 </View>
                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 4 }]}>
                                     Feed Dispensed
@@ -773,8 +859,8 @@ export default function HomeScreen() {
                                     </Text>
                                 }
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 }}>
-                                    <Text style={[textStyles.body, { color: '#10B981', fontSize: 11 }]}>View logs</Text>
-                                    <MaterialIcons name="arrow-forward" size={11} color="#10B981" />
+                                    <Text style={[textStyles.body, { color: colors.secondary, fontSize: 11 }]}>View logs</Text>
+                                    <MaterialIcons name="arrow-forward" size={11} color={colors.secondary} />
                                 </View>
                             </Pressable>
 
@@ -861,45 +947,12 @@ export default function HomeScreen() {
                             </Pressable>
                         </View>
 
-                        {/* ── Quick Actions ─────────────────────────────────────── */}
-                        <Text style={[homeStyles.sectionTitle, { color: colors.text, marginTop: 8 }]}>Quick Actions</Text>
-                        <View style={[homeStyles.quickActionsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
-                            <View style={[homeStyles.quickActionRow, { gap: 4 }]}>
-                                {[
-                                    { label: 'Feeds', icon: 'grain', route: '/(devices)/ManageFeedsScreen', color: '#10B981' },
-                                    { label: 'Devices', icon: 'devices', route: '/(devices)/DevicesScreen', color: '#6C63FF' },
-                                    { label: 'Animals', icon: null, route: '/(animals)/AnimalsScreen', color: colors.primary },
-                                    { label: 'Vaccines', icon: 'vaccines', route: '/(health)/VaccineScreen', color: '#EF4444' },
-                                    { label: 'Housings', icon: 'home-work', route: '/(devices)/ManageHousingsScreen', color: '#F97316' },
-                                ].map(item => (
-                                    <Pressable
-                                        key={item.label}
-                                        style={({ pressed }) => [homeStyles.actionButton, { opacity: pressed ? 0.7 : 1 }]}
-                                        onPress={() => router.push(item.route as any)}
-                                    >
-                                        <View style={[homeStyles.actionIconBox, { backgroundColor: item.color + '15' }]}>
-                                            {item.icon === null ? (
-                                                <Image
-                                                    source={require('../../assets/icons/animals-filled.svg')}
-                                                    style={{ width: 26, height: 26 }}
-                                                    contentFit="contain"
-                                                />
-                                            ) : (
-                                                <MaterialIcons name={item.icon as any} size={24} color={item.color} />
-                                            )}
-                                        </View>
-                                        <Text style={[textStyles.label, { color: colors.text, marginTop: 8, fontSize: 11 }]}>
-                                            {item.label}
-                                        </Text>
-                                    </Pressable>
-                                ))}
-                            </View>
-                        </View>
 
                     </View>
                 </ScrollView>
 
                 <FloatingNavBar />
+                <FarmSwitcherDrawer visible={switcherOpen} onClose={() => setSwitcherOpen(false)} />
             </View>
 
         </SafeAreaView>
