@@ -10,6 +10,7 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnimalStyles } from '@/styles/animalStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
+import { ProfileDrawer } from '@/components/ProfileDrawer';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
@@ -24,7 +25,7 @@ interface HousingSummary {
 }
 
 const ANIMAL_IMAGES: Record<string, any> = {
-    pig:     require('../../assets/images/animals/pigs.jpg'),
+    pig: require('../../assets/images/animals/pigs.jpg'),
     chicken: require('../../assets/images/animals/chickens.png'),
 };
 
@@ -50,6 +51,7 @@ export default function AnimalsScreen() {
 
     const [housings, setHousings] = useState<HousingSummary[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
     const fetchHousings = useCallback(async () => {
         if (!farmId) { setIsLoading(false); return; }
@@ -69,11 +71,11 @@ export default function AnimalsScreen() {
             if (error) throw error;
 
             const mapped: HousingSummary[] = (data ?? []).map((h: any) => ({
-                id:               h.id,
-                name:             h.name,
-                animal_type:      h.animal_type,
-                current_count:    h.current_count,
-                capacity:         h.capacity,
+                id: h.id,
+                name: h.name,
+                animal_type: h.animal_type,
+                current_count: h.current_count,
+                capacity: h.capacity,
                 active_batch_name: h.batches?.find((b: any) => b.status === 'active')?.name ?? null,
             }));
             setHousings(mapped);
@@ -86,7 +88,7 @@ export default function AnimalsScreen() {
 
     useEffect(() => { fetchHousings(); }, [fetchHousings]);
 
-    const pigColor     = (colors as any).pig     ?? '#E67E22';
+    const pigColor = (colors as any).pig ?? '#E67E22';
     const chickenColor = (colors as any).chicken ?? '#F1C40F';
 
     return (
@@ -95,6 +97,13 @@ export default function AnimalsScreen() {
                 {/* Header */}
                 <View style={styles.headerTopRow}>
                     <View style={styles.headerTitleRow}>
+                        <TouchableOpacity
+                            style={{ marginRight: 8, padding: 4 }}
+                            onPress={() => setProfileDrawerOpen(true)}
+                            activeOpacity={0.8}
+                        >
+                            <MaterialIcons name="menu" size={24} color={colors.text} />
+                        </TouchableOpacity>
                         <Image
                             source={require('../../assets/branding/anigrow_logo.svg')}
                             style={{ width: 36, height: 36, marginRight: 10 }}
@@ -161,10 +170,10 @@ export default function AnimalsScreen() {
                             </View>
                         ) : (
                             housings.map(housing => {
-                                const isPig    = housing.animal_type === 'pig';
-                                const accent   = isPig ? pigColor : chickenColor;
-                                const bgColor  = accent + '1A';
-                                const imgSrc   = ANIMAL_IMAGES[housing.animal_type];
+                                const isPig = housing.animal_type === 'pig';
+                                const accent = isPig ? pigColor : chickenColor;
+                                const bgColor = accent + '1A';
+                                const imgSrc = ANIMAL_IMAGES[housing.animal_type];
 
                                 return (
                                     <TouchableOpacity
@@ -247,6 +256,11 @@ export default function AnimalsScreen() {
                 </ScrollView>
 
                 <FloatingNavBar />
+                <ProfileDrawer
+                    visible={profileDrawerOpen}
+                    onClose={() => setProfileDrawerOpen(false)}
+                    activeFarmName={farmName}
+                />
             </View>
         </SafeAreaView>
     );

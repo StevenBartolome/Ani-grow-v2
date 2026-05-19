@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
+import { ProfileDrawer } from '@/components/ProfileDrawer';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
@@ -22,6 +23,7 @@ export default function GuideScreen() {
     const hPad = width >= 900 ? Math.round(width * 0.12) : width >= 600 ? Math.round(width * 0.07) : 20;
 
     const [animalFilter, setAnimalFilter] = useState<'Pigs' | 'Chickens'>('Pigs');
+    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
     
     // Simulate current day across app logic (assume Day 22 for display)
     const currentDay = 22;
@@ -120,6 +122,13 @@ export default function GuideScreen() {
             {/* Fixed App Header */}
             <View style={styles.headerTopRow}>
                 <View style={styles.headerTitleRow}>
+                    <TouchableOpacity
+                        style={{ marginRight: 8, padding: 4 }}
+                        onPress={() => setProfileDrawerOpen(true)}
+                        activeOpacity={0.8}
+                    >
+                        <MaterialIcons name="menu" size={24} color={colors.text} />
+                    </TouchableOpacity>
                     <Image
                         source={require('../../assets/branding/anigrow_logo.svg')}
                         style={{ width: 36, height: 36, marginRight: 10 }}
@@ -327,6 +336,11 @@ export default function GuideScreen() {
 
                 </ScrollView>
             <FloatingNavBar />
+            <ProfileDrawer
+                visible={profileDrawerOpen}
+                onClose={() => setProfileDrawerOpen(false)}
+                activeFarmName={farmName}
+            />
         </SafeAreaView>
     );
 }

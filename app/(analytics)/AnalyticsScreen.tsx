@@ -12,6 +12,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
+import { ProfileDrawer } from '@/components/ProfileDrawer';
 
 export default function AnalyticsScreen() {
     const { profile } = useAuth();
@@ -23,6 +24,7 @@ export default function AnalyticsScreen() {
     const router = useRouter();
 
     const [animalFilter, setAnimalFilter] = useState<'Pigs' | 'Chickens'>('Pigs');
+    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
     const menuItems = [
         {
@@ -56,6 +58,13 @@ export default function AnalyticsScreen() {
             <View style={styles.container}>
                 <View style={styles.headerTopRow}>
                     <View style={styles.headerTitleRow}>
+                        <TouchableOpacity
+                            style={{ marginRight: 8, padding: 4 }}
+                            onPress={() => setProfileDrawerOpen(true)}
+                            activeOpacity={0.8}
+                        >
+                            <MaterialIcons name="menu" size={24} color={colors.text} />
+                        </TouchableOpacity>
                         <Image
                             source={require('../../assets/branding/anigrow_logo.svg')}
                             style={{ width: 36, height: 36, marginRight: 10 }}
@@ -103,15 +112,15 @@ export default function AnalyticsScreen() {
                     </View>
                 </View>
 
-                <ScrollView 
+                <ScrollView
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={{ paddingBottom: 120 }}
                 >
                     <View style={styles.menuContainer}>
                         {menuItems.map((item, index) => (
-                            <TouchableOpacity 
-                                key={index} 
-                                activeOpacity={0.8} 
+                            <TouchableOpacity
+                                key={index}
+                                activeOpacity={0.8}
                                 style={styles.menuCard}
                                 onPress={() => router.push(`${item.route}?type=${animalFilter}` as any)}
                             >
@@ -133,6 +142,11 @@ export default function AnalyticsScreen() {
                 </ScrollView>
             </View>
             <FloatingNavBar />
+            <ProfileDrawer
+                visible={profileDrawerOpen}
+                onClose={() => setProfileDrawerOpen(false)}
+                activeFarmName={farmName}
+            />
         </SafeAreaView>
     );
 }

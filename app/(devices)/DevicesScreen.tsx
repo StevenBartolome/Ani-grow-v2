@@ -12,6 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
+import { ProfileDrawer } from '@/components/ProfileDrawer';
 import { supabase } from '@/lib/supabase';
 
 interface RegisteredDevice {
@@ -132,6 +133,7 @@ export default function DevicesScreen() {
     }, [authLoading, role, permissions]);
 
     const [activeFilter, setActiveFilter] = useState<FilterType>('All');
+    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
     const [devices, setDevices] = useState<RegisteredDevice[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -176,6 +178,13 @@ export default function DevicesScreen() {
                 {/* Top Nav / Logo Row */}
                 <View style={styles.headerTopRow}>
                     <View style={styles.headerTitleRow}>
+                        <TouchableOpacity
+                            style={{ marginRight: 8, padding: 4 }}
+                            onPress={() => setProfileDrawerOpen(true)}
+                            activeOpacity={0.8}
+                        >
+                            <MaterialIcons name="menu" size={24} color={colors.text} />
+                        </TouchableOpacity>
                         <Image
                             source={require('../../assets/branding/anigrow_logo.svg')}
                             style={{ width: 36, height: 36, marginRight: 10 }}
@@ -295,6 +304,11 @@ export default function DevicesScreen() {
                 </ScrollView>
 
                 <FloatingNavBar />
+                <ProfileDrawer
+                    visible={profileDrawerOpen}
+                    onClose={() => setProfileDrawerOpen(false)}
+                    activeFarmName={farmName}
+                />
             </View>
         </SafeAreaView>
     );

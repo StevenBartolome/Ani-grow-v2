@@ -21,6 +21,7 @@ import { useHomeStyles } from '@/styles/homeStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import { FarmSwitcherDrawer } from '@/components/FarmSwitcherDrawer';
+import { ProfileDrawer } from '@/components/ProfileDrawer';
 import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ export default function HomeScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const [switcherOpen, setSwitcherOpen]   = useState(false);
+    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchStats = useCallback(async () => {
@@ -290,6 +292,13 @@ export default function HomeScreen() {
                 {/* ── Header ─────────────────────────────────────────────────── */}
                 <View style={homeStyles.header}>
                     <View style={homeStyles.headerLeft}>
+                        <TouchableOpacity
+                            style={[homeStyles.profileIcon, { marginRight: 10, width: 36, height: 36, backgroundColor: 'transparent' }]}
+                            onPress={() => setProfileDrawerOpen(true)}
+                            activeOpacity={0.8}
+                        >
+                            <MaterialIcons name="menu" size={24} color={colors.text} />
+                        </TouchableOpacity>
                         <Image
                             source={require('../../assets/branding/anigrow_logo.svg')}
                             style={homeStyles.logo}
@@ -334,12 +343,6 @@ export default function HomeScreen() {
                                     </View>
                                 )}
                             </View>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={homeStyles.profileIcon}
-                            onPress={() => router.push('/(settings)/SettingsScreen' as any)}
-                        >
-                            <Text style={homeStyles.profileInitial}>{userName.charAt(0).toUpperCase()}</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -953,6 +956,11 @@ export default function HomeScreen() {
 
                 <FloatingNavBar />
                 <FarmSwitcherDrawer visible={switcherOpen} onClose={() => setSwitcherOpen(false)} />
+                <ProfileDrawer
+                    visible={profileDrawerOpen}
+                    onClose={() => setProfileDrawerOpen(false)}
+                    activeFarmName={farmName}
+                />
             </View>
 
         </SafeAreaView>

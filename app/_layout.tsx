@@ -1,3 +1,24 @@
+// Intercept browser console warnings to keep devtools completely clean
+if (typeof window !== 'undefined') {
+  const originalWarn = console.warn;
+  console.warn = (...args: any[]) => {
+    const message = args.join(' ');
+    if (
+      message.includes('shadow*') ||
+      message.includes('shadowColor') ||
+      message.includes('shadowOffset') ||
+      message.includes('shadowOpacity') ||
+      message.includes('shadowRadius') ||
+      message.includes('boxShadow') ||
+      message.includes('pointerEvents') ||
+      message.includes('Expo AV')
+    ) {
+      return;
+    }
+    originalWarn(...args);
+  };
+}
+
 import "../global.css";
 import { Stack } from "expo-router";
 import { useFonts } from 'expo-font';
@@ -16,26 +37,6 @@ LogBox.ignoreLogs([
   '"shadow*" style props are deprecated',
   'props.pointerEvents is deprecated',
 ]);
-
-// Intercept browser console warnings to keep devtools completely clean
-if (Platform.OS === 'web') {
-  const originalWarn = console.warn;
-  console.warn = (...args: any[]) => {
-    const message = args.join(' ');
-    if (
-      message.includes('[expo-av]: Expo AV has been deprecated') ||
-      message.includes('"shadow*" style props are deprecated') ||
-      message.includes('shadowColor') ||
-      message.includes('shadowOffset') ||
-      message.includes('shadowOpacity') ||
-      message.includes('shadowRadius') ||
-      message.includes('props.pointerEvents is deprecated')
-    ) {
-      return;
-    }
-    originalWarn(...args);
-  };
-}
 
 SplashScreen.preventAutoHideAsync();
 
@@ -63,23 +64,23 @@ export default function RootLayout() {
       <ThemeProvider>
         <AuthProvider>
           <FarmFilterProvider>
-          <Stack screenOptions={{ headerShown: false }}>
-            {/* Main nav screens — instant switch, no slide */}
-            <Stack.Screen name="(dashboard)/HomeScreen"    options={{ animation: 'none' }} />
-            <Stack.Screen name="(devices)/DevicesScreen"   options={{ animation: 'none' }} />
-            <Stack.Screen name="(animals)/AnimalsScreen"   options={{ animation: 'none' }} />
-            <Stack.Screen name="(analytics)/AnalyticsScreen" options={{ animation: 'none' }} />
-            <Stack.Screen name="(guide)/GuideScreen"       options={{ animation: 'none' }} />
-            <Stack.Screen name="AIAssistantScreen" />
-            <Stack.Screen name="(auth)/LoginScreen" />
-            <Stack.Screen name="(auth)/RegisterScreen" />
-            <Stack.Screen name="(auth)/ForgotPasswordScreen" />
-            <Stack.Screen name="(auth)/ResetPasswordScreen" />
-            <Stack.Screen name="(auth)/PrivacyPolicyScreen" />
-            <Stack.Screen name="(auth)/TermsOfServiceScreen" />
-            <Stack.Screen name="(auth)/MFAChallengeScreen" />
-          </Stack>
-          <AniBotFAB />
+            <Stack screenOptions={{ headerShown: false }}>
+              {/* Main nav screens — instant switch, no slide */}
+              <Stack.Screen name="(dashboard)/HomeScreen" options={{ animation: 'none' }} />
+              <Stack.Screen name="(devices)/DevicesScreen" options={{ animation: 'none' }} />
+              <Stack.Screen name="(animals)/AnimalsScreen" options={{ animation: 'none' }} />
+              <Stack.Screen name="(analytics)/AnalyticsScreen" options={{ animation: 'none' }} />
+              <Stack.Screen name="(guide)/GuideScreen" options={{ animation: 'none' }} />
+              <Stack.Screen name="(ai)/AIAssistantScreen" />
+              <Stack.Screen name="(auth)/LoginScreen" />
+              <Stack.Screen name="(auth)/RegisterScreen" />
+              <Stack.Screen name="(auth)/ForgotPasswordScreen" />
+              <Stack.Screen name="(auth)/ResetPasswordScreen" />
+              <Stack.Screen name="(auth)/PrivacyPolicyScreen" />
+              <Stack.Screen name="(auth)/TermsOfServiceScreen" />
+              <Stack.Screen name="(auth)/MFAChallengeScreen" />
+            </Stack>
+            <AniBotFAB />
           </FarmFilterProvider>
         </AuthProvider>
       </ThemeProvider>
