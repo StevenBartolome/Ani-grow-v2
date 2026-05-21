@@ -21,7 +21,7 @@ import {
     Check,
     Sparkle
 } from 'phosphor-react-native';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Audio } from '@/lib/nativeAudio';
@@ -1289,6 +1289,7 @@ export default function AIAssistantScreen() {
                         </View>
 
                         {/* Mic / Send Action */}
+                        {/* Audio feature temporarily disabled
                         {!input.trim() && !attachedImage ? (
                             <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
                                 {isRecording && (
@@ -1317,15 +1318,16 @@ export default function AIAssistantScreen() {
                                 </TouchableOpacity>
                             </View>
                         ) : (
+                        */}
                             <TouchableOpacity
                                 onPress={() => send(input)}
-                                disabled={isLoading}
+                                disabled={isLoading || (!input.trim() && !attachedImage)}
                                 activeOpacity={0.8}
-                                style={[styles.promptSendBtn, isLoading && styles.promptSendBtnDisabled]}
+                                style={[styles.promptSendBtn, (isLoading || (!input.trim() && !attachedImage)) && styles.promptSendBtnDisabled]}
                             >
-                                <ArrowUp size={18} weight="bold" color={isLoading ? colors.textGrey : '#fff'} />
+                                <ArrowUp size={18} weight="bold" color={(isLoading || (!input.trim() && !attachedImage)) ? colors.textGrey : '#fff'} />
                             </TouchableOpacity>
-                        )}
+                        {/* )} */}
                     </View>
                 </View>
             </KeyboardAvoidingView>
