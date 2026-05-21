@@ -58,7 +58,7 @@ export function AniBotFAB() {
             }}
         >
             {/* Robot icon */}
-            <MaterialIcons name="smart-toy" size={20} color="#fff" />
+            <MaterialIcons name="chat-bubble" size={20} color="#fff" />
 
             {/* "AniBot" rotated 90° so it reads bottom-to-top */}
             <View style={{ width: 20, height: 56, overflow: 'visible' }}>

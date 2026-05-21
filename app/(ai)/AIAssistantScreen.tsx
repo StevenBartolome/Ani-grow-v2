@@ -1,6 +1,26 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import { 
+    List, 
+    NotePencil, 
+    CaretLeft, 
+    CaretDown,
+    CaretRight, 
+    X, 
+    Plus, 
+    Trash, 
+    ArrowRight, 
+    Copy, 
+    ArrowCounterClockwise, 
+    Camera, 
+    ImageSquare, 
+    Hourglass, 
+    Microphone, 
+    ArrowUp, 
+    Check,
+    Sparkle
+} from 'phosphor-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -31,6 +51,28 @@ import { useAIAssistantStyles, SIDEBAR_W as _SIDEBAR_W, HISTORY_MAX as _HISTORY_
 
 const SIDEBAR_W = _SIDEBAR_W;
 const HISTORY_MAX = _HISTORY_MAX;
+
+// ─── Mascot Helper ────────────────────────────────────────────────────────────
+
+const getMascotSource = (text: string) => {
+    if (!text) return require('../../assets/images/ai/default_ai_mascot.png');
+    const lower = text.toLowerCase();
+    
+    // Chicken keywords
+    const isChicken = /\b(chicken|hen|rooster|chick|poultry|egg|broiler|layer|flock|avian)s?\b/.test(lower);
+    
+    // Pig keywords
+    const isPig = /\b(pig|swine|hog|sow|piglet|pork|boar)s?\b|\bherd\b/.test(lower);
+
+    if (isChicken && !isPig) {
+        return require('../../assets/images/ai/chicken_ai_mascot.png');
+    }
+    if (isPig && !isChicken) {
+        return require('../../assets/images/ai/pig_ai_mascot.png');
+    }
+    return require('../../assets/images/ai/default_ai_mascot.png');
+};
+
 
 const QUICK_PROMPTS = [
     'Give me an overview of my farm',
@@ -132,18 +174,18 @@ function MarkdownText({ text, baseColor, dimColor }: { text: string; baseColor: 
         const line = lines[i], t = line.trim();
         if (!t) { i++; continue; }
         if (t.startsWith('# ') || t.startsWith('## ')) {
-            nodes.push(<Text key={i} style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: baseColor, marginTop: 12, marginBottom: 4 }}>{t.replace(/^#{1,2} /, '')}</Text>);
+            nodes.push(<Text key={i} style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: baseColor, marginTop: 16, marginBottom: 6 }}>{t.replace(/^#{1,2} /, '')}</Text>);
             i++; continue;
         }
         if (/^\d+\.\s/.test(t)) {
             const items: string[] = [];
             while (i < lines.length && /^\d+\.\s/.test(lines[i].trim())) { items.push(lines[i].trim().replace(/^\d+\.\s/, '')); i++; }
             nodes.push(
-                <View key={`nl${i}`} style={{ marginTop: 6, marginBottom: 4, gap: 4 }}>
+                <View key={`nl${i}`} style={{ marginTop: 8, marginBottom: 6, gap: 6 }}>
                     {items.map((it, j) => (
-                        <View key={j} style={{ flexDirection: 'row', gap: 8 }}>
-                            <Text style={{ fontFamily: 'Poppins-SemiBold', color: dimColor, fontSize: 13, minWidth: 18 }}>{j + 1}.</Text>
-                            <Text style={{ flex: 1, fontFamily: 'Poppins-Regular', fontSize: 14, color: baseColor, lineHeight: 21 }}>{renderInline(it, baseColor)}</Text>
+                        <View key={j} style={{ flexDirection: 'row', gap: 10 }}>
+                            <Text style={{ fontFamily: 'Poppins-SemiBold', color: dimColor, fontSize: 14, minWidth: 20 }}>{j + 1}.</Text>
+                            <Text style={{ flex: 1, fontFamily: 'Poppins-Regular', fontSize: 15, color: baseColor, lineHeight: 24 }}>{renderInline(it, baseColor)}</Text>
                         </View>
                     ))}
                 </View>
@@ -154,11 +196,11 @@ function MarkdownText({ text, baseColor, dimColor }: { text: string; baseColor: 
             const items: string[] = [];
             while (i < lines.length && (lines[i].trim().startsWith('- ') || lines[i].trim().startsWith('• '))) { items.push(lines[i].trim().replace(/^[-•]\s/, '')); i++; }
             nodes.push(
-                <View key={`bl${i}`} style={{ marginTop: 6, marginBottom: 4, gap: 4 }}>
+                <View key={`bl${i}`} style={{ marginTop: 8, marginBottom: 6, gap: 6 }}>
                     {items.map((it, j) => (
-                        <View key={j} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
-                            <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: dimColor, marginTop: 8 }} />
-                            <Text style={{ flex: 1, fontFamily: 'Poppins-Regular', fontSize: 14, color: baseColor, lineHeight: 21 }}>{renderInline(it, baseColor)}</Text>
+                        <View key={j} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dimColor, marginTop: 9 }} />
+                            <Text style={{ flex: 1, fontFamily: 'Poppins-Regular', fontSize: 15, color: baseColor, lineHeight: 24 }}>{renderInline(it, baseColor)}</Text>
                         </View>
                     ))}
                 </View>
@@ -166,13 +208,13 @@ function MarkdownText({ text, baseColor, dimColor }: { text: string; baseColor: 
             continue;
         }
         if (t === '---' || t === '___') {
-            nodes.push(<View key={i} style={{ height: 1, backgroundColor: dimColor + '40', marginVertical: 10 }} />);
+            nodes.push(<View key={i} style={{ height: 1, backgroundColor: dimColor + '40', marginVertical: 16 }} />);
             i++; continue;
         }
-        nodes.push(<Text key={i} style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: baseColor, lineHeight: 22, marginTop: 2 }}>{renderInline(t, baseColor)}</Text>);
+        nodes.push(<Text key={i} style={{ fontFamily: 'Poppins-Regular', fontSize: 15, color: baseColor, lineHeight: 24, marginTop: 4 }}>{renderInline(t, baseColor)}</Text>);
         i++;
     }
-    return <View style={{ gap: 2 }}>{nodes}</View>;
+    return <View style={{ gap: 4 }}>{nodes}</View>;
 }
 
 // ─── TypingDots ───────────────────────────────────────────────────────────────
@@ -225,12 +267,10 @@ function NavButton({ link }: { link: NavLink }) {
 // ─── DateSeparator ────────────────────────────────────────────────────────────
 
 function DateSeparator({ label }: { label: string }) {
-    const { colors } = useTheme();
+    const { styles } = useAIAssistantStyles();
     return (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 20 }}>
-            <View style={{ flex: 1, height: 1, backgroundColor: colors.stroke }} />
-            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, letterSpacing: 0.4 }}>{label}</Text>
-            <View style={{ flex: 1, height: 1, backgroundColor: colors.stroke }} />
+        <View style={styles.dateSepWrap}>
+            <Text style={styles.dateSepText}>{label}</Text>
         </View>
     );
 }
@@ -244,21 +284,28 @@ function MessageActionBar({ onCopy, onRegenerate, isVisible }: { onCopy: () => v
         Animated.timing(opacity, { toValue: isVisible ? 1 : 0, duration: 150, useNativeDriver: Platform.OS !== 'web' }).start();
     }, [isVisible]);
     if (!isVisible) return null;
-    const Btn = ({ label, icon, onPress }: { label: string; icon: string; onPress: () => void }) => (
-        <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={{
-            flexDirection: 'row', alignItems: 'center', gap: 5,
-            paddingHorizontal: 10, paddingVertical: 6,
-            borderWidth: 1, borderColor: colors.stroke, borderRadius: 6,
-            backgroundColor: colors.surface,
-        }}>
-            <MaterialIcons name={icon as any} size={13} color={colors.textGrey} />
-            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey }}>{label}</Text>
-        </TouchableOpacity>
-    );
     return (
-        <Animated.View style={{ opacity, flexDirection: 'row', gap: 4, marginTop: 8 }}>
-            <Btn label="Copy" icon="content-copy" onPress={onCopy} />
-            {onRegenerate && <Btn label="Retry" icon="refresh" onPress={onRegenerate} />}
+        <Animated.View style={{ opacity, flexDirection: 'row', gap: 6, marginTop: 10 }}>
+            <TouchableOpacity onPress={onCopy} activeOpacity={0.7} style={{
+                flexDirection: 'row', alignItems: 'center', gap: 5,
+                paddingHorizontal: 10, paddingVertical: 6,
+                borderWidth: 1, borderColor: colors.stroke, borderRadius: 6,
+                backgroundColor: colors.surface,
+            }}>
+                <Copy size={13} color={colors.textGrey} />
+                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey }}>Copy</Text>
+            </TouchableOpacity>
+            {onRegenerate && (
+                <TouchableOpacity onPress={onRegenerate} activeOpacity={0.7} style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 5,
+                    paddingHorizontal: 10, paddingVertical: 6,
+                    borderWidth: 1, borderColor: colors.stroke, borderRadius: 6,
+                    backgroundColor: colors.surface,
+                }}>
+                    <ArrowCounterClockwise size={13} color={colors.textGrey} />
+                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey }}>Retry</Text>
+                </TouchableOpacity>
+            )}
         </Animated.View>
     );
 }
@@ -325,17 +372,15 @@ function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, o
                         borderBottomWidth: 1, borderBottomColor: colors.stroke,
                     }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <View style={{
-                                width: 26, height: 26, borderRadius: 7,
-                                backgroundColor: colors.primary,
-                                alignItems: 'center', justifyContent: 'center',
-                            }}>
-                                <MaterialIcons name="smart-toy" size={13} color="#fff" />
-                            </View>
+                            <Image 
+                                source={require('../../assets/images/ai/default_ai_mascot.png')} 
+                                style={{ width: 26, height: 26, borderRadius: 7 }} 
+                                resizeMode="cover"
+                            />
                             <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text }}>AniBot</Text>
                         </View>
                         <TouchableOpacity onPress={onClose} activeOpacity={0.6} style={{ padding: 6 }}>
-                            <MaterialIcons name="close" size={18} color={colors.textGrey} />
+                            <X size={18} color={colors.textGrey} />
                         </TouchableOpacity>
                     </View>
 
@@ -351,7 +396,7 @@ function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, o
                             borderRadius: 10,
                         }}
                     >
-                        <MaterialIcons name="add" size={18} color="#fff" />
+                        <Plus size={18} weight="bold" color="#fff" />
                         <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: '#fff' }}>New Chat</Text>
                     </TouchableOpacity>
 
@@ -415,7 +460,7 @@ function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, o
                                                         onPress={() => { onDelete(conv.id); setDeleteTarget(null); }}
                                                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                                     >
-                                                        <MaterialIcons name="delete" size={17} color={colors.error} />
+                                                        <Trash size={17} color={colors.error} />
                                                     </TouchableOpacity>
                                                 ) : isActive ? (
                                                     <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary }} />
@@ -475,6 +520,7 @@ export default function AIAssistantScreen() {
     const [showScrollBtn, setShowScrollBtn] = useState(false);
     const [copiedToast, setCopiedToast] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [isInputFocused, setIsInputFocused] = useState(false);
 
     // ── Image attachment ──────────────────────────────────────────────────────
     const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
@@ -494,6 +540,13 @@ export default function AIAssistantScreen() {
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const activeConvIdRef = useRef<string | null>(null);
     const conversationsRef = useRef<Conversation[]>([]);
+
+    const getLastUserMsgContent = useCallback(() => {
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === 'user') return messages[i].content;
+        }
+        return '';
+    }, [messages]);
 
     useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
     useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
@@ -902,13 +955,13 @@ export default function AIAssistantScreen() {
 
             {/* ── Header ─────────────────────────────────────────────────────── */}
             <View style={styles.header}>
-                {/* Sidebar toggle */}
+                {/* Back Button */}
                 <TouchableOpacity
-                    onPress={() => setSidebarOpen(true)}
-                    activeOpacity={0.6}
+                    onPress={handleClose}
+                    activeOpacity={0.7}
                     style={styles.headerIconBtn}
                 >
-                    <MaterialIcons name="menu" size={22} color={colors.textGrey} />
+                    <CaretLeft size={24} color={colors.textGrey} />
                 </TouchableOpacity>
 
                 {/* Title + status */}
@@ -925,22 +978,13 @@ export default function AIAssistantScreen() {
                     </View>
                 </View>
 
-                {/* New chat (compose) */}
+                {/* Sidebar toggle */}
                 <TouchableOpacity
-                    onPress={startNewChat}
+                    onPress={() => setSidebarOpen(true)}
                     activeOpacity={0.6}
                     style={styles.headerIconBtnRight}
                 >
-                    <MaterialIcons name="edit-note" size={22} color={colors.textGrey} />
-                </TouchableOpacity>
-
-                {/* Close / go back */}
-                <TouchableOpacity
-                    onPress={handleClose}
-                    activeOpacity={0.7}
-                    style={styles.minimizeBtn}
-                >
-                    <MaterialIcons name="keyboard-arrow-down" size={20} color={colors.textGrey} />
+                    <List size={22} color={colors.textGrey} />
                 </TouchableOpacity>
             </View>
 
@@ -1038,28 +1082,16 @@ export default function AIAssistantScreen() {
                     {isEmpty && (
                         <View style={styles.emptyWrap}>
                             <View style={styles.emptyIconBox}>
-                                <MaterialIcons name="smart-toy" size={36} color="#fff" />
+                                <Image
+                                    source={require('../../assets/images/ai/default_ai_mascot.png')}
+                                    style={{ width: '100%', height: '100%', borderRadius: 24 }}
+                                    resizeMode="cover"
+                                />
                             </View>
-                            <Text style={styles.emptyTitle}>How can I help you today?</Text>
+                            <Text style={styles.emptyTitle}>Good day.</Text>
                             <Text style={styles.emptySubtitle}>
-                                I have full access to your farm data and can take actions on your behalf.
+                                How can I assist your farm today?
                             </Text>
-                            <View style={styles.quickPromptsWrap}>
-                                {QUICK_PROMPTS.map((q, i) => (
-                                    <Pressable
-                                        key={i}
-                                        onPress={() => send(q)}
-                                        style={({ pressed }) => [
-                                            styles.quickPromptItem,
-                                            pressed && styles.quickPromptItemPressed,
-                                        ]}
-                                    >
-                                        <View style={styles.quickPromptDot} />
-                                        <Text style={styles.quickPromptText}>{q}</Text>
-                                        <MaterialIcons name="arrow-forward-ios" size={12} color={colors.primary + '90'} />
-                                    </Pressable>
-                                ))}
-                            </View>
                         </View>
                     )}
 
@@ -1077,55 +1109,59 @@ export default function AIAssistantScreen() {
                                     <View key={idx}>
                                         {showDate && <DateSeparator label={dateLabel(msg.ts)} />}
 
-                                        {/* User bubble */}
+                                        {/* User Thread (Right-aligned Capsule) */}
                                         {isUser && (
                                             <Pressable
                                                 onPress={() => setActiveMsg(isActive ? null : idx)}
                                                 onLongPress={() => copy(msg.content)}
-                                                style={styles.userBubbleWrap}
+                                                style={styles.userThreadWrap}
                                             >
                                                 {msg.imageUri && (
                                                     <Image
                                                         source={{ uri: msg.imageUri }}
                                                         style={{
                                                             width: 180, height: 180,
-                                                            borderRadius: 12,
-                                                            marginBottom: 6,
+                                                            borderRadius: 16,
+                                                            marginBottom: 8,
                                                             alignSelf: 'flex-end',
                                                         }}
                                                         resizeMode="cover"
                                                     />
                                                 )}
                                                 {(msg.content !== '📷 [Image attached]' || !msg.imageUri) && (
-                                                    <View style={styles.userBubble}>
-                                                        <Text style={styles.userBubbleText}>{msg.content}</Text>
+                                                    <View style={styles.userThreadCard}>
+                                                        <Text style={styles.userThreadText}>{msg.content}</Text>
                                                     </View>
                                                 )}
-                                                <Text style={styles.bubbleTime}>{fmt12(msg.ts)}</Text>
+                                                <Text style={styles.threadTimeRight}>{fmt12(msg.ts)}</Text>
                                             </Pressable>
                                         )}
 
-                                        {/* Bot message */}
+                                        {/* Bot Thread (Left-aligned Flowing Text) */}
                                         {!isUser && (
                                             <Pressable
                                                 onPress={() => setActiveMsg(isActive ? null : idx)}
                                                 onLongPress={() => copy(msg.content)}
-                                                style={styles.botMsgWrap}
+                                                style={styles.botThreadWrap}
                                             >
-                                                <View style={styles.botAvatarRow}>
-                                                    <View style={styles.botAvatar}>
-                                                        <MaterialIcons name="smart-toy" size={14} color="#fff" />
-                                                    </View>
-                                                    <Text style={styles.botName}>AniBot</Text>
+                                                <View style={styles.botThreadAvatar}>
+                                                    <Image
+                                                        source={getMascotSource(msg.content)}
+                                                        style={{ width: '100%', height: '100%', borderRadius: 8 }}
+                                                        resizeMode="cover"
+                                                    />
                                                 </View>
-                                                <View style={styles.botContentWrap}>
+                                                <View style={styles.botThreadContentWrap}>
+                                                    <View style={styles.botThreadHeaderRow}>
+                                                        <Text style={styles.botThreadName}>AniBot</Text>
+                                                        <Text style={styles.threadTimeLeft}>{fmt12(msg.ts)}</Text>
+                                                    </View>
                                                     <MarkdownText text={msg.content} baseColor={colors.text} dimColor={colors.textGrey} />
                                                     {msg.navigation && msg.navigation.length > 0 && (
                                                         <View style={styles.botNavWrap}>
                                                             {msg.navigation.map((link, j) => <NavButton key={j} link={link} />)}
                                                         </View>
                                                     )}
-                                                    <Text style={styles.botMsgTime}>{fmt12(msg.ts)}</Text>
                                                     <MessageActionBar
                                                         isVisible={isActive}
                                                         onCopy={() => copy(msg.content)}
@@ -1141,13 +1177,17 @@ export default function AIAssistantScreen() {
                             {/* Typing indicator */}
                             {isLoading && (
                                 <View style={styles.typingWrap}>
-                                    <View style={styles.botAvatarRow}>
-                                        <View style={styles.botAvatar}>
-                                            <MaterialIcons name="smart-toy" size={14} color="#fff" />
-                                        </View>
-                                        <Text style={styles.botName}>AniBot</Text>
+                                    <View style={styles.botThreadAvatar}>
+                                        <Image
+                                            source={getMascotSource(getLastUserMsgContent())}
+                                            style={{ width: '100%', height: '100%', borderRadius: 8 }}
+                                            resizeMode="cover"
+                                        />
                                     </View>
-                                    <View style={styles.botContentWrap}>
+                                    <View style={styles.botThreadContentWrap}>
+                                        <View style={styles.botThreadHeaderRow}>
+                                            <Text style={styles.botThreadName}>AniBot</Text>
+                                        </View>
                                         <TypingDots color={colors.textGrey} />
                                     </View>
                                 </View>
@@ -1163,7 +1203,7 @@ export default function AIAssistantScreen() {
                         activeOpacity={0.85}
                         style={styles.scrollFab}
                     >
-                        <MaterialIcons name="keyboard-arrow-down" size={20} color={colors.text} />
+                        <CaretDown size={20} color={colors.text} />
                     </TouchableOpacity>
                 )}
 
@@ -1188,7 +1228,7 @@ export default function AIAssistantScreen() {
                                     alignItems: 'center', justifyContent: 'center',
                                 }}
                             >
-                                <MaterialIcons name="close" size={13} color="#fff" />
+                                <X size={13} color="#fff" />
                             </TouchableOpacity>
                         </View>
                         <Text style={{
@@ -1198,43 +1238,33 @@ export default function AIAssistantScreen() {
                     </View>
                 )}
 
-                {/* ── Input bar ───────────────────────────────────────────────── */}
-                <View style={styles.inputBar}>
-                    {/* Camera / Gallery buttons */}
-                    <TouchableOpacity
-                        onPress={handleTakePhoto}
-                        activeOpacity={0.7}
-                        style={{
-                            width: 36, height: 36, borderRadius: 18,
-                            alignItems: 'center', justifyContent: 'center',
-                            backgroundColor: colors.cardFill,
-                            borderWidth: 1, borderColor: colors.stroke,
-                        }}
+                {/* ── Suggestion Chips & Unified Prompt Box ─────────────────────── */}
+                {isEmpty && (
+                    <ScrollView 
+                        horizontal 
+                        showsHorizontalScrollIndicator={false}
+                        style={styles.suggestionScrollWrap}
+                        contentContainerStyle={styles.suggestionScrollContent}
                     >
-                        <MaterialIcons name="photo-camera" size={18} color={colors.textGrey} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        onPress={handlePickImage}
-                        activeOpacity={0.7}
-                        style={{
-                            width: 36, height: 36, borderRadius: 18,
-                            alignItems: 'center', justifyContent: 'center',
-                            backgroundColor: colors.cardFill,
-                            borderWidth: 1, borderColor: colors.stroke,
-                        }}
-                    >
-                        <MaterialIcons name="image" size={18} color={colors.textGrey} />
-                    </TouchableOpacity>
+                        {QUICK_PROMPTS.map((q, i) => (
+                            <TouchableOpacity
+                                key={i}
+                                onPress={() => send(q)}
+                                activeOpacity={0.7}
+                                style={styles.suggestionChip}
+                            >
+                                <Text style={styles.suggestionChipText}>{q}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                )}
 
-                    {/* Text input */}
-                    <View style={[
-                        styles.inputWrap,
-                        (input.length > 0 || !!attachedImage) && styles.inputWrapFocused,
-                        { flex: 1 },
-                    ]}>
+                <View style={[styles.promptBoxContainer, isInputFocused && styles.promptBoxFocused]}>
+                    {/* Text input area */}
+                    <View style={styles.promptInputWrap}>
                         <TextInput
-                            style={styles.inputField}
-                            placeholder={isTranscribing ? 'Transcribing…' : 'Message AniBot'}
+                            style={styles.promptInputField}
+                            placeholder={isTranscribing ? 'Transcribing…' : 'Message AniBot...'}
                             placeholderTextColor={colors.textGrey}
                             value={input}
                             onChangeText={setInput}
@@ -1242,67 +1272,68 @@ export default function AIAssistantScreen() {
                             returnKeyType="default"
                             blurOnSubmit={false}
                             editable={!isTranscribing}
+                            onFocus={() => setIsInputFocused(true)}
+                            onBlur={() => setIsInputFocused(false)}
                         />
                     </View>
 
-                    {/* Mic button (hold to record) or Send button */}
-                    {!input.trim() && !attachedImage ? (
-                        <View style={{ alignItems: 'center', gap: 2 }}>
-                            {/* Live waveform bars — visible while recording */}
-                            {isRecording && (
-                                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 16, marginBottom: 2 }}>
-                                    {[0.5, 0.8, 1.0, 0.8, 0.5].map((m, i) => (
-                                        <View key={i} style={{
-                                            width: 3,
-                                            height: Math.max(3, audioLevel * 16 * m),
-                                            backgroundColor: colors.error,
-                                            borderRadius: 2,
-                                        }} />
-                                    ))}
-                                </View>
-                            )}
-                            <TouchableOpacity
-                                onPressIn={handleStartRecording}
-                                onPressOut={handleStopRecording}
-                                activeOpacity={0.8}
-                                style={{
-                                    width: 40, height: 40, borderRadius: 20,
-                                    alignItems: 'center', justifyContent: 'center',
-                                    backgroundColor: isRecording ? colors.error : colors.cardFill,
-                                    borderWidth: 1, borderColor: isRecording ? colors.error : colors.stroke,
-                                }}
-                            >
-                                <MaterialIcons
-                                    name={isTranscribing ? 'hourglass-empty' : isRecording ? 'graphic-eq' : 'mic'}
-                                    size={20}
-                                    color={isRecording ? '#fff' : colors.textGrey}
-                                />
+                    {/* Toolbar inside Prompt Box */}
+                    <View style={styles.promptToolbar}>
+                        <View style={styles.promptToolsLeft}>
+                            <TouchableOpacity onPress={handleTakePhoto} activeOpacity={0.7} style={styles.promptToolBtn}>
+                                <Camera size={18} color={colors.textGrey} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={handlePickImage} activeOpacity={0.7} style={styles.promptToolBtn}>
+                                <ImageSquare size={18} color={colors.textGrey} />
                             </TouchableOpacity>
                         </View>
-                    ) : (
-                        <Pressable
-                            onPress={() => send(input)}
-                            disabled={(!input.trim() && !attachedImage) || isLoading}
-                            style={({ pressed }) => [
-                                styles.sendBtn,
-                                ((!input.trim() && !attachedImage) || isLoading) ? styles.sendBtnDisabled : styles.sendBtnActive,
-                                { opacity: pressed ? 0.8 : 1 },
-                            ]}
-                        >
-                            <MaterialIcons
-                                name="arrow-upward"
-                                size={20}
-                                color={((!input.trim() && !attachedImage) || isLoading) ? colors.textGrey : '#fff'}
-                            />
-                        </Pressable>
-                    )}
+
+                        {/* Mic / Send Action */}
+                        {!input.trim() && !attachedImage ? (
+                            <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
+                                {isRecording && (
+                                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 16 }}>
+                                        {[0.5, 0.8, 1.0, 0.8, 0.5].map((m, i) => (
+                                            <View key={i} style={{
+                                                width: 3,
+                                                height: Math.max(3, audioLevel * 16 * m),
+                                                backgroundColor: colors.error,
+                                                borderRadius: 2,
+                                            }} />
+                                        ))}
+                                    </View>
+                                )}
+                                <TouchableOpacity
+                                    onPressIn={handleStartRecording}
+                                    onPressOut={handleStopRecording}
+                                    activeOpacity={0.8}
+                                    style={[styles.promptToolBtn, isRecording && { backgroundColor: colors.error }]}
+                                >
+                                    {isTranscribing ? (
+                                        <Hourglass size={18} color={colors.textGrey} />
+                                    ) : (
+                                        <Microphone size={18} weight={isRecording ? 'fill' : 'regular'} color={isRecording ? '#fff' : colors.textGrey} />
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <TouchableOpacity
+                                onPress={() => send(input)}
+                                disabled={isLoading}
+                                activeOpacity={0.8}
+                                style={[styles.promptSendBtn, isLoading && styles.promptSendBtnDisabled]}
+                            >
+                                <ArrowUp size={18} weight="bold" color={isLoading ? colors.textGrey : '#fff'} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
                 </View>
             </KeyboardAvoidingView>
 
             {/* Copied toast */}
             {copiedToast && (
                 <View style={styles.toast}>
-                    <MaterialIcons name="check" size={13} color={colors.surface} />
+                    <Check size={13} weight="bold" color={colors.surface} />
                     <Text style={styles.toastText}>Copied to clipboard</Text>
                 </View>
             )}
