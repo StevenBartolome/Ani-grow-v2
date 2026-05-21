@@ -25,7 +25,7 @@ export function AniBotFAB() {
     if (isHidden) return null;
 
     // The route name must match the Stack.Screen name (no group prefix — groups are transparent)
-    const handlePress = () => router.push('/(ai)/AIAssistantScreen' as any);
+    const handlePress = () => router.push('/AIAssistantScreen' as any);
 
     return (
         <TouchableOpacity
