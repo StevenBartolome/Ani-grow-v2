@@ -6,7 +6,7 @@
  */
 
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     Animated,
     Modal,
@@ -39,12 +39,15 @@ export const FarmSwitcherDrawer: React.FC<Props> = ({ visible, onClose }) => {
         switchToFarm,
     } = useFarmFilter();
 
+    const [internalVisible, setInternalVisible] = useState(visible);
+
     // Slide-up and fade animations
-    const slideAnim = useRef(new Animated.Value(400)).current;
-    const fadeAnim  = useRef(new Animated.Value(0)).current;
+    const slideAnim = useRef(new Animated.Value(visible ? 0 : 400)).current;
+    const fadeAnim  = useRef(new Animated.Value(visible ? 0.5 : 0)).current;
 
     useEffect(() => {
         if (visible) {
+            setInternalVisible(true);
             Animated.parallel([
                 Animated.timing(slideAnim, { toValue: 0, duration: 260, useNativeDriver: Platform.OS !== 'web' }),
                 Animated.timing(fadeAnim,  { toValue: 0.5, duration: 220, useNativeDriver: Platform.OS !== 'web' }),
@@ -53,7 +56,9 @@ export const FarmSwitcherDrawer: React.FC<Props> = ({ visible, onClose }) => {
             Animated.parallel([
                 Animated.timing(slideAnim, { toValue: 400, duration: 220, useNativeDriver: Platform.OS !== 'web' }),
                 Animated.timing(fadeAnim,  { toValue: 0,   duration: 180, useNativeDriver: Platform.OS !== 'web' }),
-            ]).start();
+            ]).start(() => {
+                setInternalVisible(false);
+            });
         }
     }, [visible]);
 
@@ -70,7 +75,7 @@ export const FarmSwitcherDrawer: React.FC<Props> = ({ visible, onClose }) => {
     };
 
     return (
-        <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+        <Modal visible={internalVisible} transparent animationType="none" onRequestClose={onClose}>
             {/* Backdrop */}
             <Animated.View
                 style={{

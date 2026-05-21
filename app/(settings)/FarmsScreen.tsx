@@ -11,9 +11,10 @@
 
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
     ActivityIndicator,
+    Animated,
     FlatList,
     KeyboardAvoidingView,
     Modal,
@@ -60,8 +61,27 @@ export default function FarmsScreen() {
 
     // ── Add-farm modal state ──────────────────────────────────────────────────
     const [addModalOpen, setAddModalOpen]   = useState(false);
+    const [internalAddModalOpen, setInternalAddModalOpen] = useState(false);
     const [newFarmName, setNewFarmName]     = useState('');
     const [saving, setSaving]               = useState(false);
+
+    const addSlideAnim = useRef(new Animated.Value(800)).current;
+    const addFadeAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        if (addModalOpen) {
+            setInternalAddModalOpen(true);
+            Animated.parallel([
+                Animated.timing(addSlideAnim, { toValue: 0, duration: 260, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(addFadeAnim,  { toValue: 1, duration: 220, useNativeDriver: Platform.OS !== 'web' }),
+            ]).start();
+        } else {
+            Animated.parallel([
+                Animated.timing(addSlideAnim, { toValue: 800, duration: 220, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(addFadeAnim,  { toValue: 0,   duration: 180, useNativeDriver: Platform.OS !== 'web' }),
+            ]).start(() => setInternalAddModalOpen(false));
+        }
+    }, [addModalOpen]);
 
     // ── PSGC location state ───────────────────────────────────────────────────
     interface PsgcItem { code: string; name: string; }
@@ -73,8 +93,27 @@ export default function FarmsScreen() {
     const [loadingCities, setLoadingCities]           = useState(false);
     // Location picker sheet
     const [pickerOpen, setPickerOpen]   = useState(false);
+    const [internalPickerOpen, setInternalPickerOpen] = useState(false);
     const [pickerMode, setPickerMode]   = useState<'province' | 'city'>('province');
     const [pickerSearch, setPickerSearch] = useState('');
+
+    const pickerSlideAnim = useRef(new Animated.Value(800)).current;
+    const pickerFadeAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        if (pickerOpen) {
+            setInternalPickerOpen(true);
+            Animated.parallel([
+                Animated.timing(pickerSlideAnim, { toValue: 0, duration: 260, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(pickerFadeAnim,  { toValue: 1, duration: 220, useNativeDriver: Platform.OS !== 'web' }),
+            ]).start();
+        } else {
+            Animated.parallel([
+                Animated.timing(pickerSlideAnim, { toValue: 800, duration: 220, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(pickerFadeAnim,  { toValue: 0,   duration: 180, useNativeDriver: Platform.OS !== 'web' }),
+            ]).start(() => setInternalPickerOpen(false));
+        }
+    }, [pickerOpen]);
 
     // Load provinces once when modal opens
     useEffect(() => {
@@ -339,20 +378,23 @@ export default function FarmsScreen() {
             </View>
 
             {/* ── Add Farm Modal ───────────────────────────────────────────── */}
-            <Modal visible={addModalOpen} transparent animationType="slide" onRequestClose={() => setAddModalOpen(false)}>
+            <Modal visible={internalAddModalOpen} transparent animationType="none" onRequestClose={() => setAddModalOpen(false)}>
                 <KeyboardAvoidingView
                     style={{ flex: 1 }}
                     behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 >
-                    <Pressable
-                        style={{ flex: 1, backgroundColor: '#00000060' }}
-                        onPress={() => { if (!saving) { setAddModalOpen(false); setNewFarmName(''); resetLocation(); } }}
-                    />
-                    <View style={{
+                    <Animated.View style={{ flex: 1, backgroundColor: '#00000060', opacity: addFadeAnim }}>
+                        <Pressable
+                            style={{ flex: 1 }}
+                            onPress={() => { if (!saving) { setAddModalOpen(false); setNewFarmName(''); resetLocation(); } }}
+                        />
+                    </Animated.View>
+                    <Animated.View style={{
                         backgroundColor: colors.surface,
                         borderTopLeftRadius: 28, borderTopRightRadius: 28,
                         padding: 28, paddingBottom: 48,
                         gap: 16,
+                        transform: [{ translateY: addSlideAnim }]
                     }}>
                         {/* Handle */}
                         <View style={{
@@ -504,18 +546,21 @@ export default function FarmsScreen() {
                                 }
                             </TouchableOpacity>
                         </View>
-                    </View>
+                    </Animated.View>
                 </KeyboardAvoidingView>
             </Modal>
 
             {/* ── Location Picker Sheet ────────────────────────────────────── */}
-            <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
-                <Pressable style={{ flex: 1, backgroundColor: '#00000060' }} onPress={() => setPickerOpen(false)} />
-                <View style={{
+            <Modal visible={internalPickerOpen} transparent animationType="none" onRequestClose={() => setPickerOpen(false)}>
+                <Animated.View style={{ flex: 1, backgroundColor: '#00000060', opacity: pickerFadeAnim }}>
+                    <Pressable style={{ flex: 1 }} onPress={() => setPickerOpen(false)} />
+                </Animated.View>
+                <Animated.View style={{
                     backgroundColor: colors.surface,
                     borderTopLeftRadius: 28, borderTopRightRadius: 28,
                     height: '75%',
                     paddingTop: 16,
+                    transform: [{ translateY: pickerSlideAnim }]
                 }}>
                     {/* Handle */}
                     <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginBottom: 12 }} />
@@ -591,7 +636,7 @@ export default function FarmsScreen() {
                             </View>
                         )}
                     />
-                </View>
+                </Animated.View>
             </Modal>
 
             <Snackbar

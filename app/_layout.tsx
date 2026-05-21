@@ -76,7 +76,7 @@ export default function RootLayout() {
               <Stack.Screen name="(auth)/RegisterScreen" />
               <Stack.Screen name="(auth)/ForgotPasswordScreen" />
               <Stack.Screen name="(auth)/ResetPasswordScreen" />
-              <Stack.Screen name="(auth)/PrivacyPolicyScreen" />
+              <Stack.Screen name="(settings)/PrivacyPolicyScreen" />
               <Stack.Screen name="(auth)/TermsOfServiceScreen" />
               <Stack.Screen name="(auth)/MFAChallengeScreen" />
             </Stack>

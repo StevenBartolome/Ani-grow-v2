@@ -35,16 +35,18 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
     const { width } = useWindowDimensions();
 
     const [isLogoutModalVisible, setLogoutModalVisible] = useState(false);
+    const [internalVisible, setInternalVisible] = useState(visible);
 
     // Compute drawer width (about 78% of screen, capped at 300px for larger displays)
     const DRAWER_WIDTH = Math.min(width * 0.78, 300);
 
     // Slide-out and fade animations
-    const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
-    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const slideAnim = useRef(new Animated.Value(visible ? 0 : -DRAWER_WIDTH)).current;
+    const fadeAnim = useRef(new Animated.Value(visible ? 0.4 : 0)).current;
 
     useEffect(() => {
         if (visible) {
+            setInternalVisible(true);
             Animated.parallel([
                 Animated.timing(slideAnim, { toValue: 0, duration: 280, useNativeDriver: Platform.OS !== 'web' }),
                 Animated.timing(fadeAnim,  { toValue: 0.4, duration: 250, useNativeDriver: Platform.OS !== 'web' }),
@@ -53,7 +55,9 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
             Animated.parallel([
                 Animated.timing(slideAnim, { toValue: -DRAWER_WIDTH, duration: 240, useNativeDriver: Platform.OS !== 'web' }),
                 Animated.timing(fadeAnim,  { toValue: 0,   duration: 200, useNativeDriver: Platform.OS !== 'web' }),
-            ]).start();
+            ]).start(() => {
+                setInternalVisible(false);
+            });
         }
     }, [visible, DRAWER_WIDTH]);
 
@@ -105,7 +109,7 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
     ];
 
     return (
-        <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+        <Modal visible={internalVisible} transparent animationType="none" onRequestClose={onClose}>
             <View style={styles.modalRoot}>
                 {/* Backdrop */}
                 <Animated.View
@@ -135,8 +139,13 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
                 >
                     {/* Header: User Profile Info */}
                     <View style={styles.drawerHeader}>
-                        <View style={[styles.avatarBox, { backgroundColor: colors.primary }]}>
-                            <Text translate={false} style={styles.avatarInitial}>{userName.charAt(0).toUpperCase()}</Text>
+                        <View style={styles.headerTopRow}>
+                            <View style={[styles.avatarBox, { backgroundColor: colors.primary }]}>
+                                <Text translate={false} style={styles.avatarInitial}>{userName.charAt(0).toUpperCase()}</Text>
+                            </View>
+                            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                                <MaterialIcons name="close" size={24} color={colors.textGrey} />
+                            </TouchableOpacity>
                         </View>
 
                         <Text translate={false} numberOfLines={1} style={[textStyles.h2, styles.profileName, { color: colors.text }]}>
@@ -218,6 +227,14 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
                         <View style={[styles.sectionDivider, { backgroundColor: colors.stroke }]} />
                         <Text style={[styles.menuSectionHeader, { color: colors.textGrey }]}>App & Information</Text>
 
+                        <TouchableOpacity style={styles.menuItem} onPress={() => handleLink('/(settings)/LanguageScreen')}>
+                            <View style={[styles.iconContainer, { backgroundColor: colors.primary + '1A' }]}>
+                                <MaterialIcons name="translate" size={20} color={colors.primary} />
+                            </View>
+                            <Text style={[styles.menuItemText, { color: colors.text }]}>Language</Text>
+                            <MaterialIcons name="chevron-right" size={18} color={colors.textGrey} style={styles.chevron} />
+                        </TouchableOpacity>
+
                         <TouchableOpacity style={styles.menuItem} onPress={() => handleLink('/(settings)/NotificationSettingsScreen')}>
                             <View style={[styles.iconContainer, { backgroundColor: '#3B82F61A' }]}>
                                 <MaterialIcons name="notifications-none" size={20} color="#3B82F6" />
@@ -234,7 +251,7 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
                             <MaterialIcons name="chevron-right" size={18} color={colors.textGrey} style={styles.chevron} />
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.menuItem} onPress={() => handleLink('/(auth)/PrivacyPolicyScreen')}>
+                        <TouchableOpacity style={styles.menuItem} onPress={() => handleLink('/(settings)/PrivacyPolicyScreen')}>
                             <View style={[styles.iconContainer, { backgroundColor: '#64748B1A' }]}>
                                 <MaterialIcons name="shield" size={20} color="#64748B" />
                             </View>
@@ -336,6 +353,17 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingBottom: 16,
         alignItems: 'flex-start',
+    },
+    headerTopRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        width: '100%',
+    },
+    closeButton: {
+        padding: 4,
+        marginTop: 4,
+        marginRight: -4,
     },
     avatarBox: {
         width: 52,

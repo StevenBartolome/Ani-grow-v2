@@ -306,7 +306,7 @@ export default function SettingsScreen() {
                                 <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={[settingsStyles.row, settingsStyles.rowNoBorder]} activeOpacity={0.7} onPress={() => router.push('/(auth)/PrivacyPolicyScreen')}>
+                            <TouchableOpacity style={[settingsStyles.row, settingsStyles.rowNoBorder]} activeOpacity={0.7} onPress={() => router.push('/(settings)/PrivacyPolicyScreen')}>
                                 <View style={settingsStyles.rowContent}>
                                     <View style={[settingsStyles.iconBox, { backgroundColor: '#64748B' + '1A' }]}>
                                         <MaterialIcons name="shield" size={22} color="#64748B" />

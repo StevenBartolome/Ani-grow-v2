@@ -590,7 +590,7 @@ export default function RegisterScreen() {
                                             I agree to the{' '}
                                             <Text onPress={() => router.push('/(auth)/TermsOfServiceScreen')} style={{ color: colors.primary, fontFamily: 'Poppins-SemiBold' }}>Terms of Service</Text>
                                             {' '}and{' '}
-                                            <Text onPress={() => router.push('/(auth)/PrivacyPolicyScreen')} style={{ color: colors.primary, fontFamily: 'Poppins-SemiBold' }}>Privacy Policy</Text>
+                                            <Text onPress={() => router.push('/(settings)/PrivacyPolicyScreen')} style={{ color: colors.primary, fontFamily: 'Poppins-SemiBold' }}>Privacy Policy</Text>
                                         </Text>
                                     </View>
                                 </>
