@@ -953,16 +953,16 @@ export default function HomeScreen() {
 
                     </View>
                 </ScrollView>
-
-                <FloatingNavBar />
-                <FarmSwitcherDrawer visible={switcherOpen} onClose={() => setSwitcherOpen(false)} />
-                <ProfileDrawer
-                    visible={profileDrawerOpen}
-                    onClose={() => setProfileDrawerOpen(false)}
-                    activeFarmName={farmName}
-                />
             </View>
 
+            <FloatingNavBar />
+            <FarmSwitcherDrawer visible={switcherOpen} onClose={() => setSwitcherOpen(false)} />
+            <ProfileDrawer
+                visible={profileDrawerOpen}
+                onClose={() => setProfileDrawerOpen(false)}
+                activeFarmName={farmName}
+            />
         </SafeAreaView>
     );
 }
+

@@ -21,15 +21,15 @@ import {
     Check,
     Sparkle
 } from 'phosphor-react-native';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import { Image } from 'expo-image';
 import { Audio } from '@/lib/nativeAudio';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Animated,
-    Image,
     KeyboardAvoidingView,
     Platform,
     Pressable,
@@ -55,7 +55,7 @@ const HISTORY_MAX = _HISTORY_MAX;
 // ─── Mascot Helper ────────────────────────────────────────────────────────────
 
 const getMascotSource = (text: string) => {
-    if (!text) return require('../../assets/images/ai/default_ai_mascot.png');
+    if (!text) return require('../../assets/images/ai/default_ai_mascot.svg');
     const lower = text.toLowerCase();
     
     // Chicken keywords
@@ -65,12 +65,12 @@ const getMascotSource = (text: string) => {
     const isPig = /\b(pig|swine|hog|sow|piglet|pork|boar)s?\b|\bherd\b/.test(lower);
 
     if (isChicken && !isPig) {
-        return require('../../assets/images/ai/chicken_ai_mascot.png');
+        return require('../../assets/images/ai/chicken_ai_mascot.svg');
     }
     if (isPig && !isChicken) {
-        return require('../../assets/images/ai/pig_ai_mascot.png');
+        return require('../../assets/images/ai/pig_ai_mascot.svg');
     }
-    return require('../../assets/images/ai/default_ai_mascot.png');
+    return require('../../assets/images/ai/default_ai_mascot.svg');
 };
 
 
@@ -373,9 +373,9 @@ function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, o
                     }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                             <Image 
-                                source={require('../../assets/images/ai/default_ai_mascot.png')} 
+                                source={require('../../assets/images/ai/default_ai_mascot.svg')} 
                                 style={{ width: 26, height: 26, borderRadius: 7 }} 
-                                resizeMode="cover"
+                                contentFit="cover"
                             />
                             <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text }}>AniBot</Text>
                         </View>
@@ -527,6 +527,8 @@ export default function AIAssistantScreen() {
 
     // ── Voice recording ───────────────────────────────────────────────────────
     const [recording, setRecording] = useState<any>(null);
+    const recordingRef = useRef<any>(null);
+    const isPressingRef = useRef(false);
     const webMediaRecorderRef = useRef<MediaRecorder | null>(null); // ref so stop handler always sees current value
     const webChunksRef = useRef<Blob[]>([]);
     const analyserRef = useRef<AnalyserNode | null>(null);
@@ -671,6 +673,7 @@ export default function AIAssistantScreen() {
     }, []);
 
     const handleStartRecording = useCallback(async () => {
+        isPressingRef.current = true;
         try {
             if (Platform.OS === 'web') {
                 const stream = await (navigator as any).mediaDevices.getUserMedia({ audio: true });
@@ -702,12 +705,25 @@ export default function AIAssistantScreen() {
                 mr.start(100);
                 webMediaRecorderRef.current = mr;
             } else {
+                if (recordingRef.current) {
+                    try { await recordingRef.current.stopAndUnloadAsync(); } catch (e) {}
+                    recordingRef.current = null;
+                    setRecording(null);
+                }
+
                 const { status } = await Audio.requestPermissionsAsync();
                 if (status !== 'granted') return;
                 await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
                 const { recording: rec } = await Audio.Recording.createAsync(
                     Audio.RecordingOptionsPresets.HIGH_QUALITY
                 );
+
+                if (!isPressingRef.current) {
+                    try { await rec.stopAndUnloadAsync(); } catch (e) {}
+                    return;
+                }
+
+                recordingRef.current = rec;
                 setRecording(rec);
             }
             setIsRecording(true);
@@ -718,6 +734,7 @@ export default function AIAssistantScreen() {
     }, []);
 
     const handleStopRecording = useCallback(async () => {
+        isPressingRef.current = false;
         setIsRecording(false);
         stopAudioMeter();
         setIsTranscribing(true);
@@ -779,14 +796,16 @@ export default function AIAssistantScreen() {
                     setInput(prev => prev || '🎤 Voice message (transcription unavailable)');
                 }
             } else {
-                if (!recording) {
+                const rec = recordingRef.current || recording;
+                if (!rec) {
                     setInput(prev => prev || '🎤 Voice message (transcription unavailable)');
                     setIsTranscribing(false);
                     return;
                 }
-                await recording.stopAndUnloadAsync();
+                try { await rec.stopAndUnloadAsync(); } catch (e) {}
                 await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-                const uri = recording.getURI();
+                const uri = rec.getURI();
+                recordingRef.current = null;
                 setRecording(null);
                 if (!uri) {
                     setInput(prev => prev || '🎤 Voice message (transcription unavailable)');
@@ -1083,9 +1102,9 @@ export default function AIAssistantScreen() {
                         <View style={styles.emptyWrap}>
                             <View style={styles.emptyIconBox}>
                                 <Image
-                                    source={require('../../assets/images/ai/default_ai_mascot.png')}
+                                    source={require('../../assets/images/ai/default_ai_mascot.svg')}
                                     style={{ width: '100%', height: '100%', borderRadius: 24 }}
-                                    resizeMode="cover"
+                                    contentFit="cover"
                                 />
                             </View>
                             <Text style={styles.emptyTitle}>Good day.</Text>
@@ -1125,7 +1144,7 @@ export default function AIAssistantScreen() {
                                                             marginBottom: 8,
                                                             alignSelf: 'flex-end',
                                                         }}
-                                                        resizeMode="cover"
+                                                        contentFit="cover"
                                                     />
                                                 )}
                                                 {(msg.content !== '📷 [Image attached]' || !msg.imageUri) && (
@@ -1148,7 +1167,7 @@ export default function AIAssistantScreen() {
                                                     <Image
                                                         source={getMascotSource(msg.content)}
                                                         style={{ width: '100%', height: '100%', borderRadius: 8 }}
-                                                        resizeMode="cover"
+                                                        contentFit="cover"
                                                     />
                                                 </View>
                                                 <View style={styles.botThreadContentWrap}>
@@ -1181,7 +1200,7 @@ export default function AIAssistantScreen() {
                                         <Image
                                             source={getMascotSource(getLastUserMsgContent())}
                                             style={{ width: '100%', height: '100%', borderRadius: 8 }}
-                                            resizeMode="cover"
+                                            contentFit="cover"
                                         />
                                     </View>
                                     <View style={styles.botThreadContentWrap}>
@@ -1217,7 +1236,7 @@ export default function AIAssistantScreen() {
                             <Image
                                 source={{ uri: attachedImage.uri }}
                                 style={{ width: 64, height: 64, borderRadius: 10 }}
-                                resizeMode="cover"
+                                contentFit="cover"
                             />
                             <TouchableOpacity
                                 onPress={() => setAttachedImage(null)}
@@ -1289,7 +1308,6 @@ export default function AIAssistantScreen() {
                         </View>
 
                         {/* Mic / Send Action */}
-                        {/* Audio feature temporarily disabled
                         {!input.trim() && !attachedImage ? (
                             <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
                                 {isRecording && (
@@ -1318,7 +1336,6 @@ export default function AIAssistantScreen() {
                                 </TouchableOpacity>
                             </View>
                         ) : (
-                        */}
                             <TouchableOpacity
                                 onPress={() => send(input)}
                                 disabled={isLoading || (!input.trim() && !attachedImage)}
@@ -1327,7 +1344,7 @@ export default function AIAssistantScreen() {
                             >
                                 <ArrowUp size={18} weight="bold" color={(isLoading || (!input.trim() && !attachedImage)) ? colors.textGrey : '#fff'} />
                             </TouchableOpacity>
-                        {/* )} */}
+                        )}
                     </View>
                 </View>
             </KeyboardAvoidingView>

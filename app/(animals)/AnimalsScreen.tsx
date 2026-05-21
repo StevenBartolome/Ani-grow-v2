@@ -254,14 +254,15 @@ export default function AnimalsScreen() {
                         </>
                     )}
                 </ScrollView>
-
-                <FloatingNavBar />
-                <ProfileDrawer
-                    visible={profileDrawerOpen}
-                    onClose={() => setProfileDrawerOpen(false)}
-                    activeFarmName={farmName}
-                />
             </View>
+
+            <FloatingNavBar />
+            <ProfileDrawer
+                visible={profileDrawerOpen}
+                onClose={() => setProfileDrawerOpen(false)}
+                activeFarmName={farmName}
+            />
         </SafeAreaView>
     );
 }
+

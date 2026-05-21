@@ -4,7 +4,11 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 
 export function ThemeToggleButton() {
-    const { isDark, toggleTheme, colors } = useTheme();
+    const { isDark, setThemeMode, colors } = useTheme();
+
+    const toggleTheme = () => {
+        setThemeMode(isDark ? 'light' : 'dark');
+    };
 
     return (
         <TouchableOpacity

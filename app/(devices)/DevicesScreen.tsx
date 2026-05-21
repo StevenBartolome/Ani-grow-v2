@@ -302,14 +302,15 @@ export default function DevicesScreen() {
                         </View>
                     )}
                 </ScrollView>
-
-                <FloatingNavBar />
-                <ProfileDrawer
-                    visible={profileDrawerOpen}
-                    onClose={() => setProfileDrawerOpen(false)}
-                    activeFarmName={farmName}
-                />
             </View>
+
+            <FloatingNavBar />
+            <ProfileDrawer
+                visible={profileDrawerOpen}
+                onClose={() => setProfileDrawerOpen(false)}
+                activeFarmName={farmName}
+            />
         </SafeAreaView>
     );
 }
+
