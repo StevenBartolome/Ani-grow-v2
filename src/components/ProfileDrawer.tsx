@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
     Animated,
     Modal,
@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTheme, ThemeMode } from '@/context/ThemeContext';
 import { useTextStyles } from '@/constants/textStyles';
 import ActionModal from '@/components/ActionModal';
@@ -30,6 +31,7 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
     const { colors, isDark, themeMode, setThemeMode } = useTheme();
     const textStyles = useTextStyles();
     const { profile, signOut } = useAuth();
+    const { activeFarmIds, managedFarms } = useFarmFilter();
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { width } = useWindowDimensions();
@@ -99,8 +101,34 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
         : profile?.displayName || 'User';
     const userEmail = profile?.email || 'Unknown Email';
     
+    const formatRole = (role: string | undefined) => {
+        if (!role) return '';
+        const roleMap: Record<string, string> = {
+            super_admin: 'Super Admin',
+            farm_admin: 'Farm Admin',
+            admin: 'Admin',
+            caretaker: 'Caretaker',
+            veterinarian: 'Veterinarian',
+            flockman: 'Flockman',
+        };
+        return roleMap[role] || role.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    };
+
     const isAdminRole = ['super_admin', 'farm_admin', 'admin'].includes(profile?.role ?? '');
-    const userBadge = profile?.role === 'super_admin' ? 'Super Admin' : isAdminRole ? 'Farm Admin' : 'Employee';
+    const userBadge = formatRole(profile?.role);
+
+    const displayFarmName = useMemo(() => {
+        if (activeFarmIds && activeFarmIds.length === 1) {
+            const activeFarm = managedFarms.find(f => f.id === activeFarmIds[0]);
+            if (activeFarm) return activeFarm.name;
+        } else if (activeFarmIds && activeFarmIds.length > 1) {
+            if (activeFarmIds.length === managedFarms.length) {
+                return 'All Farms';
+            }
+            return `${activeFarmIds.length} Farms`;
+        }
+        return activeFarmName || 'your farm';
+    }, [activeFarmIds, managedFarms, activeFarmName]);
 
     const themeOptions: { mode: ThemeMode; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name'] }[] = [
         { mode: 'device', label: 'Device', icon: 'phone-android' },
@@ -165,7 +193,7 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
                         <View style={[styles.activeFarmBox, { backgroundColor: colors.bgLight, borderColor: colors.stroke }]}>
                             <MaterialIcons name="home-work" size={14} color={colors.primary} />
                             <Text numberOfLines={1} style={[styles.activeFarmText, { color: colors.text }]}>
-                                {activeFarmName}
+                                {displayFarmName}
                             </Text>
                         </View>
                     </View>

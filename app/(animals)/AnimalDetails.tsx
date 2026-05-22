@@ -112,7 +112,7 @@ export default function AnimalDetailsScreen() {
     const [confirmModalType, setConfirmModalType] = useState<ActionModalType>('confirmation');
     const [confirmModalTitle, setConfirmModalTitle] = useState('');
     const [confirmModalMessage, setConfirmModalMessage] = useState('');
-    const [confirmActionType, setConfirmActionType] = useState<'addHeads' | 'deceased' | 'newBatch' | 'completeBatch' | 'archiveBatch' | null>(null);
+    const [confirmActionType, setConfirmActionType] = useState<'addHeads' | 'deceased' | 'newBatch' | 'editBatch' | 'completeBatch' | 'archiveBatch' | null>(null);
 
     // ── Add Heads Modal ───────────────────────────────────────────
     const [addHeadsVisible, setAddHeadsVisible] = useState(false);
@@ -134,6 +134,13 @@ export default function AnimalDetailsScreen() {
     const [newBatchCount, setNewBatchCount] = useState('');
     const [newBatchSupplier, setNewBatchSupplier] = useState('');
     const [newBatchCountError, setNewBatchCountError] = useState<string | null>(null);
+
+    // ── Edit Batch Modal ──────────────────────────────────────────
+    const [editBatchVisible, setEditBatchVisible] = useState(false);
+    const [editBatchName, setEditBatchName] = useState('');
+    const [editBatchCount, setEditBatchCount] = useState('');
+    const [editBatchSupplier, setEditBatchSupplier] = useState('');
+    const [editBatchCountError, setEditBatchCountError] = useState<string | null>(null);
 
     // ── Batch Selection ───────────────────────────────────────────
     const [batchModalVisible, setBatchModalVisible] = useState(false);
@@ -187,20 +194,50 @@ export default function AnimalDetailsScreen() {
     };
 
     const validateNewBatchCount = (val: string) => {
+        const remaining = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
+        if (housing && housing.capacity > 0 && remaining <= 0) {
+            setNewBatchCountError(`Housing is at full capacity (${housing.capacity}/${housing.capacity}).`);
+            return false;
+        }
         if (!val.trim()) {
-            setNewBatchCountError('Initial head count is required.');
+            setNewBatchCountError('Remaining head count is required.');
             return false;
         }
         const num = parseInt(val.trim(), 10);
         if (isNaN(num) || num <= 0) {
-            setNewBatchCountError('Initial head count must be greater than 0.');
+            setNewBatchCountError('Remaining head count must be greater than 0.');
             return false;
         }
-        if (housing && housing.capacity > 0 && num > housing.capacity) {
-            setNewBatchCountError(`Cannot exceed housing capacity (${housing.capacity}).`);
+        if (housing && housing.capacity > 0 && num > remaining) {
+            setNewBatchCountError(`Cannot exceed remaining capacity (${remaining}).`);
             return false;
         }
         setNewBatchCountError(null);
+        return true;
+    };
+
+    const validateEditBatchCount = (val: string) => {
+        if (!selectedBatch) return false;
+        if (!val.trim()) {
+            setEditBatchCountError('Head count is required.');
+            return false;
+        }
+        const num = parseInt(val.trim(), 10);
+        if (isNaN(num) || num <= 0) {
+            setEditBatchCountError('Head count must be greater than 0.');
+            return false;
+        }
+        const difference = num - selectedBatch.estimated_count;
+        if (housing && housing.capacity > 0 && (housing.current_count + difference) > housing.capacity) {
+            setEditBatchCountError(`Exceeds housing capacity (${housing.capacity}). Max allowed: ${housing.capacity - housing.current_count + selectedBatch.estimated_count}.`);
+            return false;
+        }
+        if (selectedBatch.current_count + difference < 0) {
+            const deceasedCount = selectedBatch.estimated_count - selectedBatch.current_count;
+            setEditBatchCountError(`Must be at least ${deceasedCount} to account for deceased heads.`);
+            return false;
+        }
+        setEditBatchCountError(null);
         return true;
     };
 
@@ -245,6 +282,31 @@ export default function AnimalDetailsScreen() {
         setConfirmModalVisible(true);
     };
 
+    const openEditBatchModal = () => {
+        if (!selectedBatch) return;
+        setEditBatchName(selectedBatch.name);
+        setEditBatchCount(String(selectedBatch.estimated_count));
+        setEditBatchSupplier(selectedBatch.supplier ?? '');
+        setEditBatchCountError(null);
+        setEditBatchVisible(true);
+    };
+
+    const handleEditBatchClick = () => {
+        if (!selectedBatch) return;
+        if (!editBatchName.trim()) {
+            showSnackbar('Please enter a batch name.', 'error');
+            return;
+        }
+        const isValid = validateEditBatchCount(editBatchCount);
+        if (!isValid) return;
+        setEditBatchVisible(false);
+        setConfirmActionType('editBatch');
+        setConfirmModalType('confirmation');
+        setConfirmModalTitle('Update Batch?');
+        setConfirmModalMessage(`Are you sure you want to update the details for batch "${selectedBatch.name}"?`);
+        setConfirmModalVisible(true);
+    };
+
     const handleConfirmAction = async () => {
         setIsSaving(true);
         try {
@@ -255,7 +317,8 @@ export default function AnimalDetailsScreen() {
                     .update({ current_count: (selectedBatch?.current_count ?? 0) + n, estimated_count: (selectedBatch?.estimated_count ?? 0) + n, updated_at: new Date().toISOString() })
                     .eq('id', selectedBatchId);
                 if (bErr) throw bErr;
-                await supabase.from('housings').update({ current_count: (housing?.current_count ?? 0) + n, updated_at: new Date().toISOString() }).eq('id', housingId);
+                const { error: hErr } = await supabase.from('housings').update({ current_count: (housing?.current_count ?? 0) + n, updated_at: new Date().toISOString() }).eq('id', housingId);
+                if (hErr) throw hErr;
                 showSnackbar(`Added ${n} heads successfully.`);
                 setAddHeadsNumber(''); setAddHeadsAge('');
 
@@ -301,19 +364,17 @@ export default function AnimalDetailsScreen() {
                     .eq('id', selectedBatchId);
                 if (bErr) throw bErr;
 
-                // 3. Recalculate housing current_count from ALL active batches in this housing
-                const { data: activeBatches } = await supabase
-                    .from('batches')
-                    .select('current_count')
-                    .eq('housing_id', housingId)
-                    .eq('status', 'active');
-                const housingCount = (activeBatches ?? []).reduce(
-                    (sum: number, b: any) => sum + (b.current_count ?? 0), 0
-                );
-                await supabase.from('housings').update({
+                // 3. Recalculate housing current_count in-memory to avoid race condition/delay
+                const otherBatchesCount = batches
+                    .filter(b => b.id !== selectedBatchId && b.status === 'active')
+                    .reduce((sum: number, b: any) => sum + (b.current_count ?? 0), 0);
+                const housingCount = otherBatchesCount + newCurrentCount;
+
+                const { error: hErr } = await supabase.from('housings').update({
                     current_count: housingCount,
                     updated_at: new Date().toISOString(),
                 }).eq('id', housingId);
+                if (hErr) throw hErr;
 
                 showSnackbar(`Recorded ${n} deceased.`);
                 setDeceasedNumber(''); setDeceasedReason('Illness'); setDeceasedOtherReason('');
@@ -338,9 +399,40 @@ export default function AnimalDetailsScreen() {
                     .single();
                 if (bErr) throw bErr;
                 // Update housing count
-                await supabase.from('housings').update({ current_count: (housing?.current_count ?? 0) + count, updated_at: new Date().toISOString() }).eq('id', housingId);
+                const { error: hErr } = await supabase.from('housings').update({ current_count: (housing?.current_count ?? 0) + count, updated_at: new Date().toISOString() }).eq('id', housingId);
+                if (hErr) throw hErr;
                 showSnackbar('New batch created successfully.');
                 setNewBatchName(''); setNewBatchCount(''); setNewBatchSupplier('');
+
+            } else if (confirmActionType === 'editBatch' && selectedBatchId && selectedBatch) {
+                const count = parseInt(editBatchCount, 10);
+                const difference = count - selectedBatch.estimated_count;
+                const newCurrentCount = selectedBatch.current_count + difference;
+
+                const { error: bErr } = await supabase
+                    .from('batches')
+                    .update({
+                        name: editBatchName.trim(),
+                        estimated_count: count,
+                        current_count: newCurrentCount,
+                        supplier: editBatchSupplier.trim() || null,
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', selectedBatchId);
+                if (bErr) throw bErr;
+
+                // Update housing count
+                const newHousingCurrentCount = (housing?.current_count ?? 0) + difference;
+                const { error: hErr } = await supabase
+                    .from('housings')
+                    .update({
+                        current_count: newHousingCurrentCount,
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', housingId);
+                if (hErr) throw hErr;
+
+                showSnackbar('Batch details updated successfully.');
 
             } else if (confirmActionType === 'completeBatch' && selectedBatchId) {
                 const { error } = await supabase
@@ -348,6 +440,17 @@ export default function AnimalDetailsScreen() {
                     .update({ status: 'completed', updated_at: new Date().toISOString() })
                     .eq('id', selectedBatchId);
                 if (error) throw error;
+
+                // Recalculate housing current_count in-memory (the completed batch is no longer active)
+                const otherBatchesCount = batches
+                    .filter(b => b.id !== selectedBatchId && b.status === 'active')
+                    .reduce((sum: number, b: any) => sum + (b.current_count ?? 0), 0);
+                const { error: hErr } = await supabase
+                    .from('housings')
+                    .update({ current_count: otherBatchesCount, updated_at: new Date().toISOString() })
+                    .eq('id', housingId);
+                if (hErr) throw hErr;
+
                 showSnackbar(`Batch "${selectedBatch?.name}" marked as completed.`);
 
             } else if (confirmActionType === 'archiveBatch' && selectedBatchId) {
@@ -356,6 +459,17 @@ export default function AnimalDetailsScreen() {
                     .update({ status: 'archived', updated_at: new Date().toISOString() })
                     .eq('id', selectedBatchId);
                 if (error) throw error;
+
+                // Recalculate housing current_count in-memory (the archived batch is no longer active)
+                const otherBatchesCount = batches
+                    .filter(b => b.id !== selectedBatchId && b.status === 'active')
+                    .reduce((sum: number, b: any) => sum + (b.current_count ?? 0), 0);
+                const { error: hErr } = await supabase
+                    .from('housings')
+                    .update({ current_count: otherBatchesCount, updated_at: new Date().toISOString() })
+                    .eq('id', housingId);
+                if (hErr) throw hErr;
+
                 showSnackbar(`Batch "${selectedBatch?.name}" archived.`);
             }
             await fetchData();
@@ -377,7 +491,7 @@ export default function AnimalDetailsScreen() {
         !newBatchName.trim() ||
         !newBatchCount.trim() ||
         !!newBatchCountError ||
-        (housing && housing.capacity > 0 && parseInt(newBatchCount, 10) > housing.capacity)
+        (housing && housing.capacity > 0 && (parseInt(newBatchCount, 10) > Math.max(0, housing.capacity - housing.current_count) || Math.max(0, housing.capacity - housing.current_count) <= 0))
     );
 
     const isDeceasedDisabled = !!(
@@ -385,6 +499,14 @@ export default function AnimalDetailsScreen() {
         !!deceasedError ||
         (deceasedReason === 'Other' && !deceasedOtherReason.trim()) ||
         (selectedBatch && parseInt(deceasedNumber, 10) > selectedBatch.current_count)
+    );
+
+    const isEditBatchDisabled = !!(
+        !editBatchName.trim() ||
+        !editBatchCount.trim() ||
+        !!editBatchCountError ||
+        (housing && housing.capacity > 0 && selectedBatch && (housing.current_count + (parseInt(editBatchCount, 10) - selectedBatch.estimated_count)) > housing.capacity) ||
+        (selectedBatch && (selectedBatch.current_count + (parseInt(editBatchCount, 10) - selectedBatch.estimated_count)) < 0)
     );
 
     if (isLoading) {
@@ -434,15 +556,7 @@ export default function AnimalDetailsScreen() {
                     Manage batches and track head counts for this housing.
                 </Text>
 
-                {/* Growth button */}
-                <TouchableOpacity
-                    activeOpacity={0.8}
-                    style={[styles.primaryButton, { backgroundColor: colors.primary, marginBottom: 20, flexDirection: 'row', justifyContent: 'center' }]}
-                    onPress={() => router.push({ pathname: '/(animals)/GrowthScreen' as any, params: { housingId, batchId: selectedBatchId ?? '' } })}
-                >
-                    <MaterialIcons name="show-chart" size={24} color={colors.onPrimary} style={{ marginRight: 8 }} />
-                    <Text style={[textStyles.btnLabel, { color: colors.onPrimary }]}>Growth & Analytics</Text>
-                </TouchableOpacity>
+
 
                 {/* Batch Selector */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -453,7 +567,12 @@ export default function AnimalDetailsScreen() {
                         setNewBatchName('');
                         setNewBatchCount('');
                         setNewBatchSupplier('');
-                        setNewBatchCountError(null);
+                        const remaining = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
+                        if (housing && housing.capacity > 0 && remaining <= 0) {
+                            setNewBatchCountError(`Housing is at full capacity (${housing.capacity}/${housing.capacity}).`);
+                        } else {
+                            setNewBatchCountError(null);
+                        }
                         setNewBatchVisible(true);
                     }} style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <MaterialIcons name="add-circle-outline" size={16} color={colors.primary} style={{ marginRight: 4 }} />
@@ -469,19 +588,44 @@ export default function AnimalDetailsScreen() {
                         </Text>
                     </View>
                 ) : (
-                    <TouchableOpacity
-                        activeOpacity={0.8}
-                        style={[styles.dropdownContainer, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, marginBottom: 20, paddingVertical: 14 }]}
-                        onPress={() => setBatchModalVisible(true)}
-                    >
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <MaterialIcons name="layers" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
-                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 16 }]}>
-                                {selectedBatchLabel || 'Select a batch'}
-                            </Text>
-                        </View>
-                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                        <TouchableOpacity
+                            activeOpacity={0.8}
+                            style={[styles.dropdownContainer, { flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, paddingVertical: 14, marginBottom: 0 }]}
+                            onPress={() => setBatchModalVisible(true)}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                <MaterialIcons name="layers" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
+                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 16, flex: 1 }]} numberOfLines={1}>
+                                    {selectedBatchLabel || 'Select a batch'}
+                                </Text>
+                            </View>
+                            <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                        </TouchableOpacity>
+                        {selectedBatch && (
+                            <TouchableOpacity
+                                activeOpacity={0.8}
+                                style={{
+                                    width: 52,
+                                    height: 52,
+                                    borderRadius: 16,
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    elevation: 1,
+                                    shadowColor: colors.shadow,
+                                    shadowOffset: { width: 0, height: 2 },
+                                    shadowOpacity: 0.5,
+                                    shadowRadius: 4,
+                                }}
+                                onPress={openEditBatchModal}
+                            >
+                                <MaterialIcons name="edit" size={22} color={colors.primary} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
                 )}
 
                 {/* Stats */}
@@ -924,7 +1068,7 @@ export default function AnimalDetailsScreen() {
                                 <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
                                     <View style={{ flex: 1 }}>
                                         <FloatingLabelInput
-                                            label={housing && housing.capacity > 0 ? `Initial Head Count (${newBatchCount || '0'}/${housing.capacity})` : 'Initial Head Count'}
+                                            label={housing && housing.capacity > 0 ? `Remaining Head Count (${newBatchCount || '0'}/${Math.max(0, housing.capacity - housing.current_count)})` : 'Remaining Head Count'}
                                             icon={isPig ? 'pig' : 'chicken'}
                                             value={newBatchCount}
                                             onChangeText={t => {
@@ -952,9 +1096,10 @@ export default function AnimalDetailsScreen() {
                                                 borderColor: colors.stroke,
                                             }}
                                             onPress={() => {
+                                                const remaining = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
+                                                if (remaining <= 0) return;
                                                 const current = parseInt(newBatchCount || '0', 10);
-                                                const maxCap = housing && housing.capacity > 0 ? housing.capacity : 999999;
-                                                const next = Math.min(maxCap, current + 1);
+                                                const next = Math.min(remaining, current + 1);
                                                 setNewBatchCount(String(next));
                                                 validateNewBatchCount(String(next));
                                             }}
@@ -975,6 +1120,8 @@ export default function AnimalDetailsScreen() {
                                                 borderColor: colors.stroke,
                                             }}
                                             onPress={() => {
+                                                const remaining = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
+                                                if (remaining <= 0) return;
                                                 const current = parseInt(newBatchCount || '0', 10);
                                                 const next = Math.max(1, current - 1);
                                                 setNewBatchCount(String(next));
@@ -1015,6 +1162,120 @@ export default function AnimalDetailsScreen() {
                 </View>
             </Modal>
 
+            {/* Edit Batch Modal */}
+            <Modal visible={editBatchVisible} transparent animationType="fade">
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                        style={{ width: '100%', maxWidth: 340, maxHeight: '90%' }}
+                    >
+                        <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 24, overflow: 'hidden' }}>
+                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
+                                <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                    <MaterialIcons name="edit" size={32} color={colors.primary} />
+                                </View>
+                                <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Edit Batch</Text>
+                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                    Update batch details for {selectedBatch?.name}.
+                                </Text>
+
+                                <View style={{ width: '100%' }}>
+                                    <FloatingLabelInput label="Batch Name" icon="layers" value={editBatchName} onChangeText={setEditBatchName} backgroundColor={colors.surface} />
+                                </View>
+
+                                <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                                    <View style={{ flex: 1 }}>
+                                        <FloatingLabelInput
+                                            label={housing && housing.capacity > 0 ? `Head Count (${editBatchCount || '0'}/${housing.capacity})` : 'Head Count'}
+                                            icon={isPig ? 'pig' : 'chicken'}
+                                            value={editBatchCount}
+                                            onChangeText={t => {
+                                                const clean = t.replace(/[^0-9]/g, '');
+                                                setEditBatchCount(clean);
+                                                validateEditBatchCount(clean);
+                                            }}
+                                            keyboardType="numeric"
+                                            backgroundColor={colors.surface}
+                                            error={editBatchCountError ?? undefined}
+                                        />
+                                    </View>
+
+                                    <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
+                                        <TouchableOpacity
+                                            activeOpacity={0.7}
+                                            style={{
+                                                width: 44,
+                                                height: 27,
+                                                borderRadius: 8,
+                                                backgroundColor: colors.cardFill,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                borderWidth: 1.5,
+                                                borderColor: colors.stroke,
+                                            }}
+                                            onPress={() => {
+                                                const current = parseInt(editBatchCount || '0', 10);
+                                                const next = current + 1;
+                                                setEditBatchCount(String(next));
+                                                validateEditBatchCount(String(next));
+                                            }}
+                                        >
+                                            <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            activeOpacity={0.7}
+                                            style={{
+                                                width: 44,
+                                                height: 27,
+                                                borderRadius: 8,
+                                                backgroundColor: colors.cardFill,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                borderWidth: 1.5,
+                                                borderColor: colors.stroke,
+                                            }}
+                                            onPress={() => {
+                                                const current = parseInt(editBatchCount || '0', 10);
+                                                const next = Math.max(1, current - 1);
+                                                setEditBatchCount(String(next));
+                                                validateEditBatchCount(String(next));
+                                            }}
+                                        >
+                                            <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+
+                                <View style={{ width: '100%', marginBottom: 12 }}>
+                                    <FloatingLabelInput label="Supplier (optional)" icon="store" value={editBatchSupplier} onChangeText={setEditBatchSupplier} backgroundColor={colors.surface} />
+                                </View>
+
+                                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                    <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditBatchVisible(false)} activeOpacity={0.7}>
+                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={{
+                                            flex: 1,
+                                            backgroundColor: isEditBatchDisabled ? colors.cardFill : colors.primary,
+                                            paddingVertical: 14,
+                                            borderRadius: 30,
+                                            alignItems: 'center'
+                                        }}
+                                        onPress={handleEditBatchClick}
+                                        disabled={isEditBatchDisabled}
+                                        activeOpacity={isEditBatchDisabled ? 1 : 0.7}
+                                    >
+                                        <Text style={[textStyles.h3, { color: isEditBatchDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Save</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
+                        </View>
+                    </KeyboardAvoidingView>
+                </View>
+            </Modal>
+
             {/* Deceased Reason Selection */}
             <SelectionModal
                 visible={deceasedReasonModalVisible}
@@ -1034,7 +1295,14 @@ export default function AnimalDetailsScreen() {
                 type={confirmModalType}
                 title={confirmModalTitle}
                 message={confirmModalMessage}
-                confirmText={confirmActionType === 'deceased' ? 'Record' : confirmActionType === 'newBatch' ? 'Create' : confirmActionType === 'completeBatch' ? 'Complete' : confirmActionType === 'archiveBatch' ? 'Archive' : 'Add'}
+                confirmText={
+                    confirmActionType === 'deceased' ? 'Record' :
+                    confirmActionType === 'newBatch' ? 'Create' :
+                    confirmActionType === 'editBatch' ? 'Update' :
+                    confirmActionType === 'completeBatch' ? 'Complete' :
+                    confirmActionType === 'archiveBatch' ? 'Archive' :
+                    'Add'
+                }
                 cancelText="Cancel"
                 onConfirm={handleConfirmAction}
                 onCancel={() => setConfirmModalVisible(false)}
