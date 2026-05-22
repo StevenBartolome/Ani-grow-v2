@@ -80,7 +80,7 @@ function timeAgo(date: Date | null): string {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
-    const { profile, hasPermission } = useAuth();
+    const { profile, hasPermission, refreshProfile } = useAuth();
     const homeStyles = useHomeStyles();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
@@ -269,8 +269,13 @@ export default function HomeScreen() {
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
+        try {
+            await refreshProfile();
+        } catch (e) {
+            console.error('[HomeScreen] Error refreshing profile:', e);
+        }
         await fetchStats();
-    }, [fetchStats]);
+    }, [fetchStats, refreshProfile]);
 
     // ── Greeting ──────────────────────────────────────────────────────────────
     const getGreeting = () => {
@@ -297,7 +302,7 @@ export default function HomeScreen() {
     // ── Dynamic Permissions Filtering ─────────────────────────────────────────
     const visibleStatCards: React.ReactNode[] = [];
 
-    if (hasPermission('animals_guide')) {
+    if (hasPermission('animals:view')) {
         visibleStatCards.push(
             <Pressable
                 key="animals"
@@ -375,7 +380,8 @@ export default function HomeScreen() {
         );
     }
 
-    if (hasPermission('dashboard')) {
+    // Active alerts are visible to all users — no permission gate needed
+    {
         visibleStatCards.push(
             <Pressable
                 key="alerts"
@@ -432,7 +438,7 @@ export default function HomeScreen() {
         );
     }
 
-    if (hasPermission('feeding_control')) {
+    if (hasPermission('anifeed:dispense')) {
         visibleStatCards.push(
             <Pressable
                 key="anifeed"
@@ -481,7 +487,7 @@ export default function HomeScreen() {
         );
     }
 
-    if (hasPermission('devices')) {
+    if (hasPermission('devices:view')) {
         visibleStatCards.push(
             <Pressable
                 key="aniweigh"
@@ -536,28 +542,22 @@ export default function HomeScreen() {
     }
  
     const allQuickActions = [
-        { label: 'Feeds', icon: 'grain', route: '/(devices)/ManageFeedsScreen', color: colors.secondary, permission: 'feeding_control' },
-        { label: 'Devices', icon: 'devices', route: '/(devices)/DevicesScreen', color: '#6C63FF', permission: 'devices' },
-        { label: 'Animals', icon: null, route: '/(animals)/AnimalsScreen', color: colors.primary, permission: 'animals_guide' },
-        { label: 'Vaccines', icon: 'vaccines', route: '/(health)/VaccineScreen', color: '#EF4444', permission: 'health_records' },
-        { label: 'Housings', icon: 'home-work', route: '/(devices)/ManageHousingsScreen', color: '#F97316', permission: 'animals_guide' },
+        { label: 'Feeds', icon: 'grain', route: '/(devices)/ManageFeedsScreen', color: colors.secondary, permission: 'anifeed:dispense' },
+        { label: 'Devices', icon: 'devices', route: '/(devices)/DevicesScreen', color: '#6C63FF', permission: 'devices:view' },
+        { label: 'Animals', icon: null, route: '/(animals)/AnimalsScreen', color: colors.primary, permission: 'animals:view' },
+        { label: 'Vaccines', icon: 'vaccines', route: '/(health)/VaccineScreen', color: '#EF4444', permission: 'vaccine:manage' },
+        { label: 'Housings', icon: 'home-work', route: '/(devices)/ManageHousingsScreen', color: '#F97316', permission: 'housing:manage' },
     ];
- 
+
     const filteredQuickActions = allQuickActions.filter(item => {
-        if (item.label === 'Devices') {
-            return hasPermission('devices');
-        }
-        if (item.label === 'Housings') {
-            return hasPermission('animals_guide') || hasPermission('devices') || hasPermission('feeding_control');
-        }
         return hasPermission(item.permission);
     });
- 
-    const showYourHousings = hasPermission('animals_guide') || hasPermission('devices') || hasPermission('feeding_control');
-    const showFeedActivity = hasPermission('feeding_control');
-    const showWeighActivity = hasPermission('devices');
+
+    const showYourHousings = hasPermission('animals:view') || hasPermission('devices:view') || hasPermission('anifeed:dispense');
+    const showFeedActivity = hasPermission('anifeed:dispense');
+    const showWeighActivity = hasPermission('devices:view');
     const showTodaySection = showFeedActivity || showWeighActivity;
-    const showMortality = hasPermission('health_records');
+    const showMortality = hasPermission('health:view');
 
     return (
         <SafeAreaView style={homeStyles.safeArea}>

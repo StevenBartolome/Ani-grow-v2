@@ -122,11 +122,11 @@ export default function DevicesScreen() {
 
     const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
     const canViewDevices = !role || !RESTRICTED_ROLES.includes(role)
-        || permissions['devices'] === true;
+        || permissions['devices:view'] === true;
 
     useEffect(() => {
         if (authLoading || !role) return;
-        if (RESTRICTED_ROLES.includes(role) && !permissions['devices']) {
+        if (RESTRICTED_ROLES.includes(role) && !permissions['devices:view']) {
             router.replace('/(dashboard)/HomeScreen' as any);
         }
     }, [authLoading, role, permissions]);

@@ -232,14 +232,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (res.type === 'success') {
           const { url } = res;
-          const params = parse(url);
+          
+          // Safe parsing of both query parameters (?) and hash fragments (#)
+          let accessToken = '';
+          let refreshToken = '';
+          
+          const tokenRegex = /[#?&]access_token=([^&]+)/;
+          const refreshRegex = /[#?&]refresh_token=([^&]+)/;
+          
+          const tokenMatch = url.match(tokenRegex);
+          const refreshMatch = url.match(refreshRegex);
+          
+          if (tokenMatch) accessToken = decodeURIComponent(tokenMatch[1]);
+          if (refreshMatch) refreshToken = decodeURIComponent(refreshMatch[1]);
 
-          if (params.queryParams?.access_token) {
+          if (accessToken) {
             const { error: sessionError } = await supabase.auth.setSession({
-              access_token: params.queryParams.access_token as string,
-              refresh_token: params.queryParams.refresh_token as string,
+              access_token: accessToken,
+              refresh_token: refreshToken,
             });
             if (sessionError) throw sessionError;
+          } else {
+            console.warn('Google Sign-In: No access token found in redirect URL:', url);
           }
         }
       }
@@ -378,33 +392,130 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const customP = parseJSON((profile as any)?.custom_permissions || (profile as any)?.customPermissions);
       const standardP = parseJSON((profile as any)?.permissions);
 
-      // Helper to check if an object is a module permissions object
-      const isModulePermissions = (obj: any) => {
-        return obj && typeof obj === 'object' && !Array.isArray(obj) && (
-          'analytics' in obj || 
-          'devices' in obj || 
-          'dashboard' in obj ||
-          'animals_guide' in obj ||
-          'health_records' in obj ||
-          'feeding_control' in obj
-        );
+      const isPermissionsObj = (obj: any) => {
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+        const keys = Object.keys(obj);
+        if (keys.some((k: string) => k.includes(':'))) return true;
+        return keys.some((k: string) => ['analytics','devices','dashboard','animals','health','guide'].includes(k));
       };
 
-      const customPermissionsObj = isModulePermissions(customP) ? customP : {};
-      const standardPermissionsObj = isModulePermissions(standardP) ? standardP : {};
+      // Migrate database flat keys → granular app permissions
+      const migrateIfLegacy = (obj: any): Record<string, boolean> => {
+        if (!obj || Object.keys(obj).some((k: string) => k.includes(':'))) return obj || {};
+        const m: Record<string, boolean> = {};
+        
+        // 1. Devices (Hardware, feeding, housing)
+        const devicesVal = obj.devices === true;
+        m['devices:view'] = devicesVal;
+        m['devices:create'] = devicesVal;
+        m['devices:edit'] = devicesVal;
+        m['anifeed:dispense'] = devicesVal;
+        m['feeds:manage'] = devicesVal;
+        m['housing:manage'] = devicesVal;
+        m['aniweigh:control'] = devicesVal;
+        m['segregation:manage'] = devicesVal;
+        
+        // 2. Animals (Pig & Poultry records)
+        const animalsVal = obj.animals === true;
+        m['animals:view'] = animalsVal;
+        m['animals:create'] = animalsVal;
+        m['animals:edit'] = animalsVal;
+        m['animals:delete'] = animalsVal;
+        
+        // 3. Health & Medical
+        const healthVal = obj.health === true;
+        m['health:view'] = healthVal;
+        m['health:create'] = healthVal;
+        m['health:edit'] = healthVal;
+        m['vaccine:manage'] = healthVal;
+        m['mortality:manage'] = healthVal;
+        
+        // 4. Reports & AI Analytics
+        const analyticsVal = obj.analytics === true;
+        m['reports:view'] = analyticsVal;
+        m['predictions:view'] = analyticsVal;
+        m['predictions:configure'] = analyticsVal;
+        
+        // 5. Admin & Dashboard configurations
+        const dashboardVal = obj.dashboard === true;
+        m['farms:manage'] = dashboardVal;
+        m['staff:invite'] = dashboardVal;
+        m['staff:manage_roles'] = dashboardVal;
+        m['settings:manage'] = dashboardVal;
 
-      // Merge both, with custom permissions taking precedence
-      return {
-        ...standardPermissionsObj,
-        ...customPermissionsObj
+        // 6. Guide Timelines & AI chatbot
+        const guideVal = obj.guide === true;
+        m['ai_assistant:use'] = guideVal;
+        
+        return m;
       };
+
+      // Define standard role defaults as fallback
+      const ROLE_DEFAULTS: Record<string, Record<string, boolean>> = {
+        caretaker: {
+          'devices:view': true, 'anifeed:dispense': true, 'feeds:manage': true, 'housing:manage': true,
+          'animals:view': true, 'animals:create': true, 'animals:edit': true,
+          'health:view': true, 'health:create': true, 'reports:view': true,
+        },
+        veterinarian: {
+          'devices:view': true,
+          'animals:view': true, 'animals:edit': true,
+          'health:view': true, 'health:create': true, 'health:edit': true, 'vaccine:manage': true, 'mortality:manage': true,
+          'reports:view': true, 'predictions:view': true, 'ai_assistant:use': true,
+        },
+        flockman: {
+          'devices:view': true, 'devices:edit': true, 'aniweigh:control': true,
+          'anifeed:dispense': true, 'feeds:manage': true, 'housing:manage': true, 'segregation:manage': true,
+          'animals:view': true, 'animals:create': true, 'animals:edit': true,
+          'health:view': true, 'reports:view': true, 'predictions:view': true,
+        },
+      };
+
+      // 1. Get standard profile permissions from DB (mapped from database flat schema)
+      const parsedStandard = isPermissionsObj(standardP) ? migrateIfLegacy(standardP) : {};
+
+      // 2. Combine standard profile permissions, or fall back to standard role defaults if empty
+      const userRole = (profile as any)?.role || '';
+      const fallbackDefaults = ROLE_DEFAULTS[userRole] || {};
+      
+      const combinedPermissions: Record<string, boolean> = 
+        Object.keys(parsedStandard).length > 0
+          ? { ...fallbackDefaults, ...parsedStandard }
+          : { ...fallbackDefaults };
+
+      // 3. Merging Custom Overrides in { add: [...], remove: [...] } format
+      if (customP && Array.isArray(customP.add)) {
+        customP.add.forEach((p: string) => {
+          combinedPermissions[p] = true;
+        });
+      }
+      if (customP && Array.isArray(customP.remove)) {
+        customP.remove.forEach((p: string) => {
+          combinedPermissions[p] = false;
+        });
+      }
+
+      // 4. Backward compatibility: if customP is a flat object
+      if (customP && !Array.isArray(customP.add) && isPermissionsObj(customP)) {
+        const flatCustom = migrateIfLegacy(customP);
+        Object.assign(combinedPermissions, flatCustom);
+      }
+
+      return combinedPermissions;
     },
     [profile]
   );
 
   const resolvedPermissions = useMemo<Record<string, boolean>>(
     () => ADMIN_ROLES.includes(role ?? '')
-      ? { dashboard: true, devices: true, animals_guide: true, health_records: true, analytics: true, feeding_control: true }
+      ? {
+          'devices:view': true, 'devices:create': true, 'devices:edit': true, 'devices:delete': true,
+          'aniweigh:control': true, 'anifeed:dispense': true, 'feeds:manage': true, 'housing:manage': true, 'segregation:manage': true,
+          'animals:view': true, 'animals:create': true, 'animals:edit': true, 'animals:delete': true,
+          'health:view': true, 'health:create': true, 'health:edit': true, 'vaccine:manage': true, 'mortality:manage': true,
+          'reports:view': true, 'predictions:view': true, 'predictions:configure': true, 'ai_assistant:use': true,
+          'farms:manage': true, 'staff:invite': true, 'staff:manage_roles': true, 'settings:manage': true,
+        }
       : rawPermissions,
     [role, rawPermissions, ADMIN_ROLES]
   );

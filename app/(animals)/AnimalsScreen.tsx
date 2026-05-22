@@ -44,7 +44,7 @@ export default function AnimalsScreen() {
 
     useEffect(() => {
         if (authLoading || !role) return;
-        if (RESTRICTED_ROLES.includes(role) && !permissions['animals_guide']) {
+        if (RESTRICTED_ROLES.includes(role) && !permissions['animals:view']) {
             router.replace('/(dashboard)/HomeScreen' as any);
         }
     }, [authLoading, role, permissions]);

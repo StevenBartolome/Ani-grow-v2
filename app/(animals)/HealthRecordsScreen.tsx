@@ -252,7 +252,17 @@ export default function HealthRecordsScreen() {
     const { colors }  = useTheme();
     const textStyles  = useTextStyles();
     const styles      = useAnimalStyles();
-    const { profile } = useAuth();
+    const { profile, permissions, role, isLoading: authLoading } = useAuth();
+
+    const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
+
+    useEffect(() => {
+        if (authLoading || !role) return;
+        if (RESTRICTED_ROLES.includes(role) && !permissions['health:view']) {
+            router.replace('/(dashboard)/HomeScreen' as any);
+        }
+    }, [authLoading, role, permissions]);
+
     const { activeFarmIds } = useFarmFilter();
 
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';

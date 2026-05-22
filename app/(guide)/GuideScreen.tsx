@@ -1,10 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { ProfileDrawer } from '@/components/ProfileDrawer';
 import { AIInsightCard } from '@/components/AIInsightCard';
@@ -14,7 +15,17 @@ import { useTheme } from '@/context/ThemeContext';
 import { useGuideStyles } from '@/styles/guideStyles';
 
 export default function GuideScreen() {
-    const { profile } = useAuth();
+    const router = useRouter();
+    const { profile, permissions, role, isLoading: authLoading } = useAuth();
+
+    const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
+
+    useEffect(() => {
+        if (authLoading || !role) return;
+        if (RESTRICTED_ROLES.includes(role) && !permissions['ai_assistant:use']) {
+            router.replace('/(dashboard)/HomeScreen' as any);
+        }
+    }, [authLoading, role, permissions]);
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
