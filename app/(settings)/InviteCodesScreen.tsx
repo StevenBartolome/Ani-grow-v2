@@ -27,7 +27,7 @@ type InviteStatus = 'unused' | 'used' | 'expired';
 
 interface Permissions {
     dashboard: boolean;
-    ani_weigh: boolean;
+    devices: boolean;
     animals_guide: boolean;
     health_records: boolean;
     analytics: boolean;
@@ -59,7 +59,7 @@ const ROLE_COLORS: Record<InviteRole, string> = {
 
 const PERMISSION_LABELS: { key: keyof Permissions; label: string; icon: string }[] = [
     { key: 'dashboard',       label: 'Dashboard',        icon: 'dashboard' },
-    { key: 'ani_weigh',       label: 'AniWeigh',         icon: 'monitor-weight' },
+    { key: 'devices',         label: 'Devices',          icon: 'devices' },
     { key: 'animals_guide',   label: 'Animals Guide',    icon: 'pets' },
     { key: 'health_records',  label: 'Health Records',   icon: 'favorite-border' },
     { key: 'analytics',       label: 'Analytics',        icon: 'bar-chart' },
@@ -68,7 +68,7 @@ const PERMISSION_LABELS: { key: keyof Permissions; label: string; icon: string }
 
 const DEFAULT_PERMISSIONS: Permissions = {
     dashboard: true,
-    ani_weigh: false,
+    devices: false,
     animals_guide: false,
     health_records: false,
     analytics: false,

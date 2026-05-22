@@ -7,7 +7,7 @@ import {
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, {
-    Circle, Defs, LinearGradient, Path, Stop as SvgText,
+    Circle, Defs, LinearGradient, Path, Stop, Text as SvgText,
 } from 'react-native-svg';
 
 import { BackButton } from '@/components/BackButton';

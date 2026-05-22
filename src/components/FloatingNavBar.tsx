@@ -34,7 +34,7 @@ export const FloatingNavBar = () => {
     const { hasPermission, permissions } = useAuth();
     const styles = useFloatingNavBarStyles();
 
-    const isDevicesVisible = permissions['ani_weigh'] === true || permissions['feeding_control'] === true;
+    const isDevicesVisible = permissions['devices'] === true;
 
     const isTabVisible = (item: NavItemDef): boolean => {
         if (item.requiredPermission === null) return true;

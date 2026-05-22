@@ -362,13 +362,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const ADMIN_ROLES = useMemo(() => ['super_admin', 'farm_admin', 'admin'], []);
 
   const rawPermissions = useMemo<Record<string, boolean>>(
-    () => (profile as any)?.permissions ?? {},
+    () => {
+      const parseJSON = (val: any) => {
+        if (!val) return {};
+        if (typeof val === 'string') {
+          try {
+            return JSON.parse(val);
+          } catch (e) {
+            return {};
+          }
+        }
+        return val;
+      };
+
+      const customP = parseJSON((profile as any)?.custom_permissions || (profile as any)?.customPermissions);
+      const standardP = parseJSON((profile as any)?.permissions);
+
+      // Helper to check if an object is a module permissions object
+      const isModulePermissions = (obj: any) => {
+        return obj && typeof obj === 'object' && !Array.isArray(obj) && (
+          'analytics' in obj || 
+          'devices' in obj || 
+          'dashboard' in obj ||
+          'animals_guide' in obj ||
+          'health_records' in obj ||
+          'feeding_control' in obj
+        );
+      };
+
+      const customPermissionsObj = isModulePermissions(customP) ? customP : {};
+      const standardPermissionsObj = isModulePermissions(standardP) ? standardP : {};
+
+      // Merge both, with custom permissions taking precedence
+      return {
+        ...standardPermissionsObj,
+        ...customPermissionsObj
+      };
+    },
     [profile]
   );
 
   const resolvedPermissions = useMemo<Record<string, boolean>>(
     () => ADMIN_ROLES.includes(role ?? '')
-      ? { dashboard: true, ani_weigh: true, animals_guide: true, health_records: true, analytics: true, feeding_control: true }
+      ? { dashboard: true, devices: true, animals_guide: true, health_records: true, analytics: true, feeding_control: true }
       : rawPermissions,
     [role, rawPermissions, ADMIN_ROLES]
   );

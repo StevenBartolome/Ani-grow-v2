@@ -31,7 +31,7 @@ type InviteData = {
 
 const PERMISSION_LABELS: Record<string, { label: string; icon: string }> = {
     dashboard:       { label: 'Dashboard',       icon: 'dashboard' },
-    ani_weigh:       { label: 'AniWeigh',         icon: 'monitor-weight' },
+    devices:         { label: 'Devices',         icon: 'devices' },
     animals_guide:   { label: 'Animals Guide',    icon: 'pets' },
     health_records:  { label: 'Health Records',   icon: 'medical-services' },
     analytics:       { label: 'Analytics',        icon: 'analytics' },
