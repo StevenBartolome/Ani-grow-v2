@@ -13,6 +13,7 @@ import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { ProfileDrawer } from '@/components/ProfileDrawer';
+import { AnimalIcon } from '@/components/AnimalIcon';
 import { supabase } from '@/lib/supabase';
 
 interface RegisteredDevice {
@@ -89,12 +90,28 @@ const DeviceCard = ({ device, onPress }: { device: RegisteredDevice; onPress: ()
             {/* Bottom: type label + animal tag — pinned to bottom */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 8 }}>
                 <Text style={[textStyles.label, { color: accentColor, fontSize: 11 }]}>{device.type}</Text>
-                {device.animalType && (
+                {device.animalType ? (
                     <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
                         backgroundColor: animalColor + '18',
                         paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
                     }}>
+                        <AnimalIcon type={device.animalType.toLowerCase() as any} size={11} color={animalColor} />
                         <Text style={[textStyles.label, { color: animalColor, fontSize: 11 }]}>{device.animalType}</Text>
+                    </View>
+                ) : (
+                    <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 3,
+                        backgroundColor: colors.cardFill,
+                        paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+                        borderWidth: 1, borderColor: colors.stroke,
+                    }}>
+                        <MaterialIcons name="home-work" size={10} color={colors.textGrey} />
+                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Unassigned</Text>
                     </View>
                 )}
             </View>

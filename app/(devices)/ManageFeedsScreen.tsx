@@ -82,6 +82,9 @@ export default function ManageFeedsScreen() {
     const [tempFeedSupplier, setTempFeedSupplier] = useState('');
     const [tempFeedCategory, setTempFeedCategory] = useState('');
     const [tempFeedType, setTempFeedType] = useState<'Pigs' | 'Chickens'>('Pigs');
+    const [tempFeedStock, setTempFeedStock] = useState('0');
+    const [tempFeedStockError, setTempFeedStockError] = useState<string | null>(null);
+    const [tempFeedStockUnit, setTempFeedStockUnit] = useState<'kg' | 'g'>('kg');
     const [feedTypeModalVisible, setFeedTypeModalVisible] = useState(false);
 
     // ── Confirm Modal ─────────────────────────────────────────────
@@ -111,6 +114,9 @@ export default function ManageFeedsScreen() {
         setTempFeedSupplier('');
         setTempFeedCategory('');
         setTempFeedType('Pigs');
+        setTempFeedStock('');
+        setTempFeedStockUnit('kg');
+        setTempFeedStockError(null);
         setEditModalVisible(true);
     };
 
@@ -123,6 +129,14 @@ export default function ManageFeedsScreen() {
             setTempFeedSupplier(f.supplier ?? '');
             setTempFeedCategory(f.category ?? '');
             setTempFeedType(ANIMAL_TYPE_LABEL[f.animal_type] as 'Pigs' | 'Chickens');
+            if (f.stock_kg < 1 && f.stock_kg > 0) {
+                setTempFeedStock(String(f.stock_kg * 1000));
+                setTempFeedStockUnit('g');
+            } else {
+                setTempFeedStock(String(f.stock_kg ?? 0));
+                setTempFeedStockUnit('kg');
+            }
+            setTempFeedStockError(null);
             setEditModalVisible(true);
         }
     };
@@ -139,11 +153,33 @@ export default function ManageFeedsScreen() {
         }
     };
 
-    const isSaveDisabled = !!(!tempFeedName.trim());
+    const validateStock = (val: string) => {
+        if (!val.trim()) {
+            setTempFeedStockError('Stock is required.');
+            return false;
+        }
+        const num = parseFloat(val.trim());
+        if (isNaN(num) || num <= 0) {
+            setTempFeedStockError('Stock must be greater than 0.');
+            return false;
+        }
+        setTempFeedStockError(null);
+        return true;
+    };
+
+    const isSaveDisabled = !!(
+        !tempFeedName.trim() ||
+        !tempFeedStock.trim() ||
+        !!tempFeedStockError ||
+        isNaN(parseFloat(tempFeedStock)) ||
+        parseFloat(tempFeedStock) <= 0
+    );
 
     const handleSaveClick = () => {
         if (isSaveDisabled) return;
         if (!tempFeedName.trim()) { showSnackbar('Please enter a feed name.', 'error'); return; }
+        const isValid = validateStock(tempFeedStock);
+        if (!isValid) return;
         setEditModalVisible(false);
         setConfirmAction('save');
         setConfirmModalType('confirmation');
@@ -160,12 +196,15 @@ export default function ManageFeedsScreen() {
                 if (error) throw error;
                 showSnackbar('Feed deleted successfully.', 'success');
             } else if (confirmAction === 'save') {
+                const stockVal = parseFloat(tempFeedStock) || 0;
+                const stockInKg = tempFeedStockUnit === 'g' ? stockVal / 1000 : stockVal;
                 const payload = {
                     name:        tempFeedName.trim(),
                     brand:       tempFeedBrand.trim() || null,
                     supplier:    tempFeedSupplier.trim() || null,
                     category:    tempFeedCategory.trim() || null,
                     animal_type: LABEL_TO_DB[tempFeedType] as 'chicken' | 'pig',
+                    stock_kg:    stockInKg,
                     updated_at:  new Date().toISOString(),
                 };
                 if (editingFeedId) {
@@ -173,7 +212,7 @@ export default function ManageFeedsScreen() {
                     if (error) throw error;
                     showSnackbar('Feed updated successfully.', 'success');
                 } else {
-                    const { error } = await supabase.from('feeds').insert({ ...payload, farm_id: farmId, stock_kg: 0 });
+                    const { error } = await supabase.from('feeds').insert({ ...payload, farm_id: farmId });
                     if (error) throw error;
                     showSnackbar('New feed added successfully.', 'success');
                 }
@@ -257,6 +296,7 @@ export default function ManageFeedsScreen() {
                                                     {ANIMAL_TYPE_LABEL[feed.animal_type]}
                                                     {feed.category ? ` · ${feed.category}` : ''}
                                                     {feed.brand ? ` · ${feed.brand}` : ''}
+                                                    {` · Stock: ${feed.stock_kg < 1 ? `${feed.stock_kg * 1000} g` : `${feed.stock_kg} kg`}`}
                                                 </Text>
                                             </View>
                                         </View>
@@ -297,10 +337,138 @@ export default function ManageFeedsScreen() {
                             <FloatingLabelInput label="Brand" icon="business" value={tempFeedBrand} onChangeText={setTempFeedBrand} backgroundColor={colors.surface} />
                         </View>
                         <View style={{ width: '100%' }}>
-                            <FloatingLabelInput label="Supplier / Shop" icon="store" value={tempFeedSupplier} onChangeText={setTempFeedSupplier} backgroundColor={colors.surface} />
+                            <FloatingLabelInput label="Supplier / Shop (optional)" icon="store" value={tempFeedSupplier} onChangeText={setTempFeedSupplier} backgroundColor={colors.surface} />
                         </View>
                         <View style={{ width: '100%' }}>
                             <FloatingLabelInput label="Category (Starter, Grower, etc.)" icon="category" value={tempFeedCategory} onChangeText={setTempFeedCategory} backgroundColor={colors.surface} />
+                        </View>
+                        <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                            <View style={{ flex: 1 }}>
+                                <FloatingLabelInput
+                                    label="Stock"
+                                    icon="inventory"
+                                    value={tempFeedStock}
+                                    onChangeText={t => {
+                                        const clean = t.replace(/[^0-9.]/g, '');
+                                        setTempFeedStock(clean);
+                                        validateStock(clean);
+                                    }}
+                                    keyboardType="decimal-pad"
+                                    backgroundColor={colors.surface}
+                                    error={tempFeedStockError ?? undefined}
+                                />
+                            </View>
+
+                            <View
+                                style={{
+                                    width: 54,
+                                    height: 58,
+                                    borderRadius: 16,
+                                    backgroundColor: colors.cardFill,
+                                    borderWidth: 1.5,
+                                    borderColor: colors.stroke,
+                                    overflow: 'hidden',
+                                    flexDirection: 'column',
+                                }}
+                            >
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    onPress={() => {
+                                        if (tempFeedStockUnit === 'kg') return;
+                                        const current = parseFloat(tempFeedStock || '0');
+                                        if (!isNaN(current) && current > 0) {
+                                            const newStock = Math.round((current / 1000) * 10000) / 10000;
+                                            setTempFeedStock(String(newStock));
+                                        }
+                                        setTempFeedStockUnit('kg');
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        backgroundColor: tempFeedStockUnit === 'kg' ? colors.primary + '20' : 'transparent',
+                                    }}
+                                >
+                                    <Text style={[textStyles.body, { fontSize: 12, color: tempFeedStockUnit === 'kg' ? colors.primary : colors.textGrey, fontFamily: tempFeedStockUnit === 'kg' ? 'Poppins-SemiBold' : 'Poppins-Regular' }]}>
+                                        kg
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <View style={{ height: 1, backgroundColor: colors.stroke, width: '100%' }} />
+
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    onPress={() => {
+                                        if (tempFeedStockUnit === 'g') return;
+                                        const current = parseFloat(tempFeedStock || '0');
+                                        if (!isNaN(current) && current > 0) {
+                                            const newStock = Math.round(current * 1000 * 100) / 100;
+                                            setTempFeedStock(String(newStock));
+                                        }
+                                        setTempFeedStockUnit('g');
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        backgroundColor: tempFeedStockUnit === 'g' ? colors.primary + '20' : 'transparent',
+                                    }}
+                                >
+                                    <Text style={[textStyles.body, { fontSize: 12, color: tempFeedStockUnit === 'g' ? colors.primary : colors.textGrey, fontFamily: tempFeedStockUnit === 'g' ? 'Poppins-SemiBold' : 'Poppins-Regular' }]}>
+                                        g
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    style={{
+                                        width: 44,
+                                        height: 27,
+                                        borderRadius: 8,
+                                        backgroundColor: colors.cardFill,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        borderWidth: 1.5,
+                                        borderColor: colors.stroke,
+                                    }}
+                                    onPress={() => {
+                                        const current = parseFloat(tempFeedStock || '0');
+                                        const step = tempFeedStockUnit === 'g' ? 100 : 1;
+                                        const nextVal = isNaN(current) ? step : Math.max(step, current + step);
+                                        const next = Math.round(nextVal * 100) / 100;
+                                        setTempFeedStock(String(next));
+                                        validateStock(String(next));
+                                    }}
+                                >
+                                    <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    style={{
+                                        width: 44,
+                                        height: 27,
+                                        borderRadius: 8,
+                                        backgroundColor: colors.cardFill,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        borderWidth: 1.5,
+                                        borderColor: colors.stroke,
+                                    }}
+                                    onPress={() => {
+                                        const current = parseFloat(tempFeedStock || '0');
+                                        const step = tempFeedStockUnit === 'g' ? 100 : 1;
+                                        const nextVal = isNaN(current) ? step : Math.max(step, current - step);
+                                        const next = Math.round(nextVal * 100) / 100;
+                                        setTempFeedStock(String(next));
+                                        validateStock(String(next));
+                                    }}
+                                >
+                                    <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
+                                </TouchableOpacity>
+                            </View>
                         </View>
 
                         <View style={{ width: '100%', marginBottom: 28 }}>
@@ -362,7 +530,11 @@ export default function ManageFeedsScreen() {
                 confirmText={isSaving ? 'Processing...' : confirmAction === 'delete' ? 'Delete' : 'Confirm'}
                 cancelText="Cancel"
                 onConfirm={executeAction}
-                onCancel={() => setConfirmModalVisible(false)}
+                onCancel={() => {
+                    setConfirmModalVisible(false);
+                    // Re-open the edit modal if we cancelled a save action
+                    if (confirmAction === 'save') setEditModalVisible(true);
+                }}
             />
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />

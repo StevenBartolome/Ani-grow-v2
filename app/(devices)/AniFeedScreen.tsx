@@ -115,9 +115,9 @@ export default function AniFeedScreen() {
     const [tempTimesPerDay, setTempTimesPerDay] = useState('3');
     const [tempGrams, setTempGrams] = useState('500');
 
-    // Edit field modal (Housing, Brand)
+    // Edit field modal (Housing, Brand, AnimalType)
     const [editModalVisible, setEditModalVisible] = useState(false);
-    const [editTarget, setEditTarget] = useState<'Housing' | 'Brand' | null>(null);
+    const [editTarget, setEditTarget] = useState<'Housing' | 'Brand' | 'AnimalType' | null>(null);
 
     // Action confirm modal
     const [modalVisible, setModalVisible] = useState(false);
@@ -342,12 +342,13 @@ export default function AniFeedScreen() {
     };
 
     // ─── Edit modal ───────────────────────────────────────────────
-    const openEditModal = (target: 'Housing' | 'Brand') => {
+    const openEditModal = (target: 'Housing' | 'Brand' | 'AnimalType') => {
         setEditTarget(target);
         setEditModalVisible(true);
     };
 
     const getEditOptions = (): string[] => {
+        if (editTarget === 'AnimalType') return ['Pig', 'Chicken'];
         if (editTarget === 'Housing') {
             return farmHousings
                 .filter(h => h.animal_type === animalType.toLowerCase())
@@ -365,7 +366,13 @@ export default function AniFeedScreen() {
     const handleEditConfirm = async (val: string) => {
         setEditModalVisible(false);
         try {
-            if (editTarget === 'Housing') {
+            if (editTarget === 'AnimalType') {
+                const selectedType = val as 'Pig' | 'Chicken';
+                // Unassign housing when animal type changes — user must reassign manually
+                await supabase.from('devices').update({ housing_id: null }).eq('id', deviceId as string);
+                setDeviceInfo(prev => prev ? { ...prev, housingId: null, housingName: 'Unassigned', animalType: selectedType } : null);
+                showSnackbar(`Animal type set to ${selectedType}. Please reassign a housing.`);
+            } else if (editTarget === 'Housing') {
                 const h = farmHousings.find(h => h.name === val);
                 if (!h) return;
                 await supabase.from('devices').update({ housing_id: h.id }).eq('id', deviceId as string);
@@ -461,10 +468,11 @@ export default function AniFeedScreen() {
 
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
                             <View style={[anifeedStyles.tagsContainer, { marginTop: 0 }]}>
-                                <View style={[anifeedStyles.tag, { backgroundColor: animalColor + '1A' }]}>
+                                <TouchableOpacity style={[anifeedStyles.tag, { backgroundColor: animalColor + '1A', paddingRight: 6 }]} onPress={() => openEditModal('AnimalType')}>
                                     <AnimalIcon type={animalType as any} size={14} color={animalColor} />
-                                    <Text style={[textStyles.label, { color: animalColor, fontSize: 12, marginLeft: 4 }]}>{animalType}</Text>
-                                </View>
+                                    <Text style={[textStyles.label, { color: animalColor, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{animalType}</Text>
+                                    <MaterialIcons name="arrow-drop-down" size={16} color={animalColor} />
+                                </TouchableOpacity>
                                 <TouchableOpacity style={[anifeedStyles.tag, { backgroundColor: colors.info + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Housing')}>
                                     <MaterialIcons name="home" size={14} color={colors.info} />
                                     <Text style={[textStyles.label, { color: colors.info, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{housing}</Text>
@@ -473,6 +481,41 @@ export default function AniFeedScreen() {
                             </View>
                         </ScrollView>
                     </View>
+
+                    {/* Start Simulation Button */}
+                    {(() => {
+                        const canSimulate = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned';
+                        return (
+                            <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8 }}>
+                                <TouchableOpacity
+                                    activeOpacity={canSimulate ? 0.8 : 1}
+                                    disabled={!canSimulate}
+                                    style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: 8,
+                                        paddingVertical: 13,
+                                        borderRadius: 16,
+                                        backgroundColor: canSimulate ? colors.secondary : colors.cardFill,
+                                        borderWidth: canSimulate ? 0 : 1,
+                                        borderColor: colors.stroke,
+                                        opacity: canSimulate ? 1 : 0.55,
+                                    }}
+                                >
+                                    <MaterialIcons name="play-circle-filled" size={20} color={canSimulate ? colors.onPrimary : colors.textGrey} />
+                                    <Text style={[textStyles.btnLabel, { color: canSimulate ? colors.onPrimary : colors.textGrey, fontSize: 14 }]}>
+                                        Start Simulation
+                                    </Text>
+                                </TouchableOpacity>
+                                {!canSimulate && (
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center', marginTop: 6 }]}>
+                                        Assign an animal type and housing to enable simulation.
+                                    </Text>
+                                )}
+                            </View>
+                        );
+                    })()}
 
                     {/* Feed Level (IoT placeholder) */}
                     <View style={anifeedStyles.liveSection}>
@@ -689,6 +732,7 @@ export default function AniFeedScreen() {
                                 <MaterialIcons name="chevron-right" size={18} color={colors.primary} />
                             </TouchableOpacity>
                         )}
+
                     </View>
 
                 </ScrollView>
@@ -760,18 +804,26 @@ export default function AniFeedScreen() {
                 </View>
             </Modal>
 
-            {/* Edit Housing / Brand modal */}
+            {/* Edit Housing / Brand / AnimalType modal */}
             {editTarget && (
                 <SelectionModal
                     visible={editModalVisible}
                     onClose={() => setEditModalVisible(false)}
                     onSelect={handleEditConfirm}
-                    title={`Edit ${editTarget}`}
-                    description={`Select a new ${editTarget.toLowerCase()} for this device.`}
+                    title={editTarget === 'AnimalType' ? 'Animal Type' : `Edit ${editTarget}`}
+                    description={
+                        editTarget === 'AnimalType'
+                            ? 'Select the animal type for this feeder.'
+                            : `Select a new ${editTarget.toLowerCase()} for this device.`
+                    }
                     icon="edit"
                     options={getEditOptions()}
-                    selectedValue={editTarget === 'Housing' ? housing : brand}
-                    enableSearch={true}
+                    selectedValue={
+                        editTarget === 'Housing' ? housing
+                        : editTarget === 'AnimalType' ? animalType
+                        : brand
+                    }
+                    enableSearch={editTarget !== 'AnimalType'}
                 />
             )}
 
