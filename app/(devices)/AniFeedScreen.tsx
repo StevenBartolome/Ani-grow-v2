@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Modal, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, RefreshControl, ScrollView, TextInput, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
@@ -34,6 +34,7 @@ interface FeedScheduleInfo {
     gramsPerDispense: number;
     feedId: string | null;
     feedBrand: string;
+    dispenseTimes: string[];
 }
 
 interface DispenseLogEntry {
@@ -69,6 +70,27 @@ function getFormattedDate(): string {
     const now = new Date();
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+}
+
+function format24to12(time24: string): string {
+    if (!time24) return '—';
+    const parts = time24.split(':');
+    if (parts.length !== 2) return time24;
+    const hours24 = parseInt(parts[0], 10);
+    const minutes = parts[1];
+    if (isNaN(hours24)) return time24;
+    
+    const ampm = hours24 >= 12 ? 'PM' : 'AM';
+    const hours12 = hours24 % 12 || 12;
+    return `${hours12}:${minutes} ${ampm}`;
+}
+
+function formatTimeInput(text: string): string {
+    const clean = text.replace(/[^0-9]/g, '');
+    if (clean.length <= 2) {
+        return clean;
+    }
+    return `${clean.slice(0, 2)}:${clean.slice(2, 4)}`;
 }
 
 export default function AniFeedScreen() {
@@ -114,6 +136,13 @@ export default function AniFeedScreen() {
     const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
     const [tempTimesPerDay, setTempTimesPerDay] = useState('3');
     const [tempGrams, setTempGrams] = useState('500');
+    const [tempTimes, setTempTimes] = useState<string[]>([]);
+
+    // Custom Time Picker Modal State
+    const [timePickerVisible, setTimePickerVisible] = useState(false);
+    const [activeTimeIdx, setActiveTimeIdx] = useState<number | null>(null);
+    const [selectedHour, setSelectedHour] = useState(12);
+    const [selectedMinute, setSelectedMinute] = useState(0);
 
     // Edit field modal (Housing, Brand, AnimalType)
     const [editModalVisible, setEditModalVisible] = useState(false);
@@ -149,7 +178,7 @@ export default function AniFeedScreen() {
                     .single(),
                 supabase
                     .from('feed_schedules')
-                    .select('id, times_per_day, grams_per_dispense, feed_id, feeds(name, brand)')
+                    .select('id, times_per_day, grams_per_dispense, feed_id, dispense_times, feeds(name, brand)')
                     .eq('device_id', deviceId as string)
                     .order('created_at', { ascending: false })
                     .limit(1)
@@ -192,9 +221,11 @@ export default function AniFeedScreen() {
                     gramsPerDispense: s.grams_per_dispense,
                     feedId: s.feed_id ?? null,
                     feedBrand: wholeFeedName,
+                    dispenseTimes: s.dispense_times ?? ['08:00', '12:00', '18:00'],
                 });
                 setTempTimesPerDay(String(s.times_per_day));
                 setTempGrams(String(s.grams_per_dispense));
+                setTempTimes(s.dispense_times ?? ['08:00', '12:00', '18:00']);
             }
 
             if (logsResult.data && logsResult.data.length > 0) {
@@ -323,6 +354,52 @@ export default function AniFeedScreen() {
             showSnackbar('Enter valid numbers for both fields.', 'error');
             return;
         }
+
+        if (timesPerDay > 12) {
+            showSnackbar('Maximum frequency allowed is 12 times per day.', 'error');
+            return;
+        }
+
+        if (tempTimes.length !== timesPerDay) {
+            showSnackbar('Please configure all dispense times.', 'error');
+            return;
+        }
+
+        // Validate 24-hour time format: HH:MM
+        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+        for (let i = 0; i < tempTimes.length; i++) {
+            if (!tempTimes[i] || !timeRegex.test(tempTimes[i])) {
+                showSnackbar(`Invalid format at Time #${i + 1}. Use HH:MM in 24h format (e.g. 14:30).`, 'error');
+                return;
+            }
+        }
+
+        // Verify time interval is at least 30 minutes
+        if (tempTimes.length > 1) {
+            const minutesList = tempTimes.map(t => {
+                const parts = t.split(':');
+                return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+            });
+            
+            // Sort minutes list ascending
+            const sortedMinutes = [...minutesList].sort((a, b) => a - b);
+            
+            // Check adjacent differences
+            for (let i = 0; i < sortedMinutes.length - 1; i++) {
+                if (sortedMinutes[i + 1] - sortedMinutes[i] < 30) {
+                    showSnackbar('Dispense times must have an interval of at least 30 minutes.', 'error');
+                    return;
+                }
+            }
+            
+            // Circular boundary check (last time of day vs first time of next day)
+            const circularDiff = (sortedMinutes[0] + 1440) - sortedMinutes[sortedMinutes.length - 1];
+            if (circularDiff < 30) {
+                showSnackbar('Dispense times must have an interval of at least 30 minutes (including across midnight).', 'error');
+                return;
+            }
+        }
+
         try {
             const payload = {
                 device_id: deviceId as string,
@@ -330,6 +407,7 @@ export default function AniFeedScreen() {
                 animal_type: animalType.toLowerCase(),
                 times_per_day: timesPerDay,
                 grams_per_dispense: gramsPerDispense,
+                dispense_times: tempTimes,
                 adjusted_at: new Date().toISOString(),
             };
             if (schedule?.id) {
@@ -339,8 +417,8 @@ export default function AniFeedScreen() {
                 setSchedule(prev => prev ? { ...prev, id: (data as any)?.id ?? null } : null);
             }
             setSchedule(prev => prev
-                ? { ...prev, timesPerDay, gramsPerDispense }
-                : { id: null, timesPerDay, gramsPerDispense, feedId: null, feedBrand: brand }
+                ? { ...prev, timesPerDay, gramsPerDispense, dispenseTimes: tempTimes }
+                : { id: null, timesPerDay, gramsPerDispense, feedId: null, feedBrand: brand, dispenseTimes: tempTimes }
             );
             setScheduleModalVisible(false);
             showSnackbar('Schedule updated.');
@@ -407,6 +485,7 @@ export default function AniFeedScreen() {
                         feed_id: f.id,
                         times_per_day: 3, // default
                         grams_per_dispense: 500, // default
+                        dispense_times: ['08:00', '12:00', '18:00'], // default
                         adjusted_at: new Date().toISOString(),
                     };
                     const { data, error } = await supabase.from('feed_schedules').insert(payload).select('id').single();
@@ -417,6 +496,7 @@ export default function AniFeedScreen() {
                         gramsPerDispense: 500,
                         feedId: f.id,
                         feedBrand: wholeFeedName,
+                        dispenseTimes: ['08:00', '12:00', '18:00'],
                     });
                 }
                 showSnackbar('Feed updated.');
@@ -466,7 +546,7 @@ export default function AniFeedScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[anifeedStyles.actionButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke }]}
-                        onPress={() => router.push('/(devices)/DeviceSettingsScreen?type=AniFeed')}
+                        onPress={() => router.push(`/(devices)/DeviceSettingsScreen?type=AniFeed&deviceId=${deviceId}` as any)}
                         activeOpacity={0.7}
                     >
                         <MaterialIcons name="settings" size={20} color={colors.textGrey} />
@@ -491,7 +571,7 @@ export default function AniFeedScreen() {
                             <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 13 }]}>{getFormattedDate()}</Text>
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <Text style={[textStyles.h1, { color: colors.text, fontSize: 28, flex: 1, marginRight: 10 }]} numberOfLines={1} adjustsFontSizeToFit>{deviceInfo?.name ?? 'AniFeed Unit'}</Text>
+                            <Text style={[textStyles.h1, { color: colors.text, fontSize: 28, flex: 1, marginRight: 10 }]}>{deviceInfo?.name ?? 'AniFeed Unit'}</Text>
                             <View style={[anifeedStyles.connectionBadge, { backgroundColor: isConnected ? colors.primary + '1A' : colors.error + '1A', flexShrink: 0 }]}>
                                 <View style={[anifeedStyles.connectionDot, { backgroundColor: isConnected ? colors.primary : colors.error }]} />
                                 <Text style={[textStyles.label, { color: isConnected ? colors.primary : colors.error, fontSize: 12, marginLeft: 6 }]}>
@@ -634,6 +714,11 @@ export default function AniFeedScreen() {
                                 if (schedule) {
                                     setTempTimesPerDay(String(schedule.timesPerDay));
                                     setTempGrams(String(schedule.gramsPerDispense));
+                                    setTempTimes(schedule.dispenseTimes ?? ['08:00', '12:00', '18:00']);
+                                } else {
+                                    setTempTimesPerDay('3');
+                                    setTempGrams('500');
+                                    setTempTimes(['08:00', '12:00', '18:00']);
                                 }
                                 setScheduleModalVisible(true);
                             }} style={{ padding: 4 }}>
@@ -643,19 +728,30 @@ export default function AniFeedScreen() {
 
                         {schedule ? (
                             <>
-                                <View style={[anifeedStyles.statsRow, { borderBottomWidth: 0 }]}>
+                                <View style={[anifeedStyles.statsRow, { borderBottomWidth: 1 }]}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                         <MaterialIcons name="repeat" size={18} color={colors.textGrey} style={{ marginRight: 8 }} />
                                         <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Frequency</Text>
                                     </View>
                                     <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>{schedule.timesPerDay}× / day</Text>
                                 </View>
-                                <View style={[anifeedStyles.statsRow, { borderBottomWidth: 0 }]}>
+                                <View style={[anifeedStyles.statsRow, { borderBottomWidth: 1 }]}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                         <MaterialIcons name="line-weight" size={18} color={colors.textGrey} style={{ marginRight: 8 }} />
                                         <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Per dispense</Text>
                                     </View>
                                     <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>{schedule.gramsPerDispense}g</Text>
+                                </View>
+                                <View style={[anifeedStyles.statsRow, { borderBottomWidth: 0 }]}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 0.4 }}>
+                                        <MaterialIcons name="access-time" size={18} color={colors.textGrey} style={{ marginRight: 8 }} />
+                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Dispense Times</Text>
+                                    </View>
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 13, textAlign: 'right', flex: 0.6, flexWrap: 'wrap' }]}>
+                                        {schedule.dispenseTimes && schedule.dispenseTimes.length > 0
+                                            ? schedule.dispenseTimes.join(', ')
+                                            : 'Not set'}
+                                    </Text>
                                 </View>
                             </>
                         ) : (
@@ -792,21 +888,84 @@ export default function AniFeedScreen() {
                             <MaterialIcons name="edit-calendar" size={32} color={colors.primary} />
                         </View>
                         <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Edit Schedule</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20 }]}>
                             Set how many times per day to dispense and how much feed per dispense.
                         </Text>
 
-                        <View style={{ width: '100%', marginBottom: 0 }}>
+                        <View style={{ width: '100%', marginBottom: 12 }}>
                             <FloatingLabelInput
                                 label="Times per day"
                                 icon="repeat"
                                 value={tempTimesPerDay}
-                                onChangeText={t => setTempTimesPerDay(t.replace(/[^0-9]/g, ''))}
+                                onChangeText={t => {
+                                    const cleaned = t.replace(/[^0-9]/g, '');
+                                    setTempTimesPerDay(cleaned);
+                                    if (cleaned) {
+                                        const count = parseInt(cleaned, 10);
+                                        if (!isNaN(count) && count >= 0 && count <= 12) {
+                                            setTempTimes(prev => {
+                                                const updated = [...prev];
+                                                if (count > updated.length) {
+                                                    while (updated.length < count) {
+                                                        updated.push('12:00');
+                                                    }
+                                                } else if (count < updated.length) {
+                                                    updated.length = count;
+                                                }
+                                                return updated;
+                                            });
+                                        }
+                                    } else {
+                                        setTempTimes([]);
+                                    }
+                                }}
                                 keyboardType="numeric"
                                 backgroundColor={colors.surface}
                             />
                         </View>
-                        <View style={{ width: '100%', marginBottom: 8 }}>
+
+                        {tempTimes.length > 0 && (
+                            <View style={{ width: '100%', marginBottom: 16 }}>
+                                <Text style={[textStyles.label, { color: colors.textGrey, alignSelf: 'flex-start', marginBottom: 8, fontSize: 12 }]}>Dispense Times (24h format)</Text>
+                                <ScrollView style={{ maxHeight: 150, width: '100%', borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingHorizontal: 12, backgroundColor: colors.bgLight }} nestedScrollEnabled={true}>
+                                    {tempTimes.map((time, idx) => (
+                                        <View key={idx} style={anifeedStyles.dispenseTimeRow}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                                <MaterialIcons name="access-time" size={16} color={colors.textGrey} style={{ marginRight: 6 }} />
+                                                <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Time #{idx + 1}</Text>
+                                            </View>
+                                            <TouchableOpacity
+                                                style={{
+                                                    backgroundColor: colors.surface,
+                                                    borderColor: colors.stroke,
+                                                    borderWidth: 1,
+                                                    borderRadius: 8,
+                                                    paddingHorizontal: 12,
+                                                    paddingVertical: 8,
+                                                    width: 90,
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                }}
+                                                activeOpacity={0.7}
+                                                onPress={() => {
+                                                    setActiveTimeIdx(idx);
+                                                    const parts = time.split(':');
+                                                    setSelectedHour(parts[0] ? parseInt(parts[0], 10) : 12);
+                                                    setSelectedMinute(parts[1] ? parseInt(parts[1], 10) : 0);
+                                                    setTimePickerVisible(true);
+                                                }}
+                                            >
+                                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>
+                                                    {time}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    ))}
+                                </ScrollView>
+                            </View>
+                        )}
+
+                        <View style={{ width: '100%', marginBottom: 16 }}>
                             <FloatingLabelInput
                                 label="Grams per dispense"
                                 icon="line-weight"
@@ -826,12 +985,131 @@ export default function AniFeedScreen() {
                                 <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[anifeedStyles.btn, { backgroundColor: colors.primary, opacity: (tempTimesPerDay && tempGrams) ? 1 : 0.5 }]}
+                                style={[anifeedStyles.btn, { backgroundColor: colors.primary, opacity: (tempTimesPerDay && tempGrams && tempTimes.length > 0) ? 1 : 0.5 }]}
                                 onPress={handleSaveSchedule}
                                 activeOpacity={0.7}
-                                disabled={!(tempTimesPerDay && tempGrams)}
+                                disabled={!(tempTimesPerDay && tempGrams && tempTimes.length > 0)}
                             >
                                 <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Save</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Custom Time Picker Modal */}
+            <Modal visible={timePickerVisible} transparent animationType="slide">
+                <View style={[anifeedStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                    <View style={[anifeedStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 360, padding: 24, borderRadius: 28, alignItems: 'center' }]}>
+                        <View style={[anifeedStyles.iconContainer, { backgroundColor: colors.primary + '1A', marginBottom: 12 }]}>
+                            <MaterialIcons name="access-time" size={32} color={colors.primary} />
+                        </View>
+                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 4, fontSize: 20 }]}>Select Time</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20, fontSize: 13 }]}>
+                            Scroll and select the hour and minute in 24-hour format.
+                        </Text>
+                        
+                        {/* Digital Display Preview */}
+                        <View style={{ backgroundColor: colors.bgLight, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 20, borderWidth: 1, borderColor: colors.stroke, width: '100%' }}>
+                            <Text style={[textStyles.h1, { color: colors.primary, fontSize: 38, letterSpacing: 2, fontWeight: 'bold' }]}>
+                                {String(selectedHour).padStart(2, '0')}:{String(selectedMinute).padStart(2, '0')}
+                            </Text>
+                        </View>
+
+                        {/* Hours list selector */}
+                        <View style={{ width: '100%', marginBottom: 16 }}>
+                            <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', fontSize: 12 }]}>HOUR</Text>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
+                                style={{ width: '100%' }}
+                            >
+                                {Array.from({ length: 24 }).map((_, h) => {
+                                    const isSelected = selectedHour === h;
+                                    return (
+                                        <TouchableOpacity
+                                            key={h}
+                                            onPress={() => setSelectedHour(h)}
+                                            activeOpacity={0.7}
+                                            style={{
+                                                width: 44,
+                                                height: 44,
+                                                borderRadius: 22,
+                                                backgroundColor: isSelected ? colors.primary : colors.cardFill,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                borderWidth: 1,
+                                                borderColor: isSelected ? colors.primary : colors.stroke,
+                                            }}
+                                        >
+                                            <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 14 }]}>
+                                                {String(h).padStart(2, '0')}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </ScrollView>
+                        </View>
+
+                        {/* Minutes list selector */}
+                        <View style={{ width: '100%', marginBottom: 24 }}>
+                            <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', fontSize: 12 }]}>MINUTE</Text>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
+                                style={{ width: '100%' }}
+                            >
+                                {Array.from({ length: 60 }).map((_, m) => {
+                                    const isSelected = selectedMinute === m;
+                                    return (
+                                        <TouchableOpacity
+                                            key={m}
+                                            onPress={() => setSelectedMinute(m)}
+                                            activeOpacity={0.7}
+                                            style={{
+                                                width: 44,
+                                                height: 44,
+                                                borderRadius: 22,
+                                                backgroundColor: isSelected ? colors.primary : colors.cardFill,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                borderWidth: 1,
+                                                borderColor: isSelected ? colors.primary : colors.stroke,
+                                            }}
+                                        >
+                                            <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 14 }]}>
+                                                {String(m).padStart(2, '0')}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </ScrollView>
+                        </View>
+
+                        {/* Action buttons */}
+                        <View style={[anifeedStyles.actionContainer, { width: '100%', borderTopWidth: 0 }]}>
+                            <TouchableOpacity
+                                style={[anifeedStyles.btn, { backgroundColor: colors.cardFill }]}
+                                onPress={() => setTimePickerVisible(false)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[anifeedStyles.btn, { backgroundColor: colors.primary }]}
+                                onPress={() => {
+                                    if (activeTimeIdx !== null) {
+                                        const updated = [...tempTimes];
+                                        updated[activeTimeIdx] = `${String(selectedHour).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')}`;
+                                        setTempTimes(updated);
+                                    }
+                                    setTimePickerVisible(false);
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Confirm</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
