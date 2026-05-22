@@ -165,6 +165,10 @@ export default function AniFeedScreen() {
     const [selectedMinute, setSelectedMinute] = useState(0);
     const [selectedAmPm, setSelectedAmPm] = useState<'AM' | 'PM'>('AM');
 
+    // Custom Simulation States
+    const [isSimulating, setIsSimulating] = useState(false);
+    const [simulationTimeLeft, setSimulationTimeLeft] = useState(5);
+
     // Edit field modal (Housing, Brand, AnimalType)
     const [editModalVisible, setEditModalVisible] = useState(false);
     const [editTarget, setEditTarget] = useState<'Housing' | 'Brand' | 'AnimalType' | null>(null);
@@ -367,6 +371,97 @@ export default function AniFeedScreen() {
             setDeviceInfo(prev => prev ? { ...prev, status: 'online' } : null);
             showSnackbar('AniFeed connected.');
         }
+    };
+
+    // ─── Simulation handler ─────────────────────────────────────────
+    const handleStartSimulation = async () => {
+        if (!schedule || !schedule.feedId) {
+            showSnackbar('Please configure a schedule and assign a feed first.', 'error');
+            return;
+        }
+
+        if (schedule.feedStockKg === undefined || schedule.feedStockKg === null || schedule.feedStockKg <= 0) {
+            showSnackbar('The assigned feed has no stock remaining.', 'error');
+            return;
+        }
+
+        const totalGrams = schedule.gramsPerDispense * schedule.timesPerDay;
+        const totalKg = totalGrams / 1000;
+
+        if (schedule.feedStockKg < totalKg) {
+            showSnackbar(`Insufficient stock. Need ${totalKg} kg, but only have ${schedule.feedStockKg} kg left.`, 'error');
+            return;
+        }
+
+        setIsSimulating(true);
+        setSimulationTimeLeft(5);
+
+        // Count down 5 seconds
+        const interval = setInterval(() => {
+            setSimulationTimeLeft(prev => {
+                if (prev <= 1) {
+                    clearInterval(interval);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+
+        // Run simulation logic after 5 seconds
+        setTimeout(async () => {
+            try {
+                // Generate log entries for each scheduled time today
+                const recordsToInsert = (schedule.dispenseTimes ?? []).map(timeStr => {
+                    const [hours, minutes] = timeStr.split(':').map(Number);
+                    const dispenseAtDate = new Date();
+                    dispenseAtDate.setHours(hours, minutes, 0, 0);
+                    return {
+                        device_id: deviceId as string,
+                        farm_id: farmId,
+                        feed_id: schedule.feedId,
+                        housing_id: deviceInfo?.housingId ?? null,
+                        animal_type: deviceInfo?.animalType ? (deviceInfo.animalType.toLowerCase() as 'chicken' | 'pig') : null,
+                        grams_dispensed: schedule.gramsPerDispense,
+                        status: 'success' as const,
+                        triggered_by: 'schedule' as const,
+                        dispensed_at: dispenseAtDate.toISOString(),
+                    };
+                });
+
+                if (recordsToInsert.length > 0) {
+                    const { error: insertError } = await supabase
+                        .from('dispense_records')
+                        .insert(recordsToInsert);
+                    
+                    if (insertError) throw insertError;
+                }
+
+                // Deduct from remaining feeds stock
+                const newStockKg = Math.max(0, schedule.feedStockKg! - totalKg);
+                
+                // Update feeds stock in DB
+                const { error: updateError } = await supabase
+                    .from('feeds')
+                    .update({ stock_kg: newStockKg })
+                    .eq('id', schedule.feedId);
+
+                if (updateError) throw updateError;
+
+                // Update local state stock
+                setSchedule(prev => prev ? { ...prev, feedStockKg: newStockKg } : null);
+
+                showSnackbar(`Dispensed ${totalGrams}g successfully! Deducted ${totalKg} kg from feed stock.`, 'success');
+                
+                // Refresh records and screens
+                await fetchAll();
+                await fetchTodayTotal();
+            } catch (err: any) {
+                console.error('[Simulation Error]:', err);
+                showSnackbar('Simulation failed to log records.', 'error');
+            } finally {
+                setIsSimulating(false);
+            }
+        }, 5000);
     };
 
     // ─── Schedule save ────────────────────────────────────────────
@@ -624,12 +719,13 @@ export default function AniFeedScreen() {
 
                     {/* Start Simulation Button */}
                     {(() => {
-                        const canSimulate = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned';
+                        const canSimulate = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isSimulating;
                         return (
                             <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8 }}>
                                 <TouchableOpacity
                                     activeOpacity={canSimulate ? 0.8 : 1}
                                     disabled={!canSimulate}
+                                    onPress={handleStartSimulation}
                                     style={{
                                         flexDirection: 'row',
                                         alignItems: 'center',
@@ -637,18 +733,29 @@ export default function AniFeedScreen() {
                                         gap: 8,
                                         paddingVertical: 13,
                                         borderRadius: 16,
-                                        backgroundColor: canSimulate ? colors.secondary : colors.cardFill,
-                                        borderWidth: canSimulate ? 0 : 1,
+                                        backgroundColor: isSimulating 
+                                            ? colors.warning 
+                                            : canSimulate 
+                                            ? colors.secondary 
+                                            : colors.cardFill,
+                                        borderWidth: canSimulate || isSimulating ? 0 : 1,
                                         borderColor: colors.stroke,
-                                        opacity: canSimulate ? 1 : 0.55,
+                                        opacity: canSimulate || isSimulating ? 1 : 0.55,
                                     }}
                                 >
-                                    <MaterialIcons name="play-circle-filled" size={20} color={canSimulate ? colors.onPrimary : colors.textGrey} />
-                                    <Text style={[textStyles.btnLabel, { color: canSimulate ? colors.onPrimary : colors.textGrey, fontSize: 14 }]}>
-                                        Start Simulation
+                                    {isSimulating ? (
+                                        <ActivityIndicator size="small" color="#fff" />
+                                    ) : (
+                                        <MaterialIcons name="play-circle-filled" size={20} color={canSimulate ? colors.onPrimary : colors.textGrey} />
+                                    )}
+                                    <Text style={[textStyles.btnLabel, { color: canSimulate || isSimulating ? colors.onPrimary : colors.textGrey, fontSize: 14 }]}>
+                                        {isSimulating 
+                                            ? `Dispensing Feeds... (${simulationTimeLeft}s)` 
+                                            : 'Start Simulation'
+                                        }
                                     </Text>
                                 </TouchableOpacity>
-                                {!canSimulate && (
+                                {!canSimulate && !isSimulating && (
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center', marginTop: 6 }]}>
                                         Assign an animal type and housing to enable simulation.
                                     </Text>
