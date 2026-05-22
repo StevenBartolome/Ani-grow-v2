@@ -138,11 +138,34 @@ export default function AnimalsScreen() {
                         />
                     }
                 >
-                    <View style={styles.sectionTitleRow}>
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Housings</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                            {housings.length} registered
-                        </Text>
+                    <View style={[styles.sectionTitleRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                        <View>
+                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Housings</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                {housings.length} registered
+                            </Text>
+                        </View>
+                        {housings.length > 0 && (
+                            <TouchableOpacity
+                                style={{
+                                    height: 38,
+                                    paddingHorizontal: 16,
+                                    borderRadius: 19,
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexDirection: 'row',
+                                    gap: 6,
+                                }}
+                                onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
+                                activeOpacity={0.8}
+                            >
+                                <MaterialIcons name="edit" size={14} color={colors.text} />
+                                <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 12 }]}>Manage Housings</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
 
                     <View style={styles.gridContainer}>
@@ -229,30 +252,7 @@ export default function AnimalsScreen() {
                         )}
                     </View>
 
-                    {/* Management Actions */}
-                    {housings.length > 0 && (
-                        <>
-                            <View style={[styles.sectionTitleRow, { marginTop: 12 }]}>
-                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Management</Text>
-                            </View>
-                            <View style={[styles.bottomBar, { gap: 12, paddingTop: 0 }]}>
-                                <TouchableOpacity
-                                    activeOpacity={0.8}
-                                    style={[styles.primaryButton, { backgroundColor: colors.primary }]}
-                                    onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
-                                >
-                                    <Text style={[textStyles.btnLabel, { color: colors.onPrimary }]}>Manage Housings</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    activeOpacity={0.8}
-                                    style={[styles.primaryButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke }]}
-                                    onPress={() => router.push('/(devices)/ManageFeedsScreen' as any)}
-                                >
-                                    <Text style={[textStyles.btnLabel, { color: colors.text }]}>Manage Feeds</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </>
-                    )}
+
                 </ScrollView>
             </View>
 

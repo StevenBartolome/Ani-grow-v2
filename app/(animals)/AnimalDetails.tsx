@@ -472,23 +472,7 @@ export default function AnimalDetailsScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        {/* Health Records */}
-                        <TouchableOpacity
-                            activeOpacity={0.8}
-                            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 20, elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
-                            onPress={() => router.push({ pathname: '/(animals)/HealthRecordsScreen' as any, params: { housingId, batchId: selectedBatchId ?? '' } })}
-                        >
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#27AE601A', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                                    <MaterialIcons name="medical-services" size={20} color="#27AE60" />
-                                </View>
-                                <View>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>Health Records</Text>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 1 }]}>Vaccinations, treatments & observations</Text>
-                                </View>
-                            </View>
-                            <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
-                        </TouchableOpacity>
+
 
                         {/* Batch Status Management */}
                         {selectedBatch.status === 'active' && (

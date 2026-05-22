@@ -402,6 +402,22 @@ export default function AniFeedScreen() {
                 </View>
                 <View style={anifeedStyles.headerActions}>
                     <TouchableOpacity
+                        style={{
+                            height: 44,
+                            paddingHorizontal: 16,
+                            borderRadius: 22,
+                            backgroundColor: colors.surface,
+                            borderWidth: 1,
+                            borderColor: colors.stroke,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}
+                        onPress={() => router.push('/(devices)/ManageFeedsScreen' as any)}
+                        activeOpacity={0.8}
+                    >
+                        <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 13 }]}>Manage Feeds</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                         style={[anifeedStyles.actionButton, { backgroundColor: isConnected ? colors.primary + '1A' : colors.surface, borderWidth: isConnected ? 0 : 1.5, borderColor: isConnected ? 'transparent' : colors.stroke }]}
                         onPress={handleConnectionToggle}
                     >

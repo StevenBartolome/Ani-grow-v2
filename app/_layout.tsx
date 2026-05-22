@@ -69,6 +69,7 @@ export default function RootLayout() {
               <Stack.Screen name="(dashboard)/HomeScreen" options={{ animation: 'none' }} />
               <Stack.Screen name="(devices)/DevicesScreen" options={{ animation: 'none' }} />
               <Stack.Screen name="(animals)/AnimalsScreen" options={{ animation: 'none' }} />
+              <Stack.Screen name="(animals)/HealthRecordsScreen" options={{ animation: 'none' }} />
               <Stack.Screen name="(analytics)/AnalyticsScreen" options={{ animation: 'none' }} />
               <Stack.Screen name="(guide)/GuideScreen" options={{ animation: 'none' }} />
               <Stack.Screen name="(ai)/AIAssistantScreen" />
