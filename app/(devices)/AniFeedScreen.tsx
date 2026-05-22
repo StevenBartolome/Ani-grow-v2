@@ -35,6 +35,7 @@ interface FeedScheduleInfo {
     feedId: string | null;
     feedBrand: string;
     dispenseTimes: string[];
+    feedStockKg?: number | null;
 }
 
 interface DispenseLogEntry {
@@ -82,15 +83,34 @@ function format24to12(time24: string): string {
     
     const ampm = hours24 >= 12 ? 'PM' : 'AM';
     const hours12 = hours24 % 12 || 12;
-    return `${hours12}:${minutes} ${ampm}`;
+    return `${String(hours12).padStart(2, '0')}:${minutes} ${ampm}`;
 }
 
-function formatTimeInput(text: string): string {
-    const clean = text.replace(/[^0-9]/g, '');
-    if (clean.length <= 2) {
-        return clean;
+function parse12to24(time12: string): string | null {
+    const cleaned = time12.trim().toUpperCase();
+    const regex12 = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/;
+    const match = cleaned.match(regex12);
+    if (match) {
+        let hours = parseInt(match[1], 10);
+        const minutes = match[2];
+        const ampm = match[3];
+        if (hours < 1 || hours > 12) return null;
+        const minNum = parseInt(minutes, 10);
+        if (minNum < 0 || minNum > 59) return null;
+        
+        if (ampm === 'PM' && hours !== 12) {
+            hours += 12;
+        } else if (ampm === 'AM' && hours === 12) {
+            hours = 0;
+        }
+        return `${String(hours).padStart(2, '0')}:${minutes}`;
     }
-    return `${clean.slice(0, 2)}:${clean.slice(2, 4)}`;
+    
+    const regex24 = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    if (regex24.test(cleaned)) {
+        return cleaned;
+    }
+    return null;
 }
 
 export default function AniFeedScreen() {
@@ -130,7 +150,7 @@ export default function AniFeedScreen() {
 
     // Options for edit modals (fetched from farm)
     const [farmHousings, setFarmHousings] = useState<{ id: string; name: string; animal_type: string }[]>([]);
-    const [farmFeeds, setFarmFeeds] = useState<{ id: string; name: string; brand: string; animal_type: string }[]>([]);
+    const [farmFeeds, setFarmFeeds] = useState<{ id: string; name: string; brand: string; animal_type: string; stock_kg?: number | null }[]>([]);
 
     // Schedule edit modal
     const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
@@ -143,6 +163,7 @@ export default function AniFeedScreen() {
     const [activeTimeIdx, setActiveTimeIdx] = useState<number | null>(null);
     const [selectedHour, setSelectedHour] = useState(12);
     const [selectedMinute, setSelectedMinute] = useState(0);
+    const [selectedAmPm, setSelectedAmPm] = useState<'AM' | 'PM'>('AM');
 
     // Edit field modal (Housing, Brand, AnimalType)
     const [editModalVisible, setEditModalVisible] = useState(false);
@@ -178,7 +199,7 @@ export default function AniFeedScreen() {
                     .single(),
                 supabase
                     .from('feed_schedules')
-                    .select('id, times_per_day, grams_per_dispense, feed_id, dispense_times, feeds(name, brand)')
+                    .select('id, times_per_day, grams_per_dispense, feed_id, dispense_times, feeds(name, brand, stock_kg)')
                     .eq('device_id', deviceId as string)
                     .order('created_at', { ascending: false })
                     .limit(1)
@@ -196,7 +217,7 @@ export default function AniFeedScreen() {
                     .eq('status', 'Active'),
                 supabase
                     .from('feeds')
-                    .select('id, name, brand, animal_type')
+                    .select('id, name, brand, animal_type, stock_kg')
                     .eq('farm_id', farmId),
             ]);
 
@@ -222,10 +243,12 @@ export default function AniFeedScreen() {
                     feedId: s.feed_id ?? null,
                     feedBrand: wholeFeedName,
                     dispenseTimes: s.dispense_times ?? ['08:00', '12:00', '18:00'],
+                    feedStockKg: s.feeds?.stock_kg ?? null,
                 });
                 setTempTimesPerDay(String(s.times_per_day));
                 setTempGrams(String(s.grams_per_dispense));
-                setTempTimes(s.dispense_times ?? ['08:00', '12:00', '18:00']);
+                const dbTimes = s.dispense_times ?? ['08:00', '12:00', '18:00'];
+                setTempTimes(dbTimes.map(format24to12));
             }
 
             if (logsResult.data && logsResult.data.length > 0) {
@@ -365,18 +388,20 @@ export default function AniFeedScreen() {
             return;
         }
 
-        // Validate 24-hour time format: HH:MM
-        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+        // Parse and validate all times to 24-hour format
+        const parsed24Times: string[] = [];
         for (let i = 0; i < tempTimes.length; i++) {
-            if (!tempTimes[i] || !timeRegex.test(tempTimes[i])) {
-                showSnackbar(`Invalid format at Time #${i + 1}. Use HH:MM in 24h format (e.g. 14:30).`, 'error');
+            const parsed = parse12to24(tempTimes[i]);
+            if (!parsed) {
+                showSnackbar(`Invalid format at Time #${i + 1}. Use HH:MM AM/PM format (e.g. 08:30 AM).`, 'error');
                 return;
             }
+            parsed24Times.push(parsed);
         }
 
         // Verify time interval is at least 30 minutes
-        if (tempTimes.length > 1) {
-            const minutesList = tempTimes.map(t => {
+        if (parsed24Times.length > 1) {
+            const minutesList = parsed24Times.map(t => {
                 const parts = t.split(':');
                 return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
             });
@@ -407,7 +432,7 @@ export default function AniFeedScreen() {
                 animal_type: animalType.toLowerCase(),
                 times_per_day: timesPerDay,
                 grams_per_dispense: gramsPerDispense,
-                dispense_times: tempTimes,
+                dispense_times: parsed24Times,
                 adjusted_at: new Date().toISOString(),
             };
             if (schedule?.id) {
@@ -417,8 +442,8 @@ export default function AniFeedScreen() {
                 setSchedule(prev => prev ? { ...prev, id: (data as any)?.id ?? null } : null);
             }
             setSchedule(prev => prev
-                ? { ...prev, timesPerDay, gramsPerDispense, dispenseTimes: tempTimes }
-                : { id: null, timesPerDay, gramsPerDispense, feedId: null, feedBrand: brand, dispenseTimes: tempTimes }
+                ? { ...prev, timesPerDay, gramsPerDispense, dispenseTimes: parsed24Times }
+                : { id: null, timesPerDay, gramsPerDispense, feedId: null, feedBrand: brand, dispenseTimes: parsed24Times }
             );
             setScheduleModalVisible(false);
             showSnackbar('Schedule updated.');
@@ -476,7 +501,7 @@ export default function AniFeedScreen() {
                 if (schedule?.id) {
                     const { error } = await supabase.from('feed_schedules').update({ feed_id: f.id }).eq('id', schedule.id);
                     if (error) throw error;
-                    setSchedule(prev => prev ? { ...prev, feedId: f.id, feedBrand: wholeFeedName } : null);
+                    setSchedule(prev => prev ? { ...prev, feedId: f.id, feedBrand: wholeFeedName, feedStockKg: f.stock_kg ?? null } : null);
                 } else {
                     const payload = {
                         device_id: deviceId as string,
@@ -497,6 +522,7 @@ export default function AniFeedScreen() {
                         feedId: f.id,
                         feedBrand: wholeFeedName,
                         dispenseTimes: ['08:00', '12:00', '18:00'],
+                        feedStockKg: f.stock_kg ?? null,
                     });
                 }
                 showSnackbar('Feed updated.');
@@ -692,6 +718,11 @@ export default function AniFeedScreen() {
                                         <MaterialIcons name="edit" size={12} color={colors.primary} style={{ marginLeft: 4 }} />
                                     </View>
                                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 13, marginTop: 4, textAlign: 'center' }]}>{brand}</Text>
+                                    {schedule?.feedStockKg !== undefined && schedule?.feedStockKg !== null && (
+                                        <Text style={[textStyles.body, { color: schedule.feedStockKg < 10 ? colors.error : colors.textGrey, fontSize: 11, marginTop: 2, textAlign: 'center', fontWeight: schedule.feedStockKg < 10 ? '700' : 'normal' }]}>
+                                            {schedule.feedStockKg} kg left
+                                        </Text>
+                                    )}
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -714,11 +745,11 @@ export default function AniFeedScreen() {
                                 if (schedule) {
                                     setTempTimesPerDay(String(schedule.timesPerDay));
                                     setTempGrams(String(schedule.gramsPerDispense));
-                                    setTempTimes(schedule.dispenseTimes ?? ['08:00', '12:00', '18:00']);
+                                    setTempTimes((schedule.dispenseTimes ?? ['08:00', '12:00', '18:00']).map(format24to12));
                                 } else {
                                     setTempTimesPerDay('3');
                                     setTempGrams('500');
-                                    setTempTimes(['08:00', '12:00', '18:00']);
+                                    setTempTimes(['08:00', '12:00', '18:00'].map(format24to12));
                                 }
                                 setScheduleModalVisible(true);
                             }} style={{ padding: 4 }}>
@@ -742,6 +773,17 @@ export default function AniFeedScreen() {
                                     </View>
                                     <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>{schedule.gramsPerDispense}g</Text>
                                 </View>
+                                {schedule.feedStockKg !== undefined && schedule.feedStockKg !== null && (
+                                    <View style={[anifeedStyles.statsRow, { borderBottomWidth: 1 }]}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            <MaterialIcons name="inventory" size={18} color={colors.textGrey} style={{ marginRight: 8 }} />
+                                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Remaining Stock</Text>
+                                        </View>
+                                        <Text style={[textStyles.h3, { color: schedule.feedStockKg < 10 ? colors.error : colors.text, fontSize: 14, fontWeight: schedule.feedStockKg < 10 ? '700' : 'normal' }]}>
+                                            {schedule.feedStockKg} kg
+                                        </Text>
+                                    </View>
+                                )}
                                 <View style={[anifeedStyles.statsRow, { borderBottomWidth: 0 }]}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 0.4 }}>
                                         <MaterialIcons name="access-time" size={18} color={colors.textGrey} style={{ marginRight: 8 }} />
@@ -749,7 +791,7 @@ export default function AniFeedScreen() {
                                     </View>
                                     <Text style={[textStyles.h3, { color: colors.text, fontSize: 13, textAlign: 'right', flex: 0.6, flexWrap: 'wrap' }]}>
                                         {schedule.dispenseTimes && schedule.dispenseTimes.length > 0
-                                            ? schedule.dispenseTimes.join(', ')
+                                            ? schedule.dispenseTimes.map(format24to12).join(', ')
                                             : 'Not set'}
                                     </Text>
                                 </View>
@@ -907,7 +949,7 @@ export default function AniFeedScreen() {
                                                 const updated = [...prev];
                                                 if (count > updated.length) {
                                                     while (updated.length < count) {
-                                                        updated.push('12:00');
+                                                        updated.push('12:00 PM');
                                                     }
                                                 } else if (count < updated.length) {
                                                     updated.length = count;
@@ -924,9 +966,9 @@ export default function AniFeedScreen() {
                             />
                         </View>
 
-                        {tempTimes.length > 0 && (
+                         {tempTimes.length > 0 && (
                             <View style={{ width: '100%', marginBottom: 16 }}>
-                                <Text style={[textStyles.label, { color: colors.textGrey, alignSelf: 'flex-start', marginBottom: 8, fontSize: 12 }]}>Dispense Times (24h format)</Text>
+                                <Text style={[textStyles.label, { color: colors.textGrey, alignSelf: 'flex-start', marginBottom: 8, fontSize: 12 }]}>Dispense Times (12h format)</Text>
                                 <ScrollView style={{ maxHeight: 150, width: '100%', borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingHorizontal: 12, backgroundColor: colors.bgLight }} nestedScrollEnabled={true}>
                                     {tempTimes.map((time, idx) => (
                                         <View key={idx} style={anifeedStyles.dispenseTimeRow}>
@@ -934,31 +976,61 @@ export default function AniFeedScreen() {
                                                 <MaterialIcons name="access-time" size={16} color={colors.textGrey} style={{ marginRight: 6 }} />
                                                 <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Time #{idx + 1}</Text>
                                             </View>
-                                            <TouchableOpacity
-                                                style={{
-                                                    backgroundColor: colors.surface,
-                                                    borderColor: colors.stroke,
-                                                    borderWidth: 1,
-                                                    borderRadius: 8,
-                                                    paddingHorizontal: 12,
-                                                    paddingVertical: 8,
-                                                    width: 90,
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                }}
-                                                activeOpacity={0.7}
-                                                onPress={() => {
-                                                    setActiveTimeIdx(idx);
-                                                    const parts = time.split(':');
-                                                    setSelectedHour(parts[0] ? parseInt(parts[0], 10) : 12);
-                                                    setSelectedMinute(parts[1] ? parseInt(parts[1], 10) : 0);
-                                                    setTimePickerVisible(true);
-                                                }}
-                                            >
-                                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>
-                                                    {time}
-                                                </Text>
-                                            </TouchableOpacity>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                <TextInput
+                                                    style={{
+                                                        backgroundColor: colors.surface,
+                                                        borderColor: colors.stroke,
+                                                        borderWidth: 1,
+                                                        borderRadius: 8,
+                                                        paddingHorizontal: 8,
+                                                        paddingVertical: 6,
+                                                        color: colors.text,
+                                                        fontSize: 13,
+                                                        width: 105,
+                                                        textAlign: 'center',
+                                                    }}
+                                                    value={time}
+                                                    placeholder="12:00 PM"
+                                                    placeholderTextColor={colors.textGrey}
+                                                    maxLength={8}
+                                                    onChangeText={(text) => {
+                                                        const updated = [...tempTimes];
+                                                        updated[idx] = text;
+                                                        setTempTimes(updated);
+                                                    }}
+                                                />
+                                                <TouchableOpacity
+                                                    style={{
+                                                        backgroundColor: colors.primary + '1A',
+                                                        borderColor: colors.primary,
+                                                        borderWidth: 1,
+                                                        borderRadius: 8,
+                                                        width: 36,
+                                                        height: 36,
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                    }}
+                                                    activeOpacity={0.7}
+                                                    onPress={() => {
+                                                        setActiveTimeIdx(idx);
+                                                        const cleaned = time.trim().toUpperCase();
+                                                        const match = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+                                                        if (match) {
+                                                            setSelectedHour(parseInt(match[1], 10));
+                                                            setSelectedMinute(parseInt(match[2], 10));
+                                                            setSelectedAmPm(match[3] as 'AM' | 'PM');
+                                                        } else {
+                                                            setSelectedHour(12);
+                                                            setSelectedMinute(0);
+                                                            setSelectedAmPm('AM');
+                                                        }
+                                                        setTimePickerVisible(true);
+                                                    }}
+                                                >
+                                                    <MaterialIcons name="access-time" size={18} color={colors.primary} />
+                                                </TouchableOpacity>
+                                            </View>
                                         </View>
                                     ))}
                                 </ScrollView>
@@ -1006,17 +1078,17 @@ export default function AniFeedScreen() {
                         </View>
                         <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 4, fontSize: 20 }]}>Select Time</Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20, fontSize: 13 }]}>
-                            Scroll and select the hour and minute in 24-hour format.
+                            Scroll and select the hour and minute.
                         </Text>
                         
                         {/* Digital Display Preview */}
                         <View style={{ backgroundColor: colors.bgLight, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 20, borderWidth: 1, borderColor: colors.stroke, width: '100%' }}>
-                            <Text style={[textStyles.h1, { color: colors.primary, fontSize: 38, letterSpacing: 2, fontWeight: 'bold' }]}>
-                                {String(selectedHour).padStart(2, '0')}:{String(selectedMinute).padStart(2, '0')}
+                            <Text style={[textStyles.h1, { color: colors.primary, fontSize: 36, letterSpacing: 1, fontWeight: 'bold' }]}>
+                                {`${String(selectedHour).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')} ${selectedAmPm}`}
                             </Text>
                         </View>
 
-                        {/* Hours list selector */}
+                        {/* Hours list selector (1 to 12 only) */}
                         <View style={{ width: '100%', marginBottom: 16 }}>
                             <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', fontSize: 12 }]}>HOUR</Text>
                             <ScrollView
@@ -1025,7 +1097,8 @@ export default function AniFeedScreen() {
                                 contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
                                 style={{ width: '100%' }}
                             >
-                                {Array.from({ length: 24 }).map((_, h) => {
+                                {Array.from({ length: 12 }).map((_, i) => {
+                                    const h = i + 1;
                                     const isSelected = selectedHour === h;
                                     return (
                                         <TouchableOpacity
@@ -1053,7 +1126,7 @@ export default function AniFeedScreen() {
                         </View>
 
                         {/* Minutes list selector */}
-                        <View style={{ width: '100%', marginBottom: 24 }}>
+                        <View style={{ width: '100%', marginBottom: 16 }}>
                             <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', fontSize: 12 }]}>MINUTE</Text>
                             <ScrollView
                                 horizontal
@@ -1088,6 +1161,37 @@ export default function AniFeedScreen() {
                             </ScrollView>
                         </View>
 
+                        {/* AM/PM selector */}
+                        <View style={{ width: '100%', marginBottom: 24 }}>
+                            <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', fontSize: 12 }]}>PERIOD</Text>
+                            <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                                {(['AM', 'PM'] as const).map((period) => {
+                                    const isSelected = selectedAmPm === period;
+                                    return (
+                                        <TouchableOpacity
+                                            key={period}
+                                            onPress={() => setSelectedAmPm(period)}
+                                            activeOpacity={0.7}
+                                            style={{
+                                                flex: 1,
+                                                height: 44,
+                                                borderRadius: 22,
+                                                backgroundColor: isSelected ? colors.primary : colors.cardFill,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                borderWidth: 1,
+                                                borderColor: isSelected ? colors.primary : colors.stroke,
+                                            }}
+                                        >
+                                            <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 14, fontWeight: 'bold' }]}>
+                                                {period}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        </View>
+
                         {/* Action buttons */}
                         <View style={[anifeedStyles.actionContainer, { width: '100%', borderTopWidth: 0 }]}>
                             <TouchableOpacity
@@ -1102,7 +1206,7 @@ export default function AniFeedScreen() {
                                 onPress={() => {
                                     if (activeTimeIdx !== null) {
                                         const updated = [...tempTimes];
-                                        updated[activeTimeIdx] = `${String(selectedHour).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')}`;
+                                        updated[activeTimeIdx] = `${String(selectedHour).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')} ${selectedAmPm}`;
                                         setTempTimes(updated);
                                     }
                                     setTimePickerVisible(false);
