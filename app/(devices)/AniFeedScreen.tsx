@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
 import { ActivityIndicator, Modal, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
@@ -149,7 +149,7 @@ export default function AniFeedScreen() {
                     .single(),
                 supabase
                     .from('feed_schedules')
-                    .select('id, times_per_day, grams_per_dispense, feed_id, feeds(brand)')
+                    .select('id, times_per_day, grams_per_dispense, feed_id, feeds(name, brand)')
                     .eq('device_id', deviceId as string)
                     .order('created_at', { ascending: false })
                     .limit(1)
@@ -185,12 +185,13 @@ export default function AniFeedScreen() {
 
             if (scheduleResult.data) {
                 const s = scheduleResult.data as any;
+                const wholeFeedName = s.feeds ? (s.feeds.brand ? `${s.feeds.name} (${s.feeds.brand})` : s.feeds.name) : 'Not set';
                 setSchedule({
                     id: s.id,
                     timesPerDay: s.times_per_day,
                     gramsPerDispense: s.grams_per_dispense,
                     feedId: s.feed_id ?? null,
-                    feedBrand: s.feeds?.brand ?? 'Not set',
+                    feedBrand: wholeFeedName,
                 });
                 setTempTimesPerDay(String(s.times_per_day));
                 setTempGrams(String(s.grams_per_dispense));
@@ -220,6 +221,13 @@ export default function AniFeedScreen() {
     }, [deviceId, farmId]);
 
     useEffect(() => { fetchAll(); }, [fetchAll]);
+
+    // Re-fetch when navigating back (e.g. after adding feeds in ManageFeedsScreen)
+    useFocusEffect(
+        useCallback(() => {
+            fetchAll();
+        }, [fetchAll])
+    );
 
     // ─── Today's total dispensed ─────────────────────────────────
     const fetchTodayTotal = useCallback(async () => {
@@ -355,10 +363,10 @@ export default function AniFeedScreen() {
                 .map(h => h.name);
         }
         if (editTarget === 'Brand') {
-            const feedsForType = farmFeeds.filter(f => f.animal_type === animalType.toLowerCase());
-            return feedsForType.length > 0
-                ? feedsForType.map(f => f.brand ? `${f.name} (${f.brand})` : f.name)
-                : farmFeeds.map(f => f.brand ? `${f.name} (${f.brand})` : f.name);
+            // Only show feeds that match the feeder's animal type — never mix pig and chicken feeds
+            return farmFeeds
+                .filter(f => f.animal_type === animalType.toLowerCase())
+                .map(f => f.brand ? `${f.name} (${f.brand})` : f.name);
         }
         return [];
     };
@@ -379,13 +387,39 @@ export default function AniFeedScreen() {
                 setDeviceInfo(prev => prev ? { ...prev, housingId: h.id, housingName: h.name, animalType: h.animal_type === 'pig' ? 'Pig' : 'Chicken' } : null);
                 showSnackbar('Housing updated.');
             } else if (editTarget === 'Brand') {
-                const f = farmFeeds.find(fd => val.startsWith(fd.name));
+                // Find feed using an exact match of the formatted option string
+                const f = farmFeeds.find(fd => {
+                    const optString = fd.brand ? `${fd.name} (${fd.brand})` : fd.name;
+                    return optString === val;
+                });
                 if (!f) return;
+
+                const wholeFeedName = f.brand ? `${f.name} (${f.brand})` : f.name;
                 if (schedule?.id) {
-                    await supabase.from('feed_schedules').update({ feed_id: f.id }).eq('id', schedule.id);
+                    const { error } = await supabase.from('feed_schedules').update({ feed_id: f.id }).eq('id', schedule.id);
+                    if (error) throw error;
+                    setSchedule(prev => prev ? { ...prev, feedId: f.id, feedBrand: wholeFeedName } : null);
+                } else {
+                    const payload = {
+                        device_id: deviceId as string,
+                        farm_id: farmId,
+                        animal_type: animalType.toLowerCase(),
+                        feed_id: f.id,
+                        times_per_day: 3, // default
+                        grams_per_dispense: 500, // default
+                        adjusted_at: new Date().toISOString(),
+                    };
+                    const { data, error } = await supabase.from('feed_schedules').insert(payload).select('id').single();
+                    if (error) throw error;
+                    setSchedule({
+                        id: (data as any)?.id ?? null,
+                        timesPerDay: 3,
+                        gramsPerDispense: 500,
+                        feedId: f.id,
+                        feedBrand: wholeFeedName,
+                    });
                 }
-                setSchedule(prev => prev ? { ...prev, feedId: f.id, feedBrand: f.brand ?? f.name } : null);
-                showSnackbar('Feed brand updated.');
+                showSnackbar('Feed updated.');
             }
         } catch {
             showSnackbar(`Failed to update ${editTarget}.`, 'error');
@@ -574,10 +608,10 @@ export default function AniFeedScreen() {
                                 <View style={[anifeedStyles.liveStatDivider, { backgroundColor: colors.stroke }]} />
                                 <TouchableOpacity style={anifeedStyles.liveStatItem} onPress={() => openEditModal('Brand')}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Brand</Text>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Feed</Text>
                                         <MaterialIcons name="edit" size={12} color={colors.primary} style={{ marginLeft: 4 }} />
                                     </View>
-                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 13, marginTop: 4 }]} numberOfLines={1}>{brand}</Text>
+                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 13, marginTop: 4, textAlign: 'center' }]}>{brand}</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -810,10 +844,12 @@ export default function AniFeedScreen() {
                     visible={editModalVisible}
                     onClose={() => setEditModalVisible(false)}
                     onSelect={handleEditConfirm}
-                    title={editTarget === 'AnimalType' ? 'Animal Type' : `Edit ${editTarget}`}
+                    title={editTarget === 'AnimalType' ? 'Animal Type' : editTarget === 'Brand' ? 'Select Feed' : `Edit ${editTarget}`}
                     description={
                         editTarget === 'AnimalType'
                             ? 'Select the animal type for this feeder.'
+                            : editTarget === 'Brand'
+                            ? `Showing feeds registered for ${animalType}s only.`
                             : `Select a new ${editTarget.toLowerCase()} for this device.`
                     }
                     icon="edit"
