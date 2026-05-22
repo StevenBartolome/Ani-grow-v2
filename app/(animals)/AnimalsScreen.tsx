@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
 import { ActivityIndicator, ScrollView, TouchableOpacity, View, RefreshControl } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -41,6 +42,7 @@ export default function AnimalsScreen() {
     const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
 
     const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
+    const canManageHousing = !!permissions['housing:manage'];
 
     useEffect(() => {
         if (authLoading || !role) return;
@@ -86,7 +88,47 @@ export default function AnimalsScreen() {
         }
     }, [farmId]);
 
-    useEffect(() => { fetchHousings(); }, [fetchHousings]);
+    useFocusEffect(
+        useCallback(() => {
+            fetchHousings();
+        }, [fetchHousings])
+    );
+
+    useEffect(() => {
+        if (!farmId) return;
+
+        const channel = supabase
+            .channel(`animals-live-${farmId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'housings',
+                    filter: `farm_id=eq.${farmId}`
+                },
+                () => {
+                    fetchHousings();
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'batches',
+                    filter: `farm_id=eq.${farmId}`
+                },
+                () => {
+                    fetchHousings();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [farmId, fetchHousings]);
 
     const pigColor = (colors as any).pig ?? '#E67E22';
     const chickenColor = (colors as any).chicken ?? '#F1C40F';
@@ -151,7 +193,7 @@ export default function AnimalsScreen() {
                                     height: 38,
                                     paddingHorizontal: 16,
                                     borderRadius: 19,
-                                    backgroundColor: colors.surface,
+                                    backgroundColor: canManageHousing ? colors.surface : colors.cardFill,
                                     borderWidth: 1,
                                     borderColor: colors.stroke,
                                     alignItems: 'center',
@@ -160,10 +202,11 @@ export default function AnimalsScreen() {
                                     gap: 6,
                                 }}
                                 onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
-                                activeOpacity={0.8}
+                                activeOpacity={canManageHousing ? 0.8 : 1}
+                                disabled={!canManageHousing}
                             >
-                                <MaterialIcons name="edit" size={14} color={colors.text} />
-                                <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 12 }]}>Manage Housings</Text>
+                                <MaterialIcons name="edit" size={14} color={canManageHousing ? colors.text : colors.textGrey} />
+                                <Text style={[textStyles.btnLabel, { color: canManageHousing ? colors.text : colors.textGrey, fontSize: 12 }]}>Manage Housings</Text>
                             </TouchableOpacity>
                         )}
                     </View>
@@ -183,12 +226,22 @@ export default function AnimalsScreen() {
                                     Add a housing first, then register batches to track your livestock.
                                 </Text>
                                 <TouchableOpacity
-                                    activeOpacity={0.8}
-                                    style={{ marginTop: 20, backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                                    activeOpacity={canManageHousing ? 0.8 : 1}
+                                    style={{
+                                        marginTop: 20,
+                                        backgroundColor: canManageHousing ? colors.primary : colors.cardFill,
+                                        paddingHorizontal: 24,
+                                        paddingVertical: 12,
+                                        borderRadius: 20,
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 8
+                                    }}
                                     onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
+                                    disabled={!canManageHousing}
                                 >
-                                    <MaterialIcons name="add" size={18} color={colors.onPrimary} />
-                                    <Text style={[textStyles.label, { color: colors.onPrimary }]}>Add Housing</Text>
+                                    <MaterialIcons name="add" size={18} color={canManageHousing ? colors.onPrimary : colors.textGrey} />
+                                    <Text style={[textStyles.label, { color: canManageHousing ? colors.onPrimary : colors.textGrey }]}>Add Housing</Text>
                                 </TouchableOpacity>
                             </View>
                         ) : (

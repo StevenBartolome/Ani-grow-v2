@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Modal, TouchableOpacity, Pressable, Platform } from 'react-native';
+import { View, StyleSheet, Modal, TouchableOpacity, Pressable, Platform, ActivityIndicator } from 'react-native';
 import { Text } from '@/components/Text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
@@ -16,6 +16,7 @@ interface ActionModalProps {
     cancelText?: string;
     onConfirm: () => void;
     onCancel: () => void;
+    isLoading?: boolean;
 }
 
 export default function ActionModal({
@@ -26,7 +27,8 @@ export default function ActionModal({
     confirmText = 'OK',
     cancelText = 'Cancel',
     onConfirm,
-    onCancel
+    onCancel,
+    isLoading = false
 }: ActionModalProps) {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
@@ -91,11 +93,16 @@ export default function ActionModal({
                                 )}
 
                                 <TouchableOpacity 
-                                    style={[styles.btn, styles.btnConfirm, { backgroundColor: confirmBtnColor }]} 
+                                    style={[styles.btn, styles.btnConfirm, { backgroundColor: confirmBtnColor, opacity: isLoading ? 0.8 : 1 }]} 
                                     onPress={onConfirm}
                                     activeOpacity={0.7}
+                                    disabled={isLoading}
                                 >
-                                    <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>{confirmText}</Text>
+                                    {isLoading ? (
+                                        <ActivityIndicator size="small" color={colors.onPrimary} />
+                                    ) : (
+                                        <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>{confirmText}</Text>
+                                    )}
                                 </TouchableOpacity>
                             </View>
                             

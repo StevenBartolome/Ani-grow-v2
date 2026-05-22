@@ -139,7 +139,10 @@ export default function ManageFeedsScreen() {
         }
     };
 
+    const isSaveDisabled = !!(!tempFeedName.trim());
+
     const handleSaveClick = () => {
+        if (isSaveDisabled) return;
         if (!tempFeedName.trim()) { showSnackbar('Please enter a feed name.', 'error'); return; }
         setEditModalVisible(false);
         setConfirmAction('save');
@@ -318,8 +321,19 @@ export default function ManageFeedsScreen() {
                             <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditModalVisible(false)} activeOpacity={0.7}>
                                 <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={{ flex: 1, backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={handleSaveClick} activeOpacity={0.7}>
-                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Save</Text>
+                            <TouchableOpacity
+                                style={{
+                                    flex: 1,
+                                    backgroundColor: isSaveDisabled ? colors.cardFill : colors.primary,
+                                    paddingVertical: 14,
+                                    borderRadius: 30,
+                                    alignItems: 'center'
+                                }}
+                                onPress={handleSaveClick}
+                                disabled={isSaveDisabled}
+                                activeOpacity={isSaveDisabled ? 1 : 0.7}
+                            >
+                                <Text style={[textStyles.h3, { color: isSaveDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Save</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
