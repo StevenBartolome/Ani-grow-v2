@@ -85,12 +85,13 @@ Format your response in this EXACT structure — no deviations:
 
 HEADLINE: [5-8 word summary of the current situation]
 1. [First actionable recommendation — specific to the data, 1-2 sentences]
-2. [Second actionable recommendation — specific to the data, 1-2 sentences]
+2. [Second actionable recommendation if applicable — 1-2 sentences]
 3. [Third actionable recommendation if applicable — 1-2 sentences]
 
 Rules:
 - Always start with "HEADLINE:" on its own line
-- Always use numbered items (1., 2., 3.)
+- Use numbered items (1., 2., 3.) for recommendations.
+- You do not need to provide multiple numbered items if the advice is simple or short; providing just one recommendation is perfectly fine.
 - Maximum 3 items
 - Use metric units (kg, grams)
 - Ground every point in the exact numbers provided — no generic advice

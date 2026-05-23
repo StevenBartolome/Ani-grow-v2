@@ -171,12 +171,12 @@ export function AIInsightCard({
   const [error, setError]       = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const fetch = useCallback(async () => {
+  const fetch = useCallback(async (bypassCache = false) => {
     if (!context || staticContent) return;
     setLoading(true);
     setError(null);
     try {
-      const result = await getInsight(context);
+      const result = await getInsight(context, bypassCache);
       setInsight(result);
     } catch (e: any) {
       setError(e?.message ?? 'Failed to load AI insight.');
@@ -281,7 +281,7 @@ export function AIInsightCard({
         {/* Refresh */}
         {!staticContent && (
           <TouchableOpacity
-            onPress={fetch}
+            onPress={() => fetch(true)}
             disabled={loading}
             activeOpacity={0.7}
             style={{ padding: 4, opacity: loading ? 0.4 : 1, marginLeft: 8 }}
@@ -342,7 +342,7 @@ export function AIInsightCard({
                   width: '100%',
                 }}
               >
-                <NumberBubble n={1} />
+                {items.length > 1 && <NumberBubble n={1} />}
                 <Text
                   style={[
                     textStyles.body,
