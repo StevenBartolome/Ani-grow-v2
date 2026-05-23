@@ -61,6 +61,9 @@ interface DeviceDetail {
     registered_at: string | null;
     housing_name: string | null;
     farm_name: string | null;
+    serial_number: string | null;
+    unique_code: string | null;
+    firmware_version: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -130,6 +133,7 @@ export default function DeviceSettingsScreen() {
                 .select(`
                     id, name, type, status, farm_id, housing_id,
                     claim_code, last_reset_at, registered_at,
+                    serial_number, unique_code, firmware_version,
                     housings(name),
                     farms(name)
                 `)
@@ -150,6 +154,9 @@ export default function DeviceSettingsScreen() {
                     registered_at: data.registered_at ?? null,
                     housing_name:  (data as any).housings?.name ?? null,
                     farm_name:     (data as any).farms?.name ?? null,
+                    serial_number: data.serial_number ?? null,
+                    unique_code:   data.unique_code ?? null,
+                    firmware_version: data.firmware_version ?? null,
                 };
                 setDevice(d);
                 setDeviceName(d.name);
@@ -305,8 +312,10 @@ export default function DeviceSettingsScreen() {
         );
     }
 
-    const typeLabel = device?.type === 'anifeed' ? 'AniFeed' : 'AniWeigh';
-    const typeColor = device?.type === 'anifeed' ? '#10B981' : '#6C63FF';
+    const typeParam = params.type || '';
+    const isFeedType = device ? device.type === 'anifeed' : (typeParam.toLowerCase() === 'anifeed');
+    const typeLabel = isFeedType ? 'AniFeed' : 'AniWeigh';
+    const typeColor = isFeedType ? '#10B981' : '#6C63FF';
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -318,7 +327,7 @@ export default function DeviceSettingsScreen() {
                         <BackButton fallbackRoute="/(devices)/DevicesScreen" />
                     </View>
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
-                        Device Settings
+                        {typeLabel} Settings
                     </Text>
                     <View style={{ width: 44, height: 44 }} />
                 </View>
@@ -399,8 +408,11 @@ export default function DeviceSettingsScreen() {
                         <View style={[styles.card, { paddingVertical: 16, gap: 14 }]}>
                             {[
                                 { icon: 'fingerprint', label: 'Device ID',   value: device?.id || 'N/A' },
+                                { icon: 'memory',      label: 'Serial Number', value: device?.serial_number || 'N/A' },
+                                { icon: 'qr-code',     label: 'Sticker Code', value: device?.unique_code || 'N/A' },
                                 { icon: 'home-work',   label: 'Farm',        value: device?.farm_name || 'Unassigned' },
                                 { icon: 'house',       label: 'Housing',     value: device?.housing_name || 'Unassigned' },
+                                { icon: 'developer-board', label: 'Firmware Version', value: device?.firmware_version || 'N/A' },
                                 { icon: 'event',       label: 'Registered',  value: formatDate(device?.registered_at ?? null) },
                                 { icon: 'restart-alt', label: 'Last Reset',  value: formatDate(device?.last_reset_at ?? null) },
                             ].map(row => (

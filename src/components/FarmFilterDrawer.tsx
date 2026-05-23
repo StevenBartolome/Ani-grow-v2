@@ -18,6 +18,7 @@ import {
     ScrollView,
     TouchableOpacity,
     View,
+    Platform,
 } from 'react-native';
 import { Text } from '@/components/Text';
 
@@ -48,13 +49,13 @@ export const FarmFilterDrawer: React.FC<Props> = ({ visible, onClose }) => {
     useEffect(() => {
         if (visible) {
             Animated.parallel([
-                Animated.timing(slideAnim, { toValue: 0, duration: 280, useNativeDriver: true }),
-                Animated.timing(fadeAnim,  { toValue: 1, duration: 220, useNativeDriver: true }),
+                Animated.timing(slideAnim, { toValue: 0, duration: 280, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(fadeAnim,  { toValue: 1, duration: 220, useNativeDriver: Platform.OS !== 'web' }),
             ]).start();
         } else {
             Animated.parallel([
-                Animated.timing(slideAnim, { toValue: 400, duration: 240, useNativeDriver: true }),
-                Animated.timing(fadeAnim,  { toValue: 0,   duration: 200, useNativeDriver: true }),
+                Animated.timing(slideAnim, { toValue: 400, duration: 240, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(fadeAnim,  { toValue: 0,   duration: 200, useNativeDriver: Platform.OS !== 'web' }),
             ]).start();
         }
     }, [visible]);
@@ -85,9 +86,16 @@ export const FarmFilterDrawer: React.FC<Props> = ({ visible, onClose }) => {
                     paddingBottom: 36,
                     transform: [{ translateY: slideAnim }],
                     // Shadow
-                    shadowColor: '#000', shadowOpacity: 0.18,
-                    shadowRadius: 24, shadowOffset: { width: 0, height: -6 },
-                    elevation: 20,
+                    ...Platform.select({
+                        web: {
+                            boxShadow: '0px -6px 24px rgba(0, 0, 0, 0.18)',
+                        },
+                        default: {
+                            shadowColor: '#000', shadowOpacity: 0.18,
+                            shadowRadius: 24, shadowOffset: { width: 0, height: -6 },
+                            elevation: 20,
+                        }
+                    })
                 }}
             >
                 {/* Handle */}

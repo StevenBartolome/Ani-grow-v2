@@ -1,11 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
+import { ProfileDrawer } from '@/components/ProfileDrawer';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
@@ -13,7 +15,17 @@ import { useTheme } from '@/context/ThemeContext';
 import { useGuideStyles } from '@/styles/guideStyles';
 
 export default function GuideScreen() {
-    const { profile } = useAuth();
+    const router = useRouter();
+    const { profile, permissions, role, isLoading: authLoading } = useAuth();
+
+    const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
+
+    useEffect(() => {
+        if (authLoading || !role) return;
+        if (RESTRICTED_ROLES.includes(role) && !permissions['ai_assistant:use']) {
+            router.replace('/(dashboard)/HomeScreen' as any);
+        }
+    }, [authLoading, role, permissions]);
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
@@ -22,6 +34,7 @@ export default function GuideScreen() {
     const hPad = width >= 900 ? Math.round(width * 0.12) : width >= 600 ? Math.round(width * 0.07) : 20;
 
     const [animalFilter, setAnimalFilter] = useState<'Pigs' | 'Chickens'>('Pigs');
+    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
     
     // Simulate current day across app logic (assume Day 22 for display)
     const currentDay = 22;
@@ -120,19 +133,21 @@ export default function GuideScreen() {
             {/* Fixed App Header */}
             <View style={styles.headerTopRow}>
                 <View style={styles.headerTitleRow}>
+                    <TouchableOpacity
+                        style={{ marginRight: 8, padding: 4 }}
+                        onPress={() => setProfileDrawerOpen(true)}
+                        activeOpacity={0.8}
+                    >
+                        <MaterialIcons name="menu" size={24} color={colors.text} />
+                    </TouchableOpacity>
                     <Image
                         source={require('../../assets/branding/anigrow_logo.svg')}
                         style={{ width: 36, height: 36, marginRight: 10 }}
                         contentFit="contain"
                     />
-                    <View>
-                        <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
-                            Ani-Grow
-                        </Text>
-                        <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
-                            {farmName}
-                        </Text>
-                    </View>
+                    <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
+                        Ani-Grow
+                    </Text>
                 </View>
                 <View style={{ width: 40, height: 40 }} />
             </View>
@@ -332,6 +347,11 @@ export default function GuideScreen() {
 
                 </ScrollView>
             <FloatingNavBar />
+            <ProfileDrawer
+                visible={profileDrawerOpen}
+                onClose={() => setProfileDrawerOpen(false)}
+                activeFarmName={farmName}
+            />
         </SafeAreaView>
     );
 }

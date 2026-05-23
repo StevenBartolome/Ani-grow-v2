@@ -73,7 +73,6 @@ export default function FloatingLabelInput({
       >
 
         <Animated.Text
-          pointerEvents="none"
           style={[
             textStyles.body,
             styles.label,
@@ -85,6 +84,7 @@ export default function FloatingLabelInput({
                 isFocused || !!value
                   ? 'Poppins-Medium'
                   : 'Poppins-Regular',
+              pointerEvents: 'none',
             },
           ]}
         >

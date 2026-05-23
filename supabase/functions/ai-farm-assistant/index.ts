@@ -335,7 +335,12 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
           .select('id, name, animal_type, estimated_count, current_count, arrival_date, supplier, status, housing_id, housings(id, name)')
           .order('created_at', { ascending: false });
 
-        query = input.housing_id ? query.eq('housing_id', input.housing_id) : query.in('housing_id', housingIds);
+        if (input.housing_id) {
+          if (!housingIds.includes(input.housing_id)) return { farm_id: effectiveFarmId, batches: [] };
+          query = query.eq('housing_id', input.housing_id);
+        } else {
+          query = query.in('housing_id', housingIds);
+        }
 
         const { data } = await query;
         return {
@@ -364,8 +369,12 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
           .order('record_date', { ascending: false })
           .limit(input.limit ?? 15);
 
-        if (input.batch_id) query = query.eq('batch_id', input.batch_id);
-        else query = query.in('batch_id', batchIds);
+        if (input.batch_id) {
+          if (!batchIds.includes(input.batch_id)) return { farm_id: effectiveFarmId, records: [] };
+          query = query.eq('batch_id', input.batch_id);
+        } else {
+          query = query.in('batch_id', batchIds);
+        }
         if (input.record_type) query = query.eq('record_type', input.record_type);
 
         const { data } = await query;
@@ -387,8 +396,17 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
           .order('record_date', { ascending: false })
           .limit(input.limit ?? 20);
 
-        if (input.batch_id) query = query.eq('batch_id', input.batch_id);
-        else if (batchIds.length > 0) query = query.in('batch_id', batchIds);
+        if (input.batch_id) {
+          if (!batchIds.includes(input.batch_id)) {
+            return { farm_id: effectiveFarmId, mortality_events: [], batch_mortality_summary: [] };
+          }
+          query = query.eq('batch_id', input.batch_id);
+        } else {
+          if (batchIds.length === 0) {
+            return { farm_id: effectiveFarmId, mortality_events: [], batch_mortality_summary: [] };
+          }
+          query = query.in('batch_id', batchIds);
+        }
 
         const { data: mortalityEvents } = await query;
 
@@ -408,7 +426,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
       }
 
       case 'get_weight_logs': {
-        const { data: devices } = await db.from('devices').select('id, name').eq('farm_id', effectiveFarmId).eq('type', 'scale');
+        const { data: devices } = await db.from('devices').select('id, name').eq('farm_id', effectiveFarmId).in('type', ['aniweigh', 'scale']);
         const deviceIds = (devices ?? []).map((d: any) => d.id);
         if (deviceIds.length === 0) return { farm_id: effectiveFarmId, logs: [], message: 'No AniWeigh scales found.' };
 
@@ -424,7 +442,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
       }
 
       case 'get_feed_logs': {
-        const { data: devices } = await db.from('devices').select('id, name').eq('farm_id', effectiveFarmId).eq('type', 'feeder');
+        const { data: devices } = await db.from('devices').select('id, name').eq('farm_id', effectiveFarmId).in('type', ['anifeed', 'feeder']);
         const deviceIds = (devices ?? []).map((d: any) => d.id);
         if (deviceIds.length === 0) return { farm_id: effectiveFarmId, logs: [], message: 'No AniFeed devices found.' };
 
@@ -737,7 +755,7 @@ function parseNavTags(text: string): { cleanText: string; navigation: NavLink[] 
 // ─── Anthropic caller ─────────────────────────────────────────────────────────
 
 async function callClaude(apiKey: string, system: string, messages: any[], maxTokens: number, tools?: any[]) {
-  const body: any = { model: 'claude-haiku-4-5', max_tokens: maxTokens, system, messages };
+  const body: any = { model: 'claude-3-5-haiku-latest', max_tokens: maxTokens, system, messages };
   if (tools) body.tools = tools;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',

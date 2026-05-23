@@ -20,6 +20,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { useHomeStyles } from '@/styles/homeStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { FarmSwitcherDrawer } from '@/components/FarmSwitcherDrawer';
+import { ProfileDrawer } from '@/components/ProfileDrawer';
 import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -78,7 +80,7 @@ function timeAgo(date: Date | null): string {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
-    const { profile } = useAuth();
+    const { profile, hasPermission, refreshProfile } = useAuth();
     const homeStyles = useHomeStyles();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
@@ -113,6 +115,8 @@ export default function HomeScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const [switcherOpen, setSwitcherOpen]   = useState(false);
+    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchStats = useCallback(async () => {
@@ -251,13 +255,27 @@ export default function HomeScreen() {
     }, [activeFarmIds, userId, isMultiFarm, managedFarms]);
 
     useEffect(() => {
+        if (profile) {
+            const hasFarm = profile.farmId || (profile as any).farm_id;
+            if (!hasFarm) {
+                router.replace('/(auth)/SetupAccountScreen');
+            }
+        }
+    }, [profile, router]);
+
+    useEffect(() => {
         if (activeFarmIds.length > 0) fetchStats();
     }, [fetchStats, activeFarmIds]);
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
+        try {
+            await refreshProfile();
+        } catch (e) {
+            console.error('[HomeScreen] Error refreshing profile:', e);
+        }
         await fetchStats();
-    }, [fetchStats]);
+    }, [fetchStats, refreshProfile]);
 
     // ── Greeting ──────────────────────────────────────────────────────────────
     const getGreeting = () => {
@@ -281,6 +299,266 @@ export default function HomeScreen() {
         <View style={{ width: w as any, height: h, borderRadius: radius, backgroundColor: colors.cardFill }} />
     );
 
+    // ── Dynamic Permissions Filtering ─────────────────────────────────────────
+    const visibleStatCards: React.ReactNode[] = [];
+
+    if (hasPermission('animals:view')) {
+        visibleStatCards.push(
+            <Pressable
+                key="animals"
+                onPress={() => router.push('/(animals)/AnimalsScreen' as any)}
+                style={({ pressed }) => [
+                    homeStyles.farmStateCard,
+                    { backgroundColor: colors.surface, borderColor: colors.stroke, opacity: pressed ? 0.85 : 1 },
+                ]}
+            >
+                <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <View style={[homeStyles.farmStateIconBox, { backgroundColor: colors.primary + '1A' }]}>
+                            <Image
+                                source={require('../../assets/icons/animals-filled.svg')}
+                                style={{ width: 18, height: 18 }}
+                                contentFit="contain"
+                            />
+                        </View>
+                        <MaterialIcons name="chevron-right" size={14} color={colors.textGrey} />
+                    </View>
+
+                    {isLoading
+                        ? <Skeleton w={40} h={24} />
+                        : <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, lineHeight: 28 }]}>{totalAnimals}</Text>
+                    }
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2 }]}>
+                        Total Animals
+                    </Text>
+
+                    {!isMultiFarm && (
+                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                            {animalSplit.pigs > 0 && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                    <AnimalIcon type="pig" size={10} color={colors.textGrey} />
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.pigs}</Text>
+                                </View>
+                            )}
+                            {animalSplit.chickens > 0 && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                    <AnimalIcon type="chicken" size={10} color={colors.textGrey} />
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.chickens}</Text>
+                                </View>
+                            )}
+                        </View>
+                    )}
+
+                    {isMultiFarm && !isLoading && farmBreakdown.length > 0 && (
+                        <View style={{ marginTop: 6, gap: 3 }}>
+                            {farmBreakdown.map((fb, i) => {
+                                const farmTotal = fb.pigs + fb.chickens;
+                                if (farmTotal === 0) return null;
+                                const farmColors = ['#10B981', '#6C63FF', '#F97316', '#EF4444', '#3B82F6'];
+                                const fc = farmColors[i % farmColors.length];
+                                return (
+                                    <View key={fb.farmId} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                        <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: fc }} />
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 9, flex: 1 }]} numberOfLines={1}>
+                                            {fb.farmName}
+                                        </Text>
+                                        <Text style={[textStyles.label, { color: colors.text, fontSize: 9 }]}>
+                                            {farmTotal}
+                                        </Text>
+                                    </View>
+                                );
+                            })}
+                        </View>
+                    )}
+                </View>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 }}>
+                    <MaterialIcons name="pets" size={10} color={colors.primary} />
+                    <Text style={[textStyles.body, { color: colors.primary, fontSize: 10 }]}>View animals</Text>
+                </View>
+            </Pressable>
+        );
+    }
+
+    // Active alerts are visible to all users — no permission gate needed
+    {
+        visibleStatCards.push(
+            <Pressable
+                key="alerts"
+                onPress={() => router.push('/(dashboard)/NotificationScreen' as any)}
+                style={({ pressed }) => [
+                    homeStyles.farmStateCard,
+                    {
+                        backgroundColor: unreadNotifCount > 0 ? colors.warning + '0D' : colors.surface,
+                        borderColor: unreadNotifCount > 0 ? colors.warning + '40' : colors.stroke,
+                        opacity: pressed ? 0.85 : 1,
+                    },
+                ]}
+            >
+                <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <View style={[homeStyles.farmStateIconBox, { backgroundColor: '#F97316' + '1A' }]}>
+                            <MaterialIcons name="notifications-active" size={18} color="#F97316" />
+                        </View>
+                        <MaterialIcons name="chevron-right" size={14} color={colors.textGrey} />
+                    </View>
+
+                    {isLoading
+                        ? <Skeleton w={36} h={24} />
+                        : <Text style={[textStyles.h1, { color: unreadNotifCount > 0 ? colors.warning : colors.text, fontSize: 24, lineHeight: 28 }]}>
+                            {unreadNotifCount}
+                        </Text>
+                    }
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2 }]}>
+                        Active Alerts
+                    </Text>
+                </View>
+
+                <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    marginTop: 8,
+                    backgroundColor: unreadNotifCount > 0 ? '#F97316' + '1A' : colors.bgLight,
+                    borderRadius: 6,
+                    paddingHorizontal: 6,
+                    paddingVertical: 3,
+                    alignSelf: 'flex-start',
+                }}>
+                    <MaterialIcons
+                        name={unreadNotifCount === 0 ? 'check-circle' : 'warning'}
+                        size={10}
+                        color={unreadNotifCount === 0 ? '#10B981' : '#F97316'}
+                    />
+                    <Text style={[textStyles.body, { color: unreadNotifCount === 0 ? '#10B981' : '#F97316', fontSize: 10 }]}>
+                        {unreadNotifCount === 0 ? 'All clear' : 'Needs attention'}
+                    </Text>
+                </View>
+            </Pressable>
+        );
+    }
+
+    if (hasPermission('anifeed:dispense')) {
+        visibleStatCards.push(
+            <Pressable
+                key="anifeed"
+                onPress={() => router.push('/(devices)/DevicesScreen' as any)}
+                style={({ pressed }) => [
+                    homeStyles.farmStateCard,
+                    { backgroundColor: colors.surface, borderColor: colors.stroke, opacity: pressed ? 0.85 : 1 },
+                ]}
+            >
+                <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <View style={[homeStyles.farmStateIconBox, { backgroundColor: colors.secondary + '1A' }]}>
+                            <MaterialIcons name="grain" size={18} color={colors.secondary} />
+                        </View>
+                        <MaterialIcons name="chevron-right" size={14} color={colors.textGrey} />
+                    </View>
+
+                    {isLoading
+                        ? <Skeleton w={44} h={24} />
+                        : <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, lineHeight: 28 }]}>
+                            {activeFeeders.online}<Text style={{ fontSize: 13, color: colors.textGrey }}>/{activeFeeders.total}</Text>
+                        </Text>
+                    }
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2 }]}>
+                        AniFeed
+                    </Text>
+                </View>
+
+                <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    marginTop: 8,
+                    backgroundColor: activeFeeders.total === 0 ? colors.bgLight : colors.secondary + '1A',
+                    borderRadius: 6,
+                    paddingHorizontal: 6,
+                    paddingVertical: 3,
+                    alignSelf: 'flex-start',
+                }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: activeFeeders.total === 0 ? colors.textGrey : colors.secondary }} />
+                    <Text style={[textStyles.body, { color: activeFeeders.total === 0 ? colors.textGrey : colors.secondary, fontSize: 10 }]}>
+                        {activeFeeders.total === 0 ? 'No devices' : 'Online'}
+                    </Text>
+                </View>
+            </Pressable>
+        );
+    }
+
+    if (hasPermission('devices:view')) {
+        visibleStatCards.push(
+            <Pressable
+                key="aniweigh"
+                onPress={() => router.push('/(devices)/DevicesScreen' as any)}
+                style={({ pressed }) => [
+                    homeStyles.farmStateCard,
+                    { backgroundColor: colors.surface, borderColor: colors.stroke, opacity: pressed ? 0.85 : 1 },
+                ]}
+            >
+                <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <View style={[homeStyles.farmStateIconBox, { backgroundColor: '#6C63FF' + '1A' }]}>
+                            <MaterialIcons name="monitor-weight" size={18} color="#6C63FF" />
+                        </View>
+                        <MaterialIcons name="chevron-right" size={14} color={colors.textGrey} />
+                    </View>
+ 
+                    {isLoading
+                        ? <Skeleton w={44} h={24} />
+                        : <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, lineHeight: 28 }]}>
+                            {activeScales.online}<Text style={{ fontSize: 13, color: colors.textGrey }}>/{activeScales.total}</Text>
+                        </Text>
+                    }
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2 }]}>
+                        AniWeigh
+                    </Text>
+                </View>
+ 
+                <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    marginTop: 8,
+                    backgroundColor: activeScales.total === 0 ? colors.bgLight : '#6C63FF' + '1A',
+                    borderRadius: 6,
+                    paddingHorizontal: 6,
+                    paddingVertical: 3,
+                    alignSelf: 'flex-start',
+                }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: activeScales.total === 0 ? colors.textGrey : '#6C63FF' }} />
+                    <Text style={[textStyles.body, { color: activeScales.total === 0 ? colors.textGrey : '#6C63FF', fontSize: 10 }]}>
+                        {activeScales.total === 0 ? 'No devices' : 'Online'}
+                    </Text>
+                </View>
+            </Pressable>
+        );
+    }
+ 
+    const statCardsChunks: React.ReactNode[][] = [];
+    for (let i = 0; i < visibleStatCards.length; i += 2) {
+        statCardsChunks.push(visibleStatCards.slice(i, i + 2));
+    }
+ 
+    const allQuickActions = [
+        { label: 'Feeds', icon: 'grain', route: '/(devices)/ManageFeedsScreen', color: colors.secondary, permission: 'anifeed:dispense' },
+        { label: 'Devices', icon: 'devices', route: '/(devices)/DevicesScreen', color: '#6C63FF', permission: 'devices:view' },
+        { label: 'Animals', icon: null, route: '/(animals)/AnimalsScreen', color: colors.primary, permission: 'animals:view' },
+        { label: 'Vaccines', icon: 'vaccines', route: '/(health)/VaccineScreen', color: '#EF4444', permission: 'vaccine:manage' },
+        { label: 'Housings', icon: 'home-work', route: '/(devices)/ManageHousingsScreen', color: '#F97316', permission: 'housing:manage' },
+    ];
+
+    const filteredQuickActions = allQuickActions.filter(item => {
+        return hasPermission(item.permission);
+    });
+
+    const showYourHousings = hasPermission('animals:view') || hasPermission('devices:view') || hasPermission('anifeed:dispense');
+    const showFeedActivity = hasPermission('anifeed:dispense');
+    const showWeighActivity = hasPermission('devices:view');
+    const showTodaySection = showFeedActivity || showWeighActivity;
+    const showMortality = hasPermission('health:view');
+
     return (
         <SafeAreaView style={homeStyles.safeArea}>
             <View style={homeStyles.container}>
@@ -288,6 +566,13 @@ export default function HomeScreen() {
                 {/* ── Header ─────────────────────────────────────────────────── */}
                 <View style={homeStyles.header}>
                     <View style={homeStyles.headerLeft}>
+                        <TouchableOpacity
+                            style={[homeStyles.profileIcon, { marginRight: 10, width: 36, height: 36, backgroundColor: 'transparent' }]}
+                            onPress={() => setProfileDrawerOpen(true)}
+                            activeOpacity={0.8}
+                        >
+                            <MaterialIcons name="menu" size={24} color={colors.text} />
+                        </TouchableOpacity>
                         <Image
                             source={require('../../assets/branding/anigrow_logo.svg')}
                             style={homeStyles.logo}
@@ -297,9 +582,19 @@ export default function HomeScreen() {
                             <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
                                 Ani-Grow
                             </Text>
-                            <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
-                                {farmName}
-                            </Text>
+                            <TouchableOpacity
+                                onPress={() => isMultiFarm && setSwitcherOpen(true)}
+                                disabled={!isMultiFarm}
+                                activeOpacity={0.62}
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 1 }}
+                            >
+                                <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
+                                    {farmName}
+                                </Text>
+                                {isMultiFarm && (
+                                    <MaterialIcons name="arrow-drop-down" size={16} color={colors.textGrey} />
+                                )}
+                            </TouchableOpacity>
                         </View>
                     </View>
                     <View style={homeStyles.headerRight}>
@@ -323,12 +618,6 @@ export default function HomeScreen() {
                                 )}
                             </View>
                         </TouchableOpacity>
-                        <TouchableOpacity
-                            style={homeStyles.profileIcon}
-                            onPress={() => router.push('/(settings)/SettingsScreen' as any)}
-                        >
-                            <Text style={homeStyles.profileInitial}>{userName.charAt(0).toUpperCase()}</Text>
-                        </TouchableOpacity>
                     </View>
                 </View>
 
@@ -350,20 +639,17 @@ export default function HomeScreen() {
                         <Text style={[textStyles.h1, { fontSize: 26, color: colors.text, lineHeight: 32 }]}>
                             {getGreeting()},
                         </Text>
-                        <Text style={[textStyles.h1, { fontSize: 26, color: colors.primary, lineHeight: 32 }]}>
+                        <Text translate={false} style={[textStyles.h1, { fontSize: 26, color: colors.primary, lineHeight: 32 }]}>
                             {userName.split(' ')[0]}!
                         </Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 6 }}>
-                            <MaterialIcons name="location-on" size={13} color={colors.textGrey} />
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                                {farmName}
-                            </Text>
-                            {lastUpdated && (
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
-                                    · {timeAgo(lastUpdated)}
+                        {lastUpdated && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 }}>
+                                <MaterialIcons name="update" size={12} color={colors.textGrey} />
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                    Updated {timeAgo(lastUpdated)}
                                 </Text>
-                            )}
-                        </View>
+                            </View>
+                        )}
                     </View>
 
                     <View style={homeStyles.content}>
@@ -466,442 +752,279 @@ export default function HomeScreen() {
                         )}
 
                         {/* ── Stat Cards 2×2 Grid ─────────────────────────────── */}
-                        <View style={[homeStyles.farmStateGrid, { marginBottom: 14 }]}>
-                            <View style={homeStyles.farmStateRow}>
-                                {/* Total Animals */}
-                                <Pressable
-                                    onPress={() => router.push('/(animals)/AnimalsScreen' as any)}
-                                    style={({ pressed }) => [
-                                        homeStyles.farmStateCard,
-                                        { backgroundColor: colors.surface, borderColor: colors.stroke, opacity: pressed ? 0.85 : 1 },
-                                    ]}
-                                >
-                                    <View style={[homeStyles.farmStateIconBox, { backgroundColor: colors.primary + '1A' }]}>
-                                        <Image
-                                            source={require('../../assets/icons/animals-filled.svg')}
-                                            style={{ width: 18, height: 18 }}
-                                            contentFit="contain"
-                                        />
+                        {statCardsChunks.length > 0 && (
+                            <View style={[homeStyles.farmStateGrid, { marginBottom: 14 }]}>
+                                {statCardsChunks.map((rowCards, rowIndex) => (
+                                    <View key={rowIndex} style={homeStyles.farmStateRow}>
+                                        {rowCards}
+                                        {rowCards.length === 1 && <View style={{ flex: 1 }} />}
                                     </View>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 8, marginBottom: 1 }]}>
-                                        Total Animals
-                                    </Text>
-                                    {isLoading
-                                        ? <Skeleton w={40} h={24} />
-                                        : <Text style={[textStyles.h1, { color: colors.text, fontSize: 22 }]}>{totalAnimals}</Text>
-                                    }
+                                ))}
+                            </View>
+                        )}
 
-                                    {/* Single-farm: show pig/chicken split */}
-                                    {!isMultiFarm && (
-                                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-                                            {animalSplit.pigs > 0 && (
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                    <AnimalIcon type="pig" size={10} color={colors.textGrey} />
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.pigs}</Text>
+                        {/* ── Quick Actions ─────────────────────────────────────── */}
+                        {filteredQuickActions.length > 0 && (
+                            <>
+                                <Text style={[homeStyles.sectionTitle, { color: colors.text, marginTop: 8 }]}>Quick Actions</Text>
+                                <View style={[homeStyles.quickActionsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
+                                    <View style={[homeStyles.quickActionRow, { gap: 4 }]}>
+                                        {filteredQuickActions.map(item => (
+                                            <Pressable
+                                                key={item.label}
+                                                style={({ pressed }) => [homeStyles.actionButton, { opacity: pressed ? 0.7 : 1 }]}
+                                                onPress={() => router.push(item.route as any)}
+                                            >
+                                                <View style={[homeStyles.actionIconBox, { backgroundColor: item.color + '15' }]}>
+                                                    {item.icon === null ? (
+                                                        <Image
+                                                            source={require('../../assets/icons/animals-filled.svg')}
+                                                            style={{ width: 26, height: 26 }}
+                                                            contentFit="contain"
+                                                        />
+                                                    ) : (
+                                                        <MaterialIcons name={item.icon as any} size={24} color={item.color} />
+                                                    )}
                                                 </View>
-                                            )}
-                                            {animalSplit.chickens > 0 && (
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                    <AnimalIcon type="chicken" size={10} color={colors.textGrey} />
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>{animalSplit.chickens}</Text>
-                                                </View>
-                                            )}
+                                                <Text style={[textStyles.label, { color: colors.text, marginTop: 8, fontSize: 11 }]}>
+                                                    {item.label}
+                                                </Text>
+                                            </Pressable>
+                                        ))}
+                                    </View>
+                                </View>
+                            </>
+                        )}
+
+                        {/* ── Your Housings ─────────────────────────────────────── */}
+                        {showYourHousings && (
+                            <View style={[homeStyles.quickActionsCard, { backgroundColor: colors.surface, borderColor: colors.stroke, marginTop: 0, marginBottom: 0 }]}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]}>Your Housings</Text>
+                                    <TouchableOpacity
+                                        onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
+                                        activeOpacity={0.7}
+                                        style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
+                                    >
+                                        <Text style={[textStyles.body, { color: colors.primary, fontSize: 12 }]}>View All</Text>
+                                        <MaterialIcons name="chevron-right" size={14} color={colors.primary} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {isLoading ? (
+                                    [0, 1].map(i => (
+                                        <View key={i} style={{ marginBottom: i === 0 ? 14 : 0 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                                <Skeleton w={28} h={28} radius={8} />
+                                                <Skeleton w="45%" h={13} />
+                                                <View style={{ flex: 1 }} />
+                                                <Skeleton w={36} h={13} />
+                                                <Skeleton w={32} h={20} radius={5} />
+                                            </View>
+                                            <Skeleton w="100%" h={4} radius={2} />
                                         </View>
-                                    )}
-
-                                    {/* Multi-farm: show per-farm breakdown */}
-                                    {isMultiFarm && !isLoading && farmBreakdown.length > 0 && (
-                                        <View style={{ marginTop: 4, gap: 2 }}>
-                                            {farmBreakdown.map((fb, i) => {
-                                                const farmTotal = fb.pigs + fb.chickens;
-                                                if (farmTotal === 0) return null;
-                                                const farmColors = ['#10B981', '#6C63FF', '#F97316', '#EF4444', '#3B82F6'];
-                                                const fc = farmColors[i % farmColors.length];
-                                                return (
-                                                    <View key={fb.farmId} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                                        <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: fc }} />
-                                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 9, flex: 1 }]} numberOfLines={1}>
-                                                            {fb.farmName}
-                                                        </Text>
-                                                        <Text style={[textStyles.label, { color: colors.text, fontSize: 9 }]}>
-                                                            {farmTotal}
-                                                        </Text>
+                                    ))
+                                ) : housings.length === 0 ? (
+                                    <Pressable
+                                        onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
+                                        style={{ alignItems: 'center', paddingVertical: 12, gap: 6 }}
+                                    >
+                                        <MaterialIcons name="add-home" size={26} color={colors.primary} />
+                                        <Text style={[textStyles.body, { color: colors.primary, fontSize: 12 }]}>
+                                            Add your first housing
+                                        </Text>
+                                    </Pressable>
+                                ) : (
+                                    housings.slice(0, 5).map((h, idx) => {
+                                        const pct = h.capacity > 0 ? Math.min(100, Math.round((h.current_count / h.capacity) * 100)) : 0;
+                                        const barColor = occupancyColor(pct, colors);
+                                        const isPig = h.animal_type === 'pig';
+                                        return (
+                                            <Pressable
+                                                key={h.id}
+                                                onPress={() => router.push({ pathname: '/(animals)/AnimalDetails' as any, params: { housingId: h.id } })}
+                                                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+                                            >
+                                                {idx > 0 && (
+                                                    <View style={{ height: 1, backgroundColor: colors.stroke, marginVertical: 12 }} />
+                                                )}
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                                    <View style={{
+                                                        width: 28, height: 28, borderRadius: 8,
+                                                        backgroundColor: (isPig ? '#E67E22' : '#F1C40F') + '1A',
+                                                        alignItems: 'center', justifyContent: 'center',
+                                                    }}>
+                                                        <AnimalIcon type={h.animal_type} size={15} color={isPig ? '#E67E22' : '#D4A017'} />
                                                     </View>
-                                                );
-                                            })}
-                                        </View>
-                                    )}
-
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                                        <Text style={[textStyles.body, { color: colors.primary, fontSize: 10 }]}>View animals</Text>
-                                        <MaterialIcons name="arrow-forward" size={10} color={colors.primary} />
-                                    </View>
-                                </Pressable>
-
-                                {/* Active Alerts */}
-                                <Pressable
-                                    onPress={() => router.push('/(dashboard)/NotificationScreen' as any)}
-                                    style={({ pressed }) => [
-                                        homeStyles.farmStateCard,
-                                        {
-                                            backgroundColor: unreadNotifCount > 0 ? colors.warning + '0D' : colors.surface,
-                                            borderColor: unreadNotifCount > 0 ? colors.warning + '40' : colors.stroke,
-                                            opacity: pressed ? 0.85 : 1,
-                                        },
-                                    ]}
-                                >
-                                    <View style={[homeStyles.farmStateIconBox, { backgroundColor: '#F97316' + '1A' }]}>
-                                        <MaterialIcons name="notifications-active" size={18} color="#F97316" />
-                                    </View>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 8, marginBottom: 1 }]}>
-                                        Active Alerts
-                                    </Text>
-                                    {isLoading
-                                        ? <Skeleton w={36} h={24} />
-                                        : <Text style={[textStyles.h1, { color: unreadNotifCount > 0 ? colors.warning : colors.text, fontSize: 22 }]}>
-                                            {unreadNotifCount}
-                                        </Text>
-                                    }
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, marginTop: 3 }]}>
-                                        {unreadNotifCount === 0 ? 'All clear' : 'Need attention'}
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                                        <Text style={[textStyles.body, { color: '#F97316', fontSize: 10 }]}>View alerts</Text>
-                                        <MaterialIcons name="arrow-forward" size={10} color="#F97316" />
-                                    </View>
-                                </Pressable>
+                                                    <Text numberOfLines={1} style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1, fontFamily: 'Poppins-Medium' }]}>
+                                                        {h.name}
+                                                    </Text>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                                                        {h.current_count}/{h.capacity}
+                                                    </Text>
+                                                    <View style={{ backgroundColor: barColor + '20', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 }}>
+                                                        <Text style={[textStyles.label, { color: barColor, fontSize: 10 }]}>{pct}%</Text>
+                                                    </View>
+                                                </View>
+                                                <View style={{ height: 4, backgroundColor: colors.cardFill, borderRadius: 2, overflow: 'hidden', marginLeft: 38 }}>
+                                                    <View style={{ width: `${pct}%` as any, height: 4, backgroundColor: barColor, borderRadius: 2 }} />
+                                                </View>
+                                            </Pressable>
+                                        );
+                                    })
+                                )}
                             </View>
+                        )}
 
-                            <View style={homeStyles.farmStateRow}>
-                                {/* AniFeed */}
-                                <Pressable
-                                    onPress={() => router.push('/(devices)/DevicesScreen' as any)}
-                                    style={({ pressed }) => [
-                                        homeStyles.farmStateCard,
-                                        { backgroundColor: colors.surface, borderColor: colors.stroke, opacity: pressed ? 0.85 : 1 },
-                                    ]}
-                                >
-                                    <View style={[homeStyles.farmStateIconBox, { backgroundColor: '#10B981' + '1A' }]}>
-                                        <MaterialIcons name="grain" size={18} color="#10B981" />
-                                    </View>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 8, marginBottom: 1 }]}>
-                                        AniFeed
+                        {/* ── Today's Activity ─────────────────────────────────── */}
+                        {showTodaySection && (
+                            <>
+                                <View style={[homeStyles.sectionHeaderRow, { marginTop: 20 }]}>
+                                    <Text style={[homeStyles.sectionTitle, { color: colors.text, marginBottom: 0, paddingHorizontal: 0 }]}>
+                                        Today
                                     </Text>
-                                    {isLoading
-                                        ? <Skeleton w={44} h={24} />
-                                        : <Text style={[textStyles.h1, { color: colors.text, fontSize: 22 }]}>
-                                            {activeFeeders.online}<Text style={{ fontSize: 12, color: colors.textGrey }}>/{activeFeeders.total}</Text>
-                                        </Text>
-                                    }
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, marginTop: 3 }]}>
-                                        {activeFeeders.total === 0 ? 'No devices' : 'Online'}
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                        {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                     </Text>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                                        <Text style={[textStyles.body, { color: '#10B981', fontSize: 10 }]}>Manage</Text>
-                                        <MaterialIcons name="arrow-forward" size={10} color="#10B981" />
-                                    </View>
-                                </Pressable>
+                                </View>
 
-                                {/* AniWeigh */}
-                                <Pressable
-                                    onPress={() => router.push('/(devices)/DevicesScreen' as any)}
-                                    style={({ pressed }) => [
-                                        homeStyles.farmStateCard,
-                                        { backgroundColor: colors.surface, borderColor: colors.stroke, opacity: pressed ? 0.85 : 1 },
-                                    ]}
-                                >
-                                    <View style={[homeStyles.farmStateIconBox, { backgroundColor: '#6C63FF' + '1A' }]}>
-                                        <MaterialIcons name="monitor-weight" size={18} color="#6C63FF" />
-                                    </View>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 8, marginBottom: 1 }]}>
-                                        AniWeigh
-                                    </Text>
-                                    {isLoading
-                                        ? <Skeleton w={44} h={24} />
-                                        : <Text style={[textStyles.h1, { color: colors.text, fontSize: 22 }]}>
-                                            {activeScales.online}<Text style={{ fontSize: 12, color: colors.textGrey }}>/{activeScales.total}</Text>
-                                        </Text>
-                                    }
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, marginTop: 3 }]}>
-                                        {activeScales.total === 0 ? 'No devices' : 'Online'}
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                                        <Text style={[textStyles.body, { color: '#6C63FF', fontSize: 10 }]}>Manage</Text>
-                                        <MaterialIcons name="arrow-forward" size={10} color="#6C63FF" />
-                                    </View>
-                                </Pressable>
-                            </View>
-                        </View>
-
-                        {/* ── Housing Occupancy ────────────────────────────────── */}
-                        <View style={[homeStyles.sectionHeaderRow, { marginTop: 4 }]}>
-                            <Text style={[homeStyles.sectionTitle, { color: colors.text, marginBottom: 0, paddingHorizontal: 0 }]}>
-                                Your Housings
-                            </Text>
-                            <TouchableOpacity
-                                onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
-                                activeOpacity={0.7}
-                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                            >
-                                <Text style={[textStyles.body, { color: colors.primary, fontSize: 13 }]}>View All</Text>
-                                <MaterialIcons name="chevron-right" size={16} color={colors.primary} />
-                            </TouchableOpacity>
-                        </View>
-
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={{ paddingLeft: 20, paddingRight: 8, paddingBottom: 8 }}
-                        >
-                            {isLoading ? (
-                                [0, 1, 2].map(i => (
-                                    <View key={i} style={{
-                                        width: 150, marginRight: 12,
-                                        backgroundColor: colors.surface,
-                                        borderRadius: 18, borderWidth: 1, borderColor: colors.stroke,
-                                        padding: 16, gap: 10,
-                                    }}>
-                                        <Skeleton w={32} h={32} radius={10} />
-                                        <Skeleton w="80%" h={14} />
-                                        <Skeleton w="60%" h={10} />
-                                        <Skeleton w="100%" h={6} radius={3} />
-                                    </View>
-                                ))
-                            ) : housings.length === 0 ? (
-                                <Pressable
-                                    onPress={() => router.push('/(devices)/ManageHousingsScreen' as any)}
-                                    style={({ pressed }) => ({
-                                        width: 180, opacity: pressed ? 0.8 : 1,
-                                        backgroundColor: colors.surface,
-                                        borderRadius: 18, borderWidth: 1,
-                                        borderColor: colors.stroke, borderStyle: 'dashed',
-                                        padding: 20, alignItems: 'center', justifyContent: 'center',
-                                    })}
-                                >
-                                    <MaterialIcons name="add-home" size={28} color={colors.primary} />
-                                    <Text style={[textStyles.body, { color: colors.primary, fontSize: 13, marginTop: 8, textAlign: 'center' }]}>
-                                        Add Housing
-                                    </Text>
-                                </Pressable>
-                            ) : (
-                                housings.map(h => {
-                                    const pct = h.capacity > 0 ? Math.min(100, Math.round((h.current_count / h.capacity) * 100)) : 0;
-                                    const barColor = occupancyColor(pct, colors);
-                                    const isPig = h.animal_type === 'pig';
-                                    return (
+                                <View style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 20, marginBottom: 8 }}>
+                                    {/* Feed dispensed today */}
+                                    {showFeedActivity && (
                                         <Pressable
-                                            key={h.id}
-                                            onPress={() => router.push({ pathname: '/(animals)/AnimalDetails' as any, params: { housingId: h.id } })}
+                                            onPress={() => router.push('/(devices)/DispenseRecordsScreen' as any)}
                                             style={({ pressed }) => ({
-                                                width: 150, marginRight: 12, opacity: pressed ? 0.85 : 1,
+                                                flex: 1, opacity: pressed ? 0.85 : 1,
                                                 backgroundColor: colors.surface,
                                                 borderRadius: 18, borderWidth: 1, borderColor: colors.stroke,
                                                 padding: 16,
                                             })}
                                         >
-                                            {/* Animal type icon */}
                                             <View style={{
                                                 width: 36, height: 36, borderRadius: 10,
-                                                backgroundColor: (isPig ? '#E67E22' : '#F1C40F') + '1A',
-                                                alignItems: 'center', justifyContent: 'center',
-                                                marginBottom: 12,
+                                                backgroundColor: colors.secondary + '1A',
+                                                alignItems: 'center', justifyContent: 'center', marginBottom: 12,
                                             }}>
-                                                <AnimalIcon type={h.animal_type} size={20} color={isPig ? '#E67E22' : '#D4A017'} />
+                                                <MaterialIcons name="grain" size={20} color={colors.secondary} />
                                             </View>
-
-                                            {/* Name */}
-                                            <Text numberOfLines={2} style={[textStyles.h3, { color: colors.text, fontSize: 13, lineHeight: 18, marginBottom: 4 }]}>
-                                                {h.name}
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 4 }]}>
+                                                Feed Dispensed
                                             </Text>
-
-                                            {/* Count / Capacity */}
-                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 8 }]}>
-                                                <Text style={{ color: barColor, fontFamily: 'Poppins-SemiBold' }}>{h.current_count}</Text>
-                                                {' / '}{h.capacity}
-                                            </Text>
-
-                                            {/* Progress bar */}
-                                            <View style={{ height: 5, backgroundColor: colors.cardFill, borderRadius: 3, overflow: 'hidden' }}>
-                                                <View style={{ width: `${pct}%`, height: 5, backgroundColor: barColor, borderRadius: 3 }} />
+                                            {isLoading
+                                                ? <Skeleton w={60} h={24} />
+                                                : <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>
+                                                    {formatGrams(todayFeedGrams)}
+                                                </Text>
+                                            }
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 }}>
+                                                <Text style={[textStyles.body, { color: colors.secondary, fontSize: 11 }]}>View logs</Text>
+                                                <MaterialIcons name="arrow-forward" size={11} color={colors.secondary} />
                                             </View>
-
-                                            {/* Pct label */}
-                                            <Text style={[textStyles.body, { color: barColor, fontSize: 10, marginTop: 4 }]}>
-                                                {pct}% full
-                                            </Text>
                                         </Pressable>
-                                    );
-                                })
-                            )}
-                        </ScrollView>
+                                    )}
 
-                        {/* ── Today's Activity ─────────────────────────────────── */}
-                        <View style={[homeStyles.sectionHeaderRow, { marginTop: 20 }]}>
-                            <Text style={[homeStyles.sectionTitle, { color: colors.text, marginBottom: 0, paddingHorizontal: 0 }]}>
-                                Today
-                            </Text>
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
-                                {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </Text>
-                        </View>
-
-                        <View style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 20, marginBottom: 8 }}>
-                            {/* Feed dispensed today */}
-                            <Pressable
-                                onPress={() => router.push('/(devices)/DispenseRecordsScreen' as any)}
-                                style={({ pressed }) => ({
-                                    flex: 1, opacity: pressed ? 0.85 : 1,
-                                    backgroundColor: colors.surface,
-                                    borderRadius: 18, borderWidth: 1, borderColor: colors.stroke,
-                                    padding: 16,
-                                })}
-                            >
-                                <View style={{
-                                    width: 36, height: 36, borderRadius: 10,
-                                    backgroundColor: '#10B981' + '1A',
-                                    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
-                                }}>
-                                    <MaterialIcons name="grain" size={20} color="#10B981" />
+                                    {/* Weight sessions today */}
+                                    {showWeighActivity && (
+                                        <Pressable
+                                            onPress={() => router.push('/(devices)/RecentLogsScreen' as any)}
+                                            style={({ pressed }) => ({
+                                                flex: 1, opacity: pressed ? 0.85 : 1,
+                                                backgroundColor: colors.surface,
+                                                borderRadius: 18, borderWidth: 1, borderColor: colors.stroke,
+                                                padding: 16,
+                                            })}
+                                        >
+                                            <View style={{
+                                                width: 36, height: 36, borderRadius: 10,
+                                                backgroundColor: '#6C63FF' + '1A',
+                                                alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+                                            }}>
+                                                <MaterialIcons name="monitor-weight" size={20} color="#6C63FF" />
+                                            </View>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 4 }]}>
+                                                Weigh Sessions
+                                            </Text>
+                                            {isLoading
+                                                ? <Skeleton w={36} h={24} />
+                                                : <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>
+                                                    {todayWeighSessions}
+                                                </Text>
+                                            }
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 }}>
+                                                <Text style={[textStyles.body, { color: '#6C63FF', fontSize: 11 }]}>View logs</Text>
+                                                <MaterialIcons name="arrow-forward" size={11} color="#6C63FF" />
+                                            </View>
+                                        </Pressable>
+                                    )}
                                 </View>
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 4 }]}>
-                                    Feed Dispensed
-                                </Text>
-                                {isLoading
-                                    ? <Skeleton w={60} h={24} />
-                                    : <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>
-                                        {formatGrams(todayFeedGrams)}
-                                    </Text>
-                                }
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 }}>
-                                    <Text style={[textStyles.body, { color: '#10B981', fontSize: 11 }]}>View logs</Text>
-                                    <MaterialIcons name="arrow-forward" size={11} color="#10B981" />
-                                </View>
-                            </Pressable>
-
-                            {/* Weight sessions today */}
-                            <Pressable
-                                onPress={() => router.push('/(devices)/RecentLogsScreen' as any)}
-                                style={({ pressed }) => ({
-                                    flex: 1, opacity: pressed ? 0.85 : 1,
-                                    backgroundColor: colors.surface,
-                                    borderRadius: 18, borderWidth: 1, borderColor: colors.stroke,
-                                    padding: 16,
-                                })}
-                            >
-                                <View style={{
-                                    width: 36, height: 36, borderRadius: 10,
-                                    backgroundColor: '#6C63FF' + '1A',
-                                    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
-                                }}>
-                                    <MaterialIcons name="monitor-weight" size={20} color="#6C63FF" />
-                                </View>
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 4 }]}>
-                                    Weigh Sessions
-                                </Text>
-                                {isLoading
-                                    ? <Skeleton w={36} h={24} />
-                                    : <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>
-                                        {todayWeighSessions}
-                                    </Text>
-                                }
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 }}>
-                                    <Text style={[textStyles.body, { color: '#6C63FF', fontSize: 11 }]}>View logs</Text>
-                                    <MaterialIcons name="arrow-forward" size={11} color="#6C63FF" />
-                                </View>
-                            </Pressable>
-                        </View>
+                            </>
+                        )}
 
                         {/* ── 7-Day Health Summary ─────────────────────────────── */}
-                        <View style={{ paddingHorizontal: 20, marginTop: 12, marginBottom: 8 }}>
-                            <Pressable
-                                onPress={() => router.push('/(animals)/AnimalsScreen' as any)}
-                                style={({ pressed }) => ({
-                                    opacity: pressed ? 0.85 : 1,
-                                    backgroundColor: weekMortality > 0 ? colors.error + '0D' : colors.surface,
-                                    borderRadius: 18, borderWidth: 1,
-                                    borderColor: weekMortality > 0 ? colors.error + '30' : colors.stroke,
-                                    padding: 16, flexDirection: 'row', alignItems: 'center',
-                                })}
-                            >
-                                <View style={{
-                                    width: 44, height: 44, borderRadius: 12,
-                                    backgroundColor: weekMortality > 0 ? colors.error + '18' : colors.cardFill,
-                                    alignItems: 'center', justifyContent: 'center', marginRight: 14,
-                                }}>
-                                    <MaterialIcons
-                                        name={weekMortality > 0 ? 'warning' : 'health-and-safety'}
-                                        size={22}
-                                        color={weekMortality > 0 ? colors.error : colors.primary}
-                                    />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>
-                                        7-Day Mortality
-                                    </Text>
-                                    {isLoading
-                                        ? <Skeleton w={80} h={12} radius={4} />
-                                        : <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2 }]}>
-                                            {weekMortality === 0
-                                                ? 'No deaths recorded this week'
-                                                : `${weekMortality} animal${weekMortality !== 1 ? 's' : ''} deceased this week`}
+                        {showMortality && (
+                            <View style={{ paddingHorizontal: 20, marginTop: 12, marginBottom: 8 }}>
+                                <Pressable
+                                    onPress={() => router.push('/(animals)/AnimalsScreen' as any)}
+                                    style={({ pressed }) => ({
+                                        opacity: pressed ? 0.85 : 1,
+                                        backgroundColor: weekMortality > 0 ? colors.error + '0D' : colors.surface,
+                                        borderRadius: 18, borderWidth: 1,
+                                        borderColor: weekMortality > 0 ? colors.error + '30' : colors.stroke,
+                                        padding: 16, flexDirection: 'row', alignItems: 'center',
+                                    })}
+                                >
+                                    <View style={{
+                                        width: 44, height: 44, borderRadius: 12,
+                                        backgroundColor: weekMortality > 0 ? colors.error + '18' : colors.cardFill,
+                                        alignItems: 'center', justifyContent: 'center', marginRight: 14,
+                                    }}>
+                                        <MaterialIcons
+                                            name={weekMortality > 0 ? 'warning' : 'health-and-safety'}
+                                            size={22}
+                                            color={weekMortality > 0 ? colors.error : colors.primary}
+                                        />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>
+                                            7-Day Mortality
                                         </Text>
-                                    }
-                                </View>
-                                <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                                    {!isLoading && (
-                                        <Text style={[textStyles.h2, {
-                                            color: weekMortality > 0 ? colors.error : colors.primary,
-                                            fontSize: 22,
-                                        }]}>
-                                            {weekMortality}
-                                        </Text>
-                                    )}
-                                    <MaterialIcons name="chevron-right" size={18} color={colors.textGrey} />
-                                </View>
-                            </Pressable>
-                        </View>
-
-                        {/* ── Quick Actions ─────────────────────────────────────── */}
-                        <Text style={[homeStyles.sectionTitle, { color: colors.text, marginTop: 8 }]}>Quick Actions</Text>
-                        <View style={[homeStyles.quickActionsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
-                            <View style={[homeStyles.quickActionRow, { gap: 4 }]}>
-                                {[
-                                    { label: 'Feeds', icon: 'grain', route: '/(devices)/ManageFeedsScreen', color: '#10B981' },
-                                    { label: 'Devices', icon: 'devices', route: '/(devices)/DevicesScreen', color: '#6C63FF' },
-                                    { label: 'Animals', icon: null, route: '/(animals)/AnimalsScreen', color: colors.primary },
-                                    { label: 'Vaccines', icon: 'vaccines', route: '/(health)/VaccineScreen', color: '#EF4444' },
-                                    { label: 'Housings', icon: 'home-work', route: '/(devices)/ManageHousingsScreen', color: '#F97316' },
-                                ].map(item => (
-                                    <Pressable
-                                        key={item.label}
-                                        style={({ pressed }) => [homeStyles.actionButton, { opacity: pressed ? 0.7 : 1 }]}
-                                        onPress={() => router.push(item.route as any)}
-                                    >
-                                        <View style={[homeStyles.actionIconBox, { backgroundColor: item.color + '15' }]}>
-                                            {item.icon === null ? (
-                                                <Image
-                                                    source={require('../../assets/icons/animals-filled.svg')}
-                                                    style={{ width: 26, height: 26 }}
-                                                    contentFit="contain"
-                                                />
-                                            ) : (
-                                                <MaterialIcons name={item.icon as any} size={24} color={item.color} />
-                                            )}
-                                        </View>
-                                        <Text style={[textStyles.label, { color: colors.text, marginTop: 8, fontSize: 11 }]}>
-                                            {item.label}
-                                        </Text>
-                                    </Pressable>
-                                ))}
+                                        {isLoading
+                                            ? <Skeleton w={80} h={12} radius={4} />
+                                            : <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2 }]}>
+                                                {weekMortality === 0
+                                                    ? 'No deaths recorded this week'
+                                                    : `${weekMortality} animal${weekMortality !== 1 ? 's' : ''} deceased this week`}
+                                            </Text>
+                                        }
+                                    </View>
+                                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                                        {!isLoading && (
+                                            <Text style={[textStyles.h2, {
+                                                color: weekMortality > 0 ? colors.error : colors.primary,
+                                                fontSize: 22,
+                                            }]}>
+                                                {weekMortality}
+                                            </Text>
+                                        )}
+                                        <MaterialIcons name="chevron-right" size={18} color={colors.textGrey} />
+                                    </View>
+                                </Pressable>
                             </View>
-                        </View>
+                        )}
+
 
                     </View>
                 </ScrollView>
-
-                <FloatingNavBar />
             </View>
 
+            <FloatingNavBar />
+            <FarmSwitcherDrawer visible={switcherOpen} onClose={() => setSwitcherOpen(false)} />
+            <ProfileDrawer
+                visible={profileDrawerOpen}
+                onClose={() => setProfileDrawerOpen(false)}
+                activeFarmName={farmName}
+            />
         </SafeAreaView>
     );
 }
+

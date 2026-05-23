@@ -21,10 +21,11 @@ const ANIMALS_SIZE = 38;
 
 const navItems: NavItemDef[] = [
     { name: 'Home',      iconFilled: require('../../assets/icons/home-filled.svg'),      iconStroke: require('../../assets/icons/home-stroke.svg'),      route: '/(dashboard)/HomeScreen',    size: DEFAULT_SIZE,  requiredPermission: null },
-    { name: 'Devices',   iconFilled: require('../../assets/icons/devices-filled.svg'),   iconStroke: require('../../assets/icons/devices-stroke.svg'),   route: '/(devices)/DevicesScreen',   size: DEFAULT_SIZE,  requiredPermission: 'devices' },
-    { name: 'Animals',   iconFilled: require('../../assets/icons/animals-filled.svg'),   iconStroke: require('../../assets/icons/animals-stroke.svg'),   route: '/(animals)/AnimalsScreen',   size: ANIMALS_SIZE,  requiredPermission: 'animals_guide' },
-    { name: 'Analytics', iconFilled: require('../../assets/icons/analytics-filled.svg'), iconStroke: require('../../assets/icons/analytics-stroke.svg'), route: '/(analytics)/AnalyticsScreen', size: DEFAULT_SIZE, requiredPermission: 'analytics' },
-    { name: 'Guide',     iconFilled: require('../../assets/icons/guide-filled.svg'),     iconStroke: require('../../assets/icons/guide-stroke.svg'),     route: '/(guide)/GuideScreen',       size: DEFAULT_SIZE,  requiredPermission: null },
+    { name: 'Devices',   iconFilled: require('../../assets/icons/devices-filled.svg'),   iconStroke: require('../../assets/icons/devices-stroke.svg'),   route: '/(devices)/DevicesScreen',   size: DEFAULT_SIZE,  requiredPermission: 'devices:view' },
+    { name: 'Animals',   iconFilled: require('../../assets/icons/animals-filled.svg'),   iconStroke: require('../../assets/icons/animals-stroke.svg'),   route: '/(animals)/AnimalsScreen',   size: ANIMALS_SIZE,  requiredPermission: 'animals:view' },
+    { name: 'Health',    iconFilled: require('../../assets/icons/health-filled.svg'),    iconStroke: require('../../assets/icons/health-stroke.svg'),    route: '/(animals)/HealthRecordsScreen', size: DEFAULT_SIZE,  requiredPermission: 'health:view' },
+    { name: 'Analytics', iconFilled: require('../../assets/icons/analytics-filled.svg'), iconStroke: require('../../assets/icons/analytics-stroke.svg'), route: '/(analytics)/AnalyticsScreen', size: DEFAULT_SIZE, requiredPermission: 'reports:view' },
+    { name: 'Guide',     iconFilled: require('../../assets/icons/guide-filled.svg'),     iconStroke: require('../../assets/icons/guide-stroke.svg'),     route: '/(guide)/GuideScreen',       size: DEFAULT_SIZE,  requiredPermission: 'ai_assistant:use' },
 ];
 
 export const FloatingNavBar = () => {
@@ -34,17 +35,14 @@ export const FloatingNavBar = () => {
     const { hasPermission, permissions } = useAuth();
     const styles = useFloatingNavBarStyles();
 
-    const isDevicesVisible = permissions['ani_weigh'] === true || permissions['feeding_control'] === true;
-
     const isTabVisible = (item: NavItemDef): boolean => {
         if (item.requiredPermission === null) return true;
-        if (item.requiredPermission === 'devices') return isDevicesVisible;
         return hasPermission(item.requiredPermission);
     };
 
     const handleNavigation = (route: string) => {
         if (route !== pathname) {
-            router.push(route as any);
+            router.replace(route as any);
         }
     };
 
@@ -52,11 +50,10 @@ export const FloatingNavBar = () => {
     const gradientEnd = colors.bgLight;
 
     return (
-        <View style={styles.wrapper} pointerEvents="box-none">
+        <View style={[styles.wrapper, { pointerEvents: 'box-none' }]}>
             <LinearGradient
                 colors={[gradientStart, gradientEnd]}
-                style={styles.gradient}
-                pointerEvents="none"
+                style={[styles.gradient, { pointerEvents: 'none' }]}
             />
 
             <View style={styles.container}>

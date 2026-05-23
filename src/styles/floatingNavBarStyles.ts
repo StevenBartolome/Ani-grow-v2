@@ -30,7 +30,7 @@ export const useFloatingNavBarStyles = () => {
             flexDirection: 'row',
             justifyContent: 'center',
             alignItems: 'center',
-            paddingHorizontal: 32,
+            paddingHorizontal: 22,
             paddingVertical: 18,
             shadowColor: colors.text,
             shadowOffset: { width: 0, height: 8 },
@@ -39,7 +39,7 @@ export const useFloatingNavBarStyles = () => {
             elevation: 8,
             borderWidth: 1,
             borderColor: colors.stroke,
-            gap: 32,
+            gap: 20,
         },
         navItem: {
             alignItems: 'center',

@@ -25,70 +25,55 @@ export const useAIAssistantStyles = () => {
                 backgroundColor: colors.bgLight,
             },
 
-            // ── Header ────────────────────────────────────────────────────────
+            // ── Header (Minimalist) ───────────────────────────────────────────
             header: {
                 flexDirection: 'row',
                 alignItems: 'center',
                 paddingHorizontal: 14,
-                paddingVertical: 12,
-                backgroundColor: colors.surface,
+                paddingVertical: 8,
+                backgroundColor: colors.bgLight,
                 borderBottomWidth: StyleSheet.hairlineWidth,
-                borderBottomColor: colors.stroke,
-                ...Platform.select({
-                    ios: {
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 1 },
-                        shadowOpacity: isDark ? 0.3 : 0.06,
-                        shadowRadius: 6,
-                    },
-                    android: { elevation: 3 },
-                }),
+                borderBottomColor: colors.stroke + '60', // Very subtle
             },
             headerIconBtn: {
                 width: 36,
                 height: 36,
-                borderRadius: 10,
+                borderRadius: 18,
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginRight: 2,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
             },
             headerIconBtnRight: {
                 width: 36,
                 height: 36,
-                borderRadius: 10,
+                borderRadius: 18,
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginLeft: 2,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
             },
             headerTitleWrap: {
                 flex: 1,
                 alignItems: 'center',
-                gap: 3,
+                gap: 2,
             },
             headerTitle: {
-                fontFamily: 'Poppins-SemiBold',
-                fontSize: 16,
+                fontFamily: 'Poppins-Medium',
+                fontSize: 15,
                 color: colors.text,
-                letterSpacing: 0.2,
+                letterSpacing: 0.3,
             },
             headerStatusRow: {
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 5,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
-                paddingHorizontal: 8,
-                paddingVertical: 2,
-                borderRadius: 20,
             },
             headerStatusDot: {
-                width: 6,
-                height: 6,
-                borderRadius: 3,
+                width: 5,
+                height: 5,
+                borderRadius: 2.5,
             },
             headerStatusText: {
-                fontFamily: 'Poppins-Medium',
+                fontFamily: 'Poppins-Regular',
                 fontSize: 10,
                 color: colors.textGrey,
                 letterSpacing: 0.2,
@@ -100,9 +85,6 @@ export const useAIAssistantStyles = () => {
                 height: 34,
                 borderRadius: 17,
                 marginLeft: 4,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: colors.stroke,
                 alignItems: 'center',
                 justifyContent: 'center',
             },
@@ -113,43 +95,41 @@ export const useAIAssistantStyles = () => {
             },
             messageList: {
                 flexGrow: 1,
-                paddingBottom: 16,
+                paddingBottom: 24,
             },
 
-            // ── Empty state ───────────────────────────────────────────────────
+            // ── Empty state (Thread Layout) ───────────────────────────────────
             emptyWrap: {
                 flex: 1,
-                paddingHorizontal: 28,
-                paddingTop: 52,
+                paddingHorizontal: 24,
+                paddingTop: '20%',
                 alignItems: 'center',
+                justifyContent: 'center',
             },
             emptyIconBox: {
-                width: 72,
-                height: 72,
-                borderRadius: 22,
-                backgroundColor: colors.primary,
+                width: 80,
+                height: 80,
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginBottom: 24,
-                borderWidth: 3,
-                borderColor: colors.primary + '30',
+                borderRadius: 24,
                 ...Platform.select({
                     ios: {
                         shadowColor: colors.primary,
-                        shadowOffset: { width: 0, height: 10 },
-                        shadowOpacity: 0.45,
-                        shadowRadius: 20,
+                        shadowOffset: { width: 0, height: 8 },
+                        shadowOpacity: 0.15,
+                        shadowRadius: 16,
                     },
-                    android: { elevation: 10 },
+                    android: { elevation: 8 },
                 }),
             },
             emptyTitle: {
                 fontFamily: 'Poppins-SemiBold',
-                fontSize: 22,
+                fontSize: 24,
                 color: colors.text,
                 textAlign: 'center',
-                marginBottom: 10,
-                letterSpacing: 0.2,
+                marginBottom: 8,
+                letterSpacing: -0.3,
             },
             emptySubtitle: {
                 fontFamily: 'Poppins-Regular',
@@ -157,77 +137,58 @@ export const useAIAssistantStyles = () => {
                 color: colors.textGrey,
                 textAlign: 'center',
                 lineHeight: 22,
-                marginBottom: 36,
-                paddingHorizontal: 12,
+                paddingHorizontal: 16,
             },
-            quickPromptsWrap: {
-                width: '100%',
-                gap: 10,
+            
+            // ── Suggestion Chips (above Prompt Box) ───────────────────────────
+            suggestionScrollWrap: {
+                maxHeight: 50,
+                marginBottom: 12,
             },
-            quickPromptItem: {
-                backgroundColor: colors.surface,
+            suggestionScrollContent: {
+                paddingHorizontal: 16,
+                gap: 8,
+            },
+            suggestionChip: {
+                backgroundColor: isDark ? '#1C1C1E' : colors.surface,
                 borderWidth: 1,
                 borderColor: colors.stroke,
-                borderRadius: 14,
+                borderRadius: 16,
                 paddingHorizontal: 16,
-                paddingVertical: 14,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-                ...Platform.select({
-                    ios: {
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 1 },
-                        shadowOpacity: isDark ? 0.2 : 0.05,
-                        shadowRadius: 4,
-                    },
-                    android: { elevation: 1 },
-                }),
+                paddingVertical: 8,
+                justifyContent: 'center',
             },
-            quickPromptItemPressed: {
-                backgroundColor: colors.primary + '12',
-                borderColor: colors.primary + '40',
-            },
-            quickPromptDot: {
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: colors.primary + '70',
-            },
-            quickPromptText: {
-                fontFamily: 'Poppins-Regular',
-                fontSize: 14,
+            suggestionChipText: {
+                fontFamily: 'Poppins-Medium',
+                fontSize: 13,
                 color: colors.text,
-                flex: 1,
-                lineHeight: 20,
             },
 
             // ── Conversation list ──────────────────────────────────────────────
             convWrap: {
-                paddingTop: 8,
+                paddingTop: 16,
             },
 
-            // ── User bubble ───────────────────────────────────────────────────
-            userBubbleWrap: {
+            // ── User Thread (Subtle capsule) ──────────────────────────────────
+            userThreadWrap: {
                 paddingHorizontal: 16,
-                marginBottom: 2,
+                marginBottom: 24,
                 alignItems: 'flex-end',
             },
-            userBubble: {
-                backgroundColor: colors.primary,
-                borderRadius: 18,
-                borderTopRightRadius: 4,
+            userThreadCard: {
+                backgroundColor: isDark ? '#2A2A2C' : '#F0F0F0',
+                borderRadius: 20,
                 paddingHorizontal: 16,
-                paddingVertical: 11,
-                maxWidth: '78%',
+                paddingVertical: 12,
+                maxWidth: '85%',
             },
-            userBubbleText: {
+            userThreadText: {
                 fontFamily: 'Poppins-Regular',
-                fontSize: 14,
-                color: '#fff',
-                lineHeight: 21,
+                fontSize: 15,
+                color: colors.text,
+                lineHeight: 22,
             },
-            bubbleTime: {
+            threadTimeRight: {
                 fontFamily: 'Poppins-Regular',
                 fontSize: 10,
                 color: colors.textGrey,
@@ -235,75 +196,59 @@ export const useAIAssistantStyles = () => {
                 marginRight: 4,
             },
 
-            // ── Bot message ───────────────────────────────────────────────────
-            botMsgWrap: {
+            // ── Bot Thread (Borderless, flowing text) ─────────────────────────
+            botThreadWrap: {
                 paddingHorizontal: 16,
-                marginBottom: 2,
+                marginBottom: 32,
+                flexDirection: 'row',
+                gap: 16,
+                alignItems: 'flex-start',
             },
-            botAvatarRow: {
+            botThreadAvatar: {
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                backgroundColor: 'transparent',
+                marginTop: 2,
+            },
+            botThreadContentWrap: {
+                flex: 1,
+            },
+            botThreadHeaderRow: {
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 8,
-                marginBottom: 8,
+                marginBottom: 4,
             },
-            botAvatar: {
-                width: 26,
-                height: 26,
-                borderRadius: 6,
-                backgroundColor: colors.primary,
-                alignItems: 'center',
-                justifyContent: 'center',
-            },
-            botName: {
+            botThreadName: {
                 fontFamily: 'Poppins-SemiBold',
-                fontSize: 13,
+                fontSize: 14,
                 color: colors.text,
             },
-            botContentWrap: {
-                paddingLeft: 34,
-            },
-            botNavWrap: {
-                marginTop: 10,
-                gap: 6,
-            },
-            botMsgTime: {
+            threadTimeLeft: {
                 fontFamily: 'Poppins-Regular',
                 fontSize: 10,
                 color: colors.textGrey,
-                marginTop: 8,
+            },
+            botNavWrap: {
+                marginTop: 12,
+                gap: 8,
             },
 
             // ── Typing indicator ──────────────────────────────────────────────
             typingWrap: {
                 paddingHorizontal: 16,
-                marginTop: 4,
-            },
-
-            // ── NavButton ─────────────────────────────────────────────────────
-            navBtn: {
+                marginBottom: 32,
                 flexDirection: 'row',
+                gap: 16,
                 alignItems: 'center',
-                gap: 8,
-                borderWidth: 1,
-                borderColor: colors.stroke,
-                borderRadius: 8,
-                paddingHorizontal: 12,
-                paddingVertical: 9,
-                marginTop: 8,
-                alignSelf: 'flex-start',
-                backgroundColor: colors.cardFill,
-            },
-            navBtnText: {
-                fontFamily: 'Poppins-Medium',
-                fontSize: 13,
-                color: colors.primary,
             },
 
             // ── MessageActionBar ──────────────────────────────────────────────
             actionBar: {
                 flexDirection: 'row',
                 gap: 4,
-                marginTop: 8,
+                marginTop: 12,
             },
             actionBarBtn: {
                 flexDirection: 'row',
@@ -311,10 +256,8 @@ export const useAIAssistantStyles = () => {
                 gap: 5,
                 paddingHorizontal: 10,
                 paddingVertical: 6,
-                borderWidth: 1,
-                borderColor: colors.stroke,
                 borderRadius: 6,
-                backgroundColor: colors.surface,
+                backgroundColor: 'transparent',
             },
             actionBarBtnText: {
                 fontFamily: 'Poppins-Regular',
@@ -326,114 +269,110 @@ export const useAIAssistantStyles = () => {
             dateSepWrap: {
                 flexDirection: 'row',
                 alignItems: 'center',
-                gap: 10,
-                marginVertical: 20,
-            },
-            dateSepLine: {
-                flex: 1,
-                height: 1,
-                backgroundColor: colors.stroke,
+                justifyContent: 'center',
+                marginVertical: 24,
             },
             dateSepText: {
-                fontFamily: 'Poppins-Regular',
+                fontFamily: 'Poppins-Medium',
                 fontSize: 11,
                 color: colors.textGrey,
-                letterSpacing: 0.4,
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
             },
 
             // ── Scroll-to-bottom FAB ──────────────────────────────────────────
             scrollFab: {
                 position: 'absolute',
                 right: 16,
-                bottom: 80,
-                width: 38,
-                height: 38,
-                borderRadius: 19,
-                backgroundColor: colors.primary,
+                bottom: 120,
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: colors.surface,
+                borderWidth: 1,
+                borderColor: colors.stroke,
                 alignItems: 'center',
                 justifyContent: 'center',
-                ...Platform.select({
-                    ios: {
-                        shadowColor: colors.primary,
-                        shadowOffset: { width: 0, height: 4 },
-                        shadowOpacity: 0.4,
-                        shadowRadius: 8,
-                    },
-                    android: { elevation: 6 },
-                }),
-            },
-
-            // ── Input bar ─────────────────────────────────────────────────────
-            inputBar: {
-                backgroundColor: colors.surface,
-                borderTopWidth: StyleSheet.hairlineWidth,
-                borderTopColor: colors.stroke,
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-                paddingBottom: Platform.OS === 'ios' ? 10 : 10,
-                flexDirection: 'row',
-                alignItems: 'flex-end',
-                gap: 8,
                 ...Platform.select({
                     ios: {
                         shadowColor: '#000',
-                        shadowOffset: { width: 0, height: -1 },
-                        shadowOpacity: isDark ? 0.2 : 0.04,
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.1,
                         shadowRadius: 4,
                     },
+                    android: { elevation: 2 },
                 }),
             },
-            inputWrap: {
-                flex: 1,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)',
-                borderWidth: 1.5,
+
+            // ── Unified Prompt Box ────────────────────────────────────────────
+            promptBoxContainer: {
+                backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+                borderWidth: 1,
                 borderColor: colors.stroke,
-                borderRadius: 22,
-                overflow: 'hidden',
-                paddingHorizontal: 16,
-                paddingVertical: 10,
-                minHeight: 44,
-                maxHeight: 130,
-                justifyContent: 'center',
+                borderRadius: 20,
+                marginHorizontal: 16,
+                marginBottom: Platform.OS === 'ios' ? 24 : 16,
+                padding: 12,
+                ...Platform.select({
+                    ios: {
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: isDark ? 0.3 : 0.04,
+                        shadowRadius: 12,
+                    },
+                    android: { elevation: 3 },
+                }),
             },
-            inputWrapFocused: {
+            promptBoxFocused: {
                 borderColor: colors.primary + '80',
-                backgroundColor: isDark ? 'rgba(255,255,255,0.09)' : colors.surface,
             },
-            inputField: {
+            promptInputWrap: {
+                minHeight: 40,
+                maxHeight: 120,
+                marginBottom: 8,
+            },
+            promptInputField: {
                 fontFamily: 'Poppins-Regular',
-                fontSize: 14,
+                fontSize: 15,
                 color: colors.text,
                 padding: 0,
                 margin: 0,
+                lineHeight: 22,
             },
-            sendBtn: {
-                width: 44,
-                height: 44,
-                borderRadius: 22,
+            promptToolbar: {
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+            },
+            promptToolsLeft: {
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+            },
+            promptToolBtn: {
+                width: 32,
+                height: 32,
+                borderRadius: 16,
                 alignItems: 'center',
                 justifyContent: 'center',
+                backgroundColor: isDark ? '#2A2A2C' : '#F0F0F0',
             },
-            sendBtnActive: {
+            promptSendBtn: {
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                alignItems: 'center',
+                justifyContent: 'center',
                 backgroundColor: colors.primary,
-                ...Platform.select({
-                    ios: {
-                        shadowColor: colors.primary,
-                        shadowOffset: { width: 0, height: 4 },
-                        shadowOpacity: 0.4,
-                        shadowRadius: 8,
-                    },
-                    android: { elevation: 4 },
-                }),
             },
-            sendBtnDisabled: {
-                backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+            promptSendBtnDisabled: {
+                backgroundColor: isDark ? '#2A2A2C' : '#E5E5E5',
             },
 
             // ── Toast ─────────────────────────────────────────────────────────
             toast: {
                 position: 'absolute',
-                bottom: 90,
+                bottom: 120,
                 alignSelf: 'center',
                 backgroundColor: isDark ? '#1e1e1e' : '#111',
                 borderRadius: 24,
@@ -442,17 +381,6 @@ export const useAIAssistantStyles = () => {
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 8,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: 'rgba(255,255,255,0.1)',
-                ...Platform.select({
-                    ios: {
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 4 },
-                        shadowOpacity: 0.3,
-                        shadowRadius: 10,
-                    },
-                    android: { elevation: 8 },
-                }),
             },
             toastText: {
                 fontFamily: 'Poppins-Medium',
@@ -460,7 +388,7 @@ export const useAIAssistantStyles = () => {
                 color: '#fff',
             },
 
-            // ── Sidebar drawer ────────────────────────────────────────────────
+            // ── Sidebar drawer (unchanged) ────────────────────────────────────
             sidebarBackdrop: {
                 position: 'absolute',
                 top: 0, left: 0, right: 0, bottom: 0,
@@ -475,159 +403,50 @@ export const useAIAssistantStyles = () => {
                 borderRightWidth: StyleSheet.hairlineWidth,
                 borderRightColor: colors.stroke,
                 zIndex: 101,
-                ...Platform.select({
-                    ios: {
-                        shadowColor: '#000',
-                        shadowOffset: { width: 4, height: 0 },
-                        shadowOpacity: 0.18,
-                        shadowRadius: 16,
-                    },
-                    android: { elevation: 12 },
-                }),
-            },
-            sidebarHeader: {
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingHorizontal: 16,
-                paddingVertical: 16,
-                borderBottomWidth: StyleSheet.hairlineWidth,
-                borderBottomColor: colors.stroke,
-            },
-            sidebarBrandRow: {
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 10,
-            },
-            sidebarBrandIcon: {
-                width: 32,
-                height: 32,
-                borderRadius: 10,
-                backgroundColor: colors.primary,
-                alignItems: 'center',
-                justifyContent: 'center',
-                ...Platform.select({
-                    ios: {
-                        shadowColor: colors.primary,
-                        shadowOffset: { width: 0, height: 3 },
-                        shadowOpacity: 0.35,
-                        shadowRadius: 6,
-                    },
-                    android: { elevation: 4 },
-                }),
-            },
-            sidebarBrandTitle: {
-                fontFamily: 'Poppins-SemiBold',
-                fontSize: 16,
-                color: colors.text,
-                letterSpacing: 0.2,
-            },
-            sidebarNewChatBtn: {
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 10,
-                marginHorizontal: 12,
-                marginTop: 12,
-                marginBottom: 4,
-                paddingHorizontal: 14,
-                paddingVertical: 13,
-                backgroundColor: colors.primary,
-                borderRadius: 12,
-                ...Platform.select({
-                    ios: {
-                        shadowColor: colors.primary,
-                        shadowOffset: { width: 0, height: 4 },
-                        shadowOpacity: 0.3,
-                        shadowRadius: 8,
-                    },
-                    android: { elevation: 4 },
-                }),
-            },
-            sidebarNewChatText: {
-                fontFamily: 'Poppins-SemiBold',
-                fontSize: 14,
-                color: '#fff',
-                flex: 1,
-            },
-            sidebarEmptyText: {
-                fontFamily: 'Poppins-Regular',
-                fontSize: 13,
-                color: colors.textGrey,
-                textAlign: 'center',
-                lineHeight: 20,
-            },
-            sidebarGroupLabel: {
-                fontFamily: 'Poppins-SemiBold',
-                fontSize: 10,
-                color: colors.textGrey,
-                letterSpacing: 1,
-                textTransform: 'uppercase',
-                paddingHorizontal: 16,
-                paddingTop: 18,
-                paddingBottom: 6,
-            },
-            sidebarConvRow: {
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingHorizontal: 12,
-                paddingVertical: 11,
-                marginHorizontal: 8,
-                marginBottom: 2,
-                borderRadius: 10,
-            },
-            sidebarConvMeta: {
-                flex: 1,
-                marginRight: 6,
-            },
-            sidebarConvActiveDot: {
-                width: 7,
-                height: 7,
-                borderRadius: 4,
-                backgroundColor: colors.primary,
             },
 
             // ── Markdown ──────────────────────────────────────────────────────
             mdHeading: {
                 fontFamily: 'Poppins-SemiBold',
-                fontSize: 15,
-                marginTop: 12,
-                marginBottom: 4,
+                fontSize: 16,
+                marginTop: 16,
+                marginBottom: 6,
             },
             mdParagraph: {
                 fontFamily: 'Poppins-Regular',
-                fontSize: 14,
-                lineHeight: 22,
-                marginTop: 2,
+                fontSize: 15,
+                lineHeight: 24,
+                marginTop: 4,
             },
             mdListWrap: {
-                marginTop: 6,
-                marginBottom: 4,
-                gap: 4,
+                marginTop: 8,
+                marginBottom: 6,
+                gap: 6,
             },
             mdListRow: {
                 flexDirection: 'row',
-                gap: 8,
+                gap: 10,
             },
             mdListBullet: {
                 fontFamily: 'Poppins-SemiBold',
-                fontSize: 13,
-                minWidth: 18,
+                fontSize: 14,
+                minWidth: 20,
             },
             mdListItem: {
                 flex: 1,
                 fontFamily: 'Poppins-Regular',
-                fontSize: 14,
-                lineHeight: 21,
+                fontSize: 15,
+                lineHeight: 24,
             },
             mdBulletDot: {
-                width: 5,
-                height: 5,
+                width: 6,
+                height: 6,
                 borderRadius: 3,
-                marginTop: 8,
+                marginTop: 9,
             },
             mdHr: {
                 height: 1,
-                marginVertical: 10,
+                marginVertical: 16,
             },
         }),
     };
