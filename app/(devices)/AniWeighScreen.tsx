@@ -80,6 +80,34 @@ function getFormattedDate(): string {
     return `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
 }
 
+function calculateBatchAge(arrivalDateStr: string, ageAtArrivalDays: number, animalType: 'Chicken' | 'Pig') {
+    if (!arrivalDateStr) return '0 days';
+    const arrivalDate = new Date(arrivalDateStr);
+    const today = new Date();
+    arrivalDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+
+    const diffTime = today.getTime() - arrivalDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const ageDays = Math.max(0, diffDays) + (ageAtArrivalDays || 0);
+
+    if (animalType === 'Chicken') {
+        return `${ageDays} ${ageDays === 1 ? 'day' : 'days'}`;
+    } else {
+        if (ageDays < 30) {
+            return `${ageDays} ${ageDays === 1 ? 'day' : 'days'}`;
+        } else {
+            const months = Math.floor(ageDays / 30);
+            const remainingDays = ageDays % 30;
+            if (remainingDays === 0) {
+                return `${months} ${months === 1 ? 'month' : 'months'} (${ageDays} days)`;
+            } else {
+                return `${months} ${months === 1 ? 'month' : 'months'}, ${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} (${ageDays} days)`;
+            }
+        }
+    }
+}
+
 export default function AniWeighScreen() {
     const { systemConfig, profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
@@ -127,7 +155,7 @@ export default function AniWeighScreen() {
 
     // Edit modal
     const [editModalVisible, setEditModalVisible] = useState(false);
-    const [editTarget, setEditTarget] = useState<'Animal Type' | 'Housing' | null>(null);
+    const [editTarget, setEditTarget] = useState<'Animal Type' | 'Housing' | 'Batch' | null>(null);
 
     // Action modal
     const [modalVisible, setModalVisible] = useState(false);
@@ -145,6 +173,10 @@ export default function AniWeighScreen() {
     const [liveWeightG, setLiveWeightG] = useState<number | null>(null);
     const [liveStatus, setLiveStatus] = useState<'underweight' | 'normal' | 'overweight' | null>(null);
     const [liveFlash, setLiveFlash] = useState(false);
+    const [isSimulating, setIsSimulating] = useState(false);
+    const [simulationTimeLeft, setSimulationTimeLeft] = useState(0);
+    const [housingBatches, setHousingBatches] = useState<{ id: string; name: string; current_count: number; arrival_date: string; age_at_arrival_days: number }[]>([]);
+    const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
 
     const showSnackbar = (msg: string, type: SnackbarType = 'success') => {
         setSnackbarMessage(msg); setSnackbarType(type); setSnackbarVisible(true);
@@ -155,11 +187,20 @@ export default function AniWeighScreen() {
         if (!deviceId) return;
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
-        const { data } = await supabase
+        
+        let query = supabase
             .from('weigh_sessions')
             .select('status')
             .eq('device_id', deviceId)
             .gte('recorded_at', todayStart.toISOString());
+
+        if (selectedBatchId) {
+            query = query.eq('batch_id', selectedBatchId);
+        } else {
+            query = query.is('batch_id', null);
+        }
+
+        const { data } = await query;
         if (data) {
             const rows = data as any[];
             const total = rows.length;
@@ -169,7 +210,7 @@ export default function AniWeighScreen() {
             const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0;
             setSegregationStats({ total, underweight: { count: under, percentage: pct(under) }, normal: { count: normal, percentage: pct(normal) }, overweight: { count: over, percentage: pct(over) } });
         }
-    }, [deviceId]);
+    }, [deviceId, selectedBatchId]);
 
     // ─── Fetch ───────────────────────────────────────────────────
     const fetchAll = useCallback(async (silent = false) => {
@@ -178,6 +219,18 @@ export default function AniWeighScreen() {
         try {
             const todayStart = new Date();
             todayStart.setHours(0, 0, 0, 0);
+
+            let todayStatsQuery = supabase
+                .from('weigh_sessions')
+                .select('status')
+                .eq('device_id', deviceId)
+                .gte('recorded_at', todayStart.toISOString());
+
+            if (selectedBatchId) {
+                todayStatsQuery = todayStatsQuery.eq('batch_id', selectedBatchId);
+            } else {
+                todayStatsQuery = todayStatsQuery.is('batch_id', null);
+            }
 
             const [deviceResult, housingsResult, todayStatsResult] = await Promise.all([
                 supabase
@@ -190,11 +243,7 @@ export default function AniWeighScreen() {
                     .select('id, name, animal_type')
                     .eq('farm_id', farmId)
                     .eq('status', 'Active'),
-                supabase
-                    .from('weigh_sessions')
-                    .select('status')
-                    .eq('device_id', deviceId)
-                    .gte('recorded_at', todayStart.toISOString()),
+                todayStatsQuery,
             ]);
 
             if (deviceResult.data) {
@@ -209,6 +258,30 @@ export default function AniWeighScreen() {
                 setDeviceInfo(info);
                 deviceInfoRef.current = info;   // keep ref in sync
                 setIsConnected(d.status === 'online');
+
+                // Fetch batches for this housing if assigned
+                if (info.housingId) {
+                    const { data: batchesData } = await supabase
+                        .from('batches')
+                        .select('id, name, current_count, arrival_date, age_at_arrival_days')
+                        .eq('housing_id', info.housingId)
+                        .eq('status', 'active')
+                        .order('created_at', { ascending: false });
+                    
+                    if (batchesData) {
+                        setHousingBatches(batchesData as any[]);
+                        setSelectedBatchId(prev => {
+                            const stillExists = (batchesData as any[]).some(b => b.id === prev);
+                            return stillExists ? prev : (batchesData[0]?.id ?? null);
+                        });
+                    } else {
+                        setHousingBatches([]);
+                        setSelectedBatchId(null);
+                    }
+                } else {
+                    setHousingBatches([]);
+                    setSelectedBatchId(null);
+                }
 
                 // Fetch weight threshold for this device + animal type
                 const { data: threshData } = await supabase
@@ -229,13 +302,21 @@ export default function AniWeighScreen() {
                     setTempRangeUnit('kg');
                 }
 
-                // Fetch recent sessions for this device only
-                const { data: logsData } = await supabase
+                // Fetch recent sessions for this device and selected batch
+                let logsQuery = supabase
                     .from('weigh_sessions')
                     .select('id, net_weight_grams, status, animal_type, recorded_at')
                     .eq('device_id', deviceId)
                     .order('recorded_at', { ascending: false })
                     .limit(3);
+
+                if (selectedBatchId) {
+                    logsQuery = logsQuery.eq('batch_id', selectedBatchId);
+                } else {
+                    logsQuery = logsQuery.is('batch_id', null);
+                }
+
+                const { data: logsData } = await logsQuery;
 
                 if (logsData) {
                     setWeightLogs((logsData as any[]).map(s => ({
@@ -268,7 +349,7 @@ export default function AniWeighScreen() {
         } finally {
             if (!silent) setIsLoading(false);
         }
-    }, [deviceId, farmId]);
+    }, [deviceId, farmId, selectedBatchId]);
 
     useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -279,18 +360,29 @@ export default function AniWeighScreen() {
     useEffect(() => {
         if (!deviceId) return;
 
-        // Seed initial live value from most recent record
-        supabase
+        // Seed initial live value from most recent record for the selected batch
+        let seedQuery = supabase
             .from('weigh_sessions')
             .select('net_weight_grams, status')
             .eq('device_id', deviceId)
             .order('recorded_at', { ascending: false })
-            .limit(1)
-            .single()
+            .limit(1);
+
+        if (selectedBatchId) {
+            seedQuery = seedQuery.eq('batch_id', selectedBatchId);
+        } else {
+            seedQuery = seedQuery.is('batch_id', null);
+        }
+
+        seedQuery
+            .maybeSingle()
             .then(({ data }) => {
                 if (data) {
                     setLiveWeightG((data as any).net_weight_grams);
                     setLiveStatus((data as any).status);
+                } else {
+                    setLiveWeightG(null);
+                    setLiveStatus(null);
                 }
             });
 
@@ -301,6 +393,9 @@ export default function AniWeighScreen() {
                 { event: 'INSERT', schema: 'public', table: 'weigh_sessions', filter: `device_id=eq.${deviceId}` },
                 (payload) => {
                     const row = payload.new as any;
+
+                    // Only update and log if the incoming session matches the selected batch
+                    if (row.batch_id !== selectedBatchId) return;
 
                     // 1. Update live-scale display immediately
                     setLiveWeightG(row.net_weight_grams);
@@ -335,7 +430,7 @@ export default function AniWeighScreen() {
             .subscribe();
 
         return () => { supabase.removeChannel(channel); };
-    }, [deviceId, fetchStats]);
+    }, [deviceId, fetchStats, selectedBatchId]);
 
     // ─── Derived values ──────────────────────────────────────────
     const animalType = deviceInfo?.animalType ?? 'Chicken';
@@ -424,22 +519,116 @@ export default function AniWeighScreen() {
         };
         try {
             if (threshold?.id) {
-                await supabase.from('weight_thresholds').update(payload).eq('id', threshold.id);
+                const { error } = await supabase.from('weight_thresholds').update(payload).eq('id', threshold.id);
+                if (error) throw error;
                 setThreshold(prev => prev ? { ...prev, underweightMaxGrams: underGrams, normalMinGrams: underGrams + 1, normalMaxGrams: overGrams - 1, overweightMinGrams: overGrams } : null);
             } else {
-                const { data } = await supabase.from('weight_thresholds').insert(payload).select('id').single();
+                const { data, error } = await supabase.from('weight_thresholds').insert(payload).select('id').single();
+                if (error) throw error;
                 setThreshold({ id: (data as any)?.id ?? null, underweightMaxGrams: underGrams, normalMinGrams: underGrams + 1, normalMaxGrams: overGrams - 1, overweightMinGrams: overGrams });
             }
             setRangeUnit(tempRangeUnit);
             setRangeSettingsVisible(false);
             showSnackbar(`Weight range updated (${tempRangeUnit}).`);
-        } catch {
+        } catch (err) {
+            console.error('[handleSaveRanges] error:', err);
             showSnackbar('Failed to save weight range.', 'error');
         }
     };
 
-    // ─── Edit modal (Housing / Animal Type) ─────────────────────
-    const openEditModal = (target: 'Animal Type' | 'Housing') => {
+    // ─── Simulation handler ─────────────────────────────────────────
+    const handleStartSimulation = async () => {
+        if (!deviceInfo?.housingId || deviceInfo?.housingName === 'Unassigned') {
+            showSnackbar('Please assign a housing to this device first.', 'error');
+            return;
+        }
+
+        if (housingBatches.length > 0 && !selectedBatchId) {
+            showSnackbar('Please select a batch first.', 'error');
+            return;
+        }
+
+        if (housingBatches.length === 0) {
+            showSnackbar('Please create an active batch in this housing first.', 'error');
+            return;
+        }
+
+        setIsSimulating(true);
+        setSimulationTimeLeft(5);
+
+        // Count down 5 seconds
+        const interval = setInterval(() => {
+            setSimulationTimeLeft(prev => {
+                if (prev <= 1) {
+                    clearInterval(interval);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+
+        setTimeout(async () => {
+            try {
+                const selectedBatch = housingBatches.find(b => b.id === selectedBatchId);
+                const animalCount = selectedBatch && selectedBatch.current_count > 0 ? selectedBatch.current_count : 1;
+
+                const underMax = threshold?.underweightMaxGrams ?? 800;
+                const overMin = threshold?.overweightMinGrams ?? 1500;
+
+                const payloads = [];
+
+                for (let i = 0; i < animalCount; i++) {
+                    const rand = Math.random();
+                    let simulatedWeightG = 1150;
+                    let status: 'underweight' | 'normal' | 'overweight' = 'normal';
+
+                    if (rand < 0.2) {
+                        simulatedWeightG = Math.round(underMax * 0.85);
+                        status = 'underweight';
+                    } else if (rand > 0.8) {
+                        simulatedWeightG = Math.round(overMin * 1.15);
+                        status = 'overweight';
+                    } else {
+                        simulatedWeightG = Math.round(underMax + (overMin - underMax) * (0.2 + Math.random() * 0.6));
+                        status = 'normal';
+                    }
+
+                    // Spread timestamps by 1 second each to ensure ordered log list
+                    const recordTime = new Date(Date.now() - (animalCount - 1 - i) * 1000).toISOString();
+
+                    payloads.push({
+                        device_id: deviceId,
+                        farm_id: farmId,
+                        batch_id: selectedBatchId,
+                        weigh_mode: 'individual',
+                        animal_type: animalType.toLowerCase() as 'chicken' | 'pig',
+                        animal_count: 1,
+                        gross_weight_grams: simulatedWeightG,
+                        tare_weight_grams: 0,
+                        net_weight_grams: simulatedWeightG,
+                        avg_weight_grams: simulatedWeightG,
+                        status: status,
+                        conducted_by: profile?.uid || (profile as any)?.id || null,
+                        recorded_at: recordTime,
+                    });
+                }
+
+                const { error } = await supabase.from('weigh_sessions').insert(payloads);
+                if (error) throw error;
+
+                showSnackbar(`Successfully weighed all ${animalCount} livestock in "${selectedBatch?.name || 'Batch'}" individually!`, 'success');
+            } catch (err: any) {
+                console.error('[Simulation Error]:', err);
+                showSnackbar('Simulation failed to log records.', 'error');
+            } finally {
+                setIsSimulating(false);
+            }
+        }, 5000);
+    };
+
+
+    // ─── Edit modal (Housing / Animal Type / Batch) ─────────────────────
+    const openEditModal = (target: 'Animal Type' | 'Housing' | 'Batch') => {
         setEditTarget(target);
         setEditModalVisible(true);
     };
@@ -451,20 +640,41 @@ export default function AniWeighScreen() {
                 .filter(h => h.animal_type === animalType.toLowerCase())
                 .map(h => h.name);
         }
+        if (editTarget === 'Batch') {
+            return housingBatches.map(b => b.name);
+        }
         return [];
     };
 
-    const handleEditConfirm = (val: string) => {
+    const handleEditConfirm = async (val: string) => {
         setEditModalVisible(false);
-        if (editTarget === 'Animal Type') {
-            // Selecting animal type → show housings of that type for the user to pick
-            showSnackbar(`Change the Housing to a ${val} housing to switch type.`, 'info');
-        } else if (editTarget === 'Housing') {
-            setPendingEditVal(val);
-            setModalType('confirmation');
-            setModalTitle(`Update Housing?`);
-            setModalMessage(`Change this device's housing to "${val}"?`);
-            setModalVisible(true);
+        try {
+            if (editTarget === 'Animal Type') {
+                const selectedType = val as 'Pig' | 'Chicken';
+                // Unassign housing when animal type changes — user must reassign manually
+                await supabase.from('devices').update({ housing_id: null }).eq('id', deviceId);
+                setDeviceInfo(prev => {
+                    const updated = prev ? { ...prev, housingId: null, housingName: 'Unassigned', animalType: selectedType } as DeviceInfo : null;
+                    deviceInfoRef.current = updated;
+                    return updated;
+                });
+                showSnackbar(`Animal type set to ${selectedType}. Please reassign a housing.`);
+                setThreshold(null);
+            } else if (editTarget === 'Housing') {
+                setPendingEditVal(val);
+                setModalType('confirmation');
+                setModalTitle(`Update Housing?`);
+                setModalMessage(`Change this device's housing to "${val}"?`);
+                setModalVisible(true);
+            } else if (editTarget === 'Batch') {
+                const selected = housingBatches.find(b => b.name === val);
+                if (selected) {
+                    setSelectedBatchId(selected.id);
+                    showSnackbar(`Active batch set to "${selected.name}".`);
+                }
+            }
+        } catch (err) {
+            showSnackbar(`Failed to update ${editTarget}.`, 'error');
         }
     };
 
@@ -556,9 +766,65 @@ export default function AniWeighScreen() {
                                     <Text style={[textStyles.label, { color: colors.info, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{housing}</Text>
                                     <MaterialIcons name="arrow-drop-down" size={16} color={colors.info} />
                                 </TouchableOpacity>
+                                {deviceInfo?.housingId && (
+                                    <TouchableOpacity style={[aniweighStyles.tag, { backgroundColor: colors.warning + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Batch')}>
+                                        <MaterialIcons name="layers" size={14} color={colors.warning} />
+                                        <Text style={[textStyles.label, { color: colors.warning, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>
+                                            {housingBatches.find(b => b.id === selectedBatchId)?.name ?? 'No Batch'}
+                                        </Text>
+                                        <MaterialIcons name="arrow-drop-down" size={16} color={colors.warning} />
+                                    </TouchableOpacity>
+                                )}
                             </View>
                         </ScrollView>
                     </View>
+
+                    {/* Start Simulation Button */}
+                    {(() => {
+                        const canSimulate = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isSimulating;
+                        return (
+                            <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8 }}>
+                                <TouchableOpacity
+                                    activeOpacity={canSimulate ? 0.8 : 1}
+                                    disabled={!canSimulate}
+                                    onPress={handleStartSimulation}
+                                    style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: 8,
+                                        paddingVertical: 13,
+                                        borderRadius: 16,
+                                        backgroundColor: isSimulating 
+                                            ? colors.warning 
+                                            : canSimulate 
+                                            ? colors.secondary 
+                                            : colors.cardFill,
+                                        borderWidth: canSimulate || isSimulating ? 0 : 1,
+                                        borderColor: colors.stroke,
+                                        opacity: canSimulate || isSimulating ? 1 : 0.55,
+                                    }}
+                                >
+                                    {isSimulating ? (
+                                        <ActivityIndicator size="small" color="#fff" />
+                                    ) : (
+                                        <MaterialIcons name="play-circle-filled" size={20} color={canSimulate ? (colors.onPrimary ?? '#fff') : colors.textGrey} />
+                                    )}
+                                    <Text style={[textStyles.btnLabel, { color: canSimulate || isSimulating ? (colors.onPrimary ?? '#fff') : colors.textGrey, fontSize: 14 }]}>
+                                        {isSimulating 
+                                            ? `Weighing Livestock... (${simulationTimeLeft}s)` 
+                                            : 'Start Simulation'
+                                        }
+                                    </Text>
+                                </TouchableOpacity>
+                                {!canSimulate && !isSimulating && (
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center', marginTop: 6 }]}>
+                                        Assign an animal type and housing to enable simulation.
+                                    </Text>
+                                )}
+                            </View>
+                        );
+                    })()}
 
                     {/* Segregation Stats */}
                     <View style={[aniweighStyles.statsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
@@ -698,6 +964,72 @@ export default function AniWeighScreen() {
                             </View>
                         </View>
                     </View>
+
+                    {/* Active Batches in House */}
+                    {deviceInfo?.housingId && (
+                        <View style={{ marginBottom: 24 }}>
+                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 18, marginBottom: 12 }]}>Active Batches in House</Text>
+                            
+                            {housingBatches.length === 0 ? (
+                                <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 18, alignItems: 'center' }}>
+                                    <MaterialIcons name="layers-clear" size={32} color={colors.textGrey} />
+                                    <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 8, fontSize: 13, textAlign: 'center' }]}>
+                                        No active batches found in this housing.
+                                    </Text>
+                                </View>
+                            ) : (
+                                housingBatches.map((batch, idx) => {
+                                    const ageLabel = calculateBatchAge(batch.arrival_date, batch.age_at_arrival_days, animalType as any);
+                                    return (
+                                        <View
+                                            key={batch.id ?? idx}
+                                            style={{
+                                                backgroundColor: colors.surface,
+                                                borderRadius: 16,
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                                padding: 16,
+                                                marginBottom: 10,
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                            }}
+                                        >
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
+                                                <View style={{
+                                                    width: 40,
+                                                    height: 40,
+                                                    borderRadius: 10,
+                                                    backgroundColor: colors.primary + '1A',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    marginRight: 12,
+                                                }}>
+                                                    <MaterialIcons name="layers" size={20} color={colors.primary} />
+                                                </View>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]} numberOfLines={1}>
+                                                        {batch.name}
+                                                    </Text>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2 }]}>
+                                                        Age: {ageLabel}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                            <View style={{ alignItems: 'flex-end' }}>
+                                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
+                                                    {batch.current_count}
+                                                </Text>
+                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>
+                                                    heads
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    );
+                                })
+                            )}
+                        </View>
+                    )}
 
                     {/* Recent Logs */}
                     <View style={aniweighStyles.logsSection}>
