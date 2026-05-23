@@ -77,9 +77,25 @@ export default function AnimalDetailsScreen() {
             if (housingRes.error) throw housingRes.error;
             if (batchRes.error) throw batchRes.error;
 
-            setHousing(housingRes.data);
             const batchList = batchRes.data ?? [];
             setBatches(batchList);
+
+            // Self-healing check for housing count
+            const expectedHousingCount = batchList
+                .filter((b: any) => b.status === 'active')
+                .reduce((sum: number, b: any) => sum + (b.current_count ?? 0), 0);
+
+            if (housingRes.data && housingRes.data.current_count !== expectedHousingCount) {
+                console.log(`[Self-Healing] Syncing housing ${housingId} count from ${housingRes.data.current_count} to ${expectedHousingCount}`);
+                supabase.from('housings')
+                    .update({ current_count: expectedHousingCount })
+                    .eq('id', housingId)
+                    .then(({ error: uErr }) => {
+                        if (uErr) console.error('[Self-Healing] Failed to sync housing:', uErr.message);
+                    });
+                housingRes.data.current_count = expectedHousingCount;
+            }
+            setHousing(housingRes.data);
             // Auto-select the first active batch, or the latest one
             const activeBatch = batchList.find(b => b.status === 'active');
             setSelectedBatchId(activeBatch?.id ?? batchList[0]?.id ?? null);

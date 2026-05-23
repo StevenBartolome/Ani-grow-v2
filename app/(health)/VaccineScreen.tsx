@@ -31,6 +31,7 @@ import { BackButton } from '@/components/BackButton';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
+import { useFocusEffect } from '@react-navigation/native';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTheme } from '@/context/ThemeContext';
 import { supabase } from '@/lib/supabase';
@@ -470,7 +471,11 @@ export default function VaccineScreen() {
         setIsLoading(false);
     }, [loadRecords, loadSchedules, loadInventory, loadBatches]);
 
-    useEffect(() => { loadAll(); }, [loadAll]);
+    useFocusEffect(
+        useCallback(() => {
+            loadAll();
+        }, [loadAll])
+    );
 
     // ─────────────────────────────────────────────────────────────────────────
     // Actions

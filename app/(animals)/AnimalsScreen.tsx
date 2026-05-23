@@ -64,7 +64,7 @@ export default function AnimalsScreen() {
                 .from('housings')
                 .select(`
                     id, name, animal_type, current_count, capacity,
-                    batches(name, status)
+                    batches(id, name, status, current_count)
                 `)
                 .eq('farm_id', farmId)
                 .eq('status', 'Active')
@@ -72,14 +72,31 @@ export default function AnimalsScreen() {
 
             if (error) throw error;
 
-            const mapped: HousingSummary[] = (data ?? []).map((h: any) => ({
-                id: h.id,
-                name: h.name,
-                animal_type: h.animal_type,
-                current_count: h.current_count,
-                capacity: h.capacity,
-                active_batch_name: h.batches?.find((b: any) => b.status === 'active')?.name ?? null,
-            }));
+            const mapped: HousingSummary[] = (data ?? []).map((h: any) => {
+                const activeBatches = h.batches?.filter((b: any) => b.status === 'active') || [];
+                const expectedCount = activeBatches.reduce((sum: number, b: any) => sum + (b.current_count ?? 0), 0);
+                
+                let currentCount = h.current_count;
+                if (expectedCount !== h.current_count) {
+                    console.log(`[Self-Healing] Syncing housing ${h.name} (${h.id}) count from ${h.current_count} to ${expectedCount}`);
+                    supabase.from('housings')
+                        .update({ current_count: expectedCount })
+                        .eq('id', h.id)
+                        .then(({ error: uErr }) => {
+                            if (uErr) console.error(`[Self-Healing] Failed to update housing ${h.id}:`, uErr.message);
+                        });
+                    currentCount = expectedCount;
+                }
+
+                return {
+                    id: h.id,
+                    name: h.name,
+                    animal_type: h.animal_type,
+                    current_count: currentCount,
+                    capacity: h.capacity,
+                    active_batch_name: activeBatches[0]?.name ?? null,
+                };
+            });
             setHousings(mapped);
         } catch (err) {
             console.error('[AnimalsScreen] fetch error:', err);
