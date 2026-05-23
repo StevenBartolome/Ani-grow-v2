@@ -1755,9 +1755,21 @@ export default function HealthRecordsScreen() {
                 </ScrollView>
             </View>
 
-            {/* ── AI Health Summary ── */}
-            {!isLoading && records.length > 0 && (
-                <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
+            {/* ── Content ── */}
+            {isLoading ? (
+                <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 48 }} />
+            ) : records.length === 0 ? (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 }}>
+                    <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: `${colors.primary}15`, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                        <MaterialIcons name="medical-services" size={36} color={colors.primary} />
+                    </View>
+                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, textAlign: 'center' }]}>No records yet</Text>
+                    <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 14, marginTop: 8, lineHeight: 22 }]}>
+                        Tap <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>+</Text> to log a vaccination, treatment, or observation.
+                    </Text>
+                </View>
+            ) : (
+                <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 }]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
                     <AIInsightCard
                         title="AI Health Summary"
                         context={{
@@ -1783,115 +1795,114 @@ export default function HealthRecordsScreen() {
                             },
                         }}
                     />
-                </View>
-            )}
 
-            {/* ── Records list ── */}
-            {isLoading ? (
-                <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 48 }} />
-            ) : filtered.length === 0 ? (
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 }}>
-                    <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: `${colors.primary}15`, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-                        <MaterialIcons name="medical-services" size={36} color={colors.primary} />
-                    </View>
-                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, textAlign: 'center' }]}>No records yet</Text>
-                    <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 14, marginTop: 8, lineHeight: 22 }]}>
-                        Tap <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>+</Text> to log a vaccination, treatment, or observation.
-                    </Text>
-                </View>
-            ) : (
-                <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 4 }]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, marginTop: 4 }}>
-                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text }}>
-                            {filterType === 'all' ? 'All Records' : RECORD_TYPES[filterType].label}
-                        </Text>
-                        <View style={{ backgroundColor: colors.cardFill, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 }}>
-                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.textGrey }}>
-                                {filtered.length} {filtered.length === 1 ? 'entry' : 'entries'}
+                    <View style={{ height: 16 }} />
+
+                    {filtered.length === 0 ? (
+                        <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 40 }}>
+                            <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: `${colors.primary}15`, alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                                <MaterialIcons name="filter-list-off" size={28} color={colors.primary} />
+                            </View>
+                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 16, textAlign: 'center' }]}>No matching records</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 13, marginTop: 6, lineHeight: 20 }]}>
+                                Try changing your filters or select a different batch.
                             </Text>
                         </View>
-                    </View>
-
-                    {filtered.map(record => {
-                        const cfg = RECORD_TYPES[record.record_type];
-                        const sev = SEVERITY_CONFIG[record.severity];
-                        const batchName = record.batch_id ? batchMap[record.batch_id]?.name ?? '—' : '—';
-
-                        // Compact metadata chip
-                        const Chip = ({ icon, label }: { icon: string; label: string }) => (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.cardFill, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-                                <MaterialIcons name={icon as any} size={10} color={colors.textGrey} />
-                                <Text style={{ color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Regular' }}>{label}</Text>
-                            </View>
-                        );
-
-                        return (
-                            <TouchableOpacity
-                                key={record.id}
-                                activeOpacity={0.85}
-                                onPress={() => setDetailRecord(record)}
-                                onLongPress={() => { setDeleteId(record.id); setDeleteModalVisible(true); }}
-                                style={[
-                                    styles.deviceCard,
-                                    { backgroundColor: colors.surface, borderColor: colors.stroke, flexDirection: 'row', alignItems: 'stretch', marginBottom: 12, width: '100%', overflow: 'hidden', padding: 0 }
-                                ]}
-                            >
-                                {/* Left accent strip */}
-                                <View style={{ width: 4, backgroundColor: cfg.color }} />
-
-                                {/* Icon column */}
-                                <View style={{ width: 60, alignItems: 'center', justifyContent: 'center', paddingVertical: 18 }}>
-                                    <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: cfg.color + '18', alignItems: 'center', justifyContent: 'center' }}>
-                                        <MaterialIcons name={cfg.icon as any} size={21} color={cfg.color} />
-                                    </View>
-                                </View>
-
-                                {/* Content */}
-                                <View style={{ flex: 1, paddingVertical: 14, paddingRight: 4 }}>
-                                    {/* Title + severity badge */}
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text, flex: 1 }}>
-                                            {record.title}
-                                        </Text>
-                                        <View style={{ backgroundColor: sev.color + '22', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8, flexShrink: 0 }}>
-                                            <Text style={{ color: sev.color, fontSize: 10, fontFamily: 'Poppins-SemiBold' }}>{sev.label}</Text>
-                                        </View>
-                                    </View>
-
-                                    {/* Type label */}
-                                    <Text style={{ color: cfg.color, fontSize: 12, fontFamily: 'Poppins-SemiBold', marginBottom: 8 }}>
-                                        {cfg.label}
+                    ) : (
+                        <>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, marginTop: 4 }}>
+                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text }}>
+                                    {filterType === 'all' ? 'All Records' : RECORD_TYPES[filterType].label}
+                                </Text>
+                                <View style={{ backgroundColor: colors.cardFill, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 }}>
+                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.textGrey }}>
+                                        {filtered.length} {filtered.length === 1 ? 'entry' : 'entries'}
                                     </Text>
+                                </View>
+                            </View>
 
-                                    {/* Metadata chips */}
-                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
-                                        <Chip icon="calendar-today" label={new Date(record.record_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} />
-                                        <Chip icon="layers" label={batchName} />
-                                        {record.affected_count != null && <Chip icon="pets" label={`${record.affected_count} animals`} />}
-                                        {record.medication ? <Chip icon="science" label={record.medication + (record.dosage ? ` · ${record.dosage}` : '')} /> : null}
+                            {filtered.map(record => {
+                                const cfg = RECORD_TYPES[record.record_type];
+                                const sev = SEVERITY_CONFIG[record.severity];
+                                const batchName = record.batch_id ? batchMap[record.batch_id]?.name ?? '—' : '—';
+
+                                // Compact metadata chip
+                                const Chip = ({ icon, label }: { icon: string; label: string }) => (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.cardFill, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                                        <MaterialIcons name={icon as any} size={10} color={colors.textGrey} />
+                                        <Text style={{ color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Regular' }}>{label}</Text>
                                     </View>
+                                );
 
-                                    {/* Follow-up badge */}
-                                    {record.followup_date && (
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, backgroundColor: colors.warning + '18', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' }}>
-                                            <MaterialIcons name="event" size={11} color={colors.warning} />
-                                            <Text style={{ color: colors.warning, fontSize: 10, fontFamily: 'Poppins-SemiBold' }}>
-                                                Follow-up: {new Date(record.followup_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                            </Text>
+                                return (
+                                    <TouchableOpacity
+                                        key={record.id}
+                                        activeOpacity={0.85}
+                                        onPress={() => setDetailRecord(record)}
+                                        onLongPress={() => { setDeleteId(record.id); setDeleteModalVisible(true); }}
+                                        style={[
+                                            styles.deviceCard,
+                                            { backgroundColor: colors.surface, borderColor: colors.stroke, flexDirection: 'row', alignItems: 'stretch', marginBottom: 12, width: '100%', overflow: 'hidden', padding: 0 }
+                                        ]}
+                                    >
+                                        {/* Left accent strip */}
+                                        <View style={{ width: 4, backgroundColor: cfg.color }} />
+
+                                        {/* Icon column */}
+                                        <View style={{ width: 60, alignItems: 'center', justifyContent: 'center', paddingVertical: 18 }}>
+                                            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: cfg.color + '18', alignItems: 'center', justifyContent: 'center' }}>
+                                                <MaterialIcons name={cfg.icon as any} size={21} color={cfg.color} />
+                                            </View>
                                         </View>
-                                    )}
-                                </View>
 
-                                {/* Chevron */}
-                                <View style={{ justifyContent: 'center', paddingRight: 14 }}>
-                                    <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
-                                </View>
-                            </TouchableOpacity>
-                        );
-                    })}
-                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center', marginTop: 4 }]}>
-                        Tap to view · Long-press to delete
-                    </Text>
+                                        {/* Content */}
+                                        <View style={{ flex: 1, paddingVertical: 14, paddingRight: 4 }}>
+                                            {/* Title + severity badge */}
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
+                                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text, flex: 1 }}>
+                                                    {record.title}
+                                                </Text>
+                                                <View style={{ backgroundColor: sev.color + '22', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8, flexShrink: 0 }}>
+                                                    <Text style={{ color: sev.color, fontSize: 10, fontFamily: 'Poppins-SemiBold' }}>{sev.label}</Text>
+                                                </View>
+                                            </View>
+
+                                            {/* Type label */}
+                                            <Text style={{ color: cfg.color, fontSize: 12, fontFamily: 'Poppins-SemiBold', marginBottom: 8 }}>
+                                                {cfg.label}
+                                            </Text>
+
+                                            {/* Metadata chips */}
+                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+                                                <Chip icon="calendar-today" label={new Date(record.record_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} />
+                                                <Chip icon="layers" label={batchName} />
+                                                {record.affected_count != null && <Chip icon="pets" label={`${record.affected_count} animals`} />}
+                                                {record.medication ? <Chip icon="science" label={record.medication + (record.dosage ? ` · ${record.dosage}` : '')} /> : null}
+                                            </View>
+
+                                            {/* Follow-up badge */}
+                                            {record.followup_date && (
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, backgroundColor: colors.warning + '18', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' }}>
+                                                    <MaterialIcons name="event" size={11} color={colors.warning} />
+                                                    <Text style={{ color: colors.warning, fontSize: 10, fontFamily: 'Poppins-SemiBold' }}>
+                                                        Follow-up: {new Date(record.followup_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                        </View>
+
+                                        {/* Chevron */}
+                                        <View style={{ justifyContent: 'center', paddingRight: 14 }}>
+                                            <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center', marginTop: 4 }]}>
+                                Tap to view · Long-press to delete
+                            </Text>
+                        </>
+                    )}
                 </ScrollView>
             )}
 

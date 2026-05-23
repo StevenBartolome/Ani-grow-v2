@@ -241,40 +241,46 @@ export function AIInsightCard({
         }}
       >
         {/* Left: icon + title */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, flex: 1 }}>
           <View
             style={{
               backgroundColor: 'rgba(255, 255, 255, 0.22)',
               padding: 7,
               borderRadius: 9,
+              marginTop: 1,
             }}
           >
             <MaterialIcons name="auto-awesome" size={18} color="#FFF" />
           </View>
-          <Text style={[textStyles.h3, { color: '#FFF', fontSize: 15, flexShrink: 1 }]} numberOfLines={1}>{title}</Text>
+          
+          {/* Title & Badge Container */}
+          <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <Text style={[textStyles.h3, { color: '#FFF', fontSize: 15 }]}>{title}</Text>
 
-          {/* Recommendation pill */}
-          <View
-            style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.18)',
-              borderRadius: 20,
-              paddingHorizontal: 8,
-              paddingVertical: 3,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            <MaterialIcons name="lightbulb-outline" size={11} color="rgba(255,255,255,0.9)" />
-            <Text
+            {/* Recommendation pill */}
+            <View
               style={{
-                color: 'rgba(255,255,255,0.9)',
-                fontFamily: 'Poppins-Medium',
-                fontSize: 10,
+                backgroundColor: 'rgba(255, 255, 255, 0.18)',
+                borderRadius: 20,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                flexShrink: 0,
               }}
             >
-              Recommendation
-            </Text>
+              <MaterialIcons name="lightbulb-outline" size={11} color="rgba(255,255,255,0.9)" />
+              <Text
+                style={{
+                  color: 'rgba(255,255,255,0.9)',
+                  fontFamily: 'Poppins-Medium',
+                  fontSize: 10,
+                }}
+              >
+                Recommendation
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -420,8 +426,8 @@ export function AIInsightCard({
             )}
 
             {/* Disclaimer */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-              <MaterialIcons name="info-outline" size={12} color="rgba(255,255,255,0.65)" />
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
+              <MaterialIcons name="info-outline" size={12} color="rgba(255,255,255,0.65)" style={{ marginTop: 2 }} />
               <Text
                 style={{
                   color: 'rgba(255,255,255,0.65)',

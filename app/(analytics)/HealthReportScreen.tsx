@@ -368,13 +368,7 @@ export default function HealthReportScreen() {
         return `Batch "${selectedBatch?.name}" currently shows a mortality rate of ${mortalityRate}% with ${totalDeceased} deceased heads, which is ${severityWord} the safe threshold. The cohort has recorded ${healthRecords.length} total events, ${illnessStatus}.`;
     };
 
-    const getBiosecurityAnalysis = () => {
-        if (healthRecords.length === 0) {
-            return "Log routine vaccinations and vitamins in the health screen to view coverages and prevent outbreaks.";
-        }
-        const level = parseFloat(mortalityRate) > 3.0 ? 'high priority' : 'routine';
-        return `We have recorded ${vaccinationCount} vaccination logs and ${routineCareCount} routine supplement coverages. Maintaining scheduled vaccine coverages and rigorous cleaning protocols are the most effective ways to keep mortality rates within target levels under a ${level} environment.`;
-    };
+
 
     const housingsOptions = filteredHousings.map(h => h.name);
     const selectedHousingOptionStr = selectedHousing ? selectedHousing.name : 'No House Selected';
@@ -733,12 +727,6 @@ export default function HealthReportScreen() {
                             title="AniBot Analysis"
                             staticContent={getHealthAnalysis()}
                             variant="green"
-                        />
-
-                        <AIInsightCard 
-                            title="Biosecurity & Prevention"
-                            staticContent={getBiosecurityAnalysis()}
-                            variant="orange"
                         />
                     </>
                 )}
