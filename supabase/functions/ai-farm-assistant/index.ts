@@ -69,9 +69,263 @@ Navigation hints — append up to 2 nav tags at the very end of your response (a
 [NAV:home] — Home dashboard
 [NAV:notifications] — Notifications
 
-Only append tags relevant to the response. Substitute real IDs from tool results — never write "ID" literally. Skip tags for general chat.`;
+Only append tags relevant to the response. Substitute real IDs from tool results — never write "ID" literally. Skip tags for general chat.
 
-const INSIGHT_SYSTEM = `You are FarmAI, an intelligent agricultural assistant for AniGrow. Be concise, practical, and specific to the data provided. Use metric units (kg, grams). Avoid generic advice — always ground your response in the numbers given. Respond in 2-4 sentences of plain readable text. You may use bullet points (•) but no markdown headers. Be direct and actionable.`;
+PIG CARE GUIDE — Age-Based Recommendations:
+- Use get_pig_care_recommendations whenever a farmer asks about pig feeding, feed amount, supplements, medications, vitamins, dewormers, or vaccination schedule.
+- First call get_animals to get the batch's arrival_date and age_at_arrival_days.
+- Compute current age in days: age_at_arrival_days + Math.floor((Date.now() - new Date(arrival_date).getTime()) / 86400000)
+- Then call get_pig_care_recommendations with the computed age_days.
+- When presenting results: always show the current feed product + daily amount per pig, then list current/upcoming care actions (medication name, dosage, route, and purpose).
+- If the farmer asks about a specific pen or batch, compute the exact age from that batch's data.`;
+
+const INSIGHT_SYSTEM = `You are FarmAI, an intelligent agricultural assistant for AniGrow.
+
+Format your response in this EXACT structure — no deviations:
+
+HEADLINE: [5-8 word summary of the current situation]
+1. [First actionable recommendation — specific to the data, 1-2 sentences]
+2. [Second actionable recommendation — specific to the data, 1-2 sentences]
+3. [Third actionable recommendation if applicable — 1-2 sentences]
+
+Rules:
+- Always start with "HEADLINE:" on its own line
+- Always use numbered items (1., 2., 3.)
+- Maximum 3 items
+- Use metric units (kg, grams)
+- Ground every point in the exact numbers provided — no generic advice
+- No markdown headers, no extra text, no asterisks, no dashes
+- Be direct and actionable`;
+
+// ─── Pig Care Guide Data ──────────────────────────────────────────────────────
+
+const PIG_FEEDING_STAGES = [
+  {
+    stage: 'Newborn',
+    days_start: 0, days_end: 4,
+    product: null,
+    amount_per_day: 'Colostrum only (sow milk)',
+    notes: 'Ensure all piglets nurse colostrum within the first 6 hours of birth.',
+  },
+  {
+    stage: 'Booster',
+    days_start: 5, days_end: 35,
+    product: 'Early Wean IMMUNOBOOSTER',
+    amount_per_day: '50–70 grams per piglet',
+    notes: 'Begin creep feeding to prepare piglets for weaning.',
+  },
+  {
+    stage: 'Pre-Starter',
+    days_start: 36, days_end: 60,
+    product: 'Early Wean SUPER START',
+    amount_per_day: '500–700 grams per pig',
+    notes: 'Transition feed immediately after weaning.',
+  },
+  {
+    stage: 'Starter',
+    days_start: 61, days_end: 90,
+    product: 'PIGROLAC Premium Hog Starter',
+    amount_per_day: '1.0–1.2 kg per pig',
+    notes: 'Switch when pigs reach approx. 18–20 kg body weight (around 2 months old).',
+  },
+  {
+    stage: 'Grower',
+    days_start: 91, days_end: 120,
+    product: 'PIGROLAC Premium Hog Grower',
+    amount_per_day: '1.7–2.0 kg per pig',
+    notes: '',
+  },
+  {
+    stage: 'Finisher',
+    days_start: 121, days_end: 9999,
+    product: 'PIGROLAC Premium Hog Finisher',
+    amount_per_day: '2.0–2.2 kg per pig',
+    notes: '',
+  },
+];
+
+// Special sow/breeder feeding guide (by pregnancy/lactation stage)
+const SOW_FEEDING_GUIDE = [
+  { stage: 'Flushing (pre-breeding)', product: 'Mama PRO Premium Developer', amount_per_day: '3.0–3.5 kg' },
+  { stage: 'Pregnancy Day 1–7', product: 'Mama PRO Premium Developer', amount_per_day: '2.0 kg' },
+  { stage: 'Pregnancy Day 8–90', product: 'Mama PRO Premium Developer', amount_per_day: '2.0–2.8 kg (feed to condition)' },
+  { stage: 'Pregnancy Day 91–100', product: 'Mama PRO Premium Developer', amount_per_day: '3.0 kg' },
+  { stage: 'Pregnancy Day 101–110', product: 'Mama PRO Premium Milkmaker', amount_per_day: '3.0 kg' },
+  { stage: '3 days before farrowing', product: 'Mama PRO Premium Milkmaker', amount_per_day: 'Gradually reduce to 0–0.5 kg on farrowing day' },
+  { stage: 'Lactation Day 1–3', product: 'Mama PRO Premium Milkmaker', amount_per_day: 'Start at 1 kg on day 1, gradually increase' },
+  { stage: 'Lactation Day 4 until weaning', product: 'Mama PRO Premium Milkmaker', amount_per_day: 'Ad libitum (unlimited)' },
+];
+
+const PIG_CARE_SCHEDULE = [
+  // ── Piglet (Days 1–33) ──────────────────────────────────────────────────────
+  {
+    day_start: 1, day_end: 3,
+    action: 'Newborn care tasks',
+    purpose: 'Basic care and hygiene',
+    medication: null,
+    dosage: null,
+    route: null,
+    tasks: 'Clean piglet, ensure colostrum intake, clip needle teeth, cut navel cord, dock tail',
+  },
+  {
+    day_start: 1, day_end: 3,
+    action: 'Diarrhea prevention',
+    purpose: 'Prevent scours/diarrhea in newborns',
+    medication: 'APRALYTE',
+    dosage: 'Mix 2 tbsp in 40 mL water; give 1 mL per piglet (or 1 mL/kg body weight if severe)',
+    route: 'Oral (drench)',
+  },
+  {
+    day_start: 3, day_end: 3,
+    action: 'Iron injection',
+    purpose: 'Prevent anemia and stunting; boost immunity',
+    medication: 'JECTRAN PREMIUM with ZINC',
+    dosage: '1 mL per piglet',
+    route: 'IM Injection',
+  },
+  {
+    day_start: 10, day_end: 10,
+    action: 'Growth boost injection',
+    purpose: 'Stimulate faster growth',
+    medication: 'BEXAN SP',
+    dosage: '1 mL per piglet',
+    route: 'IM Injection',
+  },
+  {
+    day_start: 10, day_end: 14,
+    action: 'Disease prevention + castration of boar piglets',
+    purpose: 'Strengthen immunity and prevent illness',
+    medication: 'VETRACIN PREMIUM',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+  {
+    day_start: 14, day_end: 14,
+    action: 'Iron booster shot',
+    purpose: 'Prevent anemia; strengthen immunity',
+    medication: 'JECTRAN PREMIUM with ZINC',
+    dosage: '1 mL per piglet',
+    route: 'IM Injection',
+  },
+  {
+    day_start: 21, day_end: 21,
+    action: 'Hog Cholera vaccination',
+    purpose: 'Protection against Hog Cholera (Classical Swine Fever)',
+    medication: 'COGLAPEST',
+    dosage: '2 mL per piglet',
+    route: 'Injection',
+  },
+  {
+    day_start: 23, day_end: 33,
+    action: 'Pre-weaning stress reduction',
+    purpose: 'Reduce weaning stress with probiotics, acidifiers, electrolytes, and enzymes',
+    medication: 'DIGESTIAIDE 4X',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+  {
+    day_start: 25, day_end: 25,
+    action: 'Pre-weaning growth booster',
+    purpose: 'Prepare piglets for weaning',
+    medication: 'BEXAN SP',
+    dosage: '1 mL per piglet',
+    route: 'IM Injection',
+  },
+  // ── Growing Pig (Days 35–120) ─────────────────────────────────────────────
+  {
+    day_start: 35, day_end: 35,
+    action: 'Deworming',
+    purpose: 'Remove intestinal worms that slow growth',
+    medication: 'LATIGO-1000',
+    dosage: '1 sachet per 10 piglets; mix in water or feed',
+    route: 'Oral / In-feed',
+  },
+  {
+    day_start: 36, day_end: 42,
+    action: 'Pneumonia prevention — pulse medication',
+    purpose: 'Prevent pneumonia outbreak',
+    medication: 'VETRACIN GOLD',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+  {
+    day_start: 42, day_end: 42,
+    action: 'Hog Cholera booster vaccination',
+    purpose: 'Booster shot for Hog Cholera',
+    medication: 'COGLAPEST',
+    dosage: '2 mL per head',
+    route: 'Injection',
+  },
+  {
+    day_start: 42, day_end: 42,
+    action: 'Diarrhea treatment',
+    purpose: 'Treatment for severe diarrhea',
+    medication: 'BACTERID',
+    dosage: '1 mL per 20 kg body weight',
+    route: 'Injection',
+    conditional: 'Only if symptoms of severe diarrhea are present',
+  },
+  {
+    day_start: 60, day_end: 60,
+    action: 'Growth boost injection',
+    purpose: 'Stimulate fast growth',
+    medication: 'BEXAN SP',
+    dosage: '3 mL per head',
+    route: 'IM Injection',
+  },
+  {
+    day_start: 60, day_end: 60,
+    action: 'Pneumonia treatment',
+    purpose: 'Treatment for severe pneumonia',
+    medication: 'SUSTALIN LA',
+    dosage: '1 mL per 10 kg body weight',
+    route: 'Injection',
+    conditional: 'Only if symptoms of severe pneumonia are present',
+  },
+  {
+    day_start: 66, day_end: 72,
+    action: 'Pneumonia prevention — pulse medication',
+    purpose: 'Prevent pneumonia outbreak',
+    medication: 'VETRACIN GOLD',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+  {
+    day_start: 66, day_end: 72,
+    action: 'Deworming',
+    purpose: 'Remove worms that slow growth',
+    medication: 'LATIGO-1000',
+    dosage: '1 sachet per 3 growers; mix in water or feed',
+    route: 'Oral / In-feed',
+  },
+  {
+    day_start: 96, day_end: 102,
+    action: 'Pneumonia prevention — pulse medication',
+    purpose: 'Prevent pneumonia outbreak',
+    medication: 'VETRACIN GOLD',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+  {
+    day_start: 115, day_end: 120,
+    action: 'Pneumonia prevention — pulse medication',
+    purpose: 'Prevent pneumonia outbreak',
+    medication: 'VETRACIN GOLD',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+];
+
+// Anytime (use if serious infection/complications arise)
+const PIG_ANYTIME_CARE = [
+  {
+    action: 'Severe infection or pneumonia complications',
+    medication: 'VETRACIN ULTIMA',
+    dosage: '1 sachet per 1 gallon of drinking water; administer for 5–7 days',
+    route: 'In-water medication',
+    note: 'Use when there are serious bacterial infections or pneumonia complications in any stage.',
+  },
+];
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -296,6 +550,22 @@ const TOOLS = [
         stock_kg: { type: 'number', description: 'Optional: updated stock in kg' },
       },
       required: ['feed_id'],
+    },
+  },
+
+  // ── Pig Care Guide tool ──────────────────────────────────────────────────────
+  {
+    name: 'get_pig_care_recommendations',
+    description: 'Get age-based pig care recommendations: correct feed product and daily amount per pig, scheduled medications, vaccines, supplements, dewormers, and dosages. Use whenever a farmer asks what to feed their pigs, what supplements or medications to give, or what the care schedule is for a pig batch. First call get_animals to get arrival_date and age_at_arrival_days, compute age_days = age_at_arrival_days + floor((Date.now() - new Date(arrival_date).getTime()) / 86400000), then call this tool.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        age_days: {
+          type: 'number',
+          description: 'Current age of the pig(s) in days. Compute as: age_at_arrival_days + Math.floor((Date.now() - new Date(arrival_date).getTime()) / 86400000)',
+        },
+      },
+      required: ['age_days'],
     },
   },
 ];
@@ -706,6 +976,62 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
         const { error } = await db.from('feeds').update(updates).eq('id', input.feed_id);
         if (error) return { success: false, error: error.message };
         return { success: true, message: `Feed updated successfully.` };
+      }
+
+      // ── Pig Care Guide ────────────────────────────────────────────────────────
+      case 'get_pig_care_recommendations': {
+        const ageDays = Math.max(0, Math.floor(input.age_days ?? 0));
+
+        // Find current feeding stage
+        const feedStage =
+          PIG_FEEDING_STAGES.find(s => ageDays >= s.days_start && ageDays <= s.days_end) ??
+          PIG_FEEDING_STAGES[PIG_FEEDING_STAGES.length - 1]; // fallback to finisher
+
+        // Determine pig stage label
+        let pigStage = 'Unknown';
+        if (ageDays <= 4)   pigStage = 'Newborn';
+        else if (ageDays <= 33)  pigStage = 'Piglet';
+        else if (ageDays <= 120) pigStage = 'Grower';
+        else pigStage = 'Finisher / Market Hog';
+
+        // Classify care schedule items relative to current age
+        const CURRENT_WINDOW = 3;   // ±3 days = "do now"
+        const UPCOMING_DAYS  = 14;  // look 14 days ahead
+        const PAST_DAYS      = 7;   // warn about items missed in last 7 days
+
+        const current_care: any[]  = [];
+        const upcoming_care: any[] = [];
+        const overdue_care: any[]  = [];
+
+        for (const item of PIG_CARE_SCHEDULE) {
+          const withinCurrent  = item.day_end   >= ageDays - CURRENT_WINDOW &&
+                                 item.day_start <= ageDays + CURRENT_WINDOW;
+          const withinUpcoming = item.day_start >  ageDays + CURRENT_WINDOW &&
+                                 item.day_start <= ageDays + UPCOMING_DAYS;
+          const withinOverdue  = item.day_end   >= ageDays - PAST_DAYS &&
+                                 item.day_end   <  ageDays - CURRENT_WINDOW;
+
+          if (withinCurrent)  current_care.push(item);
+          else if (withinUpcoming) upcoming_care.push(item);
+          else if (withinOverdue)  overdue_care.push(item);
+        }
+
+        return {
+          age_days: ageDays,
+          pig_stage: pigStage,
+          feed_recommendation: {
+            stage: feedStage.stage,
+            product: feedStage.product,
+            daily_amount: feedStage.amount_per_day,
+            notes: feedStage.notes,
+          },
+          sow_feeding_note: 'For sow/breeder feeding use Mama PRO Premium Developer (gestation) and Mama PRO Premium Milkmaker (lactation). Ask about sow care for detailed schedule.',
+          current_care,
+          upcoming_care,
+          recently_overdue_care: overdue_care,
+          anytime_care: PIG_ANYTIME_CARE,
+          source: 'AniGrow Pig Care Guide — Pigrolac Premium Hog Feeds',
+        };
       }
 
       default:
