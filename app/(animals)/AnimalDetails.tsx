@@ -36,6 +36,7 @@ interface Batch {
     arrival_date: string;
     supplier: string | null;
     status: 'active' | 'completed' | 'archived';
+    age_at_arrival_days: number;
 }
 
 export default function AnimalDetailsScreen() {
@@ -70,7 +71,7 @@ export default function AnimalDetailsScreen() {
         try {
             const [housingRes, batchRes] = await Promise.all([
                 supabase.from('housings').select('id, name, animal_type, capacity, current_count').eq('id', housingId).single(),
-                supabase.from('batches').select('id, name, animal_type, estimated_count, current_count, arrival_date, supplier, status')
+                supabase.from('batches').select('id, name, animal_type, estimated_count, current_count, arrival_date, supplier, status, age_at_arrival_days')
                     .eq('housing_id', housingId).order('created_at', { ascending: false }),
             ]);
 
@@ -149,6 +150,8 @@ export default function AnimalDetailsScreen() {
     const [newBatchName, setNewBatchName] = useState('');
     const [newBatchCount, setNewBatchCount] = useState('');
     const [newBatchSupplier, setNewBatchSupplier] = useState('');
+    const [newBatchAge, setNewBatchAge] = useState('');
+    const [newBatchAgeUnit, setNewBatchAgeUnit] = useState<'days' | 'months'>('days');
     const [newBatchCountError, setNewBatchCountError] = useState<string | null>(null);
 
     // ── Edit Batch Modal ──────────────────────────────────────────
@@ -156,6 +159,8 @@ export default function AnimalDetailsScreen() {
     const [editBatchName, setEditBatchName] = useState('');
     const [editBatchCount, setEditBatchCount] = useState('');
     const [editBatchSupplier, setEditBatchSupplier] = useState('');
+    const [editBatchAge, setEditBatchAge] = useState('');
+    const [editBatchAgeUnit, setEditBatchAgeUnit] = useState<'days' | 'months'>('days');
     const [editBatchCountError, setEditBatchCountError] = useState<string | null>(null);
 
     // ── Batch Selection ───────────────────────────────────────────
@@ -164,6 +169,35 @@ export default function AnimalDetailsScreen() {
     const selectedBatchLabel = selectedBatch
         ? `${selectedBatch.name} (${selectedBatch.status === 'active' ? 'Active' : selectedBatch.status === 'completed' ? 'Completed' : 'Archived'})`
         : '';
+
+    // ── Age Helper ────────────────────────────────────────────────
+    const calculateAge = (arrivalDateStr: string, ageAtArrivalDays: number, animalType: 'chicken' | 'pig') => {
+        if (!arrivalDateStr) return '0 days';
+        const arrivalDate = new Date(arrivalDateStr);
+        const today = new Date();
+        arrivalDate.setHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0);
+
+        const diffTime = today.getTime() - arrivalDate.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        const ageDays = Math.max(0, diffDays) + (ageAtArrivalDays || 0);
+
+        if (animalType === 'chicken') {
+            return `${ageDays} ${ageDays === 1 ? 'day' : 'days'}`;
+        } else {
+            if (ageDays < 30) {
+                return `${ageDays} ${ageDays === 1 ? 'day' : 'days'}`;
+            } else {
+                const months = Math.floor(ageDays / 30);
+                const remainingDays = ageDays % 30;
+                if (remainingDays === 0) {
+                    return `${months} ${months === 1 ? 'month' : 'months'} (${ageDays} days)`;
+                } else {
+                    return `${months} ${months === 1 ? 'month' : 'months'}, ${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} (${ageDays} days)`;
+                }
+            }
+        }
+    };
 
     // ── Validation Helpers ────────────────────────────────────────
     const validateAddHeads = (val: string) => {
@@ -303,6 +337,24 @@ export default function AnimalDetailsScreen() {
         setEditBatchName(selectedBatch.name);
         setEditBatchCount(String(selectedBatch.estimated_count));
         setEditBatchSupplier(selectedBatch.supplier ?? '');
+
+        // Calculate dynamic starting age
+        const startingAgeDays = selectedBatch.age_at_arrival_days ?? 0;
+
+        if (selectedBatch.animal_type === 'chicken') {
+            setEditBatchAge(String(startingAgeDays));
+            setEditBatchAgeUnit('days');
+        } else {
+            // pig: if multiple of 30 days, represent as months, else days
+            if (startingAgeDays >= 30 && startingAgeDays % 30 === 0) {
+                setEditBatchAge(String(startingAgeDays / 30));
+                setEditBatchAgeUnit('months');
+            } else {
+                setEditBatchAge(String(startingAgeDays));
+                setEditBatchAgeUnit('days');
+            }
+        }
+
         setEditBatchCountError(null);
         setEditBatchVisible(true);
     };
@@ -397,6 +449,10 @@ export default function AnimalDetailsScreen() {
 
             } else if (confirmActionType === 'newBatch') {
                 const count = parseInt(newBatchCount, 10);
+                const ageVal = parseInt(newBatchAge || '0', 10);
+                const daysOffset = newBatchAgeUnit === 'months' ? ageVal * 30 : ageVal;
+                const arrivalDateStr = new Date().toISOString().split('T')[0];
+
                 const { data: newBatch, error: bErr } = await supabase
                     .from('batches')
                     .insert({
@@ -406,7 +462,8 @@ export default function AnimalDetailsScreen() {
                         animal_type: housing?.animal_type,
                         estimated_count: count,
                         current_count: count,
-                        arrival_date: new Date().toISOString().split('T')[0],
+                        arrival_date: arrivalDateStr,
+                        age_at_arrival_days: daysOffset,
                         supplier: newBatchSupplier.trim() || null,
                         status: 'active',
                         created_by: userId,
@@ -418,12 +475,15 @@ export default function AnimalDetailsScreen() {
                 const { error: hErr } = await supabase.from('housings').update({ current_count: (housing?.current_count ?? 0) + count, updated_at: new Date().toISOString() }).eq('id', housingId);
                 if (hErr) throw hErr;
                 showSnackbar('New batch created successfully.');
-                setNewBatchName(''); setNewBatchCount(''); setNewBatchSupplier('');
+                setNewBatchName(''); setNewBatchCount(''); setNewBatchSupplier(''); setNewBatchAge(''); setNewBatchAgeUnit('days');
 
             } else if (confirmActionType === 'editBatch' && selectedBatchId && selectedBatch) {
                 const count = parseInt(editBatchCount, 10);
                 const difference = count - selectedBatch.estimated_count;
                 const newCurrentCount = selectedBatch.current_count + difference;
+
+                const ageVal = parseInt(editBatchAge || '0', 10);
+                const daysOffset = editBatchAgeUnit === 'months' ? ageVal * 30 : ageVal;
 
                 const { error: bErr } = await supabase
                     .from('batches')
@@ -432,6 +492,7 @@ export default function AnimalDetailsScreen() {
                         estimated_count: count,
                         current_count: newCurrentCount,
                         supplier: editBatchSupplier.trim() || null,
+                        age_at_arrival_days: daysOffset,
                         updated_at: new Date().toISOString(),
                     })
                     .eq('id', selectedBatchId);
@@ -583,6 +644,8 @@ export default function AnimalDetailsScreen() {
                         setNewBatchName('');
                         setNewBatchCount('');
                         setNewBatchSupplier('');
+                        setNewBatchAge('');
+                        setNewBatchAgeUnit('days');
                         const remaining = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
                         if (housing && housing.capacity > 0 && remaining <= 0) {
                             setNewBatchCountError(`Housing is at full capacity (${housing.capacity}/${housing.capacity}).`);
@@ -678,6 +741,9 @@ export default function AnimalDetailsScreen() {
                             <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginBottom: 4 }]}>Batch details</Text>
                             <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>
                                 Arrived: <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{new Date(selectedBatch.arrival_date).toLocaleDateString()}</Text>
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14, marginTop: 2 }]}>
+                                Age: <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{calculateAge(selectedBatch.arrival_date, selectedBatch.age_at_arrival_days, selectedBatch.animal_type)}</Text>
                             </Text>
                             {selectedBatch.supplier && (
                                 <Text style={[textStyles.body, { color: colors.text, fontSize: 14, marginTop: 2 }]}>
@@ -1153,6 +1219,52 @@ export default function AnimalDetailsScreen() {
                                     <FloatingLabelInput label="Supplier (optional)" icon="store" value={newBatchSupplier} onChangeText={setNewBatchSupplier} backgroundColor={colors.surface} />
                                 </View>
 
+                                <View style={{ width: '100%', marginBottom: 12 }}>
+                                    <FloatingLabelInput
+                                        label={isPig ? `Age (${newBatchAgeUnit})` : "Age (Days)"}
+                                        icon="cake"
+                                        value={newBatchAge}
+                                        onChangeText={t => setNewBatchAge(t.replace(/[^0-9]/g, ''))}
+                                        keyboardType="numeric"
+                                        backgroundColor={colors.surface}
+                                    />
+                                </View>
+
+                                {isPig && (
+                                    <View style={{ flexDirection: 'row', width: '100%', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
+                                        <TouchableOpacity
+                                            activeOpacity={0.8}
+                                            style={{
+                                                flex: 1,
+                                                paddingVertical: 8,
+                                                borderRadius: 16,
+                                                borderWidth: 1.5,
+                                                borderColor: newBatchAgeUnit === 'days' ? colors.primary : colors.stroke,
+                                                backgroundColor: newBatchAgeUnit === 'days' ? colors.primary + '10' : colors.surface,
+                                                alignItems: 'center'
+                                            }}
+                                            onPress={() => setNewBatchAgeUnit('days')}
+                                        >
+                                            <Text style={[textStyles.body, { color: newBatchAgeUnit === 'days' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Days</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            activeOpacity={0.8}
+                                            style={{
+                                                flex: 1,
+                                                paddingVertical: 8,
+                                                borderRadius: 16,
+                                                borderWidth: 1.5,
+                                                borderColor: newBatchAgeUnit === 'months' ? colors.primary : colors.stroke,
+                                                backgroundColor: newBatchAgeUnit === 'months' ? colors.primary + '10' : colors.surface,
+                                                alignItems: 'center'
+                                            }}
+                                            onPress={() => setNewBatchAgeUnit('months')}
+                                        >
+                                            <Text style={[textStyles.body, { color: newBatchAgeUnit === 'months' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Months</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+
                                 <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
                                     <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setNewBatchVisible(false)} activeOpacity={0.7}>
                                         <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
@@ -1266,6 +1378,52 @@ export default function AnimalDetailsScreen() {
                                 <View style={{ width: '100%', marginBottom: 12 }}>
                                     <FloatingLabelInput label="Supplier (optional)" icon="store" value={editBatchSupplier} onChangeText={setEditBatchSupplier} backgroundColor={colors.surface} />
                                 </View>
+
+                                <View style={{ width: '100%', marginBottom: 12 }}>
+                                    <FloatingLabelInput
+                                        label={isPig ? `Age (${editBatchAgeUnit})` : "Age (Days)"}
+                                        icon="cake"
+                                        value={editBatchAge}
+                                        onChangeText={t => setEditBatchAge(t.replace(/[^0-9]/g, ''))}
+                                        keyboardType="numeric"
+                                        backgroundColor={colors.surface}
+                                    />
+                                </View>
+
+                                {isPig && (
+                                    <View style={{ flexDirection: 'row', width: '100%', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
+                                        <TouchableOpacity
+                                            activeOpacity={0.8}
+                                            style={{
+                                                flex: 1,
+                                                paddingVertical: 8,
+                                                borderRadius: 16,
+                                                borderWidth: 1.5,
+                                                borderColor: editBatchAgeUnit === 'days' ? colors.primary : colors.stroke,
+                                                backgroundColor: editBatchAgeUnit === 'days' ? colors.primary + '10' : colors.surface,
+                                                alignItems: 'center'
+                                            }}
+                                            onPress={() => setEditBatchAgeUnit('days')}
+                                        >
+                                            <Text style={[textStyles.body, { color: editBatchAgeUnit === 'days' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Days</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            activeOpacity={0.8}
+                                            style={{
+                                                flex: 1,
+                                                paddingVertical: 8,
+                                                borderRadius: 16,
+                                                borderWidth: 1.5,
+                                                borderColor: editBatchAgeUnit === 'months' ? colors.primary : colors.stroke,
+                                                backgroundColor: editBatchAgeUnit === 'months' ? colors.primary + '10' : colors.surface,
+                                                alignItems: 'center'
+                                            }}
+                                            onPress={() => setEditBatchAgeUnit('months')}
+                                        >
+                                            <Text style={[textStyles.body, { color: editBatchAgeUnit === 'months' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Months</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
 
                                 <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
                                     <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditBatchVisible(false)} activeOpacity={0.7}>

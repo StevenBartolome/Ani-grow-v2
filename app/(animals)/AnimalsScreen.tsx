@@ -23,6 +23,8 @@ interface HousingSummary {
     current_count: number;
     capacity: number;
     active_batch_name: string | null;
+    active_batch_arrival_date: string | null;
+    active_batch_age_at_arrival_days: number;
 }
 
 const ANIMAL_IMAGES: Record<string, any> = {
@@ -55,6 +57,34 @@ export default function AnimalsScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
+    const calculateAge = (arrivalDateStr: string | null, ageAtArrivalDays: number, animalType: 'chicken' | 'pig') => {
+        if (!arrivalDateStr) return '';
+        const arrivalDate = new Date(arrivalDateStr);
+        const today = new Date();
+        arrivalDate.setHours(0,0,0,0);
+        today.setHours(0,0,0,0);
+        
+        const diffTime = today.getTime() - arrivalDate.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        const ageDays = Math.max(0, diffDays) + (ageAtArrivalDays || 0);
+
+        if (animalType === 'chicken') {
+            return `${ageDays} ${ageDays === 1 ? 'day' : 'days'}`;
+        } else {
+            if (ageDays < 30) {
+                return `${ageDays} ${ageDays === 1 ? 'day' : 'days'}`;
+            } else {
+                const months = Math.floor(ageDays / 30);
+                const remainingDays = ageDays % 30;
+                if (remainingDays === 0) {
+                    return `${months} ${months === 1 ? 'month' : 'months'} (${ageDays} days)`;
+                } else {
+                    return `${months} ${months === 1 ? 'month' : 'months'}, ${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} (${ageDays} days)`;
+                }
+            }
+        }
+    };
+
     const fetchHousings = useCallback(async () => {
         if (!farmId) { setIsLoading(false); return; }
         setIsLoading(true);
@@ -64,7 +94,7 @@ export default function AnimalsScreen() {
                 .from('housings')
                 .select(`
                     id, name, animal_type, current_count, capacity,
-                    batches(id, name, status, current_count)
+                    batches(id, name, status, current_count, arrival_date, age_at_arrival_days)
                 `)
                 .eq('farm_id', farmId)
                 .eq('status', 'Active')
@@ -95,6 +125,8 @@ export default function AnimalsScreen() {
                     current_count: currentCount,
                     capacity: h.capacity,
                     active_batch_name: activeBatches[0]?.name ?? null,
+                    active_batch_arrival_date: activeBatches[0]?.arrival_date ?? null,
+                    active_batch_age_at_arrival_days: activeBatches[0]?.age_at_arrival_days ?? 0,
                 };
             });
             setHousings(mapped);
@@ -298,12 +330,7 @@ export default function AnimalsScreen() {
                                                         {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
                                                     </Text>
                                                 </Text>
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                                                    Active batch:{' '}
-                                                    <Text style={{ color: housing.active_batch_name ? colors.text : colors.textGrey, fontFamily: 'Poppins-SemiBold' }}>
-                                                        {housing.active_batch_name ?? '—'}
-                                                    </Text>
-                                                </Text>
+
                                                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                                                     <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
                                                         <Text style={{ color: accent, fontSize: 11, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }}>

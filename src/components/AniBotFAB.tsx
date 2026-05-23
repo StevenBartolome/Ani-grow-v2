@@ -168,8 +168,6 @@ export function AniBotFAB() {
         })
     ).current;
 
-    if (isHidden) return null;
-
     // Define style interpolations based on activeAnim
     const scale = activeAnim.interpolate({
         inputRange: [0, 1],
@@ -199,10 +197,12 @@ export function AniBotFAB() {
     return (
         <Animated.View
             {...panResponder.panHandlers}
+            pointerEvents={isHidden ? 'none' : 'auto'}
             style={{
                 position: 'absolute',
                 left: 0,
                 top: 0,
+                display: isHidden ? 'none' : 'flex',
                 transform: [
                     { translateX: pan.x },
                     { translateY: pan.y },

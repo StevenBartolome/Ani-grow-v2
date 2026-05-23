@@ -28,7 +28,7 @@ import {
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 type RecordType = 'vaccination' | 'treatment' | 'observation' | 'illness' | 'deworming' | 'vitamins' | 'mortality';
-type Severity   = 'low' | 'medium' | 'high';
+type Severity = 'low' | 'medium' | 'high';
 
 const RECORD_TYPES: Record<
     RecordType,
@@ -124,9 +124,9 @@ const RECORD_TYPES: Record<
 };
 
 const SEVERITY_CONFIG: Record<Severity, { label: string; color: string; description: string }> = {
-    low:    { label: 'Low',    color: '#27AE60', description: 'Minor / routine'   },
-    medium: { label: 'Medium', color: '#E67E22', description: 'Needs monitoring'  },
-    high:   { label: 'High',   color: '#E74C3C', description: 'Urgent attention'  },
+    low: { label: 'Low', color: '#27AE60', description: 'Minor / routine' },
+    medium: { label: 'Medium', color: '#E67E22', description: 'Needs monitoring' },
+    high: { label: 'High', color: '#E74C3C', description: 'Urgent attention' },
 };
 
 const ALL_FILTERS: Array<RecordType | 'all'> = [
@@ -226,10 +226,10 @@ const LabeledField = ({ label, value, color }: { label: string; value: string; c
 // ─── DatePickerField ──────────────────────────────────────────────────────────
 
 const MONTH_NAMES = [
-    'January','February','March','April','May','June',
-    'July','August','September','October','November','December',
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
 ];
-const DAY_NAMES = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+const DAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 function CalendarPickerModal({
     visible, value, onChange, onClose, colors, label,
@@ -239,7 +239,7 @@ function CalendarPickerModal({
 }) {
     const today = new Date();
     const initDate = value ? new Date(value + 'T00:00:00') : today;
-    const [viewYear,  setViewYear]  = useState(initDate.getFullYear());
+    const [viewYear, setViewYear] = useState(initDate.getFullYear());
     const [viewMonth, setViewMonth] = useState(initDate.getMonth());
 
     useEffect(() => {
@@ -398,7 +398,7 @@ function DatePickerField({
     const [open, setOpen] = useState(false);
     const hasValue = !!value;
     const border = hasValue ? colors.primary : colors.stroke;
-    const bg     = hasValue ? colors.primary + '0A' : colors.cardFill;
+    const bg = hasValue ? colors.primary + '0A' : colors.cardFill;
 
     const displayValue = hasValue
         ? new Date(value + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -577,10 +577,10 @@ const ANIMAL_IMAGES: Record<string, any> = {
 const affectedLabel = (type: RecordType) => {
     switch (type) {
         case 'vaccination': return 'ANIMALS VACCINATED';
-        case 'treatment':   return 'ANIMALS TREATED';
-        case 'deworming':   return 'ANIMALS DEWORMED';
-        case 'mortality':   return 'ANIMALS DECEASED';
-        default:            return 'ANIMALS AFFECTED';
+        case 'treatment': return 'ANIMALS TREATED';
+        case 'deworming': return 'ANIMALS DEWORMED';
+        case 'mortality': return 'ANIMALS DECEASED';
+        default: return 'ANIMALS AFFECTED';
     }
 };
 
@@ -588,10 +588,10 @@ const affectedLabel = (type: RecordType) => {
 
 export default function HealthRecordsScreen() {
     const { housingId, batchId: paramBatchId } = useLocalSearchParams<{ housingId: string; batchId: string }>();
-    const router      = useRouter();
-    const { colors }  = useTheme();
-    const textStyles  = useTextStyles();
-    const styles      = useAnimalStyles();
+    const router = useRouter();
+    const { colors } = useTheme();
+    const textStyles = useTextStyles();
+    const styles = useAnimalStyles();
     const { profile, permissions, role, isLoading: authLoading } = useAuth();
 
     const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
@@ -609,28 +609,28 @@ export default function HealthRecordsScreen() {
     const userId = (profile as any)?.uid || (profile as any)?.id;
 
     // ── Data state ────────────────────────────────────────────────────────────
-    const [records,        setRecords]        = useState<HealthRecord[]>([]);
+    const [records, setRecords] = useState<HealthRecord[]>([]);
     const [trashedRecords, setTrashedRecords] = useState<HealthRecord[]>([]);
-    const [batches,        setBatches]        = useState<Batch[]>([]);
-    const [isLoading,      setIsLoading]      = useState(true);
-    const [housingFarmId,  setHousingFarmId]  = useState<string>(''); // farm_id sourced from housing row
+    const [batches, setBatches] = useState<Batch[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [housingFarmId, setHousingFarmId] = useState<string>(''); // farm_id sourced from housing row
 
     // ── Trash drawer ──────────────────────────────────────────────────────────
-    const [trashVisible,       setTrashVisible]       = useState(false);
-    const [trashSeen,          setTrashSeen]          = useState(true);   // true = no badge dot
-    const [permanentDeleteId,  setPermanentDeleteId]  = useState<string | null>(null);
-    const [permDeleteVisible,  setPermDeleteVisible]  = useState(false);
-    const [isPermaDeleting,    setIsPermaDeleting]    = useState(false);
-    const [isRestoring,        setIsRestoring]        = useState<string | null>(null);
+    const [trashVisible, setTrashVisible] = useState(false);
+    const [trashSeen, setTrashSeen] = useState(true);   // true = no badge dot
+    const [permanentDeleteId, setPermanentDeleteId] = useState<string | null>(null);
+    const [permDeleteVisible, setPermDeleteVisible] = useState(false);
+    const [isPermaDeleting, setIsPermaDeleting] = useState(false);
+    const [isRestoring, setIsRestoring] = useState<string | null>(null);
 
     // ── Filter ────────────────────────────────────────────────────────────────
-    const [filterType,    setFilterType]    = useState<RecordType | 'all'>('all');
+    const [filterType, setFilterType] = useState<RecordType | 'all'>('all');
     const [filterBatchId, setFilterBatchId] = useState<string | 'all'>(paramBatchId || 'all');
 
     // ── Snackbar ──────────────────────────────────────────────────────────────
     const [snackbarVisible, setSnackbarVisible] = useState(false);
     const [snackbarMessage, setSnackbarMessage] = useState('');
-    const [snackbarType,    setSnackbarType]    = useState<SnackbarType>('success');
+    const [snackbarType, setSnackbarType] = useState<SnackbarType>('success');
     const showSnackbar = (msg: string, type: SnackbarType = 'success') => {
         setSnackbarMessage(msg); setSnackbarType(type); setSnackbarVisible(true);
     };
@@ -639,34 +639,34 @@ export default function HealthRecordsScreen() {
     const [detailRecord, setDetailRecord] = useState<HealthRecord | null>(null);
 
     // ── Delete ────────────────────────────────────────────────────────────────
-    const [deleteId,           setDeleteId]           = useState<string | null>(null);
+    const [deleteId, setDeleteId] = useState<string | null>(null);
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
-    const [isDeleting,         setIsDeleting]         = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // ── Add form ──────────────────────────────────────────────────────────────
-    const [addVisible,    setAddVisible]    = useState(false);
-    const [isSaving,      setIsSaving]      = useState(false);
-    const [addBatchId,    setAddBatchId]    = useState(paramBatchId || '');
-    const [addType,       setAddType]       = useState<RecordType>('vaccination');
-    const [addTitle,      setAddTitle]      = useState('');
-    const [addMed,        setAddMed]        = useState('');
-    const [addDosage,     setAddDosage]     = useState('');
-    const [addAffected,   setAddAffected]   = useState('');
-    const [addNotes,      setAddNotes]      = useState('');
-    const [addSeverity,   setAddSeverity]   = useState<Severity>('low');
-    const [addDate,       setAddDate]       = useState(new Date().toISOString().split('T')[0]);
-    const [addFollowup,   setAddFollowup]   = useState('');
-    const [vaccineSearch,        setVaccineSearch]        = useState('');
+    const [addVisible, setAddVisible] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const [addBatchId, setAddBatchId] = useState(paramBatchId || '');
+    const [addType, setAddType] = useState<RecordType>('vaccination');
+    const [addTitle, setAddTitle] = useState('');
+    const [addMed, setAddMed] = useState('');
+    const [addDosage, setAddDosage] = useState('');
+    const [addAffected, setAddAffected] = useState('');
+    const [addNotes, setAddNotes] = useState('');
+    const [addSeverity, setAddSeverity] = useState<Severity>('low');
+    const [addDate, setAddDate] = useState(new Date().toISOString().split('T')[0]);
+    const [addFollowup, setAddFollowup] = useState('');
+    const [vaccineSearch, setVaccineSearch] = useState('');
     const [vaccinePickerVisible, setVaccinePickerVisible] = useState(false);
 
     // Custom input states for "Other"
     const [customTitle, setCustomTitle] = useState('');
-    const [customMed,   setCustomMed]   = useState('');
+    const [customMed, setCustomMed] = useState('');
 
     // Picker visibility states
-    const [illnessPickerVisible,   setIllnessPickerVisible]   = useState(false);
+    const [illnessPickerVisible, setIllnessPickerVisible] = useState(false);
     const [treatmentPickerVisible, setTreatmentPickerVisible] = useState(false);
-    const [vitaminPickerVisible,   setVitaminPickerVisible]   = useState(false);
+    const [vitaminPickerVisible, setVitaminPickerVisible] = useState(false);
     const [dewormingPickerVisible, setDewormingPickerVisible] = useState(false);
     const [medicationPickerVisible, setMedicationPickerVisible] = useState(false);
 
@@ -714,47 +714,47 @@ export default function HealthRecordsScreen() {
     }, [housingId, fetchHousings]);
 
     // ── Animations ────────────────────────────────────────────────────────────
-    const slideAdd    = useRef(new Animated.Value(600)).current;
+    const slideAdd = useRef(new Animated.Value(600)).current;
     const slideDetail = useRef(new Animated.Value(600)).current;
-    const slideTrash  = useRef(new Animated.Value(600)).current;
-    const slideEdit   = useRef(new Animated.Value(600)).current;
+    const slideTrash = useRef(new Animated.Value(600)).current;
+    const slideEdit = useRef(new Animated.Value(600)).current;
 
     // Pickers (Add form)
-    const [typePickerVisible,     setTypePickerVisible]     = useState(false);
+    const [typePickerVisible, setTypePickerVisible] = useState(false);
     const [severityPickerVisible, setSeverityPickerVisible] = useState(false);
-    const [batchPickerVisible,    setBatchPickerVisible]    = useState(false);
+    const [batchPickerVisible, setBatchPickerVisible] = useState(false);
 
     // ── Edit form ─────────────────────────────────────────────────────────────
-    const [editVisible,   setEditVisible]   = useState(false);
-    const [isUpdating,    setIsUpdating]    = useState(false);
-    const [editRecordId,  setEditRecordId]  = useState<string | null>(null);
-    const [editBatchId,   setEditBatchId]   = useState('');
-    const [editType,      setEditType]      = useState<RecordType>('vaccination');
-    const [editTitle,     setEditTitle]     = useState('');
-    const [editMed,       setEditMed]       = useState('');
-    const [editDosage,    setEditDosage]    = useState('');
-    const [editAffected,  setEditAffected]  = useState('');
-    const [editNotes,     setEditNotes]     = useState('');
-    const [editSeverity,  setEditSeverity]  = useState<Severity>('low');
-    const [editDate,      setEditDate]      = useState('');
-    const [editFollowup,  setEditFollowup]  = useState('');
+    const [editVisible, setEditVisible] = useState(false);
+    const [isUpdating, setIsUpdating] = useState(false);
+    const [editRecordId, setEditRecordId] = useState<string | null>(null);
+    const [editBatchId, setEditBatchId] = useState('');
+    const [editType, setEditType] = useState<RecordType>('vaccination');
+    const [editTitle, setEditTitle] = useState('');
+    const [editMed, setEditMed] = useState('');
+    const [editDosage, setEditDosage] = useState('');
+    const [editAffected, setEditAffected] = useState('');
+    const [editNotes, setEditNotes] = useState('');
+    const [editSeverity, setEditSeverity] = useState<Severity>('low');
+    const [editDate, setEditDate] = useState('');
+    const [editFollowup, setEditFollowup] = useState('');
     const [editCustomTitle, setEditCustomTitle] = useState('');
-    const [editCustomMed,   setEditCustomMed]   = useState('');
+    const [editCustomMed, setEditCustomMed] = useState('');
 
     // Edit pickers
-    const [editTypePickerVisible,        setEditTypePickerVisible]        = useState(false);
-    const [editSeverityPickerVisible,    setEditSeverityPickerVisible]    = useState(false);
-    const [editBatchPickerVisible,       setEditBatchPickerVisible]       = useState(false);
-    const [editVaccinePickerVisible,     setEditVaccinePickerVisible]     = useState(false);
-    const [editVaccineSearch,            setEditVaccineSearch]            = useState('');
-    const [editIllnessPickerVisible,     setEditIllnessPickerVisible]     = useState(false);
-    const [editTreatmentPickerVisible,   setEditTreatmentPickerVisible]   = useState(false);
-    const [editVitaminPickerVisible,     setEditVitaminPickerVisible]     = useState(false);
-    const [editDewormingPickerVisible,   setEditDewormingPickerVisible]   = useState(false);
-    const [editMedicationPickerVisible,  setEditMedicationPickerVisible]  = useState(false);
+    const [editTypePickerVisible, setEditTypePickerVisible] = useState(false);
+    const [editSeverityPickerVisible, setEditSeverityPickerVisible] = useState(false);
+    const [editBatchPickerVisible, setEditBatchPickerVisible] = useState(false);
+    const [editVaccinePickerVisible, setEditVaccinePickerVisible] = useState(false);
+    const [editVaccineSearch, setEditVaccineSearch] = useState('');
+    const [editIllnessPickerVisible, setEditIllnessPickerVisible] = useState(false);
+    const [editTreatmentPickerVisible, setEditTreatmentPickerVisible] = useState(false);
+    const [editVitaminPickerVisible, setEditVitaminPickerVisible] = useState(false);
+    const [editDewormingPickerVisible, setEditDewormingPickerVisible] = useState(false);
+    const [editMedicationPickerVisible, setEditMedicationPickerVisible] = useState(false);
 
     // ── Add Modal Swipe Gesture ──
-    const panY        = useRef(new Animated.Value(0)).current;
+    const panY = useRef(new Animated.Value(0)).current;
     const closeAddModalRef = useRef<() => void>(undefined);
     const isScrollAtTopAdd = useRef(true);
 
@@ -999,10 +999,10 @@ export default function HealthRecordsScreen() {
                     .order('deleted_at', { ascending: false }),
             ]);
 
-            if (housingRes.error)  throw housingRes.error;
-            if (batchRes.error)    throw batchRes.error;
-            if (activeRes.error)   throw activeRes.error;
-            if (trashRes.error)    throw trashRes.error;
+            if (housingRes.error) throw housingRes.error;
+            if (batchRes.error) throw batchRes.error;
+            if (activeRes.error) throw activeRes.error;
+            if (trashRes.error) throw trashRes.error;
 
             // Store farm_id from housing — used for inserts (avoids stale/empty farmId from context)
             if (housingRes.data?.farm_id) {
@@ -1030,17 +1030,17 @@ export default function HealthRecordsScreen() {
     // ── Derived ───────────────────────────────────────────────────────────────
     const batchMap = useMemo(() =>
         Object.fromEntries(batches.map(b => [b.id, b])),
-    [batches]);
+        [batches]);
 
     const activeBatch = useMemo(() =>
         batches.find(b => b.id === paramBatchId) ?? batches.find(b => b.status === 'active') ?? null,
-    [batches, paramBatchId]);
+        [batches, paramBatchId]);
 
     const selectedAddBatch = batches.find(b => b.id === addBatchId) ?? null;
 
     const filtered = useMemo(() => {
         return records.filter(r => {
-            const typeOk  = filterType === 'all' || r.record_type === filterType;
+            const typeOk = filterType === 'all' || r.record_type === filterType;
             const batchOk = filterBatchId === 'all' || r.batch_id === filterBatchId;
             return typeOk && batchOk;
         });
@@ -1148,8 +1148,8 @@ export default function HealthRecordsScreen() {
             showSnackbar(addType === 'vaccination' ? 'Please select a vaccine.' : 'Please enter a title.', 'error');
             return;
         }
-        if (!addBatchId)        { showSnackbar('Please select a batch.', 'error'); return; }
-        if (!housingId)         { showSnackbar('No housing selected.', 'error');   return; }
+        if (!addBatchId) { showSnackbar('Please select a batch.', 'error'); return; }
+        if (!housingId) { showSnackbar('No housing selected.', 'error'); return; }
 
         // farm_id: prefer the value we fetched from the housing row; fall back to context/profile
         const resolvedFarmId = housingFarmId || activeFarmIds[0] || (profile as any)?.farm_id || null;
@@ -1175,19 +1175,19 @@ export default function HealthRecordsScreen() {
                 : null;
 
             const payload = {
-                farm_id:        resolvedFarmId,
-                housing_id:     housingId,
-                batch_id:       addBatchId || null,
-                record_type:    addType,
-                title:          finalTitle,
-                medication:     finalMed || null,
-                dosage:         currentConfig.showDosage ? (addDosage.trim() || null) : null,
+                farm_id: resolvedFarmId,
+                housing_id: housingId,
+                batch_id: addBatchId || null,
+                record_type: addType,
+                title: finalTitle,
+                medication: finalMed || null,
+                dosage: currentConfig.showDosage ? (addDosage.trim() || null) : null,
                 affected_count: currentConfig.showAffected && addAffected ? parseInt(addAffected, 10) : null,
-                notes:          addNotes.trim()  || null,
-                severity:       currentConfig.showSeverity ? addSeverity : 'low',
-                record_date:    addDate,
-                followup_date:  currentConfig.showFollowup && addFollowup ? addFollowup : null,
-                recorded_by:    recordedBy,
+                notes: addNotes.trim() || null,
+                severity: currentConfig.showSeverity ? addSeverity : 'low',
+                record_date: addDate,
+                followup_date: currentConfig.showFollowup && addFollowup ? addFollowup : null,
+                recorded_by: recordedBy,
             };
 
             console.log('[HealthRecords] inserting:', payload);
@@ -1437,17 +1437,17 @@ export default function HealthRecordsScreen() {
                 : null;
 
             const payload = {
-                record_type:    editType,
-                title:          finalTitle,
-                batch_id:       editBatchId || null,
-                medication:     finalMed || null,
-                dosage:         cfg.showDosage ? (editDosage.trim() || null) : null,
+                record_type: editType,
+                title: finalTitle,
+                batch_id: editBatchId || null,
+                medication: finalMed || null,
+                dosage: cfg.showDosage ? (editDosage.trim() || null) : null,
                 affected_count: cfg.showAffected && editAffected ? parseInt(editAffected, 10) : null,
-                notes:          editNotes.trim() || null,
-                severity:       cfg.showSeverity ? editSeverity : 'low',
-                record_date:    editDate,
-                followup_date:  cfg.showFollowup && editFollowup ? editFollowup : null,
-                updated_at:     new Date().toISOString(),
+                notes: editNotes.trim() || null,
+                severity: cfg.showSeverity ? editSeverity : 'low',
+                record_date: editDate,
+                followup_date: cfg.showFollowup && editFollowup ? editFollowup : null,
+                updated_at: new Date().toISOString(),
             };
 
             const { error } = await supabase
@@ -1545,7 +1545,7 @@ export default function HealthRecordsScreen() {
                         <View style={styles.headerTextContainer}>
                             <Text style={[textStyles.h1, { color: colors.text, fontSize: 32 }]}>Health Records</Text>
                             <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16 }]}>
-                                Select a housing to manage vaccinations & treatments
+                                Select a housing to Record vaccinations & treatments
                             </Text>
                         </View>
                     </View>
@@ -1624,12 +1624,7 @@ export default function HealthRecordsScreen() {
                                                             {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
                                                         </Text>
                                                     </Text>
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                                                        Active batch:{' '}
-                                                        <Text style={{ color: housing.active_batch_name ? colors.text : colors.textGrey, fontFamily: 'Poppins-SemiBold' }}>
-                                                            {housing.active_batch_name ?? '—'}
-                                                        </Text>
-                                                    </Text>
+
                                                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                                                         <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
                                                             <Text style={{ color: accent, fontSize: 11, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }}>
@@ -1760,7 +1755,7 @@ export default function HealthRecordsScreen() {
                 >
                     {ALL_FILTERS.map(type => {
                         const isSel = filterType === type;
-                        const cfg   = type === 'all' ? null : RECORD_TYPES[type];
+                        const cfg = type === 'all' ? null : RECORD_TYPES[type];
                         const activeColor = cfg?.color ?? colors.primary;
                         return (
                             <TouchableOpacity key={type} activeOpacity={0.75} onPress={() => setFilterType(type)}
@@ -1839,8 +1834,8 @@ export default function HealthRecordsScreen() {
                     </View>
 
                     {filtered.map(record => {
-                        const cfg       = RECORD_TYPES[record.record_type];
-                        const sev       = SEVERITY_CONFIG[record.severity];
+                        const cfg = RECORD_TYPES[record.record_type];
+                        const sev = SEVERITY_CONFIG[record.severity];
                         const batchName = record.batch_id ? batchMap[record.batch_id]?.name ?? '—' : '—';
 
                         // Compact metadata chip
@@ -2135,9 +2130,9 @@ export default function HealthRecordsScreen() {
                             {/* ── Title / Vaccine Name ── */}
                             {fieldLabel(
                                 addType === 'vaccination' ? 'VACCINE NAME *' :
-                                addType === 'vitamins' ? 'VITAMIN NAME *' :
-                                addType === 'deworming' ? 'DEWORMER NAME *' :
-                                'TITLE *'
+                                    addType === 'vitamins' ? 'VITAMIN NAME *' :
+                                        addType === 'deworming' ? 'DEWORMER NAME *' :
+                                            'TITLE *'
                             )}
                             {addType === 'vaccination' ? (
                                 <TouchableOpacity
@@ -2475,9 +2470,9 @@ export default function HealthRecordsScreen() {
                             {/* ── Title / Vaccine ── */}
                             {fieldLabel(
                                 editType === 'vaccination' ? 'VACCINE NAME *' :
-                                editType === 'vitamins'    ? 'VITAMIN NAME *' :
-                                editType === 'deworming'   ? 'DEWORMER NAME *' :
-                                'TITLE *'
+                                    editType === 'vitamins' ? 'VITAMIN NAME *' :
+                                        editType === 'deworming' ? 'DEWORMER NAME *' :
+                                            'TITLE *'
                             )}
                             {editType === 'vaccination' ? (
                                 <TouchableOpacity
@@ -2845,9 +2840,9 @@ export default function HealthRecordsScreen() {
                                 </View>
                             ) : (
                                 trashedRecords.map(record => {
-                                    const cfg   = RECORD_TYPES[record.record_type];
-                                    const days  = daysSinceDeleted(record.deleted_at!);
-                                    const left  = daysLeft(record.deleted_at!);
+                                    const cfg = RECORD_TYPES[record.record_type];
+                                    const days = daysSinceDeleted(record.deleted_at!);
+                                    const left = daysLeft(record.deleted_at!);
                                     const urgent = left <= 3;
                                     return (
                                         <View key={record.id} style={{

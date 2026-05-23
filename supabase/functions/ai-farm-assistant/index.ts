@@ -163,6 +163,7 @@ const TOOLS = [
         animal_type: { type: 'string', description: '"chicken" or "pig"' },
         supplier: { type: 'string', description: 'Optional: supplier/source' },
         arrival_date: { type: 'string', description: 'Optional: YYYY-MM-DD (default today)' },
+        age_at_arrival_days: { type: 'number', description: 'Optional: age of the animals at arrival in days (default 0)' },
       },
       required: ['housing_id', 'name', 'initial_count', 'animal_type'],
     },
@@ -332,7 +333,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
         let query = db
           .from('batches')
-          .select('id, name, animal_type, estimated_count, current_count, arrival_date, supplier, status, housing_id, housings(id, name)')
+          .select('id, name, animal_type, estimated_count, current_count, arrival_date, age_at_arrival_days, supplier, status, housing_id, housings(id, name)')
           .order('created_at', { ascending: false });
 
         if (input.housing_id) {
@@ -504,6 +505,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
             current_count: input.initial_count,
             supplier: input.supplier ?? null,
             arrival_date: input.arrival_date ?? today,
+            age_at_arrival_days: input.age_at_arrival_days ?? 0,
             status: 'active',
             created_by: userId || null,
           })

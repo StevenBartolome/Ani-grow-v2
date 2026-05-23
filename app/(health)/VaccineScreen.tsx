@@ -648,11 +648,11 @@ export default function VaccineScreen() {
 
     const BatchSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
         <View>
-            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 6 }]}>Batch / Housing (optional)</Text>
+            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 6 }]}>Housing (optional)</Text>
             <TouchableOpacity style={styles.selectRow} activeOpacity={0.7}
                 onPress={() => {
-                    // Cycle through batches or show a simple alert picker
-                    const opts = [{ id: '', label: '— None —' }, ...batches.map(b => ({ id: b.id, label: `${b.housing_name} (${b.species}, ${b.current_count})` }))];
+                    // Cycle through housings or show a simple alert picker
+                    const opts = [{ id: '', label: '— None —' }, ...batches.map(b => ({ id: b.id, label: b.housing_name }))];
                     const currentIdx = opts.findIndex(o => o.id === value);
                     const next = opts[(currentIdx + 1) % opts.length];
                     onChange(next.id);
@@ -660,8 +660,8 @@ export default function VaccineScreen() {
             >
                 <Text style={[textStyles.body, { color: value ? colors.text : colors.textGrey, fontSize: 14 }]}>
                     {value ? batches.find(b => b.id === value)
-                        ? `${batches.find(b => b.id === value)!.housing_name} (${batches.find(b => b.id === value)!.current_count})`
-                        : '—' : '— Select batch —'}
+                        ? batches.find(b => b.id === value)!.housing_name
+                        : '—' : '— Select housing —'}
                 </Text>
                 <MaterialIcons name="expand-more" size={20} color={colors.textGrey} />
             </TouchableOpacity>
