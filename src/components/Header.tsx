@@ -32,7 +32,7 @@ export const Header: React.FC = () => {
         isMultiFarm,
     } = useFarmFilter();
 
-    const [farmName, setFarmName] = useState('your farm');
+    const [farmName, setFarmName] = useState('');
     const [unreadNotifCount, setUnreadNotifCount] = useState(0);
     const [switcherOpen, setSwitcherOpen] = useState(false);
     const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);

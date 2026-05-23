@@ -99,7 +99,7 @@ export default function HomeScreen() {
     } = useFarmFilter();
 
     // ── State ─────────────────────────────────────────────────────────────────
-    const [farmName, setFarmName]           = useState('your farm');
+    const [farmName, setFarmName]           = useState('');
     const [farmBreakdown, setFarmBreakdown] = useState<FarmBreakdown[]>([]);
     const [totalAnimals, setTotalAnimals]   = useState(0);
     const [animalSplit, setAnimalSplit]     = useState({ pigs: 0, chickens: 0 });

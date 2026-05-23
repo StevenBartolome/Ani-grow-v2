@@ -9,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { Header } from '@/components/Header';
 import { AIInsightCard } from '@/components/AIInsightCard';
+import { SelectionModal } from '@/components/SelectionModal';
 import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -135,6 +136,7 @@ export default function GuideScreen() {
     const [batches, setBatches] = useState<BatchSummary[]>([]);
     const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
     const [isBatchLoading, setIsBatchLoading] = useState(true);
+    const [batchModalVisible, setBatchModalVisible] = useState(false);
 
     // ── Fetch active batches ───────────────────────────────────────────────────
     const fetchBatches = useCallback(async () => {
@@ -181,6 +183,15 @@ export default function GuideScreen() {
     );
 
     const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId) ?? null;
+
+    const batchOptions = filteredBatches.map(b => {
+        const ageDays = computeAgeDays(b.arrival_date, b.age_at_arrival_days ?? 0);
+        return `${b.name} (Day ${ageDays})`;
+    });
+
+    const selectedBatchLabel = selectedBatch
+        ? `${selectedBatch.name} (Day ${computeAgeDays(selectedBatch.arrival_date, selectedBatch.age_at_arrival_days ?? 0)})`
+        : 'Select Batch';
 
     // Real age in days from selected batch, null if no batch
     const currentDay = selectedBatch
@@ -279,50 +290,46 @@ export default function GuideScreen() {
                 ))}
             </View>
 
-            {/* ── Batch Filter (new — horizontal scroll below animal tabs) ── */}
+            {/* ── Batch Filter Dropdown ── */}
             {isBatchLoading ? (
                 <View style={{ paddingHorizontal: hPad, paddingBottom: 8 }}>
                     <ActivityIndicator size="small" color={colors.primary} />
                 </View>
             ) : filteredBatches.length > 0 ? (
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={{ flexGrow: 0 }}
-                    contentContainerStyle={{ paddingHorizontal: hPad, paddingBottom: 10, gap: 8, flexDirection: 'row' }}
-                >
-                    {filteredBatches.map((batch) => {
-                        const isSelected = batch.id === selectedBatchId;
-                        const ageDays = computeAgeDays(batch.arrival_date, batch.age_at_arrival_days ?? 0);
-                        return (
-                            <TouchableOpacity
-                                key={batch.id}
-                                activeOpacity={0.7}
-                                onPress={() => setSelectedBatchId(batch.id)}
-                                style={[
-                                    styles.filterChip,
-                                    isSelected && styles.filterChipActive,
-                                    { flexDirection: 'row', alignItems: 'center', gap: 4 },
-                                ]}
-                            >
-                                <Text style={[styles.filterChipText, isSelected && styles.filterChipTextActive]}>
-                                    {batch.name}
-                                </Text>
-                                <Text style={[
-                                    styles.filterChipText,
-                                    isSelected && styles.filterChipTextActive,
-                                    { opacity: 0.65, fontSize: 11 },
-                                ]}>
-                                    · Day {ageDays}
-                                </Text>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </ScrollView>
+                <View style={{ paddingHorizontal: hPad, marginBottom: 12 }}>
+                    <TouchableOpacity
+                        activeOpacity={0.8}
+                        style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            backgroundColor: colors.surface,
+                            borderWidth: 1,
+                            borderColor: colors.stroke,
+                            borderRadius: 12,
+                            paddingHorizontal: 16,
+                            height: 48,
+                            elevation: 1,
+                            shadowColor: colors.shadow,
+                            shadowOffset: { width: 0, height: 1 },
+                            shadowOpacity: 0.2,
+                            shadowRadius: 2,
+                        }}
+                        onPress={() => setBatchModalVisible(true)}
+                    >
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <MaterialIcons name="layers" size={20} color={colors.textGrey} style={{ marginRight: 10 }} />
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>
+                                {selectedBatchLabel}
+                            </Text>
+                        </View>
+                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                    </TouchableOpacity>
+                </View>
             ) : (
                 !isBatchLoading && (
                     <View style={{ paddingHorizontal: hPad, paddingBottom: 10 }}>
-                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
                             No active {animalFilter.toLowerCase()} batches found.
                         </Text>
                     </View>
@@ -504,6 +511,25 @@ export default function GuideScreen() {
             </ScrollView>
 
             <FloatingNavBar />
+
+            <SelectionModal
+                visible={batchModalVisible}
+                onClose={() => setBatchModalVisible(false)}
+                onSelect={(val) => {
+                    const idx = batchOptions.indexOf(val);
+                    if (idx >= 0) {
+                        setSelectedBatchId(filteredBatches[idx].id);
+                    }
+                    setBatchModalVisible(false);
+                }}
+                title="Select Batch"
+                description="Choose an active batch to view its growth timeline guide."
+                icon="layers"
+                options={batchOptions}
+                selectedValue={selectedBatchLabel}
+                requireConfirm={false}
+                enableSearch={false}
+            />
         </SafeAreaView>
     );
 }
