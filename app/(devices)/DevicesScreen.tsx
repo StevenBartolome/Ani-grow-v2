@@ -12,7 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
-import { ProfileDrawer } from '@/components/ProfileDrawer';
+import { Header } from '@/components/Header';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import { supabase } from '@/lib/supabase';
 
@@ -149,7 +149,6 @@ export default function DevicesScreen() {
     }, [authLoading, role, permissions]);
 
     const [activeFilter, setActiveFilter] = useState<FilterType>('All');
-    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
     const [devices, setDevices] = useState<RegisteredDevice[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -196,28 +195,7 @@ export default function DevicesScreen() {
         <SafeAreaView style={styles.safeArea}>
             <View style={styles.container}>
                 {/* Top Nav / Logo Row */}
-                <View style={styles.headerTopRow}>
-                    <View style={styles.headerTitleRow}>
-                        <TouchableOpacity
-                            style={{ marginRight: 8, padding: 4 }}
-                            onPress={() => setProfileDrawerOpen(true)}
-                            activeOpacity={0.8}
-                        >
-                            <MaterialIcons name="menu" size={24} color={colors.text} />
-                        </TouchableOpacity>
-                        <Image
-                            source={require('../../assets/branding/anigrow_logo.svg')}
-                            style={{ width: 36, height: 36, marginRight: 10 }}
-                            contentFit="contain"
-                        />
-                        <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
-                            Ani-Grow
-                        </Text>
-                    </View>
-                    <TouchableOpacity style={styles.addButton} onPress={() => router.push('/(devices)/AddDeviceScreen')}>
-                        <MaterialIcons name="add" size={22} color={colors.textGrey} />
-                    </TouchableOpacity>
-                </View>
+                <Header />
 
                 <View style={styles.headerContainer}>
                     <View style={styles.headerTextContainer}>
@@ -282,7 +260,27 @@ export default function DevicesScreen() {
                         <View style={{ paddingHorizontal: hPad, paddingBottom: 24 }}>
                             {/* Section header */}
                             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Registered Devices</Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Registered Devices</Text>
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            backgroundColor: colors.primary + '15',
+                                            borderColor: colors.primary + '30',
+                                            borderWidth: 1,
+                                            borderRadius: 20,
+                                            paddingHorizontal: 12,
+                                            paddingVertical: 5,
+                                        }}
+                                        onPress={() => router.push('/(devices)/AddDeviceScreen')}
+                                    >
+                                        <MaterialIcons name="add" size={14} color={colors.primary} />
+                                        <Text style={[textStyles.btnLabel, { color: colors.primary, fontSize: 11 }]}>Add Device</Text>
+                                    </TouchableOpacity>
+                                </View>
                                 <View style={{ flexDirection: 'row', gap: 6 }}>
                                     {[
                                         { label: 'Online', count: filteredDevices.filter(d => d.status === 'online').length, color: colors.primary },
@@ -325,11 +323,6 @@ export default function DevicesScreen() {
             </View>
 
             <FloatingNavBar />
-            <ProfileDrawer
-                visible={profileDrawerOpen}
-                onClose={() => setProfileDrawerOpen(false)}
-                activeFarmName={farmName}
-            />
         </SafeAreaView>
     );
 }

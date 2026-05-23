@@ -11,7 +11,7 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnimalStyles } from '@/styles/animalStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
-import { ProfileDrawer } from '@/components/ProfileDrawer';
+import { Header } from '@/components/Header';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
@@ -55,7 +55,6 @@ export default function AnimalsScreen() {
 
     const [housings, setHousings] = useState<HousingSummary[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
     const calculateAge = (arrivalDateStr: string | null, ageAtArrivalDays: number, animalType: 'chicken' | 'pig') => {
         if (!arrivalDateStr) return '';
@@ -190,26 +189,7 @@ export default function AnimalsScreen() {
         <SafeAreaView style={styles.safeArea}>
             <View style={styles.container}>
                 {/* Header */}
-                <View style={styles.headerTopRow}>
-                    <View style={styles.headerTitleRow}>
-                        <TouchableOpacity
-                            style={{ marginRight: 8, padding: 4 }}
-                            onPress={() => setProfileDrawerOpen(true)}
-                            activeOpacity={0.8}
-                        >
-                            <MaterialIcons name="menu" size={24} color={colors.text} />
-                        </TouchableOpacity>
-                        <Image
-                            source={require('../../assets/branding/anigrow_logo.svg')}
-                            style={{ width: 36, height: 36, marginRight: 10 }}
-                            contentFit="contain"
-                        />
-                        <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
-                            Ani-Grow
-                        </Text>
-                    </View>
-                    <View style={{ width: 40, height: 40 }} />
-                </View>
+                <Header />
 
                 <View style={styles.headerContainer}>
                     <View style={styles.headerTextContainer}>
@@ -358,11 +338,6 @@ export default function AnimalsScreen() {
             </View>
 
             <FloatingNavBar />
-            <ProfileDrawer
-                visible={profileDrawerOpen}
-                onClose={() => setProfileDrawerOpen(false)}
-                activeFarmName={farmName}
-            />
         </SafeAreaView>
     );
 }

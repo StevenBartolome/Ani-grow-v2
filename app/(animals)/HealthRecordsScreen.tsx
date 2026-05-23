@@ -9,7 +9,7 @@ import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
-import { ProfileDrawer } from '@/components/ProfileDrawer';
+import { Header } from '@/components/Header';
 
 import { BackButton } from '@/components/BackButton';
 import { AIInsightCard } from '@/components/AIInsightCard';
@@ -673,7 +673,6 @@ export default function HealthRecordsScreen() {
     // ── Housing Selection State ──
     const [housings, setHousings] = useState<HousingSummary[]>([]);
     const [housingsLoading, setHousingsLoading] = useState(true);
-    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
     const [housingsRefreshing, setHousingsRefreshing] = useState(false);
 
@@ -1524,26 +1523,7 @@ export default function HealthRecordsScreen() {
             <SafeAreaView style={styles.safeArea}>
                 <View style={styles.container}>
                     {/* Header */}
-                    <View style={styles.headerTopRow}>
-                        <View style={styles.headerTitleRow}>
-                            <TouchableOpacity
-                                style={{ marginRight: 8, padding: 4 }}
-                                onPress={() => setProfileDrawerOpen(true)}
-                                activeOpacity={0.8}
-                            >
-                                <MaterialIcons name="menu" size={24} color={colors.text} />
-                            </TouchableOpacity>
-                            <Image
-                                source={require('../../assets/branding/anigrow_logo.svg')}
-                                style={{ width: 36, height: 36, marginRight: 10 }}
-                                contentFit="contain"
-                            />
-                            <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
-                                Ani-Grow
-                            </Text>
-                        </View>
-                        <View style={{ width: 40, height: 40 }} />
-                    </View>
+                    <Header />
 
                     <View style={styles.headerContainer}>
                         <View style={styles.headerTextContainer}>
@@ -1650,11 +1630,6 @@ export default function HealthRecordsScreen() {
                 </View>
 
                 <FloatingNavBar />
-                <ProfileDrawer
-                    visible={profileDrawerOpen}
-                    onClose={() => setProfileDrawerOpen(false)}
-                    activeFarmName={farmName}
-                />
             </SafeAreaView>
         );
     }
