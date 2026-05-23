@@ -12,6 +12,7 @@ import ActionModal from '@/components/ActionModal';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useSettingsSubPageStyles } from '@/styles/settingsSubPageStyles';
+import { supabase } from '@/lib/supabase';
 
 export default function EditProfileScreen() {
     const styles = useSettingsSubPageStyles();
@@ -26,15 +27,23 @@ export default function EditProfileScreen() {
     const [phoneNumber, setPhoneNumber] = useState('');
     const [isEditingUsername, setIsEditingUsername] = useState(false);
 
-    const { profile } = useAuth();
+    const { profile, refreshProfile } = useAuth();
 
     useEffect(() => {
         if (profile) {
+            console.log('[EditProfileScreen] Loaded user profile:', {
+                firstName: profile.firstName,
+                lastName: profile.lastName,
+                username: (profile as any).username,
+                email: profile.email,
+                phone: (profile as any).phone,
+                phoneNumber: profile.phoneNumber
+            });
             setFirstName(profile.firstName || '');
             setLastName(profile.lastName || '');
             setUsername((profile as any).username || '');
             setEmail(profile.email || '');
-            setPhoneNumber((profile as any).phoneNumber || '');
+            setPhoneNumber(profile.phoneNumber || (profile as any).phone || '');
         }
     }, [profile]);
 
@@ -81,16 +90,64 @@ export default function EditProfileScreen() {
         setConfirmModalVisible(false);
         
         try {
-            // Mock UI delay
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            if (!profile?.uid) throw new Error('User session not found.');
+
+            const currentUsername = username.trim().toLowerCase();
+            
+            // Check if username is already taken by another user
+            const { data: existingUser, error: checkError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('username', currentUsername)
+                .maybeSingle();
+
+            if (checkError) throw checkError;
+            if (existingUser && existingUser.id !== profile.uid) {
+                showSnackbar('Username is already taken by another account.');
+                return;
+            }
+
+            // Check if phone number is already registered to another user
+            const currentPhone = phoneNumber.trim();
+            if (currentPhone) {
+                const { data: existingPhone, error: phoneCheckError } = await supabase
+                    .from('users')
+                    .select('id')
+                    .eq('phone', currentPhone)
+                    .maybeSingle();
+
+                if (phoneCheckError) throw phoneCheckError;
+                if (existingPhone && existingPhone.id !== profile.uid) {
+                    showSnackbar('Phone number is already registered to another account.');
+                    return;
+                }
+            }
+
+            // Update user record in Supabase 'users' table
+            const { error: updateError } = await supabase
+                .from('users')
+                .update({
+                    first_name: firstName.trim(),
+                    last_name: lastName.trim(),
+                    username: currentUsername,
+                    phone: currentPhone,
+                    email: email.trim(),
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', profile.uid);
+
+            if (updateError) throw updateError;
+
+            // Trigger context refresh to sync new data immediately
+            await refreshProfile();
 
             showSnackbar('Profile details updated successfully!', 'success');
             setTimeout(() => {
                 router.back();
             }, 1500);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error updating profile:", error);
-            showSnackbar("Failed to update profile.", 'error');
+            showSnackbar(error?.message || "Failed to update profile.", 'error');
         }
     };
 

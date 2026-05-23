@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   TouchableOpacity, 
   ScrollView, 
   Image,
   ActivityIndicator,
-  StyleSheet
+  StyleSheet,
+  Platform,
+  PanResponder,
+  Animated
 } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,12 +21,109 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { BackButton } from '@/components/BackButton';
 import { useSettingsSubPageStyles } from '@/styles/settingsSubPageStyles';
+import ActionModal from '@/components/ActionModal';
+import { supabase } from '@/lib/supabase';
+
+// Custom Swipeable Factor Row utilizing PanResponder
+const SwipeableFactorRow = ({ factor, onDelete, colors, textStyles, index, total }: any) => {
+  const translateX = useRef(new Animated.Value(0)).current;
+  
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Activate PanResponder ONLY on horizontal left swipes
+        return Math.abs(gestureState.dx) > 10 && gestureState.dx < 0;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dx < 0) {
+          translateX.setValue(Math.max(-80, gestureState.dx));
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx < -40) {
+          // Open delete action
+          Animated.spring(translateX, {
+            toValue: -80,
+            useNativeDriver: true,
+            bounciness: 4,
+          }).start();
+        } else {
+          // Closed state
+          Animated.spring(translateX, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 4,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  const handleClose = () => {
+    Animated.timing(translateX, {
+      toValue: 0,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <View style={mfaStyles.swipeRowContainer}>
+      {/* Background delete drawer item */}
+      <View style={mfaStyles.deleteActionWrapper}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          style={[mfaStyles.deleteActionButton, { backgroundColor: colors.error }]}
+          onPress={() => {
+            handleClose();
+            onDelete(factor.id);
+          }}
+        >
+          <MaterialIcons name="delete" size={20} color="#FFFFFF" />
+          <Text style={mfaStyles.deleteActionText}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Foreground scrollable content item */}
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={[
+          mfaStyles.swipeFront,
+          {
+            backgroundColor: colors.surface,
+            transform: [{ translateX }],
+            borderBottomWidth: index === total - 1 ? 0 : 1,
+            borderBottomColor: colors.stroke,
+          }
+        ]}
+      >
+        <View style={mfaStyles.swipeContentInner}>
+          <View style={[mfaStyles.iconBox, { backgroundColor: factor.status === 'verified' ? '#10b9811A' : '#f59e0b1A' }]}>
+            <MaterialIcons 
+              name={factor.status === 'verified' ? "check-circle" : "pending"} 
+              size={22} 
+              color={factor.status === 'verified' ? '#10b981' : '#f59e0b'} 
+            />
+          </View>
+          <View style={mfaStyles.rowTextContainer}>
+            <Text style={mfaStyles.rowTitle}>{factor.friendly_name || 'Authenticator App'}</Text>
+            <Text style={mfaStyles.rowDescription}>Status: {factor.status === 'verified' ? 'Verified' : 'Pending'}</Text>
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Text style={[textStyles.body, { fontSize: 10, color: colors.textGrey, opacity: 0.5 }]}>Swipe Left</Text>
+          <MaterialIcons name="chevron-left" size={16} color={colors.textGrey} style={{ opacity: 0.4 }} />
+        </View>
+      </Animated.View>
+    </View>
+  );
+};
 
 export default function MFAScreen() {
   const styles = useSettingsSubPageStyles();
   const { colors } = useTheme();
   const textStyles = useTextStyles();
-  const { enrollMFA, verifyMFA, getMFAFactors, unenrollMFA } = useAuth();
+  const { user, enrollMFA, verifyMFA, getMFAFactors, unenrollMFA } = useAuth();
 
   const [step, setStep] = useState<'status' | 'enroll' | 'verify'>('status');
   const [factors, setFactors] = useState<any[]>([]);
@@ -31,6 +131,13 @@ export default function MFAScreen() {
   const [code, setCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  
+  // Custom Switch and Confirmation Modal States
+  const [isDisableModalVisible, setDisableModalVisible] = useState(false);
+  const [factorToDisable, setFactorToDisable] = useState<string | null>(null);
+
+  // Local state for instant Switch toggle rendering
+  const [localMfaEnabled, setLocalMfaEnabled] = useState(false);
 
   // Snackbar State
   const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -46,6 +153,13 @@ export default function MFAScreen() {
   useEffect(() => {
     fetchStatus();
   }, []);
+
+  // Sync local switch state with factors & user metadata
+  useEffect(() => {
+    const isVerified = factors.some(f => f.status === 'verified');
+    const isMetadataEnabled = user?.user_metadata?.mfa_enabled !== false;
+    setLocalMfaEnabled(isVerified && isMetadataEnabled);
+  }, [factors, user]);
 
   const fetchStatus = async () => {
     setIsInitialLoading(true);
@@ -82,6 +196,11 @@ export default function MFAScreen() {
     setIsLoading(true);
     try {
       await verifyMFA(enrollData!.factorId, code);
+      // Ensure metadata is active on successful verification
+      await supabase.auth.updateUser({
+        data: { mfa_enabled: true }
+      });
+      setLocalMfaEnabled(true);
       showSnackbar('MFA enabled successfully!', 'success');
       fetchStatus();
     } catch (error: any) {
@@ -95,10 +214,102 @@ export default function MFAScreen() {
     setIsLoading(true);
     try {
       await unenrollMFA(factorId);
-      showSnackbar('MFA disabled successfully.', 'success');
+      // Disable in metadata too
+      await supabase.auth.updateUser({
+        data: { mfa_enabled: false }
+      });
+      setLocalMfaEnabled(false);
+      showSnackbar('Factor deleted successfully.', 'success');
       fetchStatus();
     } catch (error: any) {
-      showSnackbar(error.message || 'Failed to disable MFA.');
+      showSnackbar(error.message || 'Failed to delete factor.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const triggerDisableMFA = (factorId: string) => {
+    setFactorToDisable(factorId);
+    setDisableModalVisible(true);
+  };
+
+  const confirmDisableMFA = async () => {
+    setDisableModalVisible(false);
+    if (!factorToDisable) return;
+    
+    setIsLoading(true);
+    try {
+      await unenrollMFA(factorToDisable);
+      // Ensure local metadata disables it too
+      await supabase.auth.updateUser({
+        data: { mfa_enabled: false }
+      });
+      setLocalMfaEnabled(false);
+      showSnackbar('MFA factor deleted successfully.', 'success');
+      setFactorToDisable(null);
+      fetchStatus();
+    } catch (error: any) {
+      showSnackbar(error.message || 'Failed to delete MFA factor.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleToggleMFA = async () => {
+    setIsLoading(true);
+    const targetState = !localMfaEnabled;
+    try {
+      if (!targetState) {
+        // Toggle OFF -> Update user metadata only! Secret keys remain preserved.
+        const { error } = await supabase.auth.updateUser({
+          data: { mfa_enabled: false }
+        });
+        if (error) throw error;
+        setLocalMfaEnabled(false);
+        showSnackbar('Two-factor authentication disabled.', 'success');
+        fetchStatus();
+      } else {
+        // Toggle ON
+        if (isEnabled) {
+          // If already verified factor exists, just set metadata to true! No re-scanning!
+          const { error } = await supabase.auth.updateUser({
+            data: { mfa_enabled: true }
+          });
+          if (error) throw error;
+          setLocalMfaEnabled(true);
+          showSnackbar('Two-factor authentication active!', 'success');
+          fetchStatus();
+        } else {
+          // No verified factors, trigger TOTP setup
+          const pendingFactor = factors.find(f => f.status === 'pending');
+          if (pendingFactor) {
+            if (enrollData) {
+              setCode('');
+              setStep('verify');
+            } else {
+              handleReEnroll(pendingFactor.id);
+            }
+          } else {
+            handleStartEnroll();
+          }
+        }
+      }
+    } catch (error: any) {
+      showSnackbar(error.message || 'Failed to toggle MFA.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleReEnroll = async (pendingFactorId: string) => {
+    setIsLoading(true);
+    try {
+      await unenrollMFA(pendingFactorId);
+      const data = await enrollMFA();
+      setEnrollData(data);
+      setStep('enroll');
+    } catch (error: any) {
+      showSnackbar(error.message || 'Failed to restart MFA enrollment.');
     } finally {
       setIsLoading(false);
     }
@@ -136,60 +347,108 @@ export default function MFAScreen() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
             {step === 'status' && (
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Security Status</Text>
-                    <Text style={styles.sectionDescription}>Two-factor authentication adds an extra layer of security to your account.</Text>
+                    <Text style={styles.sectionTitle}>Two-Factor Authentication (MFA)</Text>
+                    <Text style={styles.sectionDescription}>
+                        Add an extra layer of security. Toggle it on/off directly, or swipe left to permanently delete factors.
+                    </Text>
 
-                    <View style={[styles.card, { padding: 32, alignItems: 'center' }]}>
-                        <MaterialIcons 
-                            name={isEnabled ? "verified-user" : "gpp-maybe"} 
-                            size={64} 
-                            color={isEnabled ? "#10b981" : colors.textGrey} 
-                        />
-                        <Text style={[textStyles.h2, { color: colors.text, marginTop: 16 }]}>
-                            {isEnabled ? 'MFA is Enabled' : 'MFA is Disabled'}
+                    {/* Premium Card: Status Overview */}
+                    <View style={[styles.card, { padding: 24, alignItems: 'center', marginBottom: 20 }]}>
+                        <View style={[
+                            mfaStyles.statusIconOuter, 
+                            { backgroundColor: localMfaEnabled ? '#10b9811A' : colors.textGrey + '1A' }
+                        ]}>
+                            <MaterialIcons 
+                                name={localMfaEnabled ? "shield" : "gpp-maybe"} 
+                                size={40} 
+                                color={localMfaEnabled ? "#10b981" : colors.textGrey} 
+                            />
+                        </View>
+                        <Text style={[textStyles.h2, { color: colors.text, marginTop: 14, fontFamily: 'Poppins-Bold' }]}>
+                            {localMfaEnabled ? 'MFA is Security Active' : 'MFA is Inactive'}
                         </Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 8, textAlign: 'center' }]}>
-                            Your account is protected with {isEnabled ? 'an active' : 'no'} second factor.
+                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13, lineHeight: 18 }]}>
+                            {localMfaEnabled 
+                                ? 'Two-factor authentication prompts are active during password login.' 
+                                : 'Enable security alerts to safeguard livestock and device controls.'
+                            }
                         </Text>
                     </View>
 
+                    {/* Premium Toggle Row */}
+                    <View style={[mfaStyles.toggleRow, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
+                        <View style={mfaStyles.toggleTextWrapper}>
+                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, fontFamily: 'Poppins-SemiBold' }]}>
+                                Authenticator App Setup
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2, lineHeight: 16 }]}>
+                                {localMfaEnabled ? 'ON — OTP login enabled' : 'OFF — Password only'}
+                            </Text>
+                        </View>
+                        <TouchableOpacity
+                            activeOpacity={0.85}
+                            onPress={handleToggleMFA}
+                            disabled={isLoading}
+                            style={[
+                                mfaStyles.switchContainer,
+                                { backgroundColor: localMfaEnabled ? '#10b981' : colors.textGrey + '33' }
+                            ]}
+                        >
+                            <View 
+                                style={[
+                                    mfaStyles.switchCircle,
+                                    { 
+                                        backgroundColor: '#FFFFFF',
+                                        alignSelf: localMfaEnabled ? 'flex-end' : 'flex-start'
+                                    }
+                                ]} 
+                            />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Active Factors - Swipe to delete */}
                     {factors.length > 0 && (
                         <>
-                            <Text style={styles.sectionTitle}>MFA Factors</Text>
-                            <View style={styles.card}>
+                            <Text style={[styles.sectionTitle, { marginTop: 16 }]}>Registered Keys</Text>
+                            <Text style={[styles.sectionDescription, { marginBottom: 12 }]}>
+                                Swipe an authenticator key to the left to delete/wipe it permanently.
+                            </Text>
+                            <View style={[styles.card, { padding: 0, overflow: 'hidden' }]}>
                                 {factors.map((factor, index) => (
-                                    <View key={factor.id} style={[styles.row, index !== factors.length - 1 && styles.rowBorder]}>
-                                        <View style={styles.rowContent}>
-                                            <View style={[mfaStyles.iconBox, { backgroundColor: factor.status === 'verified' ? '#10b9811A' : '#f59e0b1A' }]}>
-                                                <MaterialIcons 
-                                                    name={factor.status === 'verified' ? "check-circle" : "pending"} 
-                                                    size={22} 
-                                                    color={factor.status === 'verified' ? '#10b981' : '#f59e0b'} 
-                                                />
-                                            </View>
-                                            <View style={styles.rowTextContainer}>
-                                                <Text style={styles.rowTitle}>{factor.friendly_name || 'Authenticator App'}</Text>
-                                                <Text style={styles.rowDescription}>Status: {factor.status === 'verified' ? 'Verified' : 'Pending'}</Text>
-                                            </View>
-                                        </View>
-                                        <TouchableOpacity onPress={() => handleDisableMFA(factor.id)} disabled={isLoading}>
-                                            <MaterialIcons name="delete-outline" size={24} color={colors.error} />
-                                        </TouchableOpacity>
-                                    </View>
+                                    <SwipeableFactorRow
+                                        key={factor.id}
+                                        factor={factor}
+                                        colors={colors}
+                                        textStyles={textStyles}
+                                        index={index}
+                                        total={factors.length}
+                                        onDelete={triggerDisableMFA}
+                                    />
                                 ))}
                             </View>
                         </>
                     )}
 
-                    {!isEnabled && (
-                        <TouchableOpacity 
-                            style={[styles.button, isLoading && { opacity: 0.7 }]} 
-                            activeOpacity={0.8} 
-                            onPress={handleStartEnroll}
-                            disabled={isLoading}
-                        >
-                            <Text style={styles.buttonText}>{isLoading ? 'Loading...' : factors.length > 0 ? 'Complete Enrollment' : 'Enable MFA'}</Text>
-                        </TouchableOpacity>
+                    {/* Pending enrollment alert row */}
+                    {factors.length > 0 && !isEnabled && (
+                        <View style={[mfaStyles.pendingAlertCard, { backgroundColor: '#F59E0B0A', borderColor: '#F59E0B22' }]}>
+                            <MaterialIcons name="warning" size={20} color="#F59E0B" />
+                            <View style={{ flex: 1 }}>
+                                <Text style={[textStyles.h3, { color: '#F59E0B', fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}>
+                                    Setup Incomplete
+                                </Text>
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2, lineHeight: 14 }]}>
+                                    You have a pending authenticator factor. Tap the button to verify and complete.
+                                </Text>
+                            </View>
+                            <TouchableOpacity 
+                                activeOpacity={0.8}
+                                style={[mfaStyles.pendingButton, { backgroundColor: '#F59E0B' }]}
+                                onPress={handleToggleMFA}
+                            >
+                                <Text style={mfaStyles.pendingButtonText}>Complete</Text>
+                            </TouchableOpacity>
+                        </View>
                     )}
                 </View>
             )}
@@ -285,15 +544,26 @@ export default function MFAScreen() {
         type={snackbarType}
         onDismiss={() => setSnackbarVisible(false)}
       />
+
+      <ActionModal
+        visible={isDisableModalVisible}
+        type="warning"
+        title="Delete Factor?"
+        message="Are you sure you want to permanently delete this authenticator key from your account? You will need to scan a new QR code to configure it again."
+        confirmText="Permanently Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDisableMFA}
+        onCancel={() => setDisableModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
 
 const mfaStyles = StyleSheet.create({
   iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -302,5 +572,120 @@ const mfaStyles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1.5,
     backgroundColor: '#fff',
+  },
+  statusIconOuter: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    marginBottom: 16,
+  },
+  toggleTextWrapper: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  switchContainer: {
+    width: 50,
+    height: 30,
+    borderRadius: 15,
+    padding: 3,
+    justifyContent: 'center',
+  },
+  switchCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    ...Platform.select({
+      web: { boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.15)' },
+      default: {
+        shadowColor: '#000',
+        shadowOpacity: 0.15,
+        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 2 },
+        elevation: 2,
+      }
+    })
+  },
+  pendingAlertCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    marginTop: 8,
+    gap: 12,
+  },
+  pendingButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  pendingButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontFamily: 'Poppins-Bold',
+  },
+  swipeRowContainer: {
+    height: 72,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  deleteActionWrapper: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteActionButton: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  deleteActionText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontFamily: 'Poppins-Bold',
+  },
+  swipeFront: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    height: '100%',
+    width: '100%',
+  },
+  swipeContentInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  rowTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  rowTitle: {
+    fontSize: 14,
+    fontFamily: 'Poppins-SemiBold',
+    color: '#000000', // standard black, will adapt inside context if using custom styles
+  },
+  rowDescription: {
+    fontSize: 11,
+    fontFamily: 'Poppins-Regular',
+    color: '#666666',
   }
 });

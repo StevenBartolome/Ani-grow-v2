@@ -120,6 +120,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           uid: data.id,
           firstName: data.first_name,
           lastName: data.last_name,
+          phone: data.phone,
+          phoneNumber: data.phone,
           customPermissions: data.custom_permissions || { add: [], remove: [] },
           assignedModules: data.assigned_modules || [],
         } as UserProfile);
@@ -165,6 +167,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             uid: createdData.id,
             firstName: createdData.first_name,
             lastName: createdData.last_name,
+            phone: createdData.phone,
+            phoneNumber: createdData.phone,
             customPermissions: createdData.custom_permissions || { add: [], remove: [] },
             assignedModules: createdData.assigned_modules || [],
           } as UserProfile);
@@ -189,17 +193,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // Check if MFA is required
-    const { data: factorData, error: factorError } = await supabase.auth.mfa.listFactors();
-    if (factorError) {
-      console.error('Error listing MFA factors:', factorError);
-    } else if (factorData.all.length > 0) {
-      const verifiedFactors = factorData.all.filter(f => f.status === 'verified');
-      if (verifiedFactors.length > 0) {
-        // MFA is required. The session is already set but AAL is 1.
-        // We will handle navigation in the LoginScreen based on this check or a returned value.
-        // For now, let's keep it simple and throw a specific "error" or return a status.
-        setIsLoading(false);
-        return { mfaRequired: true };
+    const isMfaDisabled = data.user?.user_metadata?.mfa_enabled === false;
+    
+    if (!isMfaDisabled) {
+      const { data: factorData, error: factorError } = await supabase.auth.mfa.listFactors();
+      if (factorError) {
+        console.error('Error listing MFA factors:', factorError);
+      } else if (factorData.all.length > 0) {
+        const verifiedFactors = factorData.all.filter(f => f.status === 'verified');
+        if (verifiedFactors.length > 0) {
+          // MFA is required. The session is already set but AAL is 1.
+          // We will handle navigation in the LoginScreen based on this check or a returned value.
+          setIsLoading(false);
+          return { mfaRequired: true };
+        }
       }
     }
 

@@ -8,6 +8,8 @@ export interface CustomPermissions {
 export interface UserProfile {
   uid: string;
   email: string;
+  phone?: string;
+  phoneNumber?: string;
   farmId?: string;
   displayName: string;
   photoURL?: string;
