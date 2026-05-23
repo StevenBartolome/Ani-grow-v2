@@ -3,9 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Alert,
-    Modal,
     ScrollView,
-    Switch,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -14,7 +12,7 @@ import { Text } from '@/components/Text';
 import { useAuth } from '@/context/AuthContext';
 import { BackButton } from '@/components/BackButton';
 import { useTextStyles } from '@/constants/textStyles';
-import { useTheme } from '@/context/ThemeContext';
+import { useTheme, ThemeMode } from '@/context/ThemeContext';
 import { useSettingsStyles } from '@/styles/settingsStyles';
 import ActionModal from '@/components/ActionModal';
 import { ConfirmationModal } from '@/components/ConfirmationModal';
@@ -23,7 +21,7 @@ export default function SettingsScreen() {
     const { profile, signOut } = useAuth();
     const settingsStyles = useSettingsStyles();
     const textStyles = useTextStyles();
-    const { colors, isDark, toggleTheme, language } = useTheme();
+    const { colors, isDark, themeMode, setThemeMode, language } = useTheme();
     const router = useRouter();
 
     const userName = profile?.displayName || ((profile as any)?.firstName ? `${(profile as any).firstName} ${(profile as any).lastName}` : "User");
@@ -32,6 +30,14 @@ export default function SettingsScreen() {
     const userBadge = profile?.role === 'super_admin' ? 'Super Admin' : isAdminRole ? 'Farm Admin' : 'Employee';
 
     const [isLogoutModalVisible, setLogoutModalVisible] = useState(false);
+    const [themeDropdownOpen, setThemeDropdownOpen] = useState(false);
+
+    const themeOptions: { mode: ThemeMode; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name'] }[] = [
+        { mode: 'device', label: 'Device Default', icon: 'phone-android' },
+        { mode: 'light',  label: 'Light',          icon: 'wb-sunny' },
+        { mode: 'dark',   label: 'Dark',            icon: 'nightlight-round' },
+    ];
+    const activeThemeLabel = themeOptions.find(o => o.mode === themeMode)?.label ?? 'Device Default';
 
     const handleLogoutMenu = () => setLogoutModalVisible(true);
 
@@ -68,9 +74,9 @@ export default function SettingsScreen() {
                     {/* Profile Section */}
                     <View style={settingsStyles.profileSection}>
                         <View style={settingsStyles.profileAvatar}>
-                            <Text style={settingsStyles.profileAvatarText}>{userName.charAt(0).toUpperCase()}</Text>
+                            <Text translate={false} style={settingsStyles.profileAvatarText}>{userName.charAt(0).toUpperCase()}</Text>
                         </View>
-                        <Text style={[textStyles.h2, settingsStyles.profileName]}>{userName}</Text>
+                        <Text translate={false} style={[textStyles.h2, settingsStyles.profileName]}>{userName}</Text>
                         <Text style={[textStyles.body, settingsStyles.profileEmail]}>{userEmail}</Text>
                         <View style={settingsStyles.profileBadge}>
                             <MaterialIcons name="verified" size={14} color={colors.primary} />
@@ -121,8 +127,12 @@ export default function SettingsScreen() {
                     <View style={settingsStyles.section}>
                         <Text style={settingsStyles.sectionTitle}>App Preferences</Text>
                         <View style={settingsStyles.card}>
-                            {/* Dark Mode */}
-                            <View style={[settingsStyles.row, settingsStyles.rowNoBorder]}>
+                            {/* Theme */}
+                            <TouchableOpacity
+                                style={[settingsStyles.row, settingsStyles.rowNoBorder]}
+                                activeOpacity={0.7}
+                                onPress={() => setThemeDropdownOpen(v => !v)}
+                            >
                                 <View style={settingsStyles.rowContent}>
                                     <View style={[settingsStyles.iconBox, { backgroundColor: '#8B5CF6' + '1A' }]}>
                                         <MaterialIcons
@@ -132,17 +142,50 @@ export default function SettingsScreen() {
                                         />
                                     </View>
                                     <View>
-                                        <Text style={settingsStyles.rowTitle}>Dark Mode</Text>
-                                        <Text style={settingsStyles.rowDescription}>Toggle application theme</Text>
+                                        <Text style={settingsStyles.rowTitle}>Theme</Text>
+                                        <Text style={settingsStyles.rowDescription}>{activeThemeLabel}</Text>
                                     </View>
                                 </View>
-                                <Switch
-                                    value={isDark}
-                                    onValueChange={toggleTheme}
-                                    trackColor={{ false: colors.stroke, true: colors.primary }}
-                                    thumbColor="#FFFFFF"
+                                <MaterialIcons
+                                    name={themeDropdownOpen ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
+                                    size={22}
+                                    color={colors.textGrey}
                                 />
-                            </View>
+                            </TouchableOpacity>
+
+                            {themeDropdownOpen && (
+                                <View style={{ borderTopWidth: 1, borderTopColor: colors.stroke, paddingVertical: 8, paddingHorizontal: 16, gap: 4 }}>
+                                    {themeOptions.map(opt => {
+                                        const isSelected = themeMode === opt.mode;
+                                        return (
+                                            <TouchableOpacity
+                                                key={opt.mode}
+                                                activeOpacity={0.7}
+                                                onPress={() => { setThemeMode(opt.mode); setThemeDropdownOpen(false); }}
+                                                style={{
+                                                    flexDirection: 'row', alignItems: 'center',
+                                                    paddingVertical: 10, paddingHorizontal: 12,
+                                                    borderRadius: 10,
+                                                    backgroundColor: isSelected ? colors.primary + '12' : 'transparent',
+                                                }}
+                                            >
+                                                <MaterialIcons
+                                                    name={opt.icon}
+                                                    size={18}
+                                                    color={isSelected ? colors.primary : colors.textGrey}
+                                                    style={{ marginRight: 12 }}
+                                                />
+                                                <Text style={[settingsStyles.rowTitle, { color: isSelected ? colors.primary : colors.text, fontSize: 14 }]}>
+                                                    {opt.label}
+                                                </Text>
+                                                {isSelected && (
+                                                    <MaterialIcons name="check" size={18} color={colors.primary} style={{ marginLeft: 'auto' }} />
+                                                )}
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            )}
                         </View>
                     </View>
 
@@ -263,7 +306,7 @@ export default function SettingsScreen() {
                                 <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={[settingsStyles.row, settingsStyles.rowNoBorder]} activeOpacity={0.7} onPress={() => router.push('/(auth)/PrivacyPolicyScreen')}>
+                            <TouchableOpacity style={[settingsStyles.row, settingsStyles.rowNoBorder]} activeOpacity={0.7} onPress={() => router.push('/(settings)/PrivacyPolicyScreen')}>
                                 <View style={settingsStyles.rowContent}>
                                     <View style={[settingsStyles.iconBox, { backgroundColor: '#64748B' + '1A' }]}>
                                         <MaterialIcons name="shield" size={22} color="#64748B" />

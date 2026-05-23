@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Modal, ScrollView, TextInput, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { AnimalIcon } from './AnimalIcon';
@@ -18,6 +18,8 @@ export interface SelectionModalProps {
     enableSearch?: boolean;
     requireConfirm?: boolean;
     isCustomIcon?: boolean;
+    enableSeeMore?: boolean;
+    enableOther?: boolean;
 }
 
 export function SelectionModal({
@@ -32,23 +34,56 @@ export function SelectionModal({
     enableSearch = false,
     requireConfirm = true,
     isCustomIcon = false,
+    enableSeeMore = false,
+    enableOther = false,
 }: SelectionModalProps) {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
 
     const [draftValue, setDraftValue] = useState(selectedValue);
     const [searchQuery, setSearchQuery] = useState('');
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [customOtherText, setCustomOtherText] = useState('');
+    const customInputRef = useRef<TextInput>(null);
 
     useEffect(() => {
         if (visible) {
-            setDraftValue(selectedValue);
             setSearchQuery('');
+            setIsExpanded(false);
+            
+            const isPredefined = options.includes(selectedValue);
+            if (selectedValue && !isPredefined && selectedValue !== 'Other' && enableOther) {
+                setDraftValue('Other');
+                setCustomOtherText(selectedValue);
+            } else {
+                setDraftValue(selectedValue);
+                setCustomOtherText('');
+            }
         }
-    }, [visible, selectedValue]);
+    }, [visible, selectedValue, options, enableOther]);
 
-    const filteredOptions = enableSearch
+    const isOtherSelected = (requireConfirm ? draftValue : selectedValue) === 'Other';
+    const confirmDisabled = !draftValue.trim() || (draftValue === 'Other' && !customOtherText.trim());
+
+    const baseFiltered = enableSearch
         ? options.filter(opt => opt.toLowerCase().includes(searchQuery.toLowerCase()))
         : options;
+
+    let finalOptions: string[] = [];
+    let showSeeMoreButton = false;
+
+    if (enableSeeMore && !searchQuery.trim()) {
+        if (isExpanded) {
+            finalOptions = [...baseFiltered];
+        } else {
+            finalOptions = baseFiltered.slice(0, 5);
+            if (baseFiltered.length > 5) {
+                showSeeMoreButton = true;
+            }
+        }
+    } else {
+        finalOptions = [...baseFiltered];
+    }
 
     const handleOptionPress = (val: string) => {
         if (requireConfirm) {
@@ -97,7 +132,7 @@ export function SelectionModal({
                         nestedScrollEnabled={true}
                     >
                         <View style={{ gap: 8, paddingRight: 4, paddingBottom: 4 }}>
-                            {filteredOptions.length > 0 ? filteredOptions.map((option) => (
+                            {finalOptions.length > 0 ? finalOptions.map((option) => (
                                 <TouchableOpacity
                                     key={option}
                                     style={{
@@ -117,7 +152,80 @@ export function SelectionModal({
                                     {(requireConfirm ? draftValue : selectedValue) === option && <MaterialIcons name="check" size={18} color={colors.primary} />}
                                 </TouchableOpacity>
                             )) : (
-                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginVertical: 16 }]}>No results found.</Text>
+                                !enableOther && <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginVertical: 16 }]}>No results found.</Text>
+                            )}
+
+                            {showSeeMoreButton && (
+                                <TouchableOpacity
+                                    style={{
+                                        paddingVertical: 12,
+                                        paddingHorizontal: 16,
+                                        borderRadius: 12,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        backgroundColor: colors.cardFill,
+                                        flexDirection: 'row',
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                        gap: 6
+                                    }}
+                                    onPress={() => setIsExpanded(true)}
+                                >
+                                    <MaterialIcons name="expand-more" size={18} color={colors.textGrey} />
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontFamily: 'Poppins-SemiBold' }]}>See More...</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            {enableOther && (
+                                <TouchableOpacity
+                                    style={{
+                                        paddingVertical: 12,
+                                        paddingHorizontal: 16,
+                                        borderRadius: 12,
+                                        borderWidth: 1,
+                                        borderColor: isOtherSelected ? colors.primary : colors.stroke,
+                                        backgroundColor: isOtherSelected ? colors.primary + '1A' : colors.surface,
+                                        flexDirection: 'row',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center'
+                                    }}
+                                    onPress={() => handleOptionPress('Other')}
+                                >
+                                    <Text style={[textStyles.body, { color: isOtherSelected ? colors.primary : colors.text }]}>Other (Specify)</Text>
+                                    {isOtherSelected && <MaterialIcons name="check" size={18} color={colors.primary} />}
+                                </TouchableOpacity>
+                            )}
+
+                            {/* Inline custom text input when Other is selected */}
+                            {enableOther && isOtherSelected && (
+                                <View style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    borderWidth: 1.5,
+                                    borderColor: customOtherText.trim() ? colors.primary : colors.stroke,
+                                    borderRadius: 12,
+                                    paddingHorizontal: 14,
+                                    height: 48,
+                                    backgroundColor: colors.inputFill ?? colors.surface,
+                                    marginTop: 4,
+                                }}>
+                                    <MaterialIcons name="edit" size={16} color={colors.textGrey} style={{ marginRight: 8 }} />
+                                    <TextInput
+                                        ref={customInputRef}
+                                        style={[textStyles.body, { flex: 1, color: colors.text }]}
+                                        placeholder="Type custom value..."
+                                        placeholderTextColor={colors.textLight}
+                                        value={customOtherText}
+                                        onChangeText={setCustomOtherText}
+                                        autoFocus
+                                        returnKeyType="done"
+                                    />
+                                    {customOtherText.length > 0 && (
+                                        <TouchableOpacity onPress={() => setCustomOtherText('')}>
+                                            <MaterialIcons name="close" size={16} color={colors.textGrey} />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
                             )}
                         </View>
                     </ScrollView>
@@ -133,12 +241,18 @@ export function SelectionModal({
                             </TouchableOpacity>
 
                             <TouchableOpacity
-                                style={{ flex: 1, height: 48, borderRadius: 24, backgroundColor: colors.primary, opacity: draftValue.trim() ? 1 : 0.5, alignItems: 'center', justifyContent: 'center' }}
-                                onPress={() => { if (draftValue.trim()) { onSelect(draftValue); onClose(); } }}
+                                style={{ flex: 1, height: 48, borderRadius: 24, backgroundColor: colors.primary, opacity: confirmDisabled ? 0.5 : 1, alignItems: 'center', justifyContent: 'center' }}
+                                onPress={() => {
+                                    if (!confirmDisabled) {
+                                        const finalValue = draftValue === 'Other' ? customOtherText.trim() : draftValue;
+                                        onSelect(finalValue);
+                                        onClose();
+                                    }
+                                }}
                                 activeOpacity={0.7}
-                                disabled={!draftValue.trim()}
+                                disabled={confirmDisabled}
                             >
-                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Update</Text>
+                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Okay</Text>
                             </TouchableOpacity>
                         </View>
                     ) : (

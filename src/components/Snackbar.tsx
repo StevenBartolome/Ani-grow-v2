@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, StyleSheet, TouchableOpacity, View, Platform } from 'react-native';
 import { Text } from '@/components/Text';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -33,12 +33,12 @@ export default function Snackbar({
                 Animated.timing(translateY, {
                     toValue: 0,
                     duration: 300,
-                    useNativeDriver: true,
+                    useNativeDriver: Platform.OS !== 'web',
                 }),
                 Animated.timing(opacity, {
                     toValue: 1,
                     duration: 300,
-                    useNativeDriver: true,
+                    useNativeDriver: Platform.OS !== 'web',
                 }),
             ]).start();
 
@@ -57,12 +57,12 @@ export default function Snackbar({
             Animated.timing(translateY, {
                 toValue: 100,
                 duration: 250,
-                useNativeDriver: true,
+                useNativeDriver: Platform.OS !== 'web',
             }),
             Animated.timing(opacity, {
                 toValue: 0,
                 duration: 250,
-                useNativeDriver: true,
+                useNativeDriver: Platform.OS !== 'web',
             }),
         ]).start(() => {
             if (visible) onDismiss();
@@ -93,7 +93,14 @@ export default function Snackbar({
                     transform: [{ translateY }],
                     backgroundColor: colors.card,
                     borderColor: colors.stroke,
-                    shadowColor: colors.shadow,
+                    ...Platform.select({
+                        web: {
+                            boxShadow: `0px 4px 12px ${colors.shadow || 'rgba(0,0,0,0.15)'}`,
+                        },
+                        default: {
+                            shadowColor: colors.shadow,
+                        }
+                    })
                 },
             ]}
         >
@@ -120,12 +127,19 @@ const styles = StyleSheet.create({
         padding: 12,
         flexDirection: 'row',
         alignItems: 'center',
-        elevation: 6,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 1,
-        shadowRadius: 12,
         borderWidth: 1,
         zIndex: 999,
+        ...Platform.select({
+            web: {
+                boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.15)',
+            },
+            default: {
+                elevation: 6,
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 1,
+                shadowRadius: 12,
+            }
+        })
     },
     iconContainer: {
         width: 40,

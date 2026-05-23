@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
@@ -21,12 +21,17 @@ export default function LanguageScreen() {
     const router = useRouter();
 
     const [pendingLanguage, setPendingLanguage] = useState(language);
+    const [isSaving, setIsSaving]               = useState(false);
 
     const hasChanges = pendingLanguage !== language;
 
     const handleSave = () => {
-        setLanguage(pendingLanguage);
-        router.back();
+        setIsSaving(true);
+        setTimeout(() => {
+            setLanguage(pendingLanguage);
+            setIsSaving(false);
+            router.back();
+        }, 1200); // 1.2s premium, natural transition delay
     };
 
     return (
@@ -112,6 +117,61 @@ export default function LanguageScreen() {
                     </TouchableOpacity>
                 </View>
             </View>
+
+            {isSaving && (
+                <View
+                    style={{
+                        position: 'absolute',
+                        top: 0, left: 0, right: 0, bottom: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        zIndex: 9999,
+                    }}
+                >
+                    <View
+                        style={{
+                            backgroundColor: colors.surface,
+                            padding: 28,
+                            borderRadius: 20,
+                            alignItems: 'center',
+                            gap: 16,
+                            width: '80%',
+                            maxWidth: 320,
+                            borderWidth: 1,
+                            borderColor: colors.stroke,
+                            ...Platform.select({
+                                web: { boxShadow: '0px 10px 25px rgba(0, 0, 0, 0.25)' },
+                                default: {
+                                    shadowColor: '#000',
+                                    shadowOffset: { width: 0, height: 8 },
+                                    shadowOpacity: 0.25,
+                                    shadowRadius: 16,
+                                    elevation: 12,
+                                },
+                            }),
+                        }}
+                    >
+                        <ActivityIndicator size="large" color={colors.primary} />
+                        <Text
+                            translate={false}
+                            style={[
+                                textStyles.body,
+                                {
+                                    color: colors.text,
+                                    fontSize: 14,
+                                    fontFamily: 'Poppins-Medium',
+                                    textAlign: 'center',
+                                },
+                            ]}
+                        >
+                            {pendingLanguage === 'fil'
+                                ? 'Binabago ang wika...'
+                                : 'Changing language...'}
+                        </Text>
+                    </View>
+                </View>
+            )}
         </SafeAreaView>
     );
 }

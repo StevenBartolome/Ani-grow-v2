@@ -106,6 +106,28 @@ export const FarmFilterProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             return;
         }
 
+        // Super admin: load ALL farms in the system
+        if (userRole === 'super_admin') {
+            try {
+                const { data: allFarms, error: allFarmsErr } = await supabase
+                    .from('farms')
+                    .select('id, name');
+                if (allFarmsErr) throw allFarmsErr;
+
+                const farms: ManagedFarm[] = (allFarms || []).map((f: any) => ({
+                    id: f.id,
+                    name: f.name || 'Farm',
+                }));
+                setManagedFarms(farms);
+                setSelectedFarmIds(farms.map(f => f.id));
+            } catch (err) {
+                console.error('[FarmFilterContext] loadFarms super_admin error:', err);
+            } finally {
+                setIsLoaded(true);
+            }
+            return;
+        }
+
         try {
             // Fetch farm_admin_farms rows (mobile-created farms)
             const { data: links, error } = await supabase
@@ -171,7 +193,7 @@ export const FarmFilterProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         } finally {
             setIsLoaded(true);
         }
-    }, [userId, farmId, isFarmAdmin]);
+    }, [userId, farmId, isFarmAdmin, userRole]);
 
     useEffect(() => {
         if (userId) { loadFarms(); }

@@ -172,173 +172,191 @@ export default function DispenseRecordsScreen() {
     const getStatusLabel = (status: string) =>
         status === 'success' ? 'Success' : status === 'error' ? 'Failed' : 'Pending';
 
+    const activeFilterCount = (filterStatus !== 'all' ? 1 : 0) + (filterHousingId !== 'all' ? 1 : 0);
+
     return (
         <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgLight }]}>
-            {/* Header */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke }}>
-                <View style={{ width: 44, height: 44 }}>
+
+            {/* ── Header ───────────────────────────────────────────────── */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke }}>
+                <View style={{ width: 40 }}>
                     <BackButton fallbackRoute="/(devices)/DevicesScreen" />
                 </View>
                 <View style={{ alignItems: 'center' }}>
-                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>All Dispense Records</Text>
-                    {isFiltered && (
-                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 11 }]}>Filtered • {filteredRecords.length} records</Text>
-                    )}
+                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>Dispense Records</Text>
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                        {isFiltered ? `${filteredRecords.length} of ${records.length} records` : `${records.length} records`}
+                    </Text>
                 </View>
                 <TouchableOpacity
                     activeOpacity={0.7}
-                    style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
-                    onPress={() => setShowFilters(!showFilters)}
+                    style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: showFilters ? colors.secondary + '15' : 'transparent' }}
+                    onPress={() => setShowFilters(v => !v)}
                 >
-                    <MaterialIcons
-                        name={showFilters ? 'filter-list-off' : 'filter-list'}
-                        size={24}
-                        color={isFiltered ? colors.primary : showFilters ? colors.primary : colors.textGrey}
-                    />
+                    <MaterialIcons name="tune" size={22} color={activeFilterCount > 0 || showFilters ? colors.secondary : colors.textGrey} />
+                    {activeFilterCount > 0 && (
+                        <View style={{ position: 'absolute', top: 7, right: 7, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.secondary, borderWidth: 1.5, borderColor: colors.surface }} />
+                    )}
                 </TouchableOpacity>
             </View>
 
-            {/* Filter panel */}
+            {/* ── Filter Panel ─────────────────────────────────────────── */}
             {showFilters && (
-                <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14 }}>
-                    {/* Status filter */}
-                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Status</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: housingOptions.length > 1 ? 12 : 0 }}>
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                            {(['all', 'success', 'error', 'pending'] as StatusFilter[]).map(s => {
-                                const isActive = filterStatus === s;
-                                const chipColor = s === 'success' ? colors.primary : s === 'error' ? colors.error : s === 'pending' ? colors.warning : colors.textGrey;
-                                return (
-                                    <TouchableOpacity
-                                        key={s}
-                                        onPress={() => setFilterStatus(s)}
-                                        activeOpacity={0.7}
-                                        style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: isActive ? chipColor + '20' : colors.cardFill, borderWidth: 1, borderColor: isActive ? chipColor : 'transparent' }}
-                                    >
-                                        <Text style={[textStyles.label, { color: isActive ? chipColor : colors.textGrey, fontSize: 12 }]}>
-                                            {s === 'all' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}
-                                        </Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
+                <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke, paddingTop: 12, paddingBottom: 12, gap: 8 }}>
+
+                    {/* Status row */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, flexDirection: 'row', gap: 8 }}>
+                        {(['all', 'success', 'error', 'pending'] as StatusFilter[]).map(s => {
+                            const active = filterStatus === s;
+                            const c = s === 'success' ? colors.primary : s === 'error' ? colors.error : s === 'pending' ? colors.warning : colors.textGrey;
+                            const icon: any = s === 'success' ? 'check-circle' : s === 'error' ? 'error' : s === 'pending' ? 'schedule' : 'restaurant';
+                            return (
+                                <TouchableOpacity key={s} onPress={() => setFilterStatus(s)} activeOpacity={0.75}
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: active ? c : colors.bgLight, borderWidth: 1, borderColor: active ? c : colors.stroke }}>
+                                    <MaterialIcons name={icon} size={13} color={active ? '#fff' : colors.textGrey} />
+                                    <Text style={[textStyles.label, { fontSize: 12, color: active ? '#fff' : colors.textGrey }]}>
+                                        {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
                     </ScrollView>
 
-                    {/* Housing filter */}
+                    {/* Housing row */}
                     {housingOptions.length > 1 && (
                         <>
-                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Housing</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                <View style={{ flexDirection: 'row', gap: 8 }}>
-                                    <TouchableOpacity
-                                        onPress={() => setFilterHousingId('all')}
-                                        activeOpacity={0.7}
-                                        style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: filterHousingId === 'all' ? colors.info + '20' : colors.cardFill, borderWidth: 1, borderColor: filterHousingId === 'all' ? colors.info : 'transparent' }}
-                                    >
-                                        <Text style={[textStyles.label, { color: filterHousingId === 'all' ? colors.info : colors.textGrey, fontSize: 12 }]}>All Housings</Text>
-                                    </TouchableOpacity>
-                                    {housingOptions.map(h => (
-                                        <TouchableOpacity
-                                            key={h.id}
-                                            onPress={() => setFilterHousingId(h.id)}
-                                            activeOpacity={0.7}
-                                            style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: filterHousingId === h.id ? colors.info + '20' : colors.cardFill, borderWidth: 1, borderColor: filterHousingId === h.id ? colors.info : 'transparent' }}
-                                        >
-                                            <Text style={[textStyles.label, { color: filterHousingId === h.id ? colors.info : colors.textGrey, fontSize: 12 }]}>{h.name}</Text>
+                            <View style={{ height: 1, backgroundColor: colors.stroke, marginHorizontal: 16 }} />
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                                {[{ id: 'all', name: 'All Housings' }, ...housingOptions].map(h => {
+                                    const active = filterHousingId === h.id;
+                                    return (
+                                        <TouchableOpacity key={h.id} onPress={() => setFilterHousingId(h.id)} activeOpacity={0.75}
+                                            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: active ? colors.info : colors.bgLight, borderWidth: 1, borderColor: active ? colors.info : colors.stroke }}>
+                                            <MaterialIcons name="home" size={13} color={active ? '#fff' : colors.textGrey} />
+                                            <Text style={[textStyles.label, { fontSize: 12, color: active ? '#fff' : colors.textGrey }]}>{h.name}</Text>
                                         </TouchableOpacity>
-                                    ))}
-                                </View>
+                                    );
+                                })}
                             </ScrollView>
                         </>
+                    )}
+
+                    {activeFilterCount > 0 && (
+                        <TouchableOpacity onPress={() => { setFilterStatus('all'); setFilterHousingId('all'); }} activeOpacity={0.7}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16 }}>
+                            <MaterialIcons name="close" size={13} color={colors.error} />
+                            <Text style={[textStyles.label, { color: colors.error, fontSize: 11 }]}>Clear all filters</Text>
+                        </TouchableOpacity>
                     )}
                 </View>
             )}
 
-            <ScrollView contentContainerStyle={{ padding: 16 }} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
+            {/* ── Content ──────────────────────────────────────────────── */}
+            <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} showsVerticalScrollIndicator={false}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.secondary} colors={[colors.secondary]} />}>
+
                 {loading ? (
-                    <View style={{ alignItems: 'center', marginTop: 40 }}>
-                        <ActivityIndicator size="large" color={colors.primary} />
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Fetching dispense logs...</Text>
+                    <View style={{ alignItems: 'center', marginTop: 60 }}>
+                        <ActivityIndicator size="large" color={colors.secondary} />
+                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Fetching dispense records…</Text>
                     </View>
+
                 ) : records.length === 0 ? (
-                    <View style={{ alignItems: 'center', marginTop: 40, paddingHorizontal: 20 }}>
-                        <MaterialIcons name="receipt-long" size={48} color={colors.textGrey} />
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginTop: 16 }]}>No Logs Found</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginTop: 8 }]}>
-                            This device hasn't dispensed any feed yet.
+                    <View style={{ alignItems: 'center', marginTop: 60 }}>
+                        <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                            <MaterialIcons name="set-meal" size={34} color={colors.textGrey} />
+                        </View>
+                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 6 }]}>No Records Yet</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40 }]}>
+                            Feed dispense events from your AniFeed devices will appear here.
                         </Text>
                     </View>
+
                 ) : groupedByDate.length === 0 ? (
-                    <View style={{ alignItems: 'center', marginTop: 40 }}>
-                        <MaterialIcons name="search-off" size={48} color={colors.textGrey} />
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginTop: 16 }]}>No Matches</Text>
-                        <TouchableOpacity
-                            onPress={() => { setFilterStatus('all'); setFilterHousingId('all'); }}
-                            style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary + '20', borderRadius: 20 }}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 13 }]}>Clear Filters</Text>
+                    <View style={{ alignItems: 'center', marginTop: 60 }}>
+                        <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                            <MaterialIcons name="search-off" size={34} color={colors.textGrey} />
+                        </View>
+                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 6 }]}>No Matches</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40, marginBottom: 20 }]}>Try adjusting your filters.</Text>
+                        <TouchableOpacity onPress={() => { setFilterStatus('all'); setFilterHousingId('all'); }} activeOpacity={0.7}
+                            style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.secondary, borderRadius: 10 }}>
+                            <Text style={[textStyles.label, { color: '#fff', fontSize: 13 }]}>Clear Filters</Text>
                         </TouchableOpacity>
                     </View>
+
                 ) : (
                     groupedByDate.map(group => {
                         const isExpanded = !!expandedDates[group.dateKey];
+                        const gramLabel = group.totalGrams >= 1000
+                            ? `${(group.totalGrams / 1000).toFixed(1)}kg`
+                            : `${group.totalGrams}g`;
+
                         return (
-                            <View key={group.dateKey} style={[styles.statsCard, { backgroundColor: colors.surface, borderColor: colors.stroke, marginBottom: 12 }]}>
-                                {/* Date header row */}
+                            <View key={group.dateKey} style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, overflow: 'hidden' }}>
+
+                                {/* ── Date group header ── */}
                                 <TouchableOpacity
-                                    activeOpacity={0.7}
-                                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: isExpanded ? 12 : 0 }}
+                                    activeOpacity={0.75}
                                     onPress={() => setExpandedDates(prev => ({ ...prev, [group.dateKey]: !prev[group.dateKey] }))}
+                                    style={{ flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 }}
                                 >
-                                    <View>
-                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 16 }]}>{group.dateLabel}</Text>
-                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
-                                            {group.totalCount} event{group.totalCount !== 1 ? 's' : ''} · tap to expand
+                                    {/* Feed icon box */}
+                                    <View style={{ width: 46, height: 46, borderRadius: 12, backgroundColor: colors.secondary + '18', alignItems: 'center', justifyContent: 'center' }}>
+                                        <MaterialIcons name="set-meal" size={22} color={colors.secondary} />
+                                    </View>
+
+                                    {/* Date + count */}
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]}>{group.dateLabel}</Text>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 1 }]}>
+                                            {group.totalCount} event{group.totalCount !== 1 ? 's' : ''}
                                         </Text>
                                     </View>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <View style={{ alignItems: 'flex-end', marginRight: 10 }}>
-                                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>
-                                                {group.totalGrams >= 1000 ? `${(group.totalGrams / 1000).toFixed(1)}kg` : `${group.totalGrams}g`}
-                                            </Text>
-                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>success total</Text>
-                                        </View>
-                                        <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={24} color={colors.textGrey} />
+
+                                    {/* Total grams + chevron */}
+                                    <View style={{ alignItems: 'flex-end', marginRight: 4 }}>
+                                        <Text style={[textStyles.h2, { color: colors.secondary, fontSize: 22, lineHeight: 24 }]}>{gramLabel}</Text>
+                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]}>dispensed</Text>
                                     </View>
+                                    <MaterialIcons name={isExpanded ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={22} color={colors.textGrey} />
                                 </TouchableOpacity>
 
-                                {/* Expanded records */}
+                                {/* ── Expanded records ── */}
                                 {isExpanded && (
-                                    <View style={{ borderTopWidth: 1, borderTopColor: colors.stroke, paddingTop: 8 }}>
+                                    <View style={{ borderTopWidth: 1, borderTopColor: colors.stroke }}>
                                         {group.records.map((record, idx) => {
                                             const sc = getStatusColor(record.status);
                                             const si = getStatusIcon(record.status);
                                             const sl = getStatusLabel(record.status);
+                                            const isLast = idx === group.records.length - 1;
+
                                             return (
-                                                <View
-                                                    key={record.id}
-                                                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bgLight, borderRadius: 12, padding: 10, marginBottom: idx < group.records.length - 1 ? 8 : 0, overflow: 'hidden' }}
-                                                >
-                                                    {/* Mini accent */}
-                                                    <View style={{ width: 3, height: '100%', backgroundColor: sc, borderRadius: 2, marginRight: 10, alignSelf: 'stretch' }} />
-                                                    {/* Icon */}
-                                                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: sc + '18', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
-                                                        <MaterialIcons name={si} size={17} color={sc} />
+                                                <View key={record.id} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.stroke, gap: 10 }}>
+                                                    {/* Timeline dot */}
+                                                    <View style={{ alignItems: 'center', width: 20 }}>
+                                                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: sc }} />
+                                                        {!isLast && <View style={{ width: 2, flex: 1, backgroundColor: colors.stroke, marginTop: 3 }} />}
                                                     </View>
-                                                    {/* Info */}
-                                                    <View style={{ flex: 1 }}>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12 }]}>{formatTime(record.dispensed_at)}</Text>
-                                                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                                                                <MaterialIcons name="home" size={10} color={colors.textGrey} />
-                                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10, marginLeft: 2 }]}>{record.housingName}</Text>
-                                                            </View>
-                                                        </View>
-                                                        <Text style={[textStyles.label, { color: sc, fontSize: 11, marginTop: 2 }]}>{sl}</Text>
+
+                                                    {/* Time */}
+                                                    <View style={{ width: 64 }}>
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12 }]}>{formatTime(record.dispensed_at)}</Text>
                                                     </View>
+
+                                                    {/* Housing */}
+                                                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                                        <MaterialIcons name="home" size={12} color={colors.textGrey} />
+                                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 13 }]} numberOfLines={1}>{record.housingName}</Text>
+                                                    </View>
+
                                                     {/* Amount */}
-                                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]}>{record.grams_dispensed}g</Text>
+                                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>{record.grams_dispensed}g</Text>
+
+                                                    {/* Status icon */}
+                                                    <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: sc + '18', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <MaterialIcons name={si} size={15} color={sc} />
+                                                    </View>
                                                 </View>
                                             );
                                         })}

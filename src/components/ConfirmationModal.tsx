@@ -4,7 +4,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   View,
-  TouchableWithoutFeedback,
+  Pressable,
+  Platform,
 } from 'react-native';
 import { Text } from '@/components/Text';
 import { useTheme } from '@/context/ThemeContext';
@@ -39,9 +40,9 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       animationType="fade"
       onRequestClose={onCancel}
     >
-      <TouchableWithoutFeedback onPress={onCancel}>
+      <Pressable onPress={onCancel} style={{ flex: 1 }}>
         <View style={styles.overlay}>
-          <TouchableWithoutFeedback>
+          <Pressable>
             <View style={[styles.modalContainer, { backgroundColor: colors.surface }]}>
               
               <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center' }]}>
@@ -74,9 +75,9 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
                 </TouchableOpacity>
               </View>
             </View>
-          </TouchableWithoutFeedback>
+          </Pressable>
         </View>
-      </TouchableWithoutFeedback>
+      </Pressable>
     </Modal>
   );
 };
@@ -94,11 +95,18 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     padding: 24,
     borderRadius: 24,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    ...Platform.select({
+      web: {
+        boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.25)',
+      },
+      default: {
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+      },
+    }),
   },
   buttonRow: {
     flexDirection: 'row',

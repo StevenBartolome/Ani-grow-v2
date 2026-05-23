@@ -28,7 +28,6 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [testResult, setTestResult] = useState('');
 
   // Snackbar State
   const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -39,21 +38,6 @@ export default function LoginScreen() {
     setSnackbarMessage(message);
     setSnackbarType(type);
     setSnackbarVisible(true);
-  };
-
-  const testConnection = async () => {
-    setTestResult('Testing...');
-    try {
-      const { data, error } = await supabase
-        .from('test_connection')
-        .select('*')
-        .limit(1);
-
-      if (error) throw error;
-      setTestResult(data && data.length > 0 ? `Success: ${data[0].message}` : 'Connected, but table is empty.');
-    } catch (err: any) {
-      setTestResult(`Error: ${err.message}`);
-    }
   };
 
   const handleLogin = async () => {
@@ -217,15 +201,6 @@ export default function LoginScreen() {
                     Sign Up
                   </Text>
                 </TouchableOpacity>
-              </View>
-
-              {/* Database Debugger */}
-              <View style={{ marginTop: 40, padding: 15, backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.stroke }}>
-                <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, textAlign: 'center' }]}>Database Debugger</Text>
-                <TouchableOpacity onPress={testConnection} style={{ backgroundColor: colors.primary + '20', padding: 12, borderRadius: 8 }}>
-                  <Text style={{ color: colors.primary, textAlign: 'center', fontFamily: 'Poppins-SemiBold' }}>Test DB Connection</Text>
-                </TouchableOpacity>
-                {testResult ? <Text style={{ marginTop: 10, fontSize: 12, color: testResult.includes('Success') ? '#10b981' : '#ef4444', textAlign: 'center' }}>{testResult}</Text> : null}
               </View>
 
             </View>

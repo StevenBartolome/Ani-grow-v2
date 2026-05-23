@@ -64,9 +64,9 @@ export default function GrowthReportScreen() {
 
     const getChartData = () => {
         let labels = timeframe === 'Days' ? ['17', '18', '19', '20', '21', '22'] : ['W1', 'W2', 'W3', 'W4', 'W5', 'W6'];
-        
+
         // Highly accurate progressive growth data simulation (in kg)
-        const normalData = timeframe === 'Days' 
+        const normalData = timeframe === 'Days'
             ? [0.62, 0.70, 0.78, 0.86, 0.95, 1.04]
             : [0.18, 0.45, 0.85, 1.40, 2.05, 2.80];
 
@@ -211,9 +211,9 @@ export default function GrowthReportScreen() {
                 </View>
 
                 {/* Head Count Display */}
-                <View style={{ 
-                    flexDirection: 'row', 
-                    alignItems: 'center', 
+                <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
                     justifyContent: 'space-between',
                     backgroundColor: colors.surface,
                     borderWidth: 1,
@@ -320,7 +320,7 @@ export default function GrowthReportScreen() {
                     </View>
                 </View>
 
-                <AIInsightCard 
+                <AIInsightCard
                     title="AniBot Insight"
                     staticContent="Your animals are showing steady growth. The normal group is exceeding weight targets by 2%. Monitor the underweight group for feed competition."
                     variant="green"

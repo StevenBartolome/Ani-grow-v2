@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Modal, TouchableOpacity, TouchableWithoutFeedback } from 'react-native';
+import { View, StyleSheet, Modal, TouchableOpacity, Pressable, Platform, ActivityIndicator } from 'react-native';
 import { Text } from '@/components/Text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
@@ -16,6 +16,7 @@ interface ActionModalProps {
     cancelText?: string;
     onConfirm: () => void;
     onCancel: () => void;
+    isLoading?: boolean;
 }
 
 export default function ActionModal({
@@ -26,7 +27,8 @@ export default function ActionModal({
     confirmText = 'OK',
     cancelText = 'Cancel',
     onConfirm,
-    onCancel
+    onCancel,
+    isLoading = false
 }: ActionModalProps) {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
@@ -48,10 +50,22 @@ export default function ActionModal({
             animationType="fade"
             onRequestClose={onCancel}
         >
-            <TouchableWithoutFeedback onPress={onCancel}>
+            <Pressable onPress={onCancel} style={{ flex: 1 }}>
                 <View style={styles.overlay}>
-                    <TouchableWithoutFeedback>
-                        <View style={[styles.modalContainer, { backgroundColor: colors.surface, shadowColor: colors.shadow, shadowOpacity: 1 }]}>
+                    <Pressable>
+                        <View style={[
+                            styles.modalContainer, 
+                            { backgroundColor: colors.surface },
+                            Platform.select({
+                                web: {
+                                    boxShadow: `0px 10px 20px ${colors.shadow || 'rgba(0,0,0,0.1)'}`,
+                                },
+                                default: {
+                                    shadowColor: colors.shadow,
+                                    shadowOpacity: 1,
+                                }
+                            })
+                        ]}>
                             
                             {/* Icon Background */}
                             <View style={[styles.iconContainer, { backgroundColor: iconColor + '1A' }]}>
@@ -79,18 +93,23 @@ export default function ActionModal({
                                 )}
 
                                 <TouchableOpacity 
-                                    style={[styles.btn, styles.btnConfirm, { backgroundColor: confirmBtnColor }]} 
+                                    style={[styles.btn, styles.btnConfirm, { backgroundColor: confirmBtnColor, opacity: isLoading ? 0.8 : 1 }]} 
                                     onPress={onConfirm}
                                     activeOpacity={0.7}
+                                    disabled={isLoading}
                                 >
-                                    <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>{confirmText}</Text>
+                                    {isLoading ? (
+                                        <ActivityIndicator size="small" color={colors.onPrimary} />
+                                    ) : (
+                                        <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>{confirmText}</Text>
+                                    )}
                                 </TouchableOpacity>
                             </View>
                             
                         </View>
-                    </TouchableWithoutFeedback>
+                    </Pressable>
                 </View>
-            </TouchableWithoutFeedback>
+            </Pressable>
         </Modal>
     );
 }
@@ -109,11 +128,18 @@ const styles = StyleSheet.create({
         borderRadius: 24,
         padding: 24,
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.1,
-        shadowRadius: 20,
-        elevation: 10,
+        ...Platform.select({
+            web: {
+                boxShadow: '0px 10px 20px rgba(0, 0, 0, 0.1)',
+            },
+            default: {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 10 },
+                shadowOpacity: 0.1,
+                shadowRadius: 20,
+                elevation: 10,
+            }
+        })
     },
     iconContainer: {
         width: 64,

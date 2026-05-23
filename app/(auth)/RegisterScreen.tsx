@@ -29,14 +29,14 @@ type InviteData = {
     permissions: Record<string, boolean>;
 };
 
-const PERMISSION_LABELS: Record<string, { label: string; icon: string }> = {
-    dashboard:       { label: 'Dashboard',       icon: 'dashboard' },
-    ani_weigh:       { label: 'AniWeigh',         icon: 'monitor-weight' },
-    animals_guide:   { label: 'Animals Guide',    icon: 'pets' },
-    health_records:  { label: 'Health Records',   icon: 'medical-services' },
-    analytics:       { label: 'Analytics',        icon: 'analytics' },
-    feeding_control: { label: 'Feeding Control',  icon: 'restaurant' },
-};
+// Category-level chips shown when reviewing an invite code's granted permissions
+const PERM_CATEGORY_CHIPS: { id: string; label: string; icon: string; keys: string[] }[] = [
+    { id: 'devices',        label: 'Devices',   icon: 'devices',          keys: ['devices:view','devices:create','devices:edit','devices:delete','aniweigh:control','anifeed:dispense','feeds:manage','housing:manage','segregation:manage'] },
+    { id: 'animals',        label: 'Animals',   icon: 'pets',             keys: ['animals:view','animals:create','animals:edit','animals:delete'] },
+    { id: 'health',         label: 'Health',    icon: 'medical-services', keys: ['health:view','health:create','health:edit','vaccine:manage','mortality:manage'] },
+    { id: 'analytics',      label: 'Analytics', icon: 'analytics',        keys: ['reports:view','predictions:view','predictions:configure','ai_assistant:use'] },
+    { id: 'administration', label: 'Admin',     icon: 'settings',         keys: ['farms:manage','staff:invite','staff:manage_roles','settings:manage'] },
+];
 
 export default function RegisterScreen() {
     const router = useRouter();
@@ -481,30 +481,32 @@ export default function RegisterScreen() {
                                                 ACCESS PERMISSIONS
                                             </Text>
                                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                                {Object.entries(inviteData.permissions)
-                                                    .filter(([, granted]) => granted)
-                                                    .map(([key]) => (
-                                                        <View key={key} style={{
-                                                            flexDirection: 'row',
-                                                            alignItems: 'center',
-                                                            backgroundColor: colors.surface,
-                                                            borderWidth: 1,
-                                                            borderColor: colors.stroke,
-                                                            paddingHorizontal: 8,
-                                                            paddingVertical: 4,
-                                                            borderRadius: 8,
-                                                            gap: 4,
-                                                        }}>
-                                                            <MaterialIcons
-                                                                name={PERMISSION_LABELS[key]?.icon as any ?? 'check'}
-                                                                size={12}
-                                                                color={colors.primary}
-                                                            />
-                                                            <Text style={[textStyles.body, { fontSize: 11, color: colors.text }]}>
-                                                                {PERMISSION_LABELS[key]?.label ?? key}
-                                                            </Text>
-                                                        </View>
-                                                    ))}
+                                                {PERM_CATEGORY_CHIPS
+                                                    .filter(cat => cat.keys.some(k => inviteData.permissions[k]))
+                                                    .map(cat => {
+                                                        const count = cat.keys.filter(k => inviteData.permissions[k]).length;
+                                                        return (
+                                                            <View key={cat.id} style={{
+                                                                flexDirection: 'row',
+                                                                alignItems: 'center',
+                                                                backgroundColor: colors.surface,
+                                                                borderWidth: 1,
+                                                                borderColor: colors.stroke,
+                                                                paddingHorizontal: 8,
+                                                                paddingVertical: 4,
+                                                                borderRadius: 8,
+                                                                gap: 4,
+                                                            }}>
+                                                                <MaterialIcons name={cat.icon as any} size={12} color={colors.primary} />
+                                                                <Text style={[textStyles.body, { fontSize: 11, color: colors.text }]}>
+                                                                    {cat.label}
+                                                                </Text>
+                                                                <Text style={[textStyles.body, { fontSize: 10, color: colors.textGrey }]}>
+                                                                    {count}/{cat.keys.length}
+                                                                </Text>
+                                                            </View>
+                                                        );
+                                                    })}
                                             </View>
                                         </View>
                                     )}
@@ -590,7 +592,7 @@ export default function RegisterScreen() {
                                             I agree to the{' '}
                                             <Text onPress={() => router.push('/(auth)/TermsOfServiceScreen')} style={{ color: colors.primary, fontFamily: 'Poppins-SemiBold' }}>Terms of Service</Text>
                                             {' '}and{' '}
-                                            <Text onPress={() => router.push('/(auth)/PrivacyPolicyScreen')} style={{ color: colors.primary, fontFamily: 'Poppins-SemiBold' }}>Privacy Policy</Text>
+                                            <Text onPress={() => router.push('/(settings)/PrivacyPolicyScreen')} style={{ color: colors.primary, fontFamily: 'Poppins-SemiBold' }}>Privacy Policy</Text>
                                         </Text>
                                     </View>
                                 </>

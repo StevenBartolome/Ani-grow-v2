@@ -1,4 +1,4 @@
-import { StyleSheet, useWindowDimensions } from 'react-native';
+import { Platform, StyleSheet, useWindowDimensions } from 'react-native';
 import { createTheme } from '@/constants/theme';
 import { useTheme } from '@/context/ThemeContext';
 
@@ -109,11 +109,11 @@ export const useHomeStyles = () => {
             marginBottom: 24,
             borderRadius: 16,
             padding: 16,
-            elevation: 4,
-            shadowColor: '#000',
-            shadowOpacity: 0.12,
-            shadowRadius: 8,
-            shadowOffset: { width: 0, height: 4 },
+            ...Platform.select({
+                ios: { shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+                android: { elevation: 4 },
+                default: { boxShadow: '0px 4px 8px rgba(0,0,0,0.12)' } as any,
+            }),
         },
         infoBannerIconBox: {
             backgroundColor: 'rgba(255,255,255,0.2)',
@@ -149,11 +149,11 @@ export const useHomeStyles = () => {
             borderRadius: 16,
             borderWidth: 1.5,
             marginRight: 12,
-            elevation: 2,
-            shadowColor: '#000',
-            shadowOpacity: 0.05,
-            shadowRadius: 15,
-            shadowOffset: { width: 0, height: 8 },
+            ...Platform.select({
+                ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 15, shadowOffset: { width: 0, height: 8 } },
+                android: { elevation: 2 },
+                default: { boxShadow: '0px 8px 15px rgba(0,0,0,0.05)' } as any,
+            }),
         },
         alertChipIconBox: {
             padding: 8,
@@ -174,21 +174,21 @@ export const useHomeStyles = () => {
         farmStateCard: {
             flex: 1,
             padding: 14,
-            borderRadius: 20,
+            borderRadius: 16,
             borderWidth: 1.5,
-            elevation: 2,
-            shadowColor: '#000',
-            shadowOpacity: 0.05,
-            shadowRadius: 15,
-            shadowOffset: { width: 0, height: 8 },
+            justifyContent: 'space-between',
+            ...Platform.select({
+                ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 15, shadowOffset: { width: 0, height: 8 } },
+                android: { elevation: 2 },
+                default: { boxShadow: '0px 8px 15px rgba(0,0,0,0.05)' } as any,
+            }),
         },
         farmStateIconBox: {
-            width: 36,
-            height: 36,
+            width: 34,
+            height: 34,
             borderRadius: 10,
             alignItems: 'center',
             justifyContent: 'center',
-            alignSelf: 'flex-start',
         },
         farmStateValueRow: {
             flexDirection: 'row',
@@ -203,11 +203,11 @@ export const useHomeStyles = () => {
             borderWidth: 1.5,
             padding: 20,
             marginBottom: 28,
-            elevation: 2,
-            shadowColor: '#000',
-            shadowOpacity: 0.05,
-            shadowRadius: 15,
-            shadowOffset: { width: 0, height: 8 },
+            ...Platform.select({
+                ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 15, shadowOffset: { width: 0, height: 8 } },
+                android: { elevation: 2 },
+                default: { boxShadow: '0px 8px 15px rgba(0,0,0,0.05)' } as any,
+            }),
         },
         quickActionRow: {
             flexDirection: 'row',
@@ -236,10 +236,11 @@ export const useHomeStyles = () => {
             padding: 20,
             marginRight: 12,
             borderWidth: 1,
-            elevation: 6,
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.1,
-            shadowRadius: 16,
+            ...Platform.select({
+                ios: { shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } },
+                android: { elevation: 6 },
+                default: { boxShadow: '0px 8px 16px rgba(0,0,0,0.10)' } as any,
+            }),
         },
         animalCardHeader: {
             flexDirection: 'row',

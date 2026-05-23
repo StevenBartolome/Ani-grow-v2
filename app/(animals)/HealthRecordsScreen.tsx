@@ -7,6 +7,9 @@ import {
 } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import { FloatingNavBar } from '@/components/FloatingNavBar';
+import { ProfileDrawer } from '@/components/ProfileDrawer';
 
 import { BackButton } from '@/components/BackButton';
 import { AIInsightCard } from '@/components/AIInsightCard';
@@ -227,6 +230,20 @@ function VaccinePickerModal({
     );
 }
 
+interface HousingSummary {
+    id: string;
+    name: string;
+    animal_type: 'chicken' | 'pig';
+    current_count: number;
+    capacity: number;
+    active_batch_name: string | null;
+}
+
+const ANIMAL_IMAGES: Record<string, any> = {
+    pig: require('../../assets/images/animals/pigs.jpg'),
+    chicken: require('../../assets/images/animals/chickens.png'),
+};
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function HealthRecordsScreen() {
@@ -235,7 +252,17 @@ export default function HealthRecordsScreen() {
     const { colors }  = useTheme();
     const textStyles  = useTextStyles();
     const styles      = useAnimalStyles();
-    const { profile } = useAuth();
+    const { profile, permissions, role, isLoading: authLoading } = useAuth();
+
+    const RESTRICTED_ROLES = ['caretaker', 'veterinarian', 'flockman'];
+
+    useEffect(() => {
+        if (authLoading || !role) return;
+        if (RESTRICTED_ROLES.includes(role) && !permissions['health:view']) {
+            router.replace('/(dashboard)/HomeScreen' as any);
+        }
+    }, [authLoading, role, permissions]);
+
     const { activeFarmIds } = useFarmFilter();
 
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
@@ -291,13 +318,56 @@ export default function HealthRecordsScreen() {
     const [vaccineSearch,        setVaccineSearch]        = useState('');
     const [vaccinePickerVisible, setVaccinePickerVisible] = useState(false);
 
+    // ── Housing Selection State ──
+    const [housings, setHousings] = useState<HousingSummary[]>([]);
+    const [housingsLoading, setHousingsLoading] = useState(true);
+    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
+
+    const fetchHousings = useCallback(async () => {
+        if (!farmId) { setHousingsLoading(false); return; }
+        setHousingsLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('housings')
+                .select(`
+                    id, name, animal_type, current_count, capacity,
+                    batches(name, status)
+                `)
+                .eq('farm_id', farmId)
+                .eq('status', 'Active')
+                .order('name', { ascending: true });
+
+            if (error) throw error;
+
+            const mapped: HousingSummary[] = (data ?? []).map((h: any) => ({
+                id: h.id,
+                name: h.name,
+                animal_type: h.animal_type,
+                current_count: h.current_count,
+                capacity: h.capacity,
+                active_batch_name: h.batches?.find((b: any) => b.status === 'active')?.name ?? null,
+            }));
+            setHousings(mapped);
+        } catch (err) {
+            console.error('[HealthRecordsScreen] fetch housings error:', err);
+        } finally {
+            setHousingsLoading(false);
+        }
+    }, [farmId]);
+
+    useEffect(() => {
+        if (!housingId) {
+            fetchHousings();
+        }
+    }, [housingId, fetchHousings]);
+
     // ── Animations ────────────────────────────────────────────────────────────
     const slideAdd    = useRef(new Animated.Value(600)).current;
     const slideDetail = useRef(new Animated.Value(600)).current;
 
     useEffect(() => {
         if (addVisible) {
-            Animated.spring(slideAdd, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+            Animated.spring(slideAdd, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
         } else {
             slideAdd.setValue(600);
         }
@@ -305,7 +375,7 @@ export default function HealthRecordsScreen() {
 
     useEffect(() => {
         if (!!detailRecord) {
-            Animated.spring(slideDetail, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+            Animated.spring(slideDetail, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
         } else {
             slideDetail.setValue(600);
         }
@@ -315,7 +385,7 @@ export default function HealthRecordsScreen() {
 
     useEffect(() => {
         if (trashVisible) {
-            Animated.spring(slideTrash, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }).start();
+            Animated.spring(slideTrash, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
         } else {
             slideTrash.setValue(600);
         }
@@ -542,6 +612,155 @@ export default function HealthRecordsScreen() {
         </Text>
     );
 
+    const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
+    const pigColor = (colors as any).pig ?? '#E67E22';
+    const chickenColor = (colors as any).chicken ?? '#F1C40F';
+
+    if (!housingId) {
+        return (
+            <SafeAreaView style={styles.safeArea}>
+                <View style={styles.container}>
+                    {/* Header */}
+                    <View style={styles.headerTopRow}>
+                        <View style={styles.headerTitleRow}>
+                            <TouchableOpacity
+                                style={{ marginRight: 8, padding: 4 }}
+                                onPress={() => setProfileDrawerOpen(true)}
+                                activeOpacity={0.8}
+                            >
+                                <MaterialIcons name="menu" size={24} color={colors.text} />
+                            </TouchableOpacity>
+                            <Image
+                                source={require('../../assets/branding/anigrow_logo.svg')}
+                                style={{ width: 36, height: 36, marginRight: 10 }}
+                                contentFit="contain"
+                            />
+                            <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
+                                Ani-Grow
+                            </Text>
+                        </View>
+                        <View style={{ width: 40, height: 40 }} />
+                    </View>
+
+                    <View style={styles.headerContainer}>
+                        <View style={styles.headerTextContainer}>
+                            <Text style={[textStyles.h1, { color: colors.text, fontSize: 32 }]}>Health Records</Text>
+                            <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16 }]}>
+                                Select a housing to manage vaccinations & treatments
+                            </Text>
+                        </View>
+                    </View>
+
+                    <ScrollView
+                        style={styles.container}
+                        contentContainerStyle={{ paddingBottom: 100 }}
+                        showsVerticalScrollIndicator={false}
+                        refreshControl={
+                            <RefreshControl
+                                refreshing={housingsLoading}
+                                onRefresh={fetchHousings}
+                                colors={[colors.primary]}
+                                tintColor={colors.primary}
+                            />
+                        }
+                    >
+                        <View style={[styles.sectionTitleRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                            <View>
+                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Housings</Text>
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                    {housings.length} registered
+                                </Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.gridContainer}>
+                            {housingsLoading ? (
+                                <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 32, width: '100%' }} />
+                            ) : housings.length === 0 ? (
+                                <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', paddingVertical: 48, paddingHorizontal: 24, marginTop: 24 }}>
+                                    <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: `${colors.primary}15`, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                                        <MaterialIcons name="medical-services" size={36} color={colors.primary} />
+                                    </View>
+                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, textAlign: 'center' }]}>
+                                        No housings yet
+                                    </Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 }]}>
+                                        Add a housing first in order to track health records.
+                                    </Text>
+                                </View>
+                            ) : (
+                                housings.map(housing => {
+                                    const isPig = housing.animal_type === 'pig';
+                                    const accent = isPig ? pigColor : chickenColor;
+                                    const bgColor = accent + '1A';
+                                    const imgSrc = ANIMAL_IMAGES[housing.animal_type];
+
+                                    return (
+                                        <TouchableOpacity
+                                            key={housing.id}
+                                            activeOpacity={0.7}
+                                            style={[
+                                                styles.deviceCard,
+                                                { backgroundColor: colors.surface, borderColor: colors.stroke, padding: 0, overflow: 'hidden', width: '100%', marginBottom: 12, flexDirection: 'row', alignItems: 'stretch' }
+                                            ]}
+                                            onPress={() => router.push({
+                                                pathname: '/(animals)/HealthRecordsScreen',
+                                                params: { housingId: housing.id },
+                                            })}
+                                        >
+                                            <Image
+                                                source={imgSrc}
+                                                style={{ width: 110, height: 'auto', minHeight: 110, backgroundColor: bgColor }}
+                                                contentFit="cover"
+                                            />
+                                            <View style={{ flex: 1, padding: 14, justifyContent: 'center' }}>
+                                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 17, marginBottom: 6 }]}>
+                                                    {housing.name}
+                                                </Text>
+                                                <View style={{ gap: 4 }}>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                                        Live heads:{' '}
+                                                        <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
+                                                            {housing.current_count}
+                                                            {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
+                                                        </Text>
+                                                    </Text>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                                        Active batch:{' '}
+                                                        <Text style={{ color: housing.active_batch_name ? colors.text : colors.textGrey, fontFamily: 'Poppins-SemiBold' }}>
+                                                            {housing.active_batch_name ?? '—'}
+                                                        </Text>
+                                                    </Text>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                                                        <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+                                                            <Text style={{ color: accent, fontSize: 11, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }}>
+                                                                {isPig ? 'Pigs' : 'Chickens'}
+                                                            </Text>
+                                                        </View>
+                                                    </View>
+                                                </View>
+                                            </View>
+                                            <View style={{ justifyContent: 'center', paddingRight: 12 }}>
+                                                <MaterialIcons name="chevron-right" size={24} color={colors.textGrey} />
+                                            </View>
+                                        </TouchableOpacity>
+                                    );
+                                })
+                            )}
+                        </View>
+                    </ScrollView>
+                </View>
+
+                <FloatingNavBar />
+                <ProfileDrawer
+                    visible={profileDrawerOpen}
+                    onClose={() => setProfileDrawerOpen(false)}
+                    activeFarmName={farmName}
+                />
+            </SafeAreaView>
+        );
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -593,10 +812,17 @@ export default function HealthRecordsScreen() {
                             width: 44, height: 44, borderRadius: 22,
                             backgroundColor: colors.primary,
                             alignItems: 'center', justifyContent: 'center',
-                            elevation: 4,
-                            shadowColor: colors.primary,
-                            shadowOffset: { width: 0, height: 3 },
-                            shadowOpacity: 0.35, shadowRadius: 6,
+                            ...Platform.select({
+                                web: {
+                                    boxShadow: `0px 3px 6px ${colors.primary}59`,
+                                },
+                                default: {
+                                    elevation: 4,
+                                    shadowColor: colors.primary,
+                                    shadowOffset: { width: 0, height: 3 },
+                                    shadowOpacity: 0.35, shadowRadius: 6,
+                                }
+                            })
                         }}
                         onPress={() => setAddVisible(true)}
                     >
