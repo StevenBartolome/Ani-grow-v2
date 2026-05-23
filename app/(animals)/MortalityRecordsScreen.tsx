@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
     ActivityIndicator,
     Modal,
@@ -8,6 +8,10 @@ import {
     ScrollView,
     TouchableOpacity,
     View,
+    Animated,
+    PanResponder,
+    Easing,
+    Platform,
 } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -103,6 +107,82 @@ export default function MortalityRecordsScreen() {
     const [confirmVisible, setConfirmVisible]         = useState(false);
     const [confirmType, setConfirmType]               = useState<ActionModalType>('warning');
 
+    // ── Animations ──
+    const slideRecord = useRef(new Animated.Value(600)).current;
+    const panYRecord  = useRef(new Animated.Value(0)).current;
+    const closeRecordModalRef = useRef<() => void>(undefined);
+    const isScrollAtTopRecord = useRef(true);
+
+    const panRecordResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+                return gestureState.dy > 10 && isScrollAtTopRecord.current;
+            },
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                return gestureState.dy > 5 && isScrollAtTopRecord.current;
+            },
+            onPanResponderGrant: () => {
+                panYRecord.setOffset(0);
+            },
+            onPanResponderMove: (_, gestureState) => {
+                if (gestureState.dy > 0) {
+                    panYRecord.setValue(gestureState.dy);
+                } else {
+                    panYRecord.setValue(gestureState.dy * 0.2);
+                }
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+                    Animated.timing(panYRecord, {
+                        toValue: 600,
+                        duration: 150,
+                        easing: Easing.linear,
+                        useNativeDriver: Platform.OS !== 'web',
+                    }).start(() => {
+                        slideRecord.setValue(600);
+                        panYRecord.setValue(0);
+                        closeRecordModalRef.current?.();
+                    });
+                } else {
+                    Animated.spring(panYRecord, {
+                        toValue: 0,
+                        useNativeDriver: Platform.OS !== 'web',
+                        tension: 50,
+                        friction: 9,
+                    }).start();
+                }
+            },
+        })
+    ).current;
+
+    useEffect(() => {
+        if (recordVisible) {
+            isScrollAtTopRecord.current = true; // Reset so swipe always works on fresh open
+            panYRecord.setValue(0);
+            Animated.spring(slideRecord, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
+        } else {
+            slideRecord.setValue(600);
+        }
+    }, [recordVisible]);
+
+    closeRecordModalRef.current = () => {
+        setRecordVisible(false);
+        setDeceasedNumber('');
+        setDeceasedReason('Illness');
+        setDeceasedOtherReason('');
+    };
+
+    const handleCloseRecordModal = () => {
+        Animated.timing(slideRecord, {
+            toValue: 600,
+            duration: 220,
+            useNativeDriver: Platform.OS !== 'web',
+        }).start(() => {
+            closeRecordModalRef.current?.();
+        });
+    };
+
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchData = useCallback(async () => {
         if (!batchId || !housingId) return;
@@ -155,7 +235,7 @@ export default function MortalityRecordsScreen() {
         if (deceasedReason === 'Other' && !deceasedOtherReason.trim()) {
             showSnack('Please specify the reason.', 'error'); return;
         }
-        setRecordVisible(false);
+        handleCloseRecordModal();
         setConfirmType('warning');
         setConfirmVisible(true);
     };
@@ -503,76 +583,104 @@ export default function MortalityRecordsScreen() {
 
             {/* ── Record Deceased Modal ────────────────────────────────────── */}
             <Modal visible={recordVisible} transparent animationType="fade">
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center' }}>
-                        <View style={{ backgroundColor: colors.error + '1A', padding: 14, borderRadius: 20, marginBottom: 16 }}>
-                            <MaterialIcons name="warning" size={30} color={colors.error} />
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={handleCloseRecordModal}
+                    />
+                    <Animated.View
+                        {...panRecordResponder.panHandlers}
+                        style={{
+                            backgroundColor: colors.surface,
+                            borderTopLeftRadius: 28,
+                            borderTopRightRadius: 28,
+                            maxHeight: '90%',
+                            overflow: 'hidden',
+                            transform: [{ translateY: Animated.add(slideRecord, panYRecord) }],
+                        }}
+                    >
+                        {/* Drag handle */}
+                        <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
+                            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke }} />
+                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, textAlign: 'center', marginTop: 10 }]}>Record Deceased</Text>
                         </View>
-                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 6, fontSize: 20 }]}>
-                            Record Deceased
-                        </Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20, fontSize: 13 }]}>
-                            Current live count: <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{liveCount}</Text>
-                        </Text>
-
-                        <View style={{ width: '100%' }}>
-                            <FloatingLabelInput
-                                label="Number of Deceased"
-                                icon={isPig ? 'pig' : 'chicken'}
-                                value={deceasedNumber}
-                                onChangeText={t => setDeceasedNumber(t.replace(/[^0-9]/g, ''))}
-                                keyboardType="numeric"
-                                backgroundColor={colors.surface}
-                            />
-                        </View>
-
-                        <View style={{ width: '100%', marginBottom: 24 }}>
-                            <TouchableOpacity
-                                activeOpacity={0.8}
-                                style={{
-                                    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                                    borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30,
-                                    paddingHorizontal: 16, height: 58, backgroundColor: colors.surface,
-                                }}
-                                onPress={() => setReasonModalVisible(true)}
-                            >
-                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                    <MaterialIcons name="help-outline" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
-                                    <Text style={[textStyles.body, { color: colors.text }]}>{deceasedReason}</Text>
+                        <ScrollView
+                            onScroll={(e) => {
+                                isScrollAtTopRecord.current = e.nativeEvent.contentOffset.y <= 0;
+                            }}
+                            scrollEventThrottle={16}
+                            contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 36 }}
+                            showsVerticalScrollIndicator={false}
+                        >
+                            <View style={{ width: '100%', alignItems: 'center' }}>
+                                <View style={{ backgroundColor: colors.error + '1A', padding: 14, borderRadius: 20, marginBottom: 16 }}>
+                                    <MaterialIcons name="warning" size={30} color={colors.error} />
                                 </View>
-                                <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
-                            </TouchableOpacity>
-                        </View>
+                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20, fontSize: 13 }]}>
+                                    Current live count: <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{liveCount}</Text>
+                                </Text>
 
-                        {deceasedReason === 'Other' && (
-                            <View style={{ width: '100%', marginBottom: 8 }}>
-                                <FloatingLabelInput
-                                    label="Specific Reason"
-                                    icon="edit"
-                                    value={deceasedOtherReason}
-                                    onChangeText={setDeceasedOtherReason}
-                                    backgroundColor={colors.surface}
-                                />
+                                <View style={{ width: '100%' }}>
+                                    <FloatingLabelInput
+                                        label="Number of Deceased"
+                                        icon={isPig ? 'pig' : 'chicken'}
+                                        value={deceasedNumber}
+                                        onChangeText={t => setDeceasedNumber(t.replace(/[^0-9]/g, ''))}
+                                        keyboardType="numeric"
+                                        backgroundColor={colors.surface}
+                                    />
+                                </View>
+
+                                <View style={{ width: '100%', marginBottom: 24 }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                                            borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30,
+                                            paddingHorizontal: 16, height: 58, backgroundColor: colors.surface,
+                                        }}
+                                        onPress={() => setReasonModalVisible(true)}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            <MaterialIcons name="help-outline" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
+                                            <Text style={[textStyles.body, { color: colors.text }]}>{deceasedReason}</Text>
+                                        </View>
+                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {deceasedReason === 'Other' && (
+                                    <View style={{ width: '100%', marginBottom: 8 }}>
+                                        <FloatingLabelInput
+                                            label="Specific Reason"
+                                            icon="edit"
+                                            value={deceasedOtherReason}
+                                            onChangeText={setDeceasedOtherReason}
+                                            backgroundColor={colors.surface}
+                                        />
+                                    </View>
+                                )}
+
+                                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                    <TouchableOpacity
+                                        style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }}
+                                        onPress={handleCloseRecordModal}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={{ flex: 1, backgroundColor: colors.error, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }}
+                                        onPress={handleRecordClick}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[textStyles.h3, { color: '#fff', fontSize: 14 }]}>Record</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-                        )}
-
-                        <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
-                            <TouchableOpacity
-                                style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }}
-                                onPress={() => { setRecordVisible(false); setDeceasedNumber(''); setDeceasedReason('Illness'); setDeceasedOtherReason(''); }}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={{ flex: 1, backgroundColor: colors.error, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }}
-                                onPress={handleRecordClick}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[textStyles.h3, { color: '#fff', fontSize: 14 }]}>Record</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
+                        </ScrollView>
+                    </Animated.View>
                 </View>
             </Modal>
 

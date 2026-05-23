@@ -9,7 +9,7 @@
 
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
     ActivityIndicator,
     KeyboardAvoidingView,
@@ -20,6 +20,9 @@ import {
     TextInput,
     TouchableOpacity,
     View,
+    Animated,
+    PanResponder,
+    Easing,
 } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -191,6 +194,216 @@ export default function VaccineScreen() {
     const [invNotes,      setInvNotes]      = useState('');
     const [savingInv,     setSavingInv]     = useState(false);
 
+    // ── Animations for Log Vaccination Modal ──
+    const slideRec = useRef(new Animated.Value(600)).current;
+    const panYRec = useRef(new Animated.Value(0)).current;
+    const closeRecModalRef = useRef<() => void>(undefined);
+    const isScrollAtTopRec = useRef(true);
+
+    const panRecResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                return gestureState.dy > 5 && isScrollAtTopRec.current;
+            },
+            onPanResponderGrant: () => {
+                panYRec.setOffset(0);
+            },
+            onPanResponderMove: (_, gestureState) => {
+                if (gestureState.dy > 0) {
+                    panYRec.setValue(gestureState.dy);
+                } else {
+                    panYRec.setValue(gestureState.dy * 0.2);
+                }
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+                    Animated.timing(panYRec, {
+                        toValue: 600,
+                        duration: 150,
+                        easing: Easing.linear,
+                        useNativeDriver: Platform.OS !== 'web',
+                    }).start(() => {
+                        slideRec.setValue(600);
+                        panYRec.setValue(0);
+                        closeRecModalRef.current?.();
+                    });
+                } else {
+                    Animated.spring(panYRec, {
+                        toValue: 0,
+                        useNativeDriver: Platform.OS !== 'web',
+                        tension: 50,
+                        friction: 9,
+                    }).start();
+                }
+            },
+        })
+    ).current;
+
+    useEffect(() => {
+        if (showRecModal) {
+            panYRec.setValue(0);
+            Animated.spring(slideRec, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
+        } else {
+            slideRec.setValue(600);
+        }
+    }, [showRecModal]);
+
+    closeRecModalRef.current = () => {
+        setShowRecModal(false);
+        resetRecForm();
+    };
+
+    const handleCloseRecModal = () => {
+        Animated.timing(slideRec, {
+            toValue: 600,
+            duration: 220,
+            useNativeDriver: Platform.OS !== 'web',
+        }).start(() => {
+            closeRecModalRef.current?.();
+        });
+    };
+
+    // ── Animations for Add Schedule Modal ──
+    const slideSch = useRef(new Animated.Value(600)).current;
+    const panYSch = useRef(new Animated.Value(0)).current;
+    const closeSchModalRef = useRef<() => void>(undefined);
+    const isScrollAtTopSch = useRef(true);
+
+    const panSchResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                return gestureState.dy > 5 && isScrollAtTopSch.current;
+            },
+            onPanResponderGrant: () => {
+                panYSch.setOffset(0);
+            },
+            onPanResponderMove: (_, gestureState) => {
+                if (gestureState.dy > 0) {
+                    panYSch.setValue(gestureState.dy);
+                } else {
+                    panYSch.setValue(gestureState.dy * 0.2);
+                }
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+                    Animated.timing(panYSch, {
+                        toValue: 600,
+                        duration: 150,
+                        easing: Easing.linear,
+                        useNativeDriver: Platform.OS !== 'web',
+                    }).start(() => {
+                        slideSch.setValue(600);
+                        panYSch.setValue(0);
+                        closeSchModalRef.current?.();
+                    });
+                } else {
+                    Animated.spring(panYSch, {
+                        toValue: 0,
+                        useNativeDriver: Platform.OS !== 'web',
+                        tension: 50,
+                        friction: 9,
+                    }).start();
+                }
+            },
+        })
+    ).current;
+
+    useEffect(() => {
+        if (showSchModal) {
+            panYSch.setValue(0);
+            Animated.spring(slideSch, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
+        } else {
+            slideSch.setValue(600);
+        }
+    }, [showSchModal]);
+
+    closeSchModalRef.current = () => {
+        setShowSchModal(false);
+        resetSchForm();
+    };
+
+    const handleCloseSchModal = () => {
+        Animated.timing(slideSch, {
+            toValue: 600,
+            duration: 220,
+            useNativeDriver: Platform.OS !== 'web',
+        }).start(() => {
+            closeSchModalRef.current?.();
+        });
+    };
+
+    // ── Animations for Add Vaccine Modal ──
+    const slideInv = useRef(new Animated.Value(600)).current;
+    const panYInv = useRef(new Animated.Value(0)).current;
+    const closeInvModalRef = useRef<() => void>(undefined);
+    const isScrollAtTopInv = useRef(true);
+
+    const panInvResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                return gestureState.dy > 5 && isScrollAtTopInv.current;
+            },
+            onPanResponderGrant: () => {
+                panYInv.setOffset(0);
+            },
+            onPanResponderMove: (_, gestureState) => {
+                if (gestureState.dy > 0) {
+                    panYInv.setValue(gestureState.dy);
+                } else {
+                    panYInv.setValue(gestureState.dy * 0.2);
+                }
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+                    Animated.timing(panYInv, {
+                        toValue: 600,
+                        duration: 150,
+                        easing: Easing.linear,
+                        useNativeDriver: Platform.OS !== 'web',
+                    }).start(() => {
+                        slideInv.setValue(600);
+                        panYInv.setValue(0);
+                        closeInvModalRef.current?.();
+                    });
+                } else {
+                    Animated.spring(panYInv, {
+                        toValue: 0,
+                        useNativeDriver: Platform.OS !== 'web',
+                        tension: 50,
+                        friction: 9,
+                    }).start();
+                }
+            },
+        })
+    ).current;
+
+    useEffect(() => {
+        if (showInvModal) {
+            panYInv.setValue(0);
+            Animated.spring(slideInv, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
+        } else {
+            slideInv.setValue(600);
+        }
+    }, [showInvModal]);
+
+    closeInvModalRef.current = () => {
+        setShowInvModal(false);
+        resetInvForm();
+    };
+
+    const handleCloseInvModal = () => {
+        Animated.timing(slideInv, {
+            toValue: 600,
+            duration: 220,
+            useNativeDriver: Platform.OS !== 'web',
+        }).start(() => {
+            closeInvModalRef.current?.();
+        });
+    };
+
     // ─────────────────────────────────────────────────────────────────────────
     // Data loading
     // ─────────────────────────────────────────────────────────────────────────
@@ -306,8 +519,7 @@ export default function VaccineScreen() {
                     .eq('id', recVaccineId);
             }
 
-            setShowRecModal(false);
-            resetRecForm();
+            handleCloseRecModal();
             showSnack('Vaccination logged successfully!');
             loadRecords(); loadInventory();
         } catch (err: any) {
@@ -337,8 +549,7 @@ export default function VaccineScreen() {
                 notes:         schNotes || null,
             });
             if (error) throw error;
-            setShowSchModal(false);
-            resetSchForm();
+            handleCloseSchModal();
             showSnack('Schedule added!');
             loadSchedules();
         } catch (err: any) {
@@ -383,8 +594,7 @@ export default function VaccineScreen() {
                 notes:             invNotes || null,
             });
             if (error) throw error;
-            setShowInvModal(false);
-            resetInvForm();
+            handleCloseInvModal();
             showSnack(`"${invName}" added to inventory!`);
             loadInventory();
         } catch (err: any) {
@@ -781,189 +991,225 @@ export default function VaccineScreen() {
             </View>
 
             {/* ── Log Vaccination Modal ─────────────────────────────────────── */}
-            <Modal visible={showRecModal} transparent animationType="slide" onRequestClose={() => setShowRecModal(false)}>
-                <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-                    <Pressable style={{ flex: 1, backgroundColor: '#00000060' }} onPress={() => !savingRec && setShowRecModal(false)} />
-                    <ScrollView style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
-                        contentContainerStyle={{ padding: 28, paddingBottom: 60, gap: 16 }}
-                        showsVerticalScrollIndicator={false}
-                    >
-                        <View style={styles.modalHandle} />
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Log Vaccination</Text>
-
-                        <VaccineSelect value={recVaccineId} onChange={v => {
-                            setRecVaccineId(v);
-                            const item = inventory.find(i => i.id === v);
-                            if (item?.dose_per_animal) setRecDose(String(item.dose_per_animal));
-                        }} />
-                        <BatchSelect value={recBatchId} onChange={v => {
-                            setRecBatchId(v);
-                            const b = batches.find(x => x.id === v);
-                            if (b) setRecAnimals(String(b.current_count));
-                        }} />
-                        <FormInput label="Date *" value={recDate} onChange={setRecDate} placeholder="YYYY-MM-DD" />
-                        <FormInput label="Animals Vaccinated" value={recAnimals} onChange={setRecAnimals} placeholder="e.g. 120" keyboardType="numeric" />
-                        <FormInput label="Dose per Animal" value={recDose} onChange={setRecDose} placeholder="e.g. 1" keyboardType="decimal-pad" />
-                        <FormInput label="Lot Number" value={recLot} onChange={setRecLot} placeholder="e.g. LOT2024-001" />
-                        <FormInput label="Vaccine Expiry Date" value={recExpiry} onChange={setRecExpiry} placeholder="YYYY-MM-DD" />
-                        <FormInput label="Administered By" value={recBy} onChange={setRecBy} placeholder="Name or staff ID" />
-                        <FormInput label="Notes" value={recNotes} onChange={setRecNotes} placeholder="Optional remarks..." />
-
-                        {/* Withdrawal preview */}
-                        {recDate && recVaccineId && (() => {
-                            const vax = inventory.find(v => v.id === recVaccineId);
-                            if (!vax || vax.withdrawal_days === 0) return null;
-                            const endDate = addDays(recDate, vax.withdrawal_days);
-                            return (
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, backgroundColor: '#F59E0B' + '10', borderRadius: 12, borderWidth: 1, borderColor: '#F59E0B' + '30' }}>
-                                    <MaterialIcons name="timer" size={16} color="#F59E0B" />
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, flex: 1 }]}>
-                                        Withdrawal ends <Text style={{ color: '#F59E0B', fontFamily: 'Poppins-SemiBold' }}>{formatDate(endDate)}</Text> ({vax.withdrawal_days} days)
-                                    </Text>
-                                </View>
-                            );
-                        })()}
-
-                        <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-                            <TouchableOpacity onPress={() => { setShowRecModal(false); resetRecForm(); }} disabled={savingRec}
-                                style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.cardFill, borderWidth: 1, borderColor: colors.stroke, alignItems: 'center' }}
-                                activeOpacity={0.7}>
-                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handleLogVaccination} disabled={savingRec || !recVaccineId}
-                                style={{ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: recVaccineId ? colors.primary : colors.primary + '50', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-                                activeOpacity={0.85}>
-                                {savingRec ? <ActivityIndicator size="small" color="#FFF" /> : <>
-                                    <MaterialIcons name="vaccines" size={18} color="#FFF" />
-                                    <Text style={[textStyles.label, { color: '#FFF', fontSize: 14 }]}>Log Vaccination</Text>
-                                </>}
-                            </TouchableOpacity>
+            <Modal visible={showRecModal} transparent animationType="fade" onRequestClose={handleCloseRecModal}>
+                <KeyboardAvoidingView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={() => !savingRec && handleCloseRecModal()}
+                    />
+                    <Animated.View {...panRecResponder.panHandlers} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '90%', transform: [{ translateY: Animated.add(slideRec, panYRec) }] }}>
+                        {/* Draggable Header */}
+                        <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
+                            <View style={styles.modalHandle} />
+                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, textAlign: 'center', marginTop: 4 }]}>Log Vaccination</Text>
                         </View>
-                    </ScrollView>
+                        <ScrollView
+                            onScroll={(e) => {
+                                isScrollAtTopRec.current = e.nativeEvent.contentOffset.y <= 0;
+                            }}
+                            scrollEventThrottle={16}
+                            contentContainerStyle={{ paddingHorizontal: 28, paddingBottom: 60, gap: 16 }}
+                            showsVerticalScrollIndicator={false}
+                        >
+                            <VaccineSelect value={recVaccineId} onChange={v => {
+                                setRecVaccineId(v);
+                                const item = inventory.find(i => i.id === v);
+                                if (item?.dose_per_animal) setRecDose(String(item.dose_per_animal));
+                            }} />
+                            <BatchSelect value={recBatchId} onChange={v => {
+                                setRecBatchId(v);
+                                const b = batches.find(x => x.id === v);
+                                if (b) setRecAnimals(String(b.current_count));
+                            }} />
+                            <FormInput label="Date *" value={recDate} onChange={setRecDate} placeholder="YYYY-MM-DD" />
+                            <FormInput label="Animals Vaccinated" value={recAnimals} onChange={setRecAnimals} placeholder="e.g. 120" keyboardType="numeric" />
+                            <FormInput label="Dose per Animal" value={recDose} onChange={setRecDose} placeholder="e.g. 1" keyboardType="decimal-pad" />
+                            <FormInput label="Lot Number" value={recLot} onChange={setRecLot} placeholder="e.g. LOT2024-001" />
+                            <FormInput label="Vaccine Expiry Date" value={recExpiry} onChange={setRecExpiry} placeholder="YYYY-MM-DD" />
+                            <FormInput label="Administered By" value={recBy} onChange={setRecBy} placeholder="Name or staff ID" />
+                            <FormInput label="Notes" value={recNotes} onChange={setRecNotes} placeholder="Optional remarks..." />
+
+                            {/* Withdrawal preview */}
+                            {recDate && recVaccineId && (() => {
+                                const vax = inventory.find(v => v.id === recVaccineId);
+                                if (!vax || vax.withdrawal_days === 0) return null;
+                                const endDate = addDays(recDate, vax.withdrawal_days);
+                                return (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, backgroundColor: '#F59E0B' + '10', borderRadius: 12, borderWidth: 1, borderColor: '#F59E0B' + '30' }}>
+                                        <MaterialIcons name="timer" size={16} color="#F59E0B" />
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, flex: 1 }]}>
+                                            Withdrawal ends <Text style={{ color: '#F59E0B', fontFamily: 'Poppins-SemiBold' }}>{formatDate(endDate)}</Text> ({vax.withdrawal_days} days)
+                                        </Text>
+                                    </View>
+                                );
+                            })()}
+
+                            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                                <TouchableOpacity onPress={handleCloseRecModal} disabled={savingRec}
+                                    style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.cardFill, borderWidth: 1, borderColor: colors.stroke, alignItems: 'center' }}
+                                    activeOpacity={0.7}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={handleLogVaccination} disabled={savingRec || !recVaccineId}
+                                    style={{ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: recVaccineId ? colors.primary : colors.primary + '50', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                                    activeOpacity={0.85}>
+                                    {savingRec ? <ActivityIndicator size="small" color="#FFF" /> : <>
+                                        <MaterialIcons name="vaccines" size={18} color="#FFF" />
+                                        <Text style={[textStyles.label, { color: '#FFF', fontSize: 14 }]}>Log Vaccination</Text>
+                                    </>}
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </Animated.View>
                 </KeyboardAvoidingView>
             </Modal>
 
             {/* ── Add Schedule Modal ────────────────────────────────────────── */}
-            <Modal visible={showSchModal} transparent animationType="slide" onRequestClose={() => setShowSchModal(false)}>
-                <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-                    <Pressable style={{ flex: 1, backgroundColor: '#00000060' }} onPress={() => !savingSch && setShowSchModal(false)} />
-                    <ScrollView style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
-                        contentContainerStyle={{ padding: 28, paddingBottom: 60, gap: 16 }}
-                        showsVerticalScrollIndicator={false}
-                    >
-                        <View style={styles.modalHandle} />
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Add Vaccine Schedule</Text>
-
-                        <VaccineSelect value={schVaccineId} onChange={setSchVaccineId} />
-                        <BatchSelect  value={schBatchId}   onChange={setSchBatchId} />
-                        <FormInput label="Scheduled Date *" value={schDate} onChange={setSchDate} placeholder="YYYY-MM-DD" />
-                        <FormInput label="Repeat Every (days)" value={schInterval} onChange={setSchInterval} placeholder="Leave blank for one-time" keyboardType="numeric" />
-                        <FormInput label="Notes" value={schNotes} onChange={setSchNotes} placeholder="Optional..." />
-
-                        <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-                            <TouchableOpacity onPress={() => { setShowSchModal(false); resetSchForm(); }} disabled={savingSch}
-                                style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.cardFill, borderWidth: 1, borderColor: colors.stroke, alignItems: 'center' }}
-                                activeOpacity={0.7}>
-                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handleAddSchedule} disabled={savingSch || !schVaccineId}
-                                style={{ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: schVaccineId ? colors.primary : colors.primary + '50', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-                                activeOpacity={0.85}>
-                                {savingSch ? <ActivityIndicator size="small" color="#FFF" /> : <>
-                                    <MaterialIcons name="event" size={18} color="#FFF" />
-                                    <Text style={[textStyles.label, { color: '#FFF', fontSize: 14 }]}>Add Schedule</Text>
-                                </>}
-                            </TouchableOpacity>
+            <Modal visible={showSchModal} transparent animationType="fade" onRequestClose={handleCloseSchModal}>
+                <KeyboardAvoidingView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={() => !savingSch && handleCloseSchModal()}
+                    />
+                    <Animated.View {...panSchResponder.panHandlers} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '90%', transform: [{ translateY: Animated.add(slideSch, panYSch) }] }}>
+                        {/* Draggable Header */}
+                        <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
+                            <View style={styles.modalHandle} />
+                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, textAlign: 'center', marginTop: 4 }]}>Add Vaccine Schedule</Text>
                         </View>
-                    </ScrollView>
+                        <ScrollView
+                            onScroll={(e) => {
+                                isScrollAtTopSch.current = e.nativeEvent.contentOffset.y <= 0;
+                            }}
+                            scrollEventThrottle={16}
+                            contentContainerStyle={{ paddingHorizontal: 28, paddingBottom: 60, gap: 16 }}
+                            showsVerticalScrollIndicator={false}
+                        >
+                            <VaccineSelect value={schVaccineId} onChange={setSchVaccineId} />
+                            <BatchSelect  value={schBatchId}   onChange={setSchBatchId} />
+                            <FormInput label="Scheduled Date *" value={schDate} onChange={setSchDate} placeholder="YYYY-MM-DD" />
+                            <FormInput label="Repeat Every (days)" value={schInterval} onChange={setSchInterval} placeholder="Leave blank for one-time" keyboardType="numeric" />
+                            <FormInput label="Notes" value={schNotes} onChange={setSchNotes} placeholder="Optional..." />
+
+                            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                                <TouchableOpacity onPress={handleCloseSchModal} disabled={savingSch}
+                                    style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.cardFill, borderWidth: 1, borderColor: colors.stroke, alignItems: 'center' }}
+                                    activeOpacity={0.7}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={handleAddSchedule} disabled={savingSch || !schVaccineId}
+                                    style={{ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: schVaccineId ? colors.primary : colors.primary + '50', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                                    activeOpacity={0.85}>
+                                    {savingSch ? <ActivityIndicator size="small" color="#FFF" /> : <>
+                                        <MaterialIcons name="event" size={18} color="#FFF" />
+                                        <Text style={[textStyles.label, { color: '#FFF', fontSize: 14 }]}>Add Schedule</Text>
+                                    </>}
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </Animated.View>
                 </KeyboardAvoidingView>
             </Modal>
 
             {/* ── Add Vaccine (Inventory) Modal ─────────────────────────────── */}
-            <Modal visible={showInvModal} transparent animationType="slide" onRequestClose={() => setShowInvModal(false)}>
-                <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-                    <Pressable style={{ flex: 1, backgroundColor: '#00000060' }} onPress={() => !savingInv && setShowInvModal(false)} />
-                    <ScrollView style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
-                        contentContainerStyle={{ padding: 28, paddingBottom: 60, gap: 16 }}
-                        showsVerticalScrollIndicator={false}
-                    >
-                        <View style={styles.modalHandle} />
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Add Vaccine</Text>
+            <Modal visible={showInvModal} transparent animationType="fade" onRequestClose={handleCloseInvModal}>
+                <KeyboardAvoidingView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={() => !savingInv && handleCloseInvModal()}
+                    />
+                    <Animated.View {...panInvResponder.panHandlers} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '90%', transform: [{ translateY: Animated.add(slideInv, panYInv) }] }}>
+                        {/* Draggable Header */}
+                        <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
+                            <View style={styles.modalHandle} />
+                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, textAlign: 'center', marginTop: 4 }]}>Add Vaccine</Text>
+                        </View>
+                        <ScrollView
+                            onScroll={(e) => {
+                                isScrollAtTopInv.current = e.nativeEvent.contentOffset.y <= 0;
+                            }}
+                            scrollEventThrottle={16}
+                            contentContainerStyle={{ paddingHorizontal: 28, paddingBottom: 60, gap: 16 }}
+                            showsVerticalScrollIndicator={false}
+                        >
+                            <FormInput label="Vaccine Name *" value={invName} onChange={setInvName} placeholder="e.g. Newcastle Disease Vaccine" />
+                            <FormInput label="Type / Category" value={invType} onChange={setInvType} placeholder="e.g. Live Attenuated, Killed" />
 
-                        <FormInput label="Vaccine Name *" value={invName} onChange={setInvName} placeholder="e.g. Newcastle Disease Vaccine" />
-                        <FormInput label="Type / Category" value={invType} onChange={setInvType} placeholder="e.g. Live Attenuated, Killed" />
-
-                        {/* Species */}
-                        <View>
-                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 8 }]}>Species</Text>
-                            <View style={styles.segmentBar}>
-                                {(['chicken', 'pig', 'both'] as const).map(s => (
-                                    <TouchableOpacity key={s} onPress={() => setInvSpecies(s)}
-                                        style={[styles.segmentBtn, { borderColor: invSpecies === s ? colors.primary : colors.stroke, backgroundColor: invSpecies === s ? colors.primary + '15' : 'transparent' }]}
-                                        activeOpacity={0.7}>
-                                        <Text style={[textStyles.label, { color: invSpecies === s ? colors.primary : colors.textGrey, fontSize: 12 }]}>
-                                            {s === 'both' ? 'Both' : s.charAt(0).toUpperCase() + s.slice(1)}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
+                            {/* Species */}
+                            <View>
+                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 8 }]}>Species</Text>
+                                <View style={styles.segmentBar}>
+                                    {(['chicken', 'pig', 'both'] as const).map(s => (
+                                        <TouchableOpacity key={s} onPress={() => setInvSpecies(s)}
+                                            style={[styles.segmentBtn, { borderColor: invSpecies === s ? colors.primary : colors.stroke, backgroundColor: invSpecies === s ? colors.primary + '15' : 'transparent' }]}
+                                            activeOpacity={0.7}>
+                                            <Text style={[textStyles.label, { color: invSpecies === s ? colors.primary : colors.textGrey, fontSize: 12 }]}>
+                                                {s === 'both' ? 'Both' : s.charAt(0).toUpperCase() + s.slice(1)}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
                             </View>
-                        </View>
 
-                        <FormInput label="Initial Stock" value={invStock} onChange={setInvStock} placeholder="e.g. 100" keyboardType="numeric" />
+                            <FormInput label="Initial Stock" value={invStock} onChange={setInvStock} placeholder="e.g. 100" keyboardType="numeric" />
 
-                        {/* Unit */}
-                        <View>
-                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 8 }]}>Unit</Text>
-                            <View style={styles.segmentBar}>
-                                {(['dose', 'ml', 'vial'] as const).map(u => (
-                                    <TouchableOpacity key={u} onPress={() => setInvUnit(u)}
-                                        style={[styles.segmentBtn, { borderColor: invUnit === u ? colors.primary : colors.stroke, backgroundColor: invUnit === u ? colors.primary + '15' : 'transparent' }]}
-                                        activeOpacity={0.7}>
-                                        <Text style={[textStyles.label, { color: invUnit === u ? colors.primary : colors.textGrey, fontSize: 12 }]}>{u}</Text>
-                                    </TouchableOpacity>
-                                ))}
+                            {/* Unit */}
+                            <View>
+                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 8 }]}>Unit</Text>
+                                <View style={styles.segmentBar}>
+                                    {(['dose', 'ml', 'vial'] as const).map(u => (
+                                        <TouchableOpacity key={u} onPress={() => setInvUnit(u)}
+                                            style={[styles.segmentBtn, { borderColor: invUnit === u ? colors.primary : colors.stroke, backgroundColor: invUnit === u ? colors.primary + '15' : 'transparent' }]}
+                                            activeOpacity={0.7}>
+                                            <Text style={[textStyles.label, { color: invUnit === u ? colors.primary : colors.textGrey, fontSize: 12 }]}>{u}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
                             </View>
-                        </View>
 
-                        <FormInput label="Dose per Animal" value={invDose} onChange={setInvDose} placeholder="e.g. 1" keyboardType="decimal-pad" />
-                        <FormInput label="Withdrawal Days" value={invWithdrawal} onChange={setInvWithdrawal} placeholder="Days before safe for sale" keyboardType="numeric" />
-                        <FormInput label="Reorder Alert Threshold" value={invReorder} onChange={setInvReorder} placeholder="e.g. 10" keyboardType="numeric" />
+                            <FormInput label="Dose per Animal" value={invDose} onChange={setInvDose} placeholder="e.g. 1" keyboardType="decimal-pad" />
+                            <FormInput label="Withdrawal Days" value={invWithdrawal} onChange={setInvWithdrawal} placeholder="Days before safe for sale" keyboardType="numeric" />
+                            <FormInput label="Reorder Alert Threshold" value={invReorder} onChange={setInvReorder} placeholder="e.g. 10" keyboardType="numeric" />
 
-                        {/* Route */}
-                        <View>
-                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 8 }]}>Route of Administration</Text>
-                            <View style={styles.segmentBar}>
-                                {['injection', 'oral', 'spray', 'eye_drop'].map(r => (
-                                    <TouchableOpacity key={r} onPress={() => setInvRoute(r)}
-                                        style={[styles.segmentBtn, { borderColor: invRoute === r ? colors.primary : colors.stroke, backgroundColor: invRoute === r ? colors.primary + '15' : 'transparent' }]}
-                                        activeOpacity={0.7}>
-                                        <Text style={[textStyles.label, { color: invRoute === r ? colors.primary : colors.textGrey, fontSize: 12 }]}>
-                                            {r === 'eye_drop' ? 'Eye Drop' : r.charAt(0).toUpperCase() + r.slice(1)}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
+                            {/* Route */}
+                            <View>
+                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 8 }]}>Route of Administration</Text>
+                                <View style={styles.segmentBar}>
+                                    {['injection', 'oral', 'spray', 'eye_drop'].map(r => (
+                                        <TouchableOpacity key={r} onPress={() => setInvRoute(r)}
+                                            style={[styles.segmentBtn, { borderColor: invRoute === r ? colors.primary : colors.stroke, backgroundColor: invRoute === r ? colors.primary + '15' : 'transparent' }]}
+                                            activeOpacity={0.7}>
+                                            <Text style={[textStyles.label, { color: invRoute === r ? colors.primary : colors.textGrey, fontSize: 12 }]}>
+                                                {r === 'eye_drop' ? 'Eye Drop' : r.charAt(0).toUpperCase() + r.slice(1)}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
                             </View>
-                        </View>
 
-                        <FormInput label="Storage Temperature" value={invTemp} onChange={setInvTemp} placeholder="e.g. 2–8 °C" />
-                        <FormInput label="Notes" value={invNotes} onChange={setInvNotes} placeholder="Optional..." />
+                            <FormInput label="Storage Temperature" value={invTemp} onChange={setInvTemp} placeholder="e.g. 2–8 °C" />
+                            <FormInput label="Notes" value={invNotes} onChange={setInvNotes} placeholder="Optional..." />
 
-                        <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-                            <TouchableOpacity onPress={() => { setShowInvModal(false); resetInvForm(); }} disabled={savingInv}
-                                style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.cardFill, borderWidth: 1, borderColor: colors.stroke, alignItems: 'center' }}
-                                activeOpacity={0.7}>
-                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handleAddVaccine} disabled={savingInv || !invName.trim()}
-                                style={{ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: invName.trim() ? colors.primary : colors.primary + '50', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-                                activeOpacity={0.85}>
-                                {savingInv ? <ActivityIndicator size="small" color="#FFF" /> : <>
-                                    <MaterialIcons name="medication" size={18} color="#FFF" />
-                                    <Text style={[textStyles.label, { color: '#FFF', fontSize: 14 }]}>Add Vaccine</Text>
-                                </>}
-                            </TouchableOpacity>
-                        </View>
-                    </ScrollView>
+                            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                                <TouchableOpacity onPress={handleCloseInvModal} disabled={savingInv}
+                                    style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.cardFill, borderWidth: 1, borderColor: colors.stroke, alignItems: 'center' }}
+                                    activeOpacity={0.7}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={handleAddVaccine} disabled={savingInv || !invName.trim()}
+                                    style={{ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: invName.trim() ? colors.primary : colors.primary + '50', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                                    activeOpacity={0.85}>
+                                    {savingInv ? <ActivityIndicator size="small" color="#FFF" /> : <>
+                                        <MaterialIcons name="medication" size={18} color="#FFF" />
+                                        <Text style={[textStyles.label, { color: '#FFF', fontSize: 14 }]}>Add Vaccine</Text>
+                                    </>}
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </Animated.View>
                 </KeyboardAvoidingView>
             </Modal>
 

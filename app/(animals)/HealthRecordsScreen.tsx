@@ -3,7 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     ActivityIndicator, Modal, Platform, RefreshControl, ScrollView,
-    TextInput, TouchableOpacity, View, Animated,
+    TextInput, TouchableOpacity, View, Animated, PanResponder, Easing,
 } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -364,27 +364,172 @@ export default function HealthRecordsScreen() {
     // ── Animations ────────────────────────────────────────────────────────────
     const slideAdd    = useRef(new Animated.Value(600)).current;
     const slideDetail = useRef(new Animated.Value(600)).current;
+    const slideTrash  = useRef(new Animated.Value(600)).current;
+
+    // ── Add Modal Swipe Gesture ──
+    const panY        = useRef(new Animated.Value(0)).current;
+    const closeAddModalRef = useRef<() => void>(undefined);
+    const isScrollAtTopAdd = useRef(true);
+
+    const panResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                return gestureState.dy > 5 && isScrollAtTopAdd.current;
+            },
+            onPanResponderGrant: () => {
+                panY.setOffset(0);
+            },
+            onPanResponderMove: (_, gestureState) => {
+                if (gestureState.dy > 0) {
+                    panY.setValue(gestureState.dy);
+                } else {
+                    panY.setValue(gestureState.dy * 0.2);
+                }
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+                    // Close with ultra-fast linear timing to eliminate any pause
+                    Animated.timing(panY, {
+                        toValue: 600,
+                        duration: 150,
+                        easing: Easing.linear,
+                        useNativeDriver: Platform.OS !== 'web',
+                    }).start(() => {
+                        slideAdd.setValue(600);
+                        panY.setValue(0);
+                        closeAddModalRef.current?.();
+                    });
+                } else {
+                    // Spring back
+                    Animated.spring(panY, {
+                        toValue: 0,
+                        useNativeDriver: Platform.OS !== 'web',
+                        tension: 50,
+                        friction: 9,
+                    }).start();
+                }
+            },
+        })
+    ).current;
 
     useEffect(() => {
         if (addVisible) {
+            panY.setValue(0);
             Animated.spring(slideAdd, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
         } else {
             slideAdd.setValue(600);
         }
     }, [addVisible]);
 
+    // ── Detail Modal Swipe Gesture ──
+    const panYDetail = useRef(new Animated.Value(0)).current;
+    const closeDetailModalRef = useRef<() => void>(undefined);
+    const isScrollAtTopDetail = useRef(true);
+
+    const panDetailResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            // Capture phase fires BEFORE the ScrollView child gets a chance to claim —
+            // this lets the parent win vertical swipe-down when content is at top.
+            onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+                return gestureState.dy > 10 && isScrollAtTopDetail.current;
+            },
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                return gestureState.dy > 5 && isScrollAtTopDetail.current;
+            },
+            onPanResponderGrant: () => {
+                panYDetail.setOffset(0);
+            },
+            onPanResponderMove: (_, gestureState) => {
+                if (gestureState.dy > 0) {
+                    panYDetail.setValue(gestureState.dy);
+                } else {
+                    panYDetail.setValue(gestureState.dy * 0.2);
+                }
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+                    Animated.timing(panYDetail, {
+                        toValue: 600,
+                        duration: 150,
+                        easing: Easing.linear,
+                        useNativeDriver: Platform.OS !== 'web',
+                    }).start(() => {
+                        slideDetail.setValue(600);
+                        panYDetail.setValue(0);
+                        closeDetailModalRef.current?.();
+                    });
+                } else {
+                    Animated.spring(panYDetail, {
+                        toValue: 0,
+                        useNativeDriver: Platform.OS !== 'web',
+                        tension: 50,
+                        friction: 9,
+                    }).start();
+                }
+            },
+        })
+    ).current;
+
     useEffect(() => {
         if (!!detailRecord) {
+            isScrollAtTopDetail.current = true; // Always reset so swipe works on every open
+            panYDetail.setValue(0);
             Animated.spring(slideDetail, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
         } else {
             slideDetail.setValue(600);
         }
     }, [detailRecord]);
 
-    const slideTrash  = useRef(new Animated.Value(600)).current;
+    // ── Recently Deleted Swipe Gesture ──
+    const panYTrash = useRef(new Animated.Value(0)).current;
+    const closeTrashModalRef = useRef<() => void>(undefined);
+    const isScrollAtTopTrash = useRef(true);
+
+    const panTrashResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                return gestureState.dy > 5 && isScrollAtTopTrash.current;
+            },
+            onPanResponderGrant: () => {
+                panYTrash.setOffset(0);
+            },
+            onPanResponderMove: (_, gestureState) => {
+                if (gestureState.dy > 0) {
+                    panYTrash.setValue(gestureState.dy);
+                } else {
+                    panYTrash.setValue(gestureState.dy * 0.2);
+                }
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+                    Animated.timing(panYTrash, {
+                        toValue: 600,
+                        duration: 150,
+                        easing: Easing.linear,
+                        useNativeDriver: Platform.OS !== 'web',
+                    }).start(() => {
+                        slideTrash.setValue(600);
+                        panYTrash.setValue(0);
+                        closeTrashModalRef.current?.();
+                    });
+                } else {
+                    Animated.spring(panYTrash, {
+                        toValue: 0,
+                        useNativeDriver: Platform.OS !== 'web',
+                        tension: 50,
+                        friction: 9,
+                    }).start();
+                }
+            },
+        })
+    ).current;
 
     useEffect(() => {
         if (trashVisible) {
+            panYTrash.setValue(0);
             Animated.spring(slideTrash, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
         } else {
             slideTrash.setValue(600);
@@ -506,8 +651,7 @@ export default function HealthRecordsScreen() {
                 }).then(() => {}); // fire and forget
             }
             showSnackbar('Health record added successfully.');
-            setAddVisible(false);
-            resetForm();
+            handleCloseAddModal();
             await fetchData();
         } catch (err: any) {
             showSnackbar(err.message || 'Failed to save record.', 'error');
@@ -522,6 +666,49 @@ export default function HealthRecordsScreen() {
         setAddType('vaccination'); setAddSeverity('low');
         setAddDate(new Date().toISOString().split('T')[0]);
         if (paramBatchId) setAddBatchId(paramBatchId);
+    };
+
+    closeAddModalRef.current = () => {
+        setAddVisible(false);
+        resetForm();
+    };
+
+    const handleCloseAddModal = () => {
+        Animated.timing(slideAdd, {
+            toValue: 600,
+            duration: 220,
+            useNativeDriver: Platform.OS !== 'web',
+        }).start(() => {
+            closeAddModalRef.current?.();
+        });
+    };
+
+    closeDetailModalRef.current = () => {
+        setDetailRecord(null);
+    };
+
+    const handleCloseDetailModal = () => {
+        Animated.timing(slideDetail, {
+            toValue: 600,
+            duration: 220,
+            useNativeDriver: Platform.OS !== 'web',
+        }).start(() => {
+            closeDetailModalRef.current?.();
+        });
+    };
+
+    closeTrashModalRef.current = () => {
+        setTrashVisible(false);
+    };
+
+    const handleCloseTrashModal = () => {
+        Animated.timing(slideTrash, {
+            toValue: 600,
+            duration: 220,
+            useNativeDriver: Platform.OS !== 'web',
+        }).start(() => {
+            closeTrashModalRef.current?.();
+        });
     };
 
     // ── Soft delete → moves to trash ─────────────────────────────────────────
@@ -1025,34 +1212,55 @@ export default function HealthRecordsScreen() {
             {/* ════════════ DETAIL MODAL ════════════ */}
             <Modal visible={!!detailRecord} transparent animationType="fade">
                 <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={handleCloseDetailModal}
+                    />
                     {detailRecord && (() => {
                         const cfg = RECORD_TYPES[detailRecord.record_type];
                         const sev = SEVERITY_CONFIG[detailRecord.severity];
                         const batchName = detailRecord.batch_id ? batchMap[detailRecord.batch_id]?.name ?? '—' : '—';
                         const batchType = detailRecord.batch_id ? batchMap[detailRecord.batch_id]?.animal_type ?? '' : '';
                         return (
-                            <Animated.View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '85%', transform: [{ translateY: slideDetail }] }}>
-                                {/* Top color strip */}
-                                <View style={{ height: 5, backgroundColor: cfg.color, borderTopLeftRadius: 28, borderTopRightRadius: 28 }} />
-
-                                <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 36 }} showsVerticalScrollIndicator={false}>
-                                    {/* Handle */}
-                                    <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginVertical: 14 }} />
-
-                                    {/* Type icon + title */}
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 20 }}>
-                                        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: cfg.color + '20', alignItems: 'center', justifyContent: 'center' }}>
-                                            <MaterialIcons name={cfg.icon as any} size={28} color={cfg.color} />
-                                        </View>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>{detailRecord.title}</Text>
-                                            <Text style={{ color: cfg.color, fontFamily: 'Poppins-SemiBold', fontSize: 12, marginTop: 2 }}>{cfg.label}</Text>
-                                        </View>
-                                        {/* Severity badge */}
-                                        <View style={{ backgroundColor: sev.color + '20', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 }}>
-                                            <Text style={{ color: sev.color, fontFamily: 'Poppins-SemiBold', fontSize: 12 }}>{sev.label}</Text>
-                                        </View>
+                            <Animated.View
+                                {...panDetailResponder.panHandlers}
+                                style={{
+                                    backgroundColor: colors.surface,
+                                    borderTopLeftRadius: 28,
+                                    borderTopRightRadius: 28,
+                                    maxHeight: '85%',
+                                    overflow: 'hidden',
+                                    transform: [{ translateY: Animated.add(slideDetail, panYDetail) }],
+                                }}
+                            >
+                                {/* Drag handle — no color strip */}
+                                <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
+                                    <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke }} />
+                                </View>
+                                {/* Type icon + title row */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 24, paddingBottom: 14 }}>
+                                    <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: cfg.color + '20', alignItems: 'center', justifyContent: 'center' }}>
+                                        <MaterialIcons name={cfg.icon as any} size={28} color={cfg.color} />
                                     </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>{detailRecord.title}</Text>
+                                        <Text style={{ color: cfg.color, fontFamily: 'Poppins-SemiBold', fontSize: 12, marginTop: 2 }}>{cfg.label}</Text>
+                                    </View>
+                                    {/* Severity badge */}
+                                    <View style={{ backgroundColor: sev.color + '20', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 }}>
+                                        <Text style={{ color: sev.color, fontFamily: 'Poppins-SemiBold', fontSize: 12 }}>{sev.label}</Text>
+                                    </View>
+                                </View>
+
+                                <ScrollView
+                                    onScroll={(e) => {
+                                        isScrollAtTopDetail.current = e.nativeEvent.contentOffset.y <= 0;
+                                    }}
+                                    scrollEventThrottle={16}
+                                    contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 36 }}
+                                    showsVerticalScrollIndicator={false}
+                                >
 
                                     {/* Divider */}
                                     <View style={{ height: 1, backgroundColor: colors.stroke, marginBottom: 20 }} />
@@ -1126,7 +1334,7 @@ export default function HealthRecordsScreen() {
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={[styles.primaryButton, { flex: 2, backgroundColor: colors.primary }]}
-                                            onPress={() => setDetailRecord(null)}
+                                            onPress={handleCloseDetailModal}
                                             activeOpacity={0.85}
                                         >
                                             <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 14 }]}>Close</Text>
@@ -1142,11 +1350,25 @@ export default function HealthRecordsScreen() {
             {/* ════════════ ADD RECORD MODAL ════════════ */}
             <Modal visible={addVisible} transparent animationType="fade">
                 <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-                    <Animated.View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '92%', transform: [{ translateY: slideAdd }] }}>
-                        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 36 }} showsVerticalScrollIndicator={false}>
-                            {/* Handle */}
-                            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 20 }} />
-                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, textAlign: 'center', marginBottom: 20 }]}>Add Health Record</Text>
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={handleCloseAddModal}
+                    />
+                    <Animated.View {...panResponder.panHandlers} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '92%', transform: [{ translateY: Animated.add(slideAdd, panY) }] }}>
+                        {/* Draggable Header */}
+                        <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
+                            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, marginBottom: 10 }} />
+                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, textAlign: 'center' }]}>Add Health Record</Text>
+                        </View>
+                        <ScrollView
+                            onScroll={(e) => {
+                                isScrollAtTopAdd.current = e.nativeEvent.contentOffset.y <= 0;
+                            }}
+                            scrollEventThrottle={16}
+                            contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 36 }}
+                            showsVerticalScrollIndicator={false}
+                        >
 
                             {/* ── Batch selector ── */}
                             {fieldLabel('BATCH *')}
@@ -1297,7 +1519,7 @@ export default function HealthRecordsScreen() {
                             <View style={{ flexDirection: 'row', gap: 12 }}>
                                 <TouchableOpacity
                                     style={[styles.primaryButton, { flex: 1, backgroundColor: colors.cardFill }]}
-                                    onPress={() => { setAddVisible(false); resetForm(); }}
+                                    onPress={handleCloseAddModal}
                                     activeOpacity={0.75}
                                 >
                                     <Text style={[textStyles.btnLabel, { color: colors.textGrey }]}>Cancel</Text>
@@ -1417,29 +1639,44 @@ export default function HealthRecordsScreen() {
             {/* ════════════ RECENTLY DELETED DRAWER ════════════ */}
             <Modal visible={trashVisible} transparent animationType="fade">
                 <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-                    <Animated.View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '80%', transform: [{ translateY: slideTrash }] }}>
-                        {/* Handle */}
-                        <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12 }} />
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={handleCloseTrashModal}
+                    />
+                    <Animated.View {...panTrashResponder.panHandlers} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '80%', transform: [{ translateY: Animated.add(slideTrash, panYTrash) }] }}>
+                        {/* Draggable Header */}
+                        <View style={{ width: '100%' }}>
+                            {/* Handle */}
+                            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12 }} />
 
-                        {/* Drawer header */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.stroke }}>
-                            <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: colors.error + '15', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                                <MaterialIcons name="delete-outline" size={22} color={colors.error} />
+                            {/* Drawer header */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.stroke }}>
+                                <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: colors.error + '15', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                                    <MaterialIcons name="delete-outline" size={22} color={colors.error} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text }}>Recently Deleted</Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                        Records are permanently deleted after {TRASH_DAYS} days
+                                    </Text>
+                                </View>
+                                <TouchableOpacity onPress={handleCloseTrashModal} activeOpacity={0.7}
+                                    style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}>
+                                    <MaterialIcons name="close" size={18} color={colors.textGrey} />
+                                </TouchableOpacity>
                             </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text }}>Recently Deleted</Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
-                                    Records are permanently deleted after {TRASH_DAYS} days
-                                </Text>
-                            </View>
-                            <TouchableOpacity onPress={() => setTrashVisible(false)} activeOpacity={0.7}
-                                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}>
-                                <MaterialIcons name="close" size={18} color={colors.textGrey} />
-                            </TouchableOpacity>
                         </View>
 
                         {/* Trash list */}
-                        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 36 }} showsVerticalScrollIndicator={false}>
+                        <ScrollView
+                            onScroll={(e) => {
+                                isScrollAtTopTrash.current = e.nativeEvent.contentOffset.y <= 0;
+                            }}
+                            scrollEventThrottle={16}
+                            contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 36 }}
+                            showsVerticalScrollIndicator={false}
+                        >
                             {trashedRecords.length === 0 ? (
                                 <View style={{ alignItems: 'center', paddingVertical: 40 }}>
                                     <View style={{ width: 64, height: 64, borderRadius: 18, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
