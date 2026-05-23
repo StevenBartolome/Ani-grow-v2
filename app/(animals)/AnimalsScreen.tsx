@@ -85,9 +85,12 @@ export default function AnimalsScreen() {
         }
     };
 
-    const fetchHousings = useCallback(async () => {
+    const [refreshing, setRefreshing] = useState(false);
+
+    const fetchHousings = useCallback(async (isRefresh = false) => {
         if (!farmId) { setIsLoading(false); return; }
-        setIsLoading(true);
+        if (isRefresh) setRefreshing(true);
+        else setIsLoading(true);
         try {
             // Fetch housings + their active batch (if any) in one query
             const { data, error } = await supabase
@@ -133,7 +136,8 @@ export default function AnimalsScreen() {
         } catch (err) {
             console.error('[AnimalsScreen] fetch error:', err);
         } finally {
-            setIsLoading(false);
+            if (isRefresh) setRefreshing(false);
+            else setIsLoading(false);
         }
     }, [farmId]);
 
@@ -222,8 +226,8 @@ export default function AnimalsScreen() {
                     showsVerticalScrollIndicator={false}
                     refreshControl={
                         <RefreshControl
-                            refreshing={isLoading}
-                            onRefresh={fetchHousings}
+                            refreshing={refreshing}
+                            onRefresh={() => fetchHousings(true)}
                             colors={[colors.primary]}
                             tintColor={colors.primary}
                         />

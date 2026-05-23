@@ -675,9 +675,12 @@ export default function HealthRecordsScreen() {
     const [housingsLoading, setHousingsLoading] = useState(true);
     const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
-    const fetchHousings = useCallback(async () => {
+    const [housingsRefreshing, setHousingsRefreshing] = useState(false);
+
+    const fetchHousings = useCallback(async (isRefresh = false) => {
         if (!farmId) { setHousingsLoading(false); return; }
-        setHousingsLoading(true);
+        if (isRefresh) setHousingsRefreshing(true);
+        else setHousingsLoading(true);
         try {
             const { data, error } = await supabase
                 .from('housings')
@@ -703,7 +706,8 @@ export default function HealthRecordsScreen() {
         } catch (err) {
             console.error('[HealthRecordsScreen] fetch housings error:', err);
         } finally {
-            setHousingsLoading(false);
+            if (isRefresh) setHousingsRefreshing(false);
+            else setHousingsLoading(false);
         }
     }, [farmId]);
 
@@ -1556,8 +1560,8 @@ export default function HealthRecordsScreen() {
                         showsVerticalScrollIndicator={false}
                         refreshControl={
                             <RefreshControl
-                                refreshing={housingsLoading}
-                                onRefresh={fetchHousings}
+                                refreshing={housingsRefreshing}
+                                onRefresh={() => fetchHousings(true)}
                                 colors={[colors.primary]}
                                 tintColor={colors.primary}
                             />

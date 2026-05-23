@@ -155,9 +155,12 @@ export default function DevicesScreen() {
 
     const filters: FilterType[] = ['All', 'AniFeed', 'AniWeigh'];
 
-    const fetchDevices = useCallback(async () => {
+    const [refreshing, setRefreshing] = useState(false);
+
+    const fetchDevices = useCallback(async (isRefresh = false) => {
         if (!farmId) { setLoading(false); return; }
-        setLoading(true);
+        if (isRefresh) setRefreshing(true);
+        else setLoading(true);
         try {
             const { data, error } = await supabase
                 .from('devices')
@@ -178,7 +181,8 @@ export default function DevicesScreen() {
         } catch (err) {
             console.error('[DevicesScreen] fetch error:', err);
         } finally {
-            setLoading(false);
+            if (isRefresh) setRefreshing(false);
+            else setLoading(false);
         }
     }, [farmId]);
 
@@ -244,7 +248,7 @@ export default function DevicesScreen() {
                     style={styles.container}
                     contentContainerStyle={{ paddingBottom: 100 }}
                     showsVerticalScrollIndicator={false}
-                    refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchDevices} colors={[colors.primary]} tintColor={colors.primary} />}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchDevices(true)} colors={[colors.primary]} tintColor={colors.primary} />}
                 >
                     {loading ? (
                         <View style={{ alignItems: 'center', paddingVertical: 60 }}>

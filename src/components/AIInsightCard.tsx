@@ -227,6 +227,8 @@ export function AIInsightCard({
         shadowOpacity: 0.3,
         shadowRadius: 10,
         elevation: 5,
+        width: '100%',
+        overflow: 'hidden',
       }}
     >
       {/* ── Header row ─────────────────────────────────────────────────────── */}
@@ -249,7 +251,7 @@ export function AIInsightCard({
           >
             <MaterialIcons name="auto-awesome" size={18} color="#FFF" />
           </View>
-          <Text style={[textStyles.h3, { color: '#FFF', fontSize: 15 }]}>{title}</Text>
+          <Text style={[textStyles.h3, { color: '#FFF', fontSize: 15, flexShrink: 1 }]} numberOfLines={1}>{title}</Text>
 
           {/* Recommendation pill */}
           <View
@@ -293,19 +295,19 @@ export function AIInsightCard({
       {loading ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 }}>
           <ActivityIndicator size="small" color="#FFF" />
-          <Text style={[textStyles.body, { color: '#FFF', opacity: 0.8, fontSize: 13 }]}>
+          <Text style={[textStyles.body, { color: '#FFF', opacity: 0.8, fontSize: 13, flexShrink: 1 }]}>
             Analyzing farm data…
           </Text>
         </View>
       ) : error ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <MaterialIcons name="error-outline" size={16} color="rgba(255,255,255,0.8)" />
-          <Text style={[textStyles.body, { color: '#FFF', opacity: 0.85, fontSize: 13, flex: 1 }]}>
+          <Text style={[textStyles.body, { color: '#FFF', opacity: 0.85, fontSize: 13, flex: 1, flexShrink: 1 }]}>
             {error}
           </Text>
         </View>
       ) : (
-        <View>
+        <View style={{ width: '100%' }}>
           {/* Headline */}
           {!!headline && (
             <Text
@@ -317,6 +319,7 @@ export function AIInsightCard({
                   fontSize: 14,
                   lineHeight: 21,
                   marginBottom: items.length > 0 ? 12 : 0,
+                  flexShrink: 1,
                 },
               ]}
             >
@@ -326,7 +329,7 @@ export function AIInsightCard({
 
           {/* Numbered recommendations */}
           {items.length > 0 && (
-            <View style={{ gap: 10 }}>
+            <View style={{ gap: 10, width: '100%' }}>
               {/* Always show first item */}
               <View
                 style={{
@@ -336,13 +339,14 @@ export function AIInsightCard({
                   backgroundColor: 'rgba(255, 255, 255, 0.1)',
                   borderRadius: 12,
                   padding: 10,
+                  width: '100%',
                 }}
               >
                 <NumberBubble n={1} />
                 <Text
                   style={[
                     textStyles.body,
-                    { color: '#FFF', fontSize: 13, lineHeight: 20, flex: 1, opacity: 0.95 },
+                    { color: '#FFF', fontSize: 13, lineHeight: 20, flex: 1, opacity: 0.95, flexShrink: 1 },
                   ]}
                 >
                   {renderFormattedText(items[0])}
@@ -361,13 +365,14 @@ export function AIInsightCard({
                       backgroundColor: 'rgba(255, 255, 255, 0.1)',
                       borderRadius: 12,
                       padding: 10,
+                      width: '100%',
                     }}
                   >
                     <NumberBubble n={i + 2} />
                     <Text
                       style={[
                         textStyles.body,
-                        { color: '#FFF', fontSize: 13, lineHeight: 20, flex: 1, opacity: 0.95 },
+                        { color: '#FFF', fontSize: 13, lineHeight: 20, flex: 1, opacity: 0.95, flexShrink: 1 },
                       ]}
                     >
                       {renderFormattedText(item)}

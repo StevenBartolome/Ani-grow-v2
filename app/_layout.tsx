@@ -23,6 +23,7 @@ import "../global.css";
 import { Stack } from "expo-router";
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
+import * as SystemUI from 'expo-system-ui';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LogBox, Platform } from 'react-native';
@@ -58,6 +59,11 @@ function RootNavigator() {
       notification: colors.error,
     },
   };
+
+  useEffect(() => {
+    // Set root background color to prevent white flickers on web and native
+    SystemUI.setBackgroundColorAsync(colors.bgLight);
+  }, [colors.bgLight]);
 
   return (
     <NavigationThemeProvider value={navigationTheme}>
