@@ -24,6 +24,9 @@ import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -82,6 +85,10 @@ export default function MortalityRecordsScreen() {
     const { housingId, batchId } = useLocalSearchParams<{ housingId: string; batchId: string }>();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
+    const { profile } = useAuth();
+    const { activeFarmIds } = useFarmFilter();
+    const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
+    const userId = (profile as any)?.uid || (profile as any)?.id;
 
     const [batch, setBatch]     = useState<BatchInfo | null>(null);
     const [housing, setHousing] = useState<HousingInfo | null>(null);
@@ -251,6 +258,8 @@ export default function MortalityRecordsScreen() {
 
             // 1 — Insert mortality health record
             const { error: hrErr } = await supabase.from('health_records').insert({
+                farm_id:      farmId,
+                housing_id:   housingId,
                 batch_id:     batchId,
                 record_type:  'mortality',
                 title:        `Mortality — ${cause}`,
@@ -261,6 +270,7 @@ export default function MortalityRecordsScreen() {
                 medication:   null,
                 dosage:       null,
                 followup_date: null,
+                recorded_by:  userId,
             });
             if (hrErr) throw hrErr;
 

@@ -848,7 +848,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
         // Fetch batch + housing
         const { data: batch, error: bFetchErr } = await db
           .from('batches')
-          .select('id, current_count, housing_id, housings(current_count)')
+          .select('id, current_count, housing_id, housings(current_count, farm_id)')
           .eq('id', input.batch_id)
           .single();
         if (bFetchErr || !batch) return { success: false, error: 'Batch not found' };
@@ -857,6 +857,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
         const newBatchCount   = Math.max(0, (batch.current_count ?? 0) - n);
         const housingCount    = (batch.housings as any)?.current_count ?? 0;
         const newHousingCount = Math.max(0, housingCount - n);
+        const fId             = (batch.housings as any)?.farm_id ?? null;
 
         // Decrement counts
         const { error: bErr } = await db.from('batches').update({
@@ -876,6 +877,8 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
           : `${n} animal(s) deceased. Cause: ${input.cause}.`;
 
         await db.from('health_records').insert({
+          farm_id: fId,
+          housing_id: batch.housing_id,
           batch_id: input.batch_id,
           record_type: 'mortality',
           title: `Mortality — ${input.cause}`,
@@ -901,7 +904,19 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
       }
 
       case 'add_health_record': {
+        // Retrieve batch and housing to get farm_id and housing_id
+        const { data: batch } = await db
+          .from('batches')
+          .select('housing_id, housings(farm_id)')
+          .eq('id', input.batch_id)
+          .single();
+        
+        const hId = batch?.housing_id ?? null;
+        const fId = (batch?.housings as any)?.farm_id ?? null;
+
         const { data, error } = await db.from('health_records').insert({
+          farm_id: fId,
+          housing_id: hId,
           batch_id: input.batch_id,
           record_type: input.record_type,
           title: input.title,

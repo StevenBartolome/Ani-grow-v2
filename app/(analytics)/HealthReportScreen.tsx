@@ -293,6 +293,7 @@ export default function HealthReportScreen() {
         const last6MonthsKeys: string[] = []; // YYYY-MM
         for (let i = 5; i >= 0; i--) {
             const d = new Date();
+            d.setDate(1); // Prevent end-of-month rollover bugs (e.g. Feb 31 -> March 3)
             d.setMonth(d.getMonth() - i);
             const monthName = d.toLocaleDateString('en-US', { month: 'short' });
             last6Months.push(monthName);
