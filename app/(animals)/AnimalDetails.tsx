@@ -723,7 +723,17 @@ export default function AnimalDetailsScreen() {
                             <TouchableOpacity
                                 activeOpacity={0.8}
                                 style={{ flex: 1, minWidth: '45%' }}
-                                onPress={() => router.push({ pathname: '/(animals)/MortalityRecordsScreen' as any, params: { housingId, batchId: selectedBatchId ?? '' } })}
+                                onPress={() => {
+                                    if (selectedBatch?.status === 'active') {
+                                        setDeceasedNumber('');
+                                        setDeceasedReason('Illness');
+                                        setDeceasedOtherReason('');
+                                        setDeceasedError(null);
+                                        setDeceasedVisible(true);
+                                    } else {
+                                        showSnackbar('Deceased can only be recorded for active batches.', 'error');
+                                    }
+                                }}
                             >
                                 <StatusCard
                                     title="Deceased"
@@ -1082,6 +1092,9 @@ export default function AnimalDetailsScreen() {
                                 </View>
 
                                 <View style={{ width: '100%', marginBottom: 28 }}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', paddingLeft: 4, fontFamily: 'Poppins-SemiBold', fontSize: 11 }]}>
+                                        Cause of Mortality
+                                    </Text>
                                     <TouchableOpacity
                                         activeOpacity={0.8}
                                         style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30, paddingHorizontal: 16, height: 58, backgroundColor: colors.surface }}
