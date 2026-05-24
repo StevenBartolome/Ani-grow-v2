@@ -32,7 +32,7 @@ export const FloatingNavBar = () => {
     const router = useRouter();
     const pathname = usePathname();
     const { colors, isDark } = useTheme();
-    const { hasPermission, permissions } = useAuth();
+    const { hasPermission, permissions, role } = useAuth();
     const styles = useFloatingNavBarStyles();
 
     const isTabVisible = (item: NavItemDef): boolean => {
@@ -41,8 +41,13 @@ export const FloatingNavBar = () => {
     };
 
     const handleNavigation = (route: string) => {
-        if (route !== pathname) {
-            router.replace(route as any);
+        // Vets go to their own dashboard instead of the default HomeScreen
+        const resolvedRoute =
+            route === '/(dashboard)/HomeScreen' && role === 'veterinarian'
+                ? '/(dashboard)/VetDashboardScreen'
+                : route;
+        if (resolvedRoute !== pathname) {
+            router.replace(resolvedRoute as any);
         }
     };
 
@@ -59,7 +64,7 @@ export const FloatingNavBar = () => {
             <View style={styles.container}>
                 {navItems.filter(isTabVisible).map((item, index) => {
                     const isActive = pathname.toLowerCase().includes(item.name.toLowerCase()) ||
-                        (item.name === 'Home' && pathname.includes('HomeScreen'));
+                        (item.name === 'Home' && (pathname.includes('HomeScreen') || pathname.includes('VetDashboardScreen')));
 
                     return (
                         <TouchableOpacity

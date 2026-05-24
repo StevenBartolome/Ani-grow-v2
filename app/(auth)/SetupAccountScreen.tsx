@@ -130,7 +130,7 @@ export default function SetupAccountScreen() {
 
             if (error || !data) {
                 setInviteCodeError('Invalid or expired invite code.');
-                showSnackbar('Please enter a valid, active AGR code.');
+                showSnackbar('Please enter a valid, active invite code.');
                 return;
             }
 
@@ -400,7 +400,7 @@ export default function SetupAccountScreen() {
                                         if (inviteCodeError) setInviteCodeError('');
                                     }}
                                     autoCapitalize="characters"
-                                    placeholder="AGR-XXXXXX"
+                                    placeholder="Enter Invite Code"
                                     error={inviteCodeError}
                                     backgroundColor={colors.surface}
                                   />
@@ -415,7 +415,7 @@ export default function SetupAccountScreen() {
                                         <ActivityIndicator size="small" color="#FFF" />
                                     ) : (
                                         <View style={styles.buttonRow}>
-                                            <Text style={styles.buttonText}>Verify Invite Code</Text>
+                                            <Text style={styles.buttonText}>Next</Text>
                                             <MaterialIcons name="chevron-right" size={20} color="#FFF" />
                                         </View>
                                     )}

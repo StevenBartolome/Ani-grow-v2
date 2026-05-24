@@ -79,7 +79,7 @@ function timeAgo(date: Date | null): string {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
-    const { profile, hasPermission, refreshProfile } = useAuth();
+    const { profile, hasPermission, refreshProfile, role } = useAuth();
     const homeStyles = useHomeStyles();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
@@ -256,9 +256,14 @@ export default function HomeScreen() {
             const hasFarm = profile.farmId || (profile as any).farm_id;
             if (!hasFarm) {
                 router.replace('/(auth)/SetupAccountScreen');
+                return;
+            }
+            // Vets get their own dedicated dashboard
+            if (role === 'veterinarian') {
+                router.replace('/(dashboard)/VetDashboardScreen' as any);
             }
         }
-    }, [profile, router]);
+    }, [profile, role, router]);
 
     useEffect(() => {
         if (activeFarmIds.length > 0) fetchStats();

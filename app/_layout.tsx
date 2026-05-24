@@ -70,6 +70,7 @@ function RootNavigator() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgLight } }}>
         {/* Main nav screens — instant switch, no slide */}
         <Stack.Screen name="(dashboard)/HomeScreen" options={{ animation: 'none' }} />
+        <Stack.Screen name="(dashboard)/VetDashboardScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(devices)/DevicesScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(animals)/AnimalsScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(animals)/HealthRecordsScreen" options={{ animation: 'none' }} />

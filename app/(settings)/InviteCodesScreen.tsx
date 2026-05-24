@@ -153,8 +153,8 @@ const ROLE_COLORS: Record<InviteRole, string> = {
 
 function generateCode(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const suffix = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    return `AGR-${suffix}`;
+    const code = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    return code;
 }
 
 function formatExpiry(dateStr: string): string {

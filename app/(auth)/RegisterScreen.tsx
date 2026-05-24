@@ -18,7 +18,6 @@ import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuthStyles } from '@/styles/authStyles';
-import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 
 type InviteData = {
@@ -38,29 +37,48 @@ const PERM_CATEGORY_CHIPS: { id: string; label: string; icon: string; keys: stri
     { id: 'administration', label: 'Admin',     icon: 'settings',         keys: ['farms:manage','staff:invite','staff:manage_roles','settings:manage'] },
 ];
 
+// ── Validation helpers ────────────────────────────────────────────────────────
+const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+const isValidName  = (v: string) => v.trim().length >= 2 && /^[a-zA-ZÀ-ÿ' -]+$/.test(v.trim());
+const isValidUsername = (v: string) => v.trim().length >= 3 && /^\w+$/.test(v.trim());
+const isStrongPassword = (v: string) =>
+    v.length >= 8 &&
+    /[A-Z]/.test(v) &&
+    /[a-z]/.test(v) &&
+    /[0-9]/.test(v) &&
+    /[^A-Za-z0-9]/.test(v);
+
 export default function RegisterScreen() {
     const router = useRouter();
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const authStyles = useAuthStyles();
-    const { signInWithGoogle, resendVerificationCode } = useAuth();
 
     // Step 1 — Invite code
     const [inviteCodeInput, setInviteCodeInput] = useState('');
     const [inviteData, setInviteData] = useState<InviteData | null>(null);
-    const [isValidatingCode, setIsValidatingCode] = useState(false);
     const [codeError, setCodeError] = useState('');
 
-    // Step 2 — Personal details
+    // Step 2 — Personal details + email
+    const [email, setEmail] = useState('');
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [username, setUsername] = useState('');
 
-    // Step 3 — Account credentials
-    const [email, setEmail] = useState('');
+    // Step 2 inline errors
+    const [emailError, setEmailError] = useState('');
+    const [firstNameError, setFirstNameError] = useState('');
+    const [lastNameError, setLastNameError] = useState('');
+    const [usernameError, setUsernameError] = useState('');
+
+    // Step 3 — Password
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [agreeTerms, setAgreeTerms] = useState(false);
+
+    // Step 3 inline errors
+    const [passwordError, setPasswordError] = useState('');
+    const [confirmPasswordError, setConfirmPasswordError] = useState('');
 
     // Step 4 — OTP
     const [otpCode, setOtpCode] = useState('');
@@ -81,52 +99,14 @@ export default function RegisterScreen() {
 
     const getStepInfo = () => {
         switch (step) {
-            case 1: return { title: 'Enter Invite Code', subtitle: 'Your farm admin will provide an AGR-XXXXXX invite code.' };
+            case 1: return { title: 'Enter Invite Code', subtitle: 'Your farm admin will provide an invite code.' };
             case 2: return { title: 'Personal Details',  subtitle: 'Tell us a bit about yourself.' };
-            case 3: return { title: 'Create Account',    subtitle: 'Set up your login credentials.' };
+            case 3: return { title: 'Create Account',    subtitle: 'Set up a secure password for your account.' };
             case 4: return { title: 'Verify Email',      subtitle: 'Enter the 6-digit code we sent to your email.' };
             default: return { title: '', subtitle: '' };
         }
     };
 
-    // ── Step 1: Validate invite code via anon-accessible RPC ──────
-    const handleValidateCode = async () => {
-        const code = inviteCodeInput.trim().toUpperCase();
-        if (!code) { setCodeError('Please enter an invite code.'); return; }
-        if (!/^AGR-[A-Z0-9]{6}$/.test(code)) {
-            setCodeError('Invalid format. Code should look like AGR-XXXXXX.');
-            return;
-        }
-
-        setCodeError('');
-        setInviteData(null);
-        setIsValidatingCode(true);
-
-        try {
-            const { data, error } = await supabase.rpc('validate_invite_code', { code_input: code });
-
-            if (error) throw error;
-
-            const result = Array.isArray(data) ? data[0] : data;
-
-            if (!result || !result.valid) {
-                setCodeError('This code is invalid, expired, or has already been used.');
-                return;
-            }
-
-            setInviteData({
-                invite_id:   result.invite_id,
-                farm_id:     result.farm_id,
-                role:        result.role,
-                farm_name:   result.farm_name,
-                permissions: result.permissions ?? {},
-            });
-        } catch (err: any) {
-            setCodeError(err.message || 'Failed to validate code. Please try again.');
-        } finally {
-            setIsValidatingCode(false);
-        }
-    };
 
     // ── Create user profile + mark invite used (post-auth) ────────
     const createUserProfile = async (userId: string, userEmail: string) => {
@@ -224,38 +204,83 @@ export default function RegisterScreen() {
         }
     };
 
-    // ── Google OAuth (requires invite validated in step 1) ────────
-    const handleGoogleSignup = async () => {
-        if (!inviteData) {
-            showSnackbar('Please validate your invite code first (step 1).');
-            return;
+    // ── Step 2 validation ─────────────────────────────────────────
+    const validateStep2 = () => {
+        let valid = true;
+
+        if (!email.trim()) {
+            setEmailError('Email address is required.');
+            valid = false;
+        } else if (!isValidEmail(email.trim())) {
+            setEmailError('Please enter a valid email address.');
+            valid = false;
+        } else {
+            setEmailError('');
         }
 
-        setIsLoading(true);
-        try {
-            await signInWithGoogle();
-
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const { data: existing } = await supabase
-                    .from('users')
-                    .select('id')
-                    .eq('id', user.id)
-                    .maybeSingle();
-
-                if (!existing) {
-                    await createUserProfile(user.id, user.email ?? '');
-                    showSnackbar('Google account linked successfully!', 'success');
-                }
-                router.replace('/(dashboard)' as any);
-            }
-        } catch (err: any) {
-            if (err.message !== 'canceled') {
-                showSnackbar(err.message || 'Google sign-up failed.', 'error');
-            }
-        } finally {
-            setIsLoading(false);
+        if (!firstName.trim()) {
+            setFirstNameError('First name is required.');
+            valid = false;
+        } else if (!isValidName(firstName)) {
+            setFirstNameError('Must be at least 2 letters. No numbers or special characters.');
+            valid = false;
+        } else {
+            setFirstNameError('');
         }
+
+        if (!lastName.trim()) {
+            setLastNameError('Last name is required.');
+            valid = false;
+        } else if (!isValidName(lastName)) {
+            setLastNameError('Must be at least 2 letters. No numbers or special characters.');
+            valid = false;
+        } else {
+            setLastNameError('');
+        }
+
+        if (!username.trim()) {
+            setUsernameError('Username is required.');
+            valid = false;
+        } else if (!isValidUsername(username)) {
+            setUsernameError('Min 3 characters. Only letters, numbers, and underscores.');
+            valid = false;
+        } else {
+            setUsernameError('');
+        }
+
+        return valid;
+    };
+
+    // ── Step 3 validation ─────────────────────────────────────────
+    const validateStep3 = () => {
+        let valid = true;
+
+        if (!password) {
+            setPasswordError('Password is required.');
+            valid = false;
+        } else if (!isStrongPassword(password)) {
+            setPasswordError('Min 8 characters with uppercase, lowercase, number, and symbol.');
+            valid = false;
+        } else {
+            setPasswordError('');
+        }
+
+        if (!confirmPassword) {
+            setConfirmPasswordError('Please confirm your password.');
+            valid = false;
+        } else if (password !== confirmPassword) {
+            setConfirmPasswordError('Passwords do not match.');
+            valid = false;
+        } else {
+            setConfirmPasswordError('');
+        }
+
+        if (!agreeTerms) {
+            showSnackbar('Please agree to the Terms of Service and Privacy Policy.');
+            valid = false;
+        }
+
+        return valid;
     };
 
     // ── Navigation ────────────────────────────────────────────────
@@ -263,41 +288,46 @@ export default function RegisterScreen() {
         if (isLoading) return;
 
         if (step === 1) {
-            if (!inviteData) { setCodeError('Please validate your invite code first.'); return; }
-            setStep(2);
+            const code = inviteCodeInput.trim().toUpperCase();
+            if (!code) { setCodeError('Please enter an invite code.'); return; }
+
+            setCodeError('');
+            setIsLoading(true);
+
+            try {
+                const { data, error } = await supabase.rpc('validate_invite_code', { code_input: code });
+
+                if (error) throw error;
+
+                const result = Array.isArray(data) ? data[0] : data;
+
+                if (!result || !result.valid) {
+                    setCodeError('This code is invalid, expired, or has already been used.');
+                    setIsLoading(false);
+                    return;
+                }
+
+                setInviteData({
+                    invite_id:   result.invite_id,
+                    farm_id:     result.farm_id,
+                    role:        result.role,
+                    farm_name:   result.farm_name,
+                    permissions: result.permissions ?? {},
+                });
+                
+                setStep(2);
+            } catch (err: any) {
+                setCodeError(err.message || 'Failed to validate code. Please try again.');
+            } finally {
+                setIsLoading(false);
+            }
 
         } else if (step === 2) {
-            if (!firstName.trim() || !lastName.trim() || !username.trim()) {
-                showSnackbar('Please complete all fields.');
-                return;
-            }
-            if (/\s/.test(username.trim())) {
-                showSnackbar('Username cannot contain spaces.');
-                return;
-            }
+            if (!validateStep2()) return;
             setStep(3);
 
         } else if (step === 3) {
-            if (!email.trim() || !password || !confirmPassword) {
-                showSnackbar('Please complete all fields.');
-                return;
-            }
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-                showSnackbar('Please enter a valid email address.');
-                return;
-            }
-            if (password.length < 8) {
-                showSnackbar('Password must be at least 8 characters.');
-                return;
-            }
-            if (password !== confirmPassword) {
-                showSnackbar('Passwords do not match.');
-                return;
-            }
-            if (!agreeTerms) {
-                showSnackbar('Please agree to the Terms of Service and Privacy Policy.');
-                return;
-            }
+            if (!validateStep3()) return;
             await handleRegister();
 
         } else if (step === 4) {
@@ -319,7 +349,11 @@ export default function RegisterScreen() {
 
     const handleResendCode = async () => {
         try {
-            await resendVerificationCode((pendingEmail || email).trim());
+            const { error } = await supabase.auth.resend({
+                type: 'signup',
+                email: (pendingEmail || email).trim(),
+            });
+            if (error) throw error;
             showSnackbar('New code sent! Check your email.', 'success');
         } catch (err: any) {
             showSnackbar(err.message || 'Failed to resend code.', 'error');
@@ -424,162 +458,110 @@ export default function RegisterScreen() {
                                         error={codeError}
                                     />
 
-                                    <TouchableOpacity
-                                        activeOpacity={0.8}
-                                        style={{
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            paddingVertical: 14,
-                                            paddingHorizontal: 20,
-                                            borderRadius: 14,
-                                            borderWidth: 1.5,
-                                            borderColor: colors.primary,
-                                            backgroundColor: `${colors.primary}10`,
-                                            marginBottom: 20,
-                                            gap: 8,
-                                        }}
-                                        onPress={handleValidateCode}
-                                        disabled={isValidatingCode}
-                                    >
-                                        <MaterialIcons
-                                            name={isValidatingCode ? 'hourglass-empty' : 'verified'}
-                                            size={20}
-                                            color={colors.primary}
-                                        />
-                                        <Text style={[textStyles.label, { color: colors.primary }]}>
-                                            {isValidatingCode ? 'Validating...' : 'Validate Code'}
-                                        </Text>
-                                    </TouchableOpacity>
-
-                                    {/* Validation result card */}
-                                    {inviteData && (
-                                        <View style={{
-                                            backgroundColor: `${colors.primary}08`,
-                                            borderWidth: 1.5,
-                                            borderColor: `${colors.primary}40`,
-                                            borderRadius: 16,
-                                            padding: 16,
-                                            marginBottom: 20,
-                                        }}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 }}>
-                                                <View style={{
-                                                    width: 36, height: 36, borderRadius: 10,
-                                                    backgroundColor: `${colors.primary}20`,
-                                                    alignItems: 'center', justifyContent: 'center',
-                                                }}>
-                                                    <MaterialIcons name="check-circle" size={20} color={colors.primary} />
-                                                </View>
-                                                <View style={{ flex: 1 }}>
-                                                    <Text style={[textStyles.h3, { color: colors.primary, fontSize: 14 }]}>Code Accepted</Text>
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{inviteData.farm_name}</Text>
-                                                </View>
-                                                <View style={{ backgroundColor: `${colors.primary}20`, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
-                                                    <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, textTransform: 'capitalize' }]}>
-                                                        {inviteData.role.replace('_', ' ')}
-                                                    </Text>
-                                                </View>
-                                            </View>
-
-                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginBottom: 8, letterSpacing: 0.5 }]}>
-                                                ACCESS PERMISSIONS
-                                            </Text>
-                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                                {PERM_CATEGORY_CHIPS
-                                                    .filter(cat => cat.keys.some(k => inviteData.permissions[k]))
-                                                    .map(cat => {
-                                                        const count = cat.keys.filter(k => inviteData.permissions[k]).length;
-                                                        return (
-                                                            <View key={cat.id} style={{
-                                                                flexDirection: 'row',
-                                                                alignItems: 'center',
-                                                                backgroundColor: colors.surface,
-                                                                borderWidth: 1,
-                                                                borderColor: colors.stroke,
-                                                                paddingHorizontal: 8,
-                                                                paddingVertical: 4,
-                                                                borderRadius: 8,
-                                                                gap: 4,
-                                                            }}>
-                                                                <MaterialIcons name={cat.icon as any} size={12} color={colors.primary} />
-                                                                <Text style={[textStyles.body, { fontSize: 11, color: colors.text }]}>
-                                                                    {cat.label}
-                                                                </Text>
-                                                                <Text style={[textStyles.body, { fontSize: 10, color: colors.textGrey }]}>
-                                                                    {count}/{cat.keys.length}
-                                                                </Text>
-                                                            </View>
-                                                        );
-                                                    })}
-                                            </View>
-                                        </View>
-                                    )}
                                 </View>
                             )}
 
-                            {/* ══ Step 2: Personal Details ══ */}
+                            {/* ══ Step 2: Personal Details + Email ══ */}
                             {step === 2 && (
                                 <>
+                                    <FloatingLabelInput
+                                        label="Email Address"
+                                        icon="email"
+                                        value={email}
+                                        onChangeText={(v) => {
+                                            setEmail(v);
+                                            if (emailError) setEmailError('');
+                                        }}
+                                        autoCapitalize="none"
+                                        keyboardType="email-address"
+                                        error={emailError}
+                                    />
                                     <FloatingLabelInput
                                         label="First Name"
                                         icon="person"
                                         value={firstName}
-                                        onChangeText={setFirstName}
+                                        onChangeText={(v) => {
+                                            setFirstName(v);
+                                            if (firstNameError) setFirstNameError('');
+                                        }}
                                         autoCapitalize="words"
+                                        error={firstNameError}
                                     />
                                     <FloatingLabelInput
                                         label="Last Name"
                                         icon="person"
                                         value={lastName}
-                                        onChangeText={setLastName}
+                                        onChangeText={(v) => {
+                                            setLastName(v);
+                                            if (lastNameError) setLastNameError('');
+                                        }}
                                         autoCapitalize="words"
+                                        error={lastNameError}
                                     />
                                     <View>
                                         <FloatingLabelInput
                                             label="Username"
                                             icon="alternate-email"
                                             value={username}
-                                            onChangeText={setUsername}
+                                            onChangeText={(v) => {
+                                                setUsername(v);
+                                                if (usernameError) setUsernameError('');
+                                            }}
                                             autoCapitalize="none"
+                                            error={usernameError}
                                         />
-                                        <Text style={[textStyles.body, { fontSize: 12, color: colors.textGrey, marginTop: -12, marginBottom: 20, marginLeft: 4 }]}>
-                                            Must be unique and contain no spaces.
-                                        </Text>
+                                        {!usernameError && (
+                                            <Text style={[textStyles.body, { fontSize: 12, color: colors.textGrey, marginTop: -12, marginBottom: 20, marginLeft: 4 }]}>
+                                                Min 3 characters. Letters, numbers, and underscores only.
+                                            </Text>
+                                        )}
                                     </View>
                                 </>
                             )}
 
-                            {/* ══ Step 3: Account Credentials ══ */}
+                            {/* ══ Step 3: Password ══ */}
                             {step === 3 && (
                                 <>
-                                    <FloatingLabelInput
-                                        label="Email Address"
-                                        icon="email"
-                                        value={email}
-                                        onChangeText={setEmail}
-                                        autoCapitalize="none"
-                                        keyboardType="email-address"
-                                    />
                                     <View>
                                         <FloatingLabelInput
                                             label="Password"
                                             icon="lock"
                                             value={password}
-                                            onChangeText={setPassword}
+                                            onChangeText={(v) => {
+                                                setPassword(v);
+                                                if (passwordError) setPasswordError('');
+                                                // Live confirm match check
+                                                if (confirmPassword && v !== confirmPassword) {
+                                                    setConfirmPasswordError('Passwords do not match.');
+                                                } else if (confirmPassword) {
+                                                    setConfirmPasswordError('');
+                                                }
+                                            }}
                                             isPassword
+                                            error={passwordError}
                                         />
-                                        <Text style={[textStyles.body, { fontSize: 12, color: colors.textGrey, marginTop: -12, marginBottom: 20, marginLeft: 4, lineHeight: 18 }]}>
-                                            At least 8 characters with uppercase, lowercase, numbers, and symbols.
-                                        </Text>
+                                        {!passwordError && (
+                                            <Text style={[textStyles.body, { fontSize: 12, color: colors.textGrey, marginTop: -12, marginBottom: 20, marginLeft: 4, lineHeight: 18 }]}>
+                                                Min 8 characters with uppercase, lowercase, numbers, and symbols.
+                                            </Text>
+                                        )}
                                     </View>
                                     <FloatingLabelInput
                                         label="Confirm Password"
                                         icon="lock"
                                         value={confirmPassword}
-                                        onChangeText={setConfirmPassword}
+                                        onChangeText={(v) => {
+                                            setConfirmPassword(v);
+                                            if (v && password && v !== password) {
+                                                setConfirmPasswordError('Passwords do not match.');
+                                            } else {
+                                                setConfirmPasswordError('');
+                                            }
+                                        }}
                                         isPassword
+                                        error={confirmPasswordError}
                                     />
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 8, paddingHorizontal: 4 }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 8, paddingHorizontal: 4 }}>
                                         <TouchableOpacity
                                             activeOpacity={0.8}
                                             onPress={() => setAgreeTerms(!agreeTerms)}
@@ -672,30 +654,6 @@ export default function RegisterScreen() {
                                                 : 'Next'}
                                 </Text>
                             </TouchableOpacity>
-
-                            {/* Google option on step 3 */}
-                            {step === 3 && (
-                                <>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 24, marginBottom: 16 }}>
-                                        <View style={{ flex: 1, height: 1, backgroundColor: colors.stroke }} />
-                                        <Text style={[textStyles.label, { color: colors.textGrey, marginHorizontal: 16 }]}>Or sign up with</Text>
-                                        <View style={{ flex: 1, height: 1, backgroundColor: colors.stroke }} />
-                                    </View>
-                                    <TouchableOpacity
-                                        activeOpacity={0.8}
-                                        style={[authStyles.socialButton, isLoading && { opacity: 0.7 }]}
-                                        onPress={handleGoogleSignup}
-                                        disabled={isLoading}
-                                    >
-                                        <Image
-                                            source={require('../../assets/branding/google_logo.svg')}
-                                            style={{ width: 24, height: 24 }}
-                                            contentFit="contain"
-                                        />
-                                        <Text style={authStyles.socialButtonText}>Continue with Google</Text>
-                                    </TouchableOpacity>
-                                </>
-                            )}
 
                             {/* Login link on step 1 */}
                             {step === 1 && (
