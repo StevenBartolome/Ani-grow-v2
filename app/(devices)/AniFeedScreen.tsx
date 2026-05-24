@@ -146,6 +146,7 @@ export default function AniFeedScreen() {
     const [dispenseLogs, setDispenseLogs] = useState<DispenseLogEntry[]>([]);
     const [lastDispensed, setLastDispensed] = useState<string | null>(null);
     const [liveTodayGrams, setLiveTodayGrams] = useState<number | null>(null);
+    const [liveTodayDispenseCount, setLiveTodayDispenseCount] = useState<number | null>(null);
     const [liveFlash, setLiveFlash] = useState(false);
 
     // Options for edit modals (fetched from farm)
@@ -193,7 +194,9 @@ export default function AniFeedScreen() {
     // ─── Fetch ───────────────────────────────────────────────────
     const fetchAll = useCallback(async () => {
         if (!deviceId || !farmId) { setIsLoading(false); return; }
-        setIsLoading(true);
+        if (!deviceInfo) {
+            setIsLoading(true);
+        }
         try {
             const [deviceResult, scheduleResult, logsResult, housingsResult, feedsResult] = await Promise.all([
                 supabase
@@ -301,6 +304,7 @@ export default function AniFeedScreen() {
         if (data) {
             const total = (data as any[]).reduce((sum, r) => sum + (r.grams_dispensed || 0), 0);
             setLiveTodayGrams(total);
+            setLiveTodayDispenseCount(data.length);
         }
     }, [deviceId]);
 
@@ -314,6 +318,7 @@ export default function AniFeedScreen() {
                     const row = payload.new as any;
                     if (row.status === 'success') {
                         setLiveTodayGrams(prev => (prev ?? 0) + (row.grams_dispensed || 0));
+                        setLiveTodayDispenseCount(prev => (prev ?? 0) + 1);
                     }
                     setLiveFlash(true);
                     setTimeout(() => setLiveFlash(false), 600);
@@ -922,6 +927,7 @@ export default function AniFeedScreen() {
                     {/* AI Feed Recommendations */}
                     <AIInsightCard
                         title="AI Feed Recommendations"
+                        forceFresh={true}
                         context={{
                             type: 'feed',
                             animalType: deviceInfo?.animalType ?? 'livestock',
@@ -931,6 +937,7 @@ export default function AniFeedScreen() {
                                 timesPerDay: schedule?.timesPerDay ?? null,
                                 gramsPerDispense: schedule?.gramsPerDispense ?? null,
                                 todayTotalGrams: liveTodayGrams ?? null,
+                                todayCompletedDispensesCount: liveTodayDispenseCount ?? null,
                                 recentDispenses: dispenseLogs.slice(0, 5).map(l => ({
                                     amountGrams: l.amountGrams,
                                     status: l.status,

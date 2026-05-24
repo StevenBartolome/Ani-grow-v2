@@ -366,11 +366,11 @@ export default function GrowthReportScreen() {
             }
 
             // ── Multiple recording dates ──
-            const datesToUse = sortedDates.slice(-6);
-            const labels = datesToUse.map(d => {
+            const datesToUse = sortedDates.slice(-5);
+            const labels = ['Arrival', ...datesToUse.map(d => {
                 const parts = d.split('-');
                 return parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
-            });
+            })];
 
             // Compute per-category averages — null means no animals of that type logged that day
             const normalAvgs  = datesToUse.map(d => getAvg(dateMap.get(d)!.normal));
@@ -394,11 +394,11 @@ export default function GrowthReportScreen() {
             const toActualOnly = (arr: (number | null)[]): number[] =>
                 arr.map(v => v !== null ? parseFloat(v.toFixed(2)) : 0);
 
-            const normalFinal = interpolate(normalAvgs);
-            const underFinal  = toActualOnly(underAvgs);
-            const overFinal   = toActualOnly(overAvgs);
+            const normalFinal = [0, ...interpolate(normalAvgs)];
+            const underFinal  = [0, ...toActualOnly(underAvgs)];
+            const overFinal   = [0, ...toActualOnly(overAvgs)];
 
-            const zeroAnchorN = { data: Array(datesToUse.length).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false };
+            const zeroAnchorN = { data: Array(labels.length).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false };
 
             // Check if filter has any real data
             if (selectedTab !== 'All') {
@@ -511,8 +511,8 @@ export default function GrowthReportScreen() {
             }
 
             // ── Multiple weeks ──
-            const weeksToUse = sortedWeeks.slice(-6);
-            const labels = weeksToUse.map(w => `W${w}`);
+            const weeksToUse = sortedWeeks.slice(-5);
+            const labels = ['Arrival', ...weeksToUse.map(w => `W${w}`)];
             const normalAvgs = weeksToUse.map(w => getAvg(weekMap.get(w)!.normal));
             const underAvgs  = weeksToUse.map(w => getAvg(weekMap.get(w)!.underweight));
             const overAvgs   = weeksToUse.map(w => getAvg(weekMap.get(w)!.overweight));
@@ -531,11 +531,11 @@ export default function GrowthReportScreen() {
             const toActualOnly = (arr: (number | null)[]): number[] =>
                 arr.map(v => v !== null ? parseFloat(v.toFixed(2)) : 0);
 
-            const normalFinal = interpolate(normalAvgs);
-            const underFinal  = toActualOnly(underAvgs);
-            const overFinal   = toActualOnly(overAvgs);
+            const normalFinal = [0, ...interpolate(normalAvgs)];
+            const underFinal  = [0, ...toActualOnly(underAvgs)];
+            const overFinal   = [0, ...toActualOnly(overAvgs)];
 
-            const zeroAnchorWW = { data: Array(weeksToUse.length).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false };
+            const zeroAnchorWW = { data: Array(labels.length).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false };
 
             if (selectedTab !== 'All') {
                 const arr = selectedTab === 'Underweight' ? underAvgs : selectedTab === 'Normal' ? normalAvgs : overAvgs;
@@ -608,13 +608,11 @@ export default function GrowthReportScreen() {
                 return v !== null ? parseFloat(v.toFixed(2)) : currentAvgs[idx];
             });
 
-            const zeroA = { data: Array(daysToUse.length).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false };
             return {
                 noData: false, labels,
                 datasets: [
                     { data: currentAvgs, color: () => colors.primary, strokeWidth: 3 },
                     { data: prevAvgs, color: () => '#F59E0B', strokeWidth: 2 },
-                    zeroA,
                 ],
             };
         } else {
@@ -651,13 +649,11 @@ export default function GrowthReportScreen() {
                 return v !== null ? parseFloat(v.toFixed(2)) : currentAvgs[idx];
             });
 
-            const zeroA = { data: Array(weeksToUse.length).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false };
             return {
                 noData: false, labels,
                 datasets: [
                     { data: currentAvgs, color: () => colors.primary, strokeWidth: 3 },
                     { data: prevAvgs, color: () => '#F59E0B', strokeWidth: 2 },
-                    zeroA,
                 ],
             };
         }
@@ -1087,7 +1083,7 @@ export default function GrowthReportScreen() {
                                             height={200}
                                             yAxisLabel=""
                                             yAxisSuffix="kg"
-                                            fromZero
+                                            fromZero={false}
                                             withDots={true}
                                             withInnerLines={true}
                                             withOuterLines={false}

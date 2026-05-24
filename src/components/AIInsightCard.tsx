@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 
@@ -13,6 +13,42 @@ interface AIInsightCardProps {
   title?: string;
   staticContent?: string;
   variant?: 'green' | 'purple' | 'orange';
+  forceFresh?: boolean;
+}
+
+function splitIntoSentences(text: string): string[] {
+  if (!text) return [];
+  const sentences: string[] = [];
+  let currentSentence = '';
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    currentSentence += char;
+
+    if (char === '.' || char === '!' || char === '?') {
+      // Check if it's a decimal point (digit before and digit after)
+      const isPrevDigit = i > 0 && /\d/.test(text[i - 1]);
+      const isNextDigit = i < text.length - 1 && /\d/.test(text[i + 1]);
+
+      if (isPrevDigit && isNextDigit) {
+        // It's a decimal point, do not split
+        continue;
+      }
+
+      // Check if it's followed by a space or end of string
+      const isNextWhitespace = i === text.length - 1 || /\s/.test(text[i + 1]);
+      if (isNextWhitespace) {
+        sentences.push(currentSentence.trim());
+        currentSentence = '';
+      }
+    }
+  }
+
+  if (currentSentence.trim()) {
+    sentences.push(currentSentence.trim());
+  }
+
+  return sentences.filter(Boolean);
 }
 
 // ─── Parser ───────────────────────────────────────────────────────────────────
@@ -80,7 +116,7 @@ function parseInsight(text: string): { headline: string; items: string[] } {
 
   // If we only have a headline and no items, split the headline by sentences to form items
   if (items.length === 0 && headline) {
-    const sentences = headline.match(/[^.!?]+[.!?]+/g) ?? [];
+    const sentences = splitIntoSentences(headline);
     if (sentences.length > 1) {
       headline = (sentences[0] ?? '').trim();
       sentences.slice(1).forEach(s => {
@@ -162,6 +198,7 @@ export function AIInsightCard({
   title = 'AI Insight',
   staticContent,
   variant = 'green',
+  forceFresh = false,
 }: AIInsightCardProps) {
   const { colors } = useTheme();
   const textStyles = useTextStyles();
@@ -171,37 +208,53 @@ export function AIInsightCard({
   const [error, setError]       = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const fetch = useCallback(async (bypassCache = false) => {
-    if (!context || staticContent) return;
+  // Incremented on every new fetch so stale in-flight responses are ignored.
+  const fetchIdRef = useRef(0);
+
+  const doFetch = useCallback(async (ctx: AIInsightContext, bypassCache: boolean) => {
+    const fetchId = ++fetchIdRef.current;
     setLoading(true);
     setError(null);
     try {
-      const result = await getInsight(context, bypassCache);
-      setInsight(result);
+      const result = await getInsight(ctx, bypassCache);
+      if (fetchIdRef.current === fetchId) {
+        setInsight(result);
+      }
     } catch (e: any) {
-      setError(e?.message ?? 'Failed to load AI insight.');
+      if (fetchIdRef.current === fetchId) {
+        setError(e?.message ?? 'Failed to load AI insight.');
+      }
     } finally {
-      setLoading(false);
+      if (fetchIdRef.current === fetchId) {
+        setLoading(false);
+      }
     }
+  }, []);
+
+  // Manual refresh — always for the current context.
+  const fetch = useCallback((bypassCache = false) => {
+    if (!context || staticContent) return;
+    doFetch(context, bypassCache);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(context), staticContent]);
+  }, [JSON.stringify(context), staticContent, doFetch]);
 
+  // Auto-fetch whenever context changes; reset visible state immediately so
+  // stale insight never shows while the new one is loading.
   useEffect(() => {
-    if (!staticContent) {
-      setInsight(null);
-      setLoading(true);
-      setIsExpanded(false);
-    }
-  }, [JSON.stringify(context), staticContent]);
-
-  useEffect(() => {
-    if (!staticContent) {
-      fetch();
-    } else {
+    if (staticContent) {
       setInsight(staticContent);
       setLoading(false);
+      return;
     }
-  }, [fetch, staticContent]);
+    if (!context) return;
+
+    setInsight(null);
+    setLoading(true);
+    setIsExpanded(false);
+
+    doFetch(context, forceFresh);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(context), staticContent, forceFresh]);
 
   // Gradient by variant
   const gradientColors =

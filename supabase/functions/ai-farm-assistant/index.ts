@@ -16,87 +16,87 @@ const CORS = {
 
 const ANIBOT_SYSTEM = `You are AniBot, the intelligent AI assistant built into AniGrow — a smart livestock farm management platform. You have full access to the farm database via tools and can do everything a farmer can do in the app:
 
-READ:
-• Farm overview, housings, devices
-• Animal batches with mortality stats
-• Health records (vaccinations, treatments, illness, deworming, vitamins, mortality)
-• Weight logs from AniWeigh scales
-• Feed dispense logs from AniFeed devices
-• Available feed inventory
+  READ:
+  • Farm overview, housings, devices
+  • Animal batches with mortality stats
+  • Health records (vaccinations, treatments, illness, deworming, vitamins, mortality)
+  • Weight logs from AniWeigh scales
+  • Feed dispense logs from AniFeed devices
+  • Available feed inventory
 
-WRITE (take action when the farmer asks):
-• Register new batch of animals into a housing
-• Add heads to an existing batch
-• Record deceased animals (with cause)
-• Update batch status (complete / archive)
-• Add health records
-• Create new housing
-• Update housing (rename, change capacity)
-• Delete housing
-• Create new feed type
-• Update feed info
+  WRITE (take action when the farmer asks):
+  • Register new batch of animals into a housing
+  • Add heads to an existing batch
+  • Record deceased animals (with cause)
+  • Update batch status (complete / archive)
+  • Add health records
+  • Create new housing
+  • Update housing (rename, change capacity)
+  • Delete housing
+  • Create new feed type
+  • Update feed info
 
-Rules:
-- Always call get_farm_overview first when you need IDs (housing, device, batch) before performing write actions.
-- Never guess IDs — always fetch them via tools.
-- After every write action, clearly confirm: "✅ Done — [what you did]".
-- If the user gives you all the details needed, proceed directly without asking again.
-- Be concise, friendly, and specific. Use metric units (kg, grams).
-- For destructive actions (delete housing), warn the user and confirm intent before proceeding.
+  Rules:
+  - Always call get_farm_overview first when you need IDs (housing, device, batch) before performing write actions.
+  - Never guess IDs — always fetch them via tools.
+  - After every write action, clearly confirm: "✅ Done — [what you did]".
+  - If the user gives you all the details needed, proceed directly without asking again.
+  - Be concise, friendly, and specific. Use metric units (kg, grams). Note that raw weight values in database logs (like net_weight_grams) are in grams, so you must divide by 1000 to get kg (e.g. 850 grams = 0.85 kg). Double-check your math and decimal points carefully so that a 0.85 kg weight is never written as 85 kg.
+  - For destructive actions (delete housing), warn the user and confirm intent before proceeding.
 
-VALIDATION — CRITICAL:
-- When a tool returns { validation_error: true }, STOP. Do NOT proceed with the action.
-- Explain the conflict clearly to the user (e.g. "That housing only has space for X more animals but you're adding Y").
-- Always present options and ask the user to choose. For example:
-  "⚠️ Pig Pen C has a capacity of 80 but already has 10 animals — only 70 spots remain, and you're trying to add 90.
-   What would you like to do?
-   1. Increase the housing capacity to fit 90 more (new total capacity: 100)
-   2. Adjust the batch count to 70 (maximum available space)
-   3. Cancel"
-- Wait for the user's choice before taking any further action.
-- Never register, add, or update anything that would exceed a housing's capacity without explicit user approval.
+  VALIDATION — CRITICAL:
+  - When a tool returns { validation_error: true }, STOP. Do NOT proceed with the action.
+  - Explain the conflict clearly to the user (e.g. "That housing only has space for X more animals but you're adding Y").
+  - Always present options and ask the user to choose. For example:
+    "⚠️ Pig Pen C has a capacity of 80 but already has 10 animals — only 70 spots remain, and you're trying to add 90.
+    What would you like to do?
+    1. Increase the housing capacity to fit 90 more (new total capacity: 100)
+    2. Adjust the batch count to 70 (maximum available space)
+    3. Cancel"
+  - Wait for the user's choice before taking any further action.
+  - Never register, add, or update anything that would exceed a housing's capacity without explicit user approval.
 
-Navigation hints — append up to 2 nav tags at the very end of your response (after the last sentence, nothing after the tags):
-[NAV:animals] — Animals list
-[NAV:animal_details:housingId=ID] — Specific animal housing
-[NAV:health_records:housingId=ID&batchId=ID] — Health records for a batch
-[NAV:health_records:housingId=ID] — Health records for a housing
-[NAV:weight_scale:deviceId=ID] — AniWeigh device screen
-[NAV:feed_device:deviceId=ID] — AniFeed device screen
-[NAV:weight_logs] — All weight logs
-[NAV:feed_records] — All feed records
-[NAV:devices] — Devices list
-[NAV:home] — Home dashboard
-[NAV:notifications] — Notifications
+  Navigation hints — append up to 2 nav tags at the very end of your response (after the last sentence, nothing after the tags):
+  [NAV:animals] — Animals list
+  [NAV:animal_details:housingId=ID] — Specific animal housing
+  [NAV:health_records:housingId=ID&batchId=ID] — Health records for a batch
+  [NAV:health_records:housingId=ID] — Health records for a housing
+  [NAV:weight_scale:deviceId=ID] — AniWeigh device screen
+  [NAV:feed_device:deviceId=ID] — AniFeed device screen
+  [NAV:weight_logs] — All weight logs
+  [NAV:feed_records] — All feed records
+  [NAV:devices] — Devices list
+  [NAV:home] — Home dashboard
+  [NAV:notifications] — Notifications
 
-Only append tags relevant to the response. Substitute real IDs from tool results — never write "ID" literally. Skip tags for general chat.
+  Only append tags relevant to the response. Substitute real IDs from tool results — never write "ID" literally. Skip tags for general chat.
 
-PIG CARE GUIDE — Age-Based Recommendations:
-- Use get_pig_care_recommendations whenever a farmer asks about pig feeding, feed amount, supplements, medications, vitamins, dewormers, or vaccination schedule.
-- First call get_animals to get the batch's arrival_date and age_at_arrival_days.
-- Compute current age in days: age_at_arrival_days + Math.floor((Date.now() - new Date(arrival_date).getTime()) / 86400000)
-- Then call get_pig_care_recommendations with the computed age_days.
-- When presenting results: always show the current feed product + daily amount per pig, then list current/upcoming care actions (medication name, dosage, route, and purpose).
-- If the farmer asks about a specific pen or batch, compute the exact age from that batch's data.`;
+  PIG CARE GUIDE — Age-Based Recommendations:
+  - Use get_pig_care_recommendations whenever a farmer asks about pig feeding, feed amount, supplements, medications, vitamins, dewormers, or vaccination schedule.
+  - First call get_animals to get the batch's arrival_date and age_at_arrival_days.
+  - Compute current age in days: age_at_arrival_days + Math.floor((Date.now() - new Date(arrival_date).getTime()) / 86400000)
+  - Then call get_pig_care_recommendations with the computed age_days.
+  - When presenting results: always show the current feed product + daily amount per pig, then list current/upcoming care actions (medication name, dosage, route, and purpose).
+  - If the farmer asks about a specific pen or batch, compute the exact age from that batch's data.`;
 
 const INSIGHT_SYSTEM = `You are FarmAI, an intelligent agricultural assistant for AniGrow.
 
-Format your response in this EXACT structure — no deviations:
+  Format your response in this EXACT structure — no deviations:
 
-HEADLINE: [5-8 word summary of the current situation]
-1. [First actionable recommendation — specific to the data, 1-2 sentences]
-2. [Second actionable recommendation if applicable — 1-2 sentences]
-3. [Third actionable recommendation if applicable — 1-2 sentences]
+  HEADLINE: [5-8 word summary of the current situation]
+  1. [First actionable recommendation — specific to the data, 1-2 sentences]
+  2. [Second actionable recommendation if applicable — 1-2 sentences]
+  3. [Third actionable recommendation if applicable — 1-2 sentences]
 
-Rules:
-- Always start with "HEADLINE:" on its own line
-- Use numbered items (1., 2., 3.) for recommendations.
-- You do not need to provide multiple numbered items if the advice is simple or short; providing just one recommendation is perfectly fine.
-- Maximum 3 items
-- Use metric units (kg, grams)
-- Ground every point in the exact numbers provided — no generic advice
-- No markdown headers, no extra text, no asterisks, no dashes
-- Be direct and actionable`;
+  Rules:
+  - Always start with "HEADLINE:" on its own line
+  - Use numbered items (1., 2., 3.) for recommendations.
+  - You do not need to provide multiple numbered items if the advice is simple or short; providing just one recommendation is perfectly fine.
+  - Maximum 3 items
+  - Use metric units (kg, grams). Note that raw weight values in database logs (like net_weight_grams) are in grams, so you must divide by 1000 to get kg (e.g. 850 grams = 0.85 kg). Double-check your math and decimal points carefully so that a 0.85 kg weight is never written as 85 kg.
+  - Ground every point in the exact numbers provided — no generic advice
+  - No markdown headers, no extra text, no asterisks, no dashes
+  - Be direct and actionable`;
 
 // ─── Pig Care Guide Data ──────────────────────────────────────────────────────
 
@@ -379,7 +379,7 @@ const TOOLS = [
   },
   {
     name: 'get_weight_logs',
-    description: 'Get recent weight measurements from AniWeigh scales. Multi-farm admins: pass farm_id to query a specific farm.',
+    description: 'Get recent weight measurements from AniWeigh scales. The returned log records contain weights in grams under the net_weight_grams field (e.g. 850 means 850 grams or 0.85 kg). You must divide by 1000 to report/analyze weights in kg. Multi-farm admins: pass farm_id to query a specific farm.',
     input_schema: {
       type: 'object',
       properties: {
@@ -575,7 +575,7 @@ const TOOLS = [
 
 async function executeTool(db: any, farmId: string, userId: string, name: string, input: any, allowedFarmIds?: string[]): Promise<any> {
   // READ tools support an optional farm_id override for multi-farm admins
-  const READ_TOOLS = ['get_farm_overview','get_animals','get_health_records','get_mortality_records','get_weight_logs','get_feed_logs','get_feeds'];
+  const READ_TOOLS = ['get_farm_overview', 'get_animals', 'get_health_records', 'get_mortality_records', 'get_weight_logs', 'get_feed_logs', 'get_feeds'];
   const effectiveFarmId = (
     input.farm_id &&
     READ_TOOLS.includes(name) &&
@@ -809,8 +809,8 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
         const housing = batch.housings as any;
         const housingCurrentCount = housing?.current_count ?? 0;
-        const housingCapacity     = housing?.capacity ?? 0;
-        const availableSpace      = housingCapacity - housingCurrentCount;
+        const housingCapacity = housing?.capacity ?? 0;
+        const availableSpace = housingCapacity - housingCurrentCount;
 
         // ── Capacity validation ──────────────────────────────────────────────
         if (input.count > availableSpace) {
@@ -827,7 +827,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
         }
 
         const newBatchCount = (batch.current_count ?? 0) + input.count;
-        const newEstimated  = (batch.estimated_count ?? 0) + input.count;
+        const newEstimated = (batch.estimated_count ?? 0) + input.count;
 
         const { error } = await db.from('batches').update({
           current_count: newBatchCount,
@@ -854,10 +854,10 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
         if (bFetchErr || !batch) return { success: false, error: 'Batch not found' };
 
         const n = input.count;
-        const newBatchCount   = Math.max(0, (batch.current_count ?? 0) - n);
-        const housingCount    = (batch.housings as any)?.current_count ?? 0;
+        const newBatchCount = Math.max(0, (batch.current_count ?? 0) - n);
+        const housingCount = (batch.housings as any)?.current_count ?? 0;
         const newHousingCount = Math.max(0, housingCount - n);
-        const fId             = (batch.housings as any)?.farm_id ?? null;
+        const fId = (batch.housings as any)?.farm_id ?? null;
 
         // Decrement counts
         const { error: bErr } = await db.from('batches').update({
@@ -910,7 +910,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
           .select('housing_id, housings(farm_id)')
           .eq('id', input.batch_id)
           .single();
-        
+
         const hId = batch?.housing_id ?? null;
         const fId = (batch?.housings as any)?.farm_id ?? null;
 
@@ -950,7 +950,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
       case 'update_housing': {
         const updates: any = { updated_at: new Date().toISOString() };
-        if (input.name)     updates.name     = input.name;
+        if (input.name) updates.name = input.name;
         if (input.capacity) updates.capacity = input.capacity;
 
         const { error } = await db.from('housings').update(updates).eq('id', input.housing_id);
@@ -983,8 +983,8 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
       case 'update_feed': {
         const updates: any = { updated_at: new Date().toISOString() };
-        if (input.name !== undefined)     updates.name     = input.name;
-        if (input.brand !== undefined)    updates.brand    = input.brand;
+        if (input.name !== undefined) updates.name = input.name;
+        if (input.brand !== undefined) updates.brand = input.brand;
         if (input.category !== undefined) updates.category = input.category;
         if (input.supplier !== undefined) updates.supplier = input.supplier;
         if (input.stock_kg !== undefined) updates.stock_kg = input.stock_kg;
@@ -1005,31 +1005,31 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
         // Determine pig stage label
         let pigStage = 'Unknown';
-        if (ageDays <= 4)   pigStage = 'Newborn';
-        else if (ageDays <= 33)  pigStage = 'Piglet';
+        if (ageDays <= 4) pigStage = 'Newborn';
+        else if (ageDays <= 33) pigStage = 'Piglet';
         else if (ageDays <= 120) pigStage = 'Grower';
         else pigStage = 'Finisher / Market Hog';
 
         // Classify care schedule items relative to current age
         const CURRENT_WINDOW = 3;   // ±3 days = "do now"
-        const UPCOMING_DAYS  = 14;  // look 14 days ahead
-        const PAST_DAYS      = 7;   // warn about items missed in last 7 days
+        const UPCOMING_DAYS = 14;  // look 14 days ahead
+        const PAST_DAYS = 7;   // warn about items missed in last 7 days
 
-        const current_care: any[]  = [];
+        const current_care: any[] = [];
         const upcoming_care: any[] = [];
-        const overdue_care: any[]  = [];
+        const overdue_care: any[] = [];
 
         for (const item of PIG_CARE_SCHEDULE) {
-          const withinCurrent  = item.day_end   >= ageDays - CURRENT_WINDOW &&
-                                 item.day_start <= ageDays + CURRENT_WINDOW;
-          const withinUpcoming = item.day_start >  ageDays + CURRENT_WINDOW &&
-                                 item.day_start <= ageDays + UPCOMING_DAYS;
-          const withinOverdue  = item.day_end   >= ageDays - PAST_DAYS &&
-                                 item.day_end   <  ageDays - CURRENT_WINDOW;
+          const withinCurrent = item.day_end >= ageDays - CURRENT_WINDOW &&
+            item.day_start <= ageDays + CURRENT_WINDOW;
+          const withinUpcoming = item.day_start > ageDays + CURRENT_WINDOW &&
+            item.day_start <= ageDays + UPCOMING_DAYS;
+          const withinOverdue = item.day_end >= ageDays - PAST_DAYS &&
+            item.day_end < ageDays - CURRENT_WINDOW;
 
-          if (withinCurrent)  current_care.push(item);
+          if (withinCurrent) current_care.push(item);
           else if (withinUpcoming) upcoming_care.push(item);
-          else if (withinOverdue)  overdue_care.push(item);
+          else if (withinOverdue) overdue_care.push(item);
         }
 
         return {
@@ -1063,16 +1063,16 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 interface NavLink { label: string; route: string; icon: string; params?: Record<string, string>; }
 
 const NAV_MAP: Record<string, { label: string; route: string; icon: string }> = {
-  home:           { label: 'Home Dashboard',  route: '/(dashboard)/HomeScreen',          icon: 'home'             },
-  animals:        { label: 'Animals',         route: '/(animals)/AnimalsScreen',         icon: 'pets'             },
-  animal_details: { label: 'Animal Details',  route: '/(animals)/AnimalDetails',         icon: 'info'             },
-  health_records: { label: 'Health Records',  route: '/(animals)/HealthRecordsScreen',   icon: 'medical-services' },
-  devices:        { label: 'Devices',         route: '/(devices)/DevicesScreen',         icon: 'devices'          },
-  weight_scale:   { label: 'AniWeigh Scale',  route: '/(devices)/AniWeighScreen',        icon: 'monitor-weight'   },
-  feed_device:    { label: 'AniFeed Device',  route: '/(devices)/AniFeedScreen',         icon: 'grass'            },
-  weight_logs:    { label: 'Weight Logs',     route: '/(devices)/RecentLogsScreen',      icon: 'monitor-weight'   },
-  feed_records:   { label: 'Feed Records',    route: '/(devices)/DispenseRecordsScreen', icon: 'grass'            },
-  notifications:  { label: 'Notifications',   route: '/(dashboard)/NotificationScreen',  icon: 'notifications'    },
+  home: { label: 'Home Dashboard', route: '/(dashboard)/HomeScreen', icon: 'home' },
+  animals: { label: 'Animals', route: '/(animals)/AnimalsScreen', icon: 'pets' },
+  animal_details: { label: 'Animal Details', route: '/(animals)/AnimalDetails', icon: 'info' },
+  health_records: { label: 'Health Records', route: '/(animals)/HealthRecordsScreen', icon: 'medical-services' },
+  devices: { label: 'Devices', route: '/(devices)/DevicesScreen', icon: 'devices' },
+  weight_scale: { label: 'AniWeigh Scale', route: '/(devices)/AniWeighScreen', icon: 'monitor-weight' },
+  feed_device: { label: 'AniFeed Device', route: '/(devices)/AniFeedScreen', icon: 'grass' },
+  weight_logs: { label: 'Weight Logs', route: '/(devices)/RecentLogsScreen', icon: 'monitor-weight' },
+  feed_records: { label: 'Feed Records', route: '/(devices)/DispenseRecordsScreen', icon: 'grass' },
+  notifications: { label: 'Notifications', route: '/(dashboard)/NotificationScreen', icon: 'notifications' },
 };
 
 function parseNavTags(text: string): { cleanText: string; navigation: NavLink[] } {
@@ -1099,7 +1099,7 @@ function parseNavTags(text: string): { cleanText: string; navigation: NavLink[] 
 // ─── Anthropic caller ─────────────────────────────────────────────────────────
 
 async function callClaude(apiKey: string, system: string, messages: any[], maxTokens: number, tools?: any[]) {
-  const body: any = { model: 'claude-3-5-haiku-latest', max_tokens: maxTokens, system, messages };
+  const body: any = { model: 'claude-haiku-4-5', max_tokens: maxTokens, system, messages };
   if (tools) body.tools = tools;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -1119,7 +1119,7 @@ serve(async (req: Request) => {
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
-    const supabaseUrl    = Deno.env.get('SUPABASE_URL')!;
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const db = createClient(supabaseUrl, serviceRoleKey);
 
@@ -1178,10 +1178,21 @@ serve(async (req: Request) => {
     // ── Insight (no tool use) ─────────────────────────────────────────────────
     if (type === 'insight') {
       let system = INSIGHT_SYSTEM;
-      if (ctx.type === 'weight')  system += '\n\nFocus on weight segregation analysis and care recommendations.';
-      if (ctx.type === 'feed')    system += '\n\nFocus on feed dispensing patterns and optimization recommendations.';
-      if (ctx.type === 'animal')  system += '\n\nFocus on the animal\'s growth, health status, and recommended next actions.';
-      if (ctx.type === 'health')  system += '\n\nFocus on health record trends, risk assessment, and follow-up priorities.';
+      if (ctx.type === 'weight') system += '\n\nFocus on weight segregation analysis and care recommendations.';
+      if (ctx.type === 'feed') {
+        system += `\n\nFocus on feed dispensing patterns and optimization recommendations.
+  Specifically for the feed dispensing schedule:
+  - Under data, you are provided with:
+    * timesPerDay: the target number of scheduled dispenses per day.
+    * gramsPerDispense: the target grams of feed per dispense.
+    * todayTotalGrams: the total grams successfully dispensed today.
+    * todayCompletedDispensesCount: the exact number of successful dispenses completed today.
+  - A dispense schedule is fully completed for the day if todayCompletedDispensesCount >= timesPerDay.
+  - Do NOT recommend dispensing more feed if todayCompletedDispensesCount >= timesPerDay. In this case, clearly state that the feeding schedule for today has been successfully completed.
+  - Be extremely accurate with arithmetic and logic. Double-check your completed count against the target.`;
+      }
+      if (ctx.type === 'animal') system += '\n\nFocus on the animal\'s growth, health status, and recommended next actions.';
+      if (ctx.type === 'health') system += '\n\nFocus on health record trends, risk assessment, and follow-up priorities.';
 
       const data = await callClaude(apiKey, system, [
         { role: 'user', content: `Farm data:\n${JSON.stringify(ctx, null, 2)}\n\nProvide a concise insight.` },
@@ -1194,9 +1205,9 @@ serve(async (req: Request) => {
 
     // ── AniBot chat with agentic tool use ─────────────────────────────────────
     if (type === 'chat') {
-      const farmId  = ctx.farmId ?? ctx.farmIds?.[0];
+      const farmId = ctx.farmId ?? ctx.farmIds?.[0];
       const farmIds: string[] = ctx.farmIds ?? (farmId ? [farmId] : []);
-      const userId  = ctx.userId ?? '';
+      const userId = ctx.userId ?? '';
       if (!farmId) throw new Error('farmId required for AniBot chat');
 
       let system = ANIBOT_SYSTEM;
@@ -1208,25 +1219,25 @@ serve(async (req: Request) => {
           return `• "${name}" (farm_id: ${id})`;
         }).join('\n');
         system += `\n\n─── MULTI-FARM ADMIN ───
-You manage ${farmIds.length} farms. The user has selected "All Farms" mode so you can access all of them.
+  You manage ${farmIds.length} farms. The user has selected "All Farms" mode so you can access all of them.
 
-Managed farms:
-${farmList}
+  Managed farms:
+  ${farmList}
 
-Primary/active farm: "${ctx.farmName}" (farm_id: ${farmId})
+  Primary/active farm: "${ctx.farmName}" (farm_id: ${farmId})
 
-READ TOOL RULES:
-- All read tools (get_farm_overview, get_animals, get_health_records, get_mortality_records, get_weight_logs, get_feed_logs, get_feeds) accept an optional "farm_id" parameter.
-- To query a specific farm, pass its farm_id. To query the primary farm, omit farm_id.
-- For cross-farm reports (e.g. "give me a summary of all farms"), call each read tool once per farm, passing the correct farm_id each time, then synthesize the results.
+  READ TOOL RULES:
+  - All read tools (get_farm_overview, get_animals, get_health_records, get_mortality_records, get_weight_logs, get_feed_logs, get_feeds) accept an optional "farm_id" parameter.
+  - To query a specific farm, pass its farm_id. To query the primary farm, omit farm_id.
+  - For cross-farm reports (e.g. "give me a summary of all farms"), call each read tool once per farm, passing the correct farm_id each time, then synthesize the results.
 
-WRITE TOOL RULES:
-- Write tools always operate on the primary farm unless the user explicitly names another farm.
-- If the user says "add animals to Farm X", first call get_farm_overview with Farm X's farm_id to get its housing IDs, then use register_batch.`;
+  WRITE TOOL RULES:
+  - Write tools always operate on the primary farm unless the user explicitly names another farm.
+  - If the user says "add animals to Farm X", first call get_farm_overview with Farm X's farm_id to get its housing IDs, then use register_batch.`;
       }
 
       // Support image analysis — attach image to the last user message if present
-      const imageData      = ctx.imageData as string | undefined;
+      const imageData = ctx.imageData as string | undefined;
       const imageMediaType = (ctx.imageMediaType as string | undefined) ?? 'image/jpeg';
 
       const loopMessages: any[] = (messages ?? []).map((m: any, idx: number) => {

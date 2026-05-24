@@ -31,6 +31,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Animated,
     KeyboardAvoidingView,
+    Modal,
     Platform,
     Pressable,
     ScrollView,
@@ -211,6 +212,41 @@ function MarkdownText({ text, baseColor, dimColor }: { text: string; baseColor: 
             nodes.push(<View key={i} style={{ height: 1, backgroundColor: dimColor + '40', marginVertical: 16 }} />);
             i++; continue;
         }
+        // Markdown table: rows start and end with '|'
+        const isTableRow = (l: string) => l.startsWith('|') && l.endsWith('|') && l.length > 2;
+        const isSepRow = (l: string) => /^\|[\s\-:|]+\|$/.test(l);
+        if (isTableRow(t)) {
+            const allRows: string[] = [];
+            while (i < lines.length && isTableRow(lines[i].trim())) { allRows.push(lines[i].trim()); i++; }
+            const nonSep = allRows.filter(r => !isSepRow(r));
+            const [headerRow, ...dataRows] = nonSep;
+            const parseRow = (row: string) => row.split('|').slice(1, -1).map(c => c.trim());
+            const headers = headerRow ? parseRow(headerRow) : [];
+            const rows = dataRows.map(parseRow);
+            nodes.push(
+                <View key={`tbl${i}`} style={{ marginVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: dimColor + '40', overflow: 'hidden' }}>
+                    {headers.length > 0 && (
+                        <View style={{ flexDirection: 'row', backgroundColor: dimColor + '22', borderBottomWidth: 1, borderBottomColor: dimColor + '40' }}>
+                            {headers.map((h, j) => (
+                                <View key={j} style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 8, borderRightWidth: j < headers.length - 1 ? 1 : 0, borderRightColor: dimColor + '40' }}>
+                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: baseColor }}>{h}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                    {rows.map((row, ri) => (
+                        <View key={ri} style={{ flexDirection: 'row', backgroundColor: ri % 2 === 1 ? dimColor + '12' : 'transparent', borderBottomWidth: ri < rows.length - 1 ? 1 : 0, borderBottomColor: dimColor + '30' }}>
+                            {row.map((cell, j) => (
+                                <View key={j} style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 7, borderRightWidth: j < row.length - 1 ? 1 : 0, borderRightColor: dimColor + '30' }}>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: baseColor, lineHeight: 18 }}>{renderInline(cell, baseColor)}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    ))}
+                </View>
+            );
+            continue;
+        }
         nodes.push(<Text key={i} style={{ fontFamily: 'Poppins-Regular', fontSize: 15, color: baseColor, lineHeight: 24, marginTop: 4 }}>{renderInline(t, baseColor)}</Text>);
         i++;
     }
@@ -275,38 +311,144 @@ function DateSeparator({ label }: { label: string }) {
     );
 }
 
-// ─── MessageActionBar ─────────────────────────────────────────────────────────
+// ─── MsgModalState ────────────────────────────────────────────────────────────
 
-function MessageActionBar({ onCopy, onRegenerate, isVisible }: { onCopy: () => void; onRegenerate?: () => void; isVisible: boolean }) {
+interface MsgModalState {
+    idx: number;
+    isUser: boolean;
+    isLastBot: boolean;
+    content: string;
+}
+
+// ─── MessageContextModal ──────────────────────────────────────────────────────
+
+function MessageContextModal({
+    state,
+    onClose,
+    onCopy,
+    onRegenerate,
+    onDelete,
+}: {
+    state: MsgModalState | null;
+    onClose: () => void;
+    onCopy: (content: string) => void;
+    onRegenerate: () => void;
+    onDelete: (idx: number) => void;
+}) {
     const { colors } = useTheme();
-    const opacity = useRef(new Animated.Value(0)).current;
+    const slideY = useRef(new Animated.Value(400)).current;
+    const [panelVisible, setPanelVisible] = useState(false);
+    const prevState = useRef<MsgModalState | null>(null);
+
     useEffect(() => {
-        Animated.timing(opacity, { toValue: isVisible ? 1 : 0, duration: 150, useNativeDriver: Platform.OS !== 'web' }).start();
-    }, [isVisible]);
-    if (!isVisible) return null;
+        if (state) {
+            prevState.current = state;
+            slideY.setValue(400);
+            setPanelVisible(true);
+            Animated.spring(slideY, {
+                toValue: 0, tension: 68, friction: 12,
+                useNativeDriver: Platform.OS !== 'web',
+            }).start();
+        } else if (panelVisible) {
+            Animated.timing(slideY, {
+                toValue: 400, duration: 210,
+                useNativeDriver: Platform.OS !== 'web',
+            }).start(() => setPanelVisible(false));
+        }
+    }, [state]);
+
+    const display = state ?? prevState.current;
+    if (!panelVisible || !display) return null;
+
+    const preview = display.content
+        .replace(/\*\*/g, '')
+        .replace(/\n/g, ' ')
+        .trim();
+    const truncated = preview.length > 100 ? preview.slice(0, 100) + '…' : preview;
+
+    const ActionRow = ({
+        icon, label, onPress, danger = false,
+    }: { icon: React.ReactNode; label: string; onPress: () => void; danger?: boolean }) => (
+        <TouchableOpacity
+            onPress={onPress}
+            activeOpacity={0.7}
+            style={{
+                flexDirection: 'row', alignItems: 'center', gap: 14,
+                paddingVertical: 15, paddingHorizontal: 16,
+                borderRadius: 12, marginBottom: 10,
+                backgroundColor: danger ? colors.error + '12' : colors.cardFill,
+                borderWidth: 1,
+                borderColor: danger ? colors.error + '35' : colors.stroke,
+            }}
+        >
+            {icon}
+            <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 15, color: danger ? colors.error : colors.text, flex: 1 }}>
+                {label}
+            </Text>
+        </TouchableOpacity>
+    );
+
     return (
-        <Animated.View style={{ opacity, flexDirection: 'row', gap: 6, marginTop: 10 }}>
-            <TouchableOpacity onPress={onCopy} activeOpacity={0.7} style={{
-                flexDirection: 'row', alignItems: 'center', gap: 5,
-                paddingHorizontal: 10, paddingVertical: 6,
-                borderWidth: 1, borderColor: colors.stroke, borderRadius: 6,
-                backgroundColor: colors.surface,
-            }}>
-                <Copy size={13} color={colors.textGrey} />
-                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey }}>Copy</Text>
-            </TouchableOpacity>
-            {onRegenerate && (
-                <TouchableOpacity onPress={onRegenerate} activeOpacity={0.7} style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 5,
-                    paddingHorizontal: 10, paddingVertical: 6,
-                    borderWidth: 1, borderColor: colors.stroke, borderRadius: 6,
+        <Modal visible={panelVisible} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
+            <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+                {/* Backdrop */}
+                <Pressable
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.48)' }}
+                    onPress={onClose}
+                />
+                {/* Sheet */}
+                <Animated.View style={{
+                    transform: [{ translateY: slideY }],
                     backgroundColor: colors.surface,
+                    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+                    paddingHorizontal: 16, paddingTop: 12, paddingBottom: 36,
                 }}>
-                    <ArrowCounterClockwise size={13} color={colors.textGrey} />
-                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey }}>Retry</Text>
-                </TouchableOpacity>
-            )}
-        </Animated.View>
+                    {/* Handle */}
+                    <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginBottom: 18 }} />
+
+                    {/* Preview */}
+                    {!!truncated && (
+                        <View style={{
+                            backgroundColor: colors.cardFill, borderRadius: 12,
+                            padding: 12, marginBottom: 18,
+                            borderWidth: 1, borderColor: colors.stroke,
+                        }}>
+                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 13, color: colors.textGrey, lineHeight: 20 }} numberOfLines={2}>
+                                {truncated}
+                            </Text>
+                        </View>
+                    )}
+
+                    <ActionRow
+                        icon={<Copy size={19} color={colors.text} />}
+                        label="Copy message"
+                        onPress={() => { onCopy(display.content); onClose(); }}
+                    />
+                    {display.isLastBot && (
+                        <ActionRow
+                            icon={<ArrowCounterClockwise size={19} color={colors.text} />}
+                            label="Retry response"
+                            onPress={() => { onRegenerate(); onClose(); }}
+                        />
+                    )}
+                    <ActionRow
+                        icon={<Trash size={19} color={colors.error} />}
+                        label="Delete message"
+                        onPress={() => { onDelete(display.idx); onClose(); }}
+                        danger
+                    />
+
+                    {/* Cancel */}
+                    <TouchableOpacity
+                        onPress={onClose}
+                        activeOpacity={0.7}
+                        style={{ alignItems: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: colors.inputFill, marginTop: 2 }}
+                    >
+                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.textGrey }}>Cancel</Text>
+                    </TouchableOpacity>
+                </Animated.View>
+            </View>
+        </Modal>
     );
 }
 
@@ -516,7 +658,7 @@ export default function AIAssistantScreen() {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [historyReady, setHistoryReady] = useState(false);
-    const [activeMsg, setActiveMsg] = useState<number | null>(null);
+    const [msgModal, setMsgModal] = useState<MsgModalState | null>(null);
     const [showScrollBtn, setShowScrollBtn] = useState(false);
     const [copiedToast, setCopiedToast] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -604,7 +746,6 @@ export default function AIAssistantScreen() {
     const scrollToBottom = useCallback((animated = true) => {
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated }), 80);
         setShowScrollBtn(false);
-        setActiveMsg(null);
     }, []);
 
     const onScroll = useCallback((e: any) => {
@@ -834,7 +975,6 @@ export default function AIAssistantScreen() {
         const trimmed = text.trim();
         if ((!trimmed && !attachedImage) || isLoading) return;
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        setActiveMsg(null);
 
         const base = historyOverride ?? messages;
         const imgSnapshot = attachedImage;       // capture before clearing
@@ -943,6 +1083,16 @@ export default function AIAssistantScreen() {
             }
         }
     }, [saveConvs]);
+
+    // ── Delete a single message ───────────────────────────────────────────────
+    const deleteMessage = useCallback(async (idx: number) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        const updated = messages.filter((_, i) => i !== idx);
+        setMessages(updated);
+        if (activeConvId) {
+            await saveMsgs(activeConvId, updated);
+        }
+    }, [messages, activeConvId, saveMsgs]);
 
     // ── Regenerate ────────────────────────────────────────────────────────────
     const regenerate = useCallback(() => {
@@ -1095,7 +1245,6 @@ export default function AIAssistantScreen() {
                     onScroll={onScroll}
                     scrollEventThrottle={80}
                     onContentSizeChange={() => { if (atBottom.current) scrollToBottom(false); }}
-                    onTouchStart={() => { if (activeMsg !== null) setActiveMsg(null); }}
                 >
                     {/* ── Empty state ─────────────────────────────────────────── */}
                     {isEmpty && (
@@ -1121,8 +1270,12 @@ export default function AIAssistantScreen() {
                                 const isUser = msg.role === 'user';
                                 const isLast = idx === messages.length - 1;
                                 const showDate = diffDay(messages[idx - 1], msg);
-                                const isActive = activeMsg === idx;
                                 const isLastBot = !isUser && isLast && !isLoading;
+
+                                const openModal = () => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                    setMsgModal({ idx, isUser, isLastBot, content: msg.content });
+                                };
 
                                 return (
                                     <View key={idx}>
@@ -1131,8 +1284,8 @@ export default function AIAssistantScreen() {
                                         {/* User Thread (Right-aligned Capsule) */}
                                         {isUser && (
                                             <Pressable
-                                                onPress={() => setActiveMsg(isActive ? null : idx)}
-                                                onLongPress={() => copy(msg.content)}
+                                                onLongPress={openModal}
+                                                delayLongPress={350}
                                                 style={styles.userThreadWrap}
                                             >
                                                 {msg.imageUri && (
@@ -1159,8 +1312,8 @@ export default function AIAssistantScreen() {
                                         {/* Bot Thread (Left-aligned Flowing Text) */}
                                         {!isUser && (
                                             <Pressable
-                                                onPress={() => setActiveMsg(isActive ? null : idx)}
-                                                onLongPress={() => copy(msg.content)}
+                                                onLongPress={openModal}
+                                                delayLongPress={350}
                                                 style={styles.botThreadWrap}
                                             >
                                                 <View style={styles.botThreadAvatar}>
@@ -1181,11 +1334,6 @@ export default function AIAssistantScreen() {
                                                             {msg.navigation.map((link, j) => <NavButton key={j} link={link} />)}
                                                         </View>
                                                     )}
-                                                    <MessageActionBar
-                                                        isVisible={isActive}
-                                                        onCopy={() => copy(msg.content)}
-                                                        onRegenerate={isLastBot ? regenerate : undefined}
-                                                    />
                                                 </View>
                                             </Pressable>
                                         )}
@@ -1366,6 +1514,15 @@ export default function AIAssistantScreen() {
                 onSelect={selectConversation}
                 onNew={startNewChat}
                 onDelete={deleteConversation}
+            />
+
+            {/* ── Message context modal (hold to open) ──────────────────────── */}
+            <MessageContextModal
+                state={msgModal}
+                onClose={() => setMsgModal(null)}
+                onCopy={copy}
+                onRegenerate={regenerate}
+                onDelete={deleteMessage}
             />
         </SafeAreaView>
     );
