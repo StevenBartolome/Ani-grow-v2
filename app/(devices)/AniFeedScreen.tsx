@@ -19,6 +19,7 @@ import { useAniFeedStyles } from '@/styles/anifeedStyles';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { supabase } from '@/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface DeviceInfo {
     name: string;
@@ -237,13 +238,22 @@ export default function AniFeedScreen() {
 
             if (deviceResult.data) {
                 const d = deviceResult.data as any;
-                setDeviceInfo({
+                const info: DeviceInfo = {
                     name: d.name,
                     status: d.status,
                     housingId: d.housing_id ?? null,
                     housingName: d.housings?.name ?? 'Unassigned',
                     animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
-                });
+                };
+
+                if (!info.housingId) {
+                    const tempType = await AsyncStorage.getItem(`temp_animal_type_${deviceId}`);
+                    if (tempType === 'Pig' || tempType === 'Chicken') {
+                        info.animalType = tempType;
+                    }
+                }
+
+                setDeviceInfo(info);
                 setIsConnected(d.status === 'online');
             }
 
@@ -668,12 +678,14 @@ export default function AniFeedScreen() {
                 const selectedType = val as 'Pig' | 'Chicken';
                 // Unassign housing when animal type changes — user must reassign manually
                 await supabase.from('devices').update({ housing_id: null }).eq('id', deviceId as string);
+                await AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
                 setDeviceInfo(prev => prev ? { ...prev, housingId: null, housingName: 'Unassigned', animalType: selectedType } : null);
                 showSnackbar(`Animal type set to ${selectedType}. Please reassign a housing.`);
             } else if (editTarget === 'Housing') {
                 const h = farmHousings.find(h => h.name === val);
                 if (!h) return;
                 await supabase.from('devices').update({ housing_id: h.id }).eq('id', deviceId as string);
+                await AsyncStorage.removeItem(`temp_animal_type_${deviceId}`);
                 setDeviceInfo(prev => prev ? { ...prev, housingId: h.id, housingName: h.name, animalType: h.animal_type === 'pig' ? 'Pig' : 'Chicken' } : null);
                 showSnackbar('Housing updated.');
             } else if (editTarget === 'Brand') {

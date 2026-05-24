@@ -18,6 +18,7 @@ import { useAniWeighStyles } from '@/styles/aniweighStyles';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { supabase } from '@/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface DeviceInfo {
     name: string;
@@ -256,6 +257,14 @@ export default function AniWeighScreen() {
                     housingName: d.housings?.name ?? 'Unassigned',
                     animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
                 };
+
+                if (!info.housingId) {
+                    const tempType = await AsyncStorage.getItem(`temp_animal_type_${deviceId}`);
+                    if (tempType === 'Pig' || tempType === 'Chicken') {
+                        info.animalType = tempType;
+                    }
+                }
+
                 setDeviceInfo(info);
                 deviceInfoRef.current = info;   // keep ref in sync
                 setIsConnected(d.status === 'online');
@@ -476,6 +485,7 @@ export default function AniWeighScreen() {
             const h = farmHousings.find(h => h.name === pendingEditVal);
             if (h) {
                 await supabase.from('devices').update({ housing_id: h.id }).eq('id', deviceId);
+                await AsyncStorage.removeItem(`temp_animal_type_${deviceId}`);
                 setDeviceInfo(prev => {
                     const updated = prev ? { ...prev, housingId: h.id, housingName: h.name, animalType: h.animal_type === 'pig' ? 'Pig' : 'Chicken' } as DeviceInfo : null;
                     deviceInfoRef.current = updated;
@@ -654,6 +664,7 @@ export default function AniWeighScreen() {
                 const selectedType = val as 'Pig' | 'Chicken';
                 // Unassign housing when animal type changes — user must reassign manually
                 await supabase.from('devices').update({ housing_id: null }).eq('id', deviceId);
+                await AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
                 setDeviceInfo(prev => {
                     const updated = prev ? { ...prev, housingId: null, housingName: 'Unassigned', animalType: selectedType } as DeviceInfo : null;
                     deviceInfoRef.current = updated;
