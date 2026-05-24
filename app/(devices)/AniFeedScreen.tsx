@@ -172,6 +172,11 @@ export default function AniFeedScreen() {
     const [isSimulating, setIsSimulating] = useState(false);
     const [simulationTimeLeft, setSimulationTimeLeft] = useState(5);
 
+    // Manual Dispense Modal
+    const [manualDispenseVisible, setManualDispenseVisible] = useState(false);
+    const [manualGrams, setManualGrams] = useState('');
+    const [isManualDispensing, setIsManualDispensing] = useState(false);
+
     // Edit field modal (Housing, Brand, AnimalType)
     const [editModalVisible, setEditModalVisible] = useState(false);
     const [editTarget, setEditTarget] = useState<'Housing' | 'Brand' | 'AnimalType' | null>(null);
@@ -215,7 +220,7 @@ export default function AniFeedScreen() {
                     .maybeSingle(),
                 supabase
                     .from('dispense_records')
-                    .select('id, grams_dispensed, status, dispensed_at')
+                    .select('id, grams_dispensed, status, dispensed_at, housing_id, housings(name)')
                     .eq('device_id', deviceId as string)
                     .order('dispensed_at', { ascending: false })
                     .limit(3),
@@ -261,14 +266,15 @@ export default function AniFeedScreen() {
             }
 
             if (logsResult.data && logsResult.data.length > 0) {
-                const housingName = (deviceResult.data as any)?.housings?.name ?? 'Unassigned';
                 const mapped: DispenseLogEntry[] = logsResult.data.map((r: any) => ({
                     id: r.id,
                     status: r.status,
                     amount: `${r.grams_dispensed}g`,
                     amountGrams: r.grams_dispensed,
                     timestamp: new Date(r.dispensed_at).getTime(),
-                    housingName,
+                    // Use the housing recorded on this specific dispense event,
+                    // NOT the device's current housing (which may have changed).
+                    housingName: (r.housings as any)?.name ?? 'Unassigned',
                 }));
                 setDispenseLogs(mapped);
                 setLastDispensed(`${formatLogTime(mapped[0].timestamp)} (${mapped[0].amount})`);
@@ -469,6 +475,85 @@ export default function AniFeedScreen() {
                 setIsSimulating(false);
             }
         }, 5000);
+    };
+
+    // ─── Manual Dispense handler ────────────────────────────────────────
+    const handleOpenManualDispense = () => {
+        if (!schedule?.feedId) {
+            showSnackbar('Please configure a feed schedule first.', 'error');
+            return;
+        }
+        if (!deviceInfo?.housingId || deviceInfo.housingName === 'Unassigned') {
+            showSnackbar('Assign an animal type and housing first.', 'error');
+            return;
+        }
+        // Pre-fill with schedule amount
+        setManualGrams(String(schedule?.gramsPerDispense ?? 500));
+        setManualDispenseVisible(true);
+    };
+
+    const handleConfirmManualDispense = async () => {
+        const grams = parseInt(manualGrams, 10);
+        if (isNaN(grams) || grams < 1) {
+            showSnackbar('Enter a valid amount in grams.', 'error');
+            return;
+        }
+        if (!schedule?.feedId) {
+            showSnackbar('No feed assigned. Please configure a schedule first.', 'error');
+            return;
+        }
+        if (schedule.feedStockKg === undefined || schedule.feedStockKg === null || schedule.feedStockKg <= 0) {
+            showSnackbar('The assigned feed has no stock remaining.', 'error');
+            return;
+        }
+        const gramsAsKg = grams / 1000;
+        if (schedule.feedStockKg < gramsAsKg) {
+            showSnackbar(`Insufficient stock. Need ${gramsAsKg} kg, only ${schedule.feedStockKg} kg left.`, 'error');
+            return;
+        }
+
+        setIsManualDispensing(true);
+        try {
+            const now = new Date().toISOString();
+            const { error: insertError } = await supabase
+                .from('dispense_records')
+                .insert({
+                    device_id: deviceId as string,
+                    farm_id: farmId,
+                    feed_id: schedule.feedId,
+                    housing_id: deviceInfo?.housingId ?? null,
+                    animal_type: deviceInfo?.animalType
+                        ? (deviceInfo.animalType.toLowerCase() as 'chicken' | 'pig')
+                        : null,
+                    grams_dispensed: grams,
+                    status: 'success',
+                    triggered_by: 'manual',
+                    dispensed_at: now,
+                });
+
+            if (insertError) throw insertError;
+
+            // Deduct from feed stock
+            const newStockKg = Math.max(0, schedule.feedStockKg! - gramsAsKg);
+            const { error: updateError } = await supabase
+                .from('feeds')
+                .update({ stock_kg: newStockKg })
+                .eq('id', schedule.feedId);
+
+            if (updateError) throw updateError;
+
+            setSchedule(prev => prev ? { ...prev, feedStockKg: newStockKg } : null);
+            setManualDispenseVisible(false);
+            showSnackbar(`Manually dispensed ${grams}g successfully!`, 'success');
+
+            await fetchAll();
+            await fetchTodayTotal();
+        } catch (err: any) {
+            console.error('[Manual Dispense Error]:', err);
+            showSnackbar('Failed to log manual dispense.', 'error');
+        } finally {
+            setIsManualDispensing(false);
+        }
     };
 
     // ─── Schedule save ────────────────────────────────────────────
@@ -746,47 +831,77 @@ export default function AniFeedScreen() {
                         </ScrollView>
                     </View>
 
-                    {/* Start Simulation Button */}
+                    {/* Action Buttons Row: Simulation + Manual Dispense */}
                     {(() => {
-                        const canSimulate = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isSimulating;
+                        const canSimulate = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isSimulating && !isManualDispensing;
+                        const canManual   = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isSimulating && !isManualDispensing;
                         return (
                             <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8 }}>
-                                <TouchableOpacity
-                                    activeOpacity={canSimulate ? 0.8 : 1}
-                                    disabled={!canSimulate}
-                                    onPress={handleStartSimulation}
-                                    style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: 8,
-                                        paddingVertical: 13,
-                                        borderRadius: 16,
-                                        backgroundColor: isSimulating 
-                                            ? colors.warning 
-                                            : canSimulate 
-                                            ? colors.secondary 
-                                            : colors.cardFill,
-                                        borderWidth: canSimulate || isSimulating ? 0 : 1,
-                                        borderColor: colors.stroke,
-                                        opacity: canSimulate || isSimulating ? 1 : 0.55,
-                                    }}
-                                >
-                                    {isSimulating ? (
-                                        <ActivityIndicator size="small" color="#fff" />
-                                    ) : (
-                                        <MaterialIcons name="play-circle-filled" size={20} color={canSimulate ? colors.onPrimary : colors.textGrey} />
-                                    )}
-                                    <Text style={[textStyles.btnLabel, { color: canSimulate || isSimulating ? colors.onPrimary : colors.textGrey, fontSize: 14 }]}>
-                                        {isSimulating 
-                                            ? `Dispensing Feeds... (${simulationTimeLeft}s)` 
-                                            : 'Start Simulation'
-                                        }
-                                    </Text>
-                                </TouchableOpacity>
+                                <View style={{ flexDirection: 'row', gap: 10 }}>
+                                    {/* Simulation button */}
+                                    <TouchableOpacity
+                                        activeOpacity={canSimulate ? 0.8 : 1}
+                                        disabled={!canSimulate}
+                                        onPress={handleStartSimulation}
+                                        style={{
+                                            flex: 1,
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 6,
+                                            paddingVertical: 13,
+                                            borderRadius: 16,
+                                            backgroundColor: isSimulating
+                                                ? colors.warning
+                                                : canSimulate
+                                                ? colors.secondary
+                                                : colors.cardFill,
+                                            borderWidth: canSimulate || isSimulating ? 0 : 1,
+                                            borderColor: colors.stroke,
+                                            opacity: canSimulate || isSimulating ? 1 : 0.55,
+                                        }}
+                                    >
+                                        {isSimulating ? (
+                                            <ActivityIndicator size="small" color="#fff" />
+                                        ) : (
+                                            <MaterialIcons name="play-circle-filled" size={18} color={canSimulate ? colors.onPrimary : colors.textGrey} />
+                                        )}
+                                        <Text style={[textStyles.btnLabel, { color: canSimulate || isSimulating ? colors.onPrimary : colors.textGrey, fontSize: 13 }]}>
+                                            {isSimulating
+                                                ? `Dispensing... (${simulationTimeLeft}s)`
+                                                : 'Simulate'}
+                                        </Text>
+                                    </TouchableOpacity>
+
+                                    {/* Manual Dispense button */}
+                                    <TouchableOpacity
+                                        activeOpacity={canManual ? 0.8 : 1}
+                                        disabled={!canManual}
+                                        onPress={handleOpenManualDispense}
+                                        style={{
+                                            flex: 1,
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 6,
+                                            paddingVertical: 13,
+                                            borderRadius: 16,
+                                            backgroundColor: canManual ? colors.primary : colors.cardFill,
+                                            borderWidth: canManual ? 0 : 1,
+                                            borderColor: colors.stroke,
+                                            opacity: canManual ? 1 : 0.55,
+                                        }}
+                                    >
+                                        <MaterialIcons name="food-bank" size={18} color={canManual ? colors.onPrimary : colors.textGrey} />
+                                        <Text style={[textStyles.btnLabel, { color: canManual ? colors.onPrimary : colors.textGrey, fontSize: 13 }]}>
+                                            Manual Dispense
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
                                 {!canSimulate && !isSimulating && (
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center', marginTop: 6 }]}>
-                                        Assign an animal type and housing to enable simulation.
+                                        Assign an animal type and housing to enable dispensing.
                                     </Text>
                                 )}
                             </View>
@@ -1059,6 +1174,88 @@ export default function AniFeedScreen() {
                 onConfirm={handleModalConfirm}
                 onCancel={() => setModalVisible(false)}
             />
+
+            {/* Manual Dispense modal */}
+            <Modal visible={manualDispenseVisible} transparent animationType="fade" onRequestClose={() => !isManualDispensing && setManualDispenseVisible(false)}>
+                <View style={[anifeedStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
+                    <View style={[anifeedStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center' }]}>
+                        {/* Icon */}
+                        <View style={[anifeedStyles.iconContainer, { backgroundColor: colors.primary + '1A' }]}>
+                            <MaterialIcons name="food-bank" size={32} color={colors.primary} />
+                        </View>
+
+                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 6, fontSize: 20 }]}>Manual Dispense</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20, fontSize: 13 }]}>
+                            Logged instantly with the current time. Adjust the amount if needed.
+                        </Text>
+
+                        {/* Grams input */}
+                        <View style={{ width: '100%', marginBottom: 8 }}>
+                            <FloatingLabelInput
+                                label="Amount (grams)"
+                                icon="line-weight"
+                                value={manualGrams}
+                                keyboardType="numeric"
+                                onChangeText={t => setManualGrams(t.replace(/[^0-9]/g, ''))}
+                            />
+                        </View>
+
+                        {/* Feed stock hint */}
+                        {schedule?.feedStockKg !== undefined && schedule.feedStockKg !== null && (
+                            <Text style={[textStyles.body, { color: schedule.feedStockKg < 10 ? colors.error : colors.textGrey, fontSize: 12, marginBottom: 16, textAlign: 'center' }]}>
+                                Feed stock remaining: {schedule.feedStockKg} kg
+                            </Text>
+                        )}
+
+                        {/* Buttons */}
+                        <View style={{ flexDirection: 'row', gap: 10, width: '100%', marginTop: 8 }}>
+                            <TouchableOpacity
+                                onPress={() => setManualDispenseVisible(false)}
+                                disabled={isManualDispensing}
+                                style={{
+                                    flex: 1,
+                                    paddingVertical: 13,
+                                    borderRadius: 14,
+                                    alignItems: 'center',
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    backgroundColor: colors.cardFill,
+                                    opacity: isManualDispensing ? 0.5 : 1,
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 14 }]}>Cancel</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={handleConfirmManualDispense}
+                                disabled={isManualDispensing}
+                                style={{
+                                    flex: 1,
+                                    paddingVertical: 13,
+                                    borderRadius: 14,
+                                    alignItems: 'center',
+                                    flexDirection: 'row',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                    backgroundColor: colors.primary,
+                                    opacity: isManualDispensing ? 0.7 : 1,
+                                }}
+                                activeOpacity={0.8}
+                            >
+                                {isManualDispensing ? (
+                                    <ActivityIndicator size="small" color={colors.onPrimary} />
+                                ) : (
+                                    <MaterialIcons name="check" size={16} color={colors.onPrimary} />
+                                )}
+                                <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 14 }]}>
+                                    {isManualDispensing ? 'Logging...' : 'Dispense'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Schedule modal */}
             <Modal visible={scheduleModalVisible} transparent animationType="fade">

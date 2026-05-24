@@ -46,7 +46,7 @@ export default function AnalyticsScreen() {
         },
         {
             title: 'Prediction Forecast Report',
-            description: 'AI-driven projections estimating harvest dates and long-term costs based on active data.',
+            description: 'AI-driven projections estimating harvest dates and growth trajectories based on your active farm data.',
             icon: 'insights' as React.ComponentProps<typeof MaterialIcons>['name'],
             route: '/(analytics)/PredictionReportScreen',
         },
