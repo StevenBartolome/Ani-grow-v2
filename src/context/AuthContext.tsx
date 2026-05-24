@@ -99,22 +99,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const refreshProfile = async () => {
+    console.log('[AuthContext] refreshProfile triggered');
     const currentUser = (await supabase.auth.getUser()).data.user;
-    if (!currentUser) return;
-    // OAuth users (Google) skip email confirmation flow — treat them as confirmed
+    if (!currentUser) {
+      console.log('[AuthContext] refreshProfile: No active auth user');
+      return;
+    }
+    
     const isOAuthUser = (currentUser.app_metadata?.provider !== 'email');
-    if (!isOAuthUser && !currentUser.email_confirmed_at) return;
+    console.log(`[AuthContext] refreshProfile for user: ${currentUser.email} | Provider: ${currentUser.app_metadata?.provider || 'email'} | isOAuthUser: ${isOAuthUser} | Email Confirmed At: ${currentUser.email_confirmed_at}`);
+    
+    if (!isOAuthUser && !currentUser.email_confirmed_at) {
+      console.log('[AuthContext] refreshProfile: Email not confirmed yet for email user, skipping profile fetch.');
+      return;
+    }
 
     try {
+      console.log(`[AuthContext] refreshProfile: Fetching profile from 'users' table for ID: ${currentUser.id}`);
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('id', currentUser.id)
         .single();
 
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error && error.code !== 'PGRST116') {
+        console.error('[AuthContext] refreshProfile: DB Fetch error:', error);
+        throw error;
+      }
 
       if (data) {
+        console.log('[AuthContext] refreshProfile: Profile found successfully in database:', {
+          id: data.id,
+          role: data.role,
+          farm_id: data.farm_id,
+          username: data.username
+        });
         setProfile({
           ...data,
           uid: data.id,
@@ -127,56 +146,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } as UserProfile);
         setRole(data.role);
       } else {
-        // [AUTO-REGISTER] If no profile exists, create one (e.g. for Google users)
-        console.log('No profile found, creating auto-registration record...');
+        console.log('[AuthContext] refreshProfile: No profile found in database.');
+        
+        if (isOAuthUser) {
+          // [AUTO-REGISTER] If no profile exists, create one (e.g. for Google users)
+          console.log('[AuthContext] [AUTO-REGISTER] Creating auto-registration record for OAuth user...');
 
-        // Extract names from Google metadata
-        const fullName = currentUser.user_metadata?.full_name || '';
-        const firstName = currentUser.user_metadata?.given_name || fullName.split(' ')[0] || 'User';
-        const lastName = currentUser.user_metadata?.family_name || fullName.split(' ').slice(1).join(' ') || '';
+          // Extract names from Google metadata
+          const fullName = currentUser.user_metadata?.full_name || '';
+          const firstName = currentUser.user_metadata?.given_name || fullName.split(' ')[0] || 'User';
+          const lastName = currentUser.user_metadata?.family_name || fullName.split(' ').slice(1).join(' ') || '';
 
-        const newProfile = {
-          id: currentUser.id,
-          email: currentUser.email,
-          first_name: firstName,
-          last_name: lastName,
-          username: (currentUser.email?.split('@')[0] || 'user') + Math.floor(Math.random() * 1000),
-          role: 'farm_admin',
-          status: 'active',
-          platform: Platform.OS === 'web' ? 'web' : 'mobile',
-          custom_permissions: { add: [], remove: [] },
-          assigned_modules: [],
-          created_at: new Date().toISOString(),
-          last_login: new Date().toISOString(),
-        };
+          const newProfile = {
+            id: currentUser.id,
+            email: currentUser.email,
+            first_name: firstName,
+            last_name: lastName,
+            username: (currentUser.email?.split('@')[0] || 'user') + Math.floor(Math.random() * 1000),
+            role: 'farm_admin',
+            status: 'active',
+            platform: Platform.OS === 'web' ? 'web' : 'mobile',
+            custom_permissions: { add: [], remove: [] },
+            assigned_modules: [],
+            created_at: new Date().toISOString(),
+            last_login: new Date().toISOString(),
+          };
 
-        const { data: createdData, error: createError } = await supabase
-          .from('users')
-          .upsert(newProfile, { onConflict: 'id' })
-          .select()
-          .single();
+          console.log('[AuthContext] [AUTO-REGISTER] Upserting default profile:', newProfile);
+          const { data: createdData, error: createError } = await supabase
+            .from('users')
+            .upsert(newProfile, { onConflict: 'id' })
+            .select()
+            .single();
 
-        if (createError) {
-          console.error('Error creating auto-profile:', createError);
-          return;
-        }
+          if (createError) {
+            console.error('[AuthContext] [AUTO-REGISTER] Error creating auto-profile:', createError);
+            return;
+          }
 
-        if (createdData) {
-          setProfile({
-            ...createdData,
-            uid: createdData.id,
-            firstName: createdData.first_name,
-            lastName: createdData.last_name,
-            phone: createdData.phone,
-            phoneNumber: createdData.phone,
-            customPermissions: createdData.custom_permissions || { add: [], remove: [] },
-            assignedModules: createdData.assigned_modules || [],
-          } as UserProfile);
-          setRole(createdData.role);
+          if (createdData) {
+            console.log('[AuthContext] [AUTO-REGISTER] Auto-registration profile created successfully:', createdData);
+            setProfile({
+              ...createdData,
+              uid: createdData.id,
+              firstName: createdData.first_name,
+              lastName: createdData.last_name,
+              phone: createdData.phone,
+              phoneNumber: createdData.phone,
+              customPermissions: createdData.custom_permissions || { add: [], remove: [] },
+              assignedModules: createdData.assigned_modules || [],
+            } as UserProfile);
+            setRole(createdData.role);
+          }
+        } else {
+          console.log('[AuthContext] refreshProfile: Skipping auto-registration for email user. Profile will be inserted by registration flow.');
         }
       }
     } catch (error) {
-      console.error('Error refreshing/creating profile:', error);
+      console.error('[AuthContext] Error in refreshProfile:', error);
     }
   };
 

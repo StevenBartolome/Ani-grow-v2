@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
     KeyboardAvoidingView,
     Platform,
@@ -85,6 +85,7 @@ export default function RegisterScreen() {
     const [pendingEmail, setPendingEmail] = useState('');
 
     // Shared
+    const isSubmitting = useRef(false);
     const [step, setStep] = useState(1);
     const [isLoading, setIsLoading] = useState(false);
     const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -110,7 +111,12 @@ export default function RegisterScreen() {
 
     // ── Create user profile + mark invite used (post-auth) ────────
     const createUserProfile = async (userId: string, userEmail: string) => {
-        if (!inviteData) return;
+        if (!inviteData) {
+            console.log('[RegisterScreen] createUserProfile: No invite data available, skipping.');
+            return;
+        }
+
+        console.log('[RegisterScreen] createUserProfile started for:', { userId, userEmail, role: inviteData.role, farmId: inviteData.farm_id });
 
         const { error: profileError } = await supabase
             .from('users')
@@ -124,14 +130,24 @@ export default function RegisterScreen() {
                 farm_id:     inviteData.farm_id,
                 permissions: inviteData.permissions,
                 status:      'Active',
-                invited_by:  inviteData.invite_id,
                 updated_at:  new Date().toISOString(),
             });
 
-        if (profileError) throw profileError;
+        if (profileError) {
+            console.error('[RegisterScreen] createUserProfile error inserting profile:', profileError);
+            throw profileError;
+        }
+
+        console.log('[RegisterScreen] createUserProfile: Profile upserted successfully in database.');
 
         // Mark the invite code as used via SECURITY DEFINER RPC
-        await supabase.rpc('mark_invite_used', { p_invite_id: inviteData.invite_id });
+        console.log('[RegisterScreen] createUserProfile: Marking invite code as used:', inviteData.invite_id);
+        const { error: rpcError } = await supabase.rpc('mark_invite_used', { p_invite_id: inviteData.invite_id });
+        if (rpcError) {
+            console.error('[RegisterScreen] createUserProfile RPC error marking invite used:', rpcError);
+        } else {
+            console.log('[RegisterScreen] createUserProfile: Invite code marked as used successfully.');
+        }
     };
 
     // ── Step 3: Sign up with email/password ───────────────────────
@@ -163,10 +179,22 @@ export default function RegisterScreen() {
                     showSnackbar('Verification code sent to your email.', 'success');
                     setStep(4);
                 }
+            } else {
+                // Sometimes Supabase returns no error but no user (e.g., user already exists and prevent-user-enumeration is enabled)
+                // Since the backend sent the OTP email, we proceed to Step 4 so the user can enter the verification code they received.
+                showSnackbar('Verification code sent! Please check your email.', 'info');
+                setPendingEmail(email.trim());
+                setStep(4);
             }
         } catch (err: any) {
-            if (err.message?.includes('already registered')) {
+            if (err.message?.includes('already registered') || err.message?.includes('User already registered')) {
                 showSnackbar('This email is already registered.', 'error');
+            } else if (err.message?.includes('For security purposes') || err.message?.includes('rate limit')) {
+                // They hit the rate limit because they already requested an OTP recently.
+                // We should let them proceed to Step 4 to enter the OTP they already received!
+                showSnackbar('Code already sent recently. Please check your email.', 'info');
+                setPendingEmail(email.trim());
+                setStep(4);
             } else {
                 showSnackbar(err.message || 'Registration failed. Please try again.', 'error');
             }
@@ -285,53 +313,58 @@ export default function RegisterScreen() {
 
     // ── Navigation ────────────────────────────────────────────────
     const handleNext = async () => {
-        if (isLoading) return;
+        if (isLoading || isSubmitting.current) return;
+        isSubmitting.current = true;
 
-        if (step === 1) {
-            const code = inviteCodeInput.trim().toUpperCase();
-            if (!code) { setCodeError('Please enter an invite code.'); return; }
+        try {
+            if (step === 1) {
+                const code = inviteCodeInput.trim().toUpperCase();
+                if (!code) { setCodeError('Please enter an invite code.'); return; }
 
-            setCodeError('');
-            setIsLoading(true);
+                setCodeError('');
+                setIsLoading(true);
 
-            try {
-                const { data, error } = await supabase.rpc('validate_invite_code', { code_input: code });
+                try {
+                    const { data, error } = await supabase.rpc('validate_invite_code', { code_input: code });
 
-                if (error) throw error;
+                    if (error) throw error;
 
-                const result = Array.isArray(data) ? data[0] : data;
+                    const result = Array.isArray(data) ? data[0] : data;
 
-                if (!result || !result.valid) {
-                    setCodeError('This code is invalid, expired, or has already been used.');
+                    if (!result || !result.valid) {
+                        setCodeError('This code is invalid, expired, or has already been used.');
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    setInviteData({
+                        invite_id:   result.invite_id,
+                        farm_id:     result.farm_id,
+                        role:        result.role,
+                        farm_name:   result.farm_name,
+                        permissions: result.permissions ?? {},
+                    });
+                    
+                    setStep(2);
+                } catch (err: any) {
+                    setCodeError(err.message || 'Failed to validate code. Please try again.');
+                } finally {
                     setIsLoading(false);
-                    return;
                 }
 
-                setInviteData({
-                    invite_id:   result.invite_id,
-                    farm_id:     result.farm_id,
-                    role:        result.role,
-                    farm_name:   result.farm_name,
-                    permissions: result.permissions ?? {},
-                });
-                
-                setStep(2);
-            } catch (err: any) {
-                setCodeError(err.message || 'Failed to validate code. Please try again.');
-            } finally {
-                setIsLoading(false);
+            } else if (step === 2) {
+                if (!validateStep2()) return;
+                setStep(3);
+
+            } else if (step === 3) {
+                if (!validateStep3()) return;
+                await handleRegister();
+
+            } else if (step === 4) {
+                await handleVerifyOtp();
             }
-
-        } else if (step === 2) {
-            if (!validateStep2()) return;
-            setStep(3);
-
-        } else if (step === 3) {
-            if (!validateStep3()) return;
-            await handleRegister();
-
-        } else if (step === 4) {
-            await handleVerifyOtp();
+        } finally {
+            isSubmitting.current = false;
         }
     };
 
@@ -348,6 +381,9 @@ export default function RegisterScreen() {
     };
 
     const handleResendCode = async () => {
+        if (isLoading || isSubmitting.current) return;
+        isSubmitting.current = true;
+        setIsLoading(true);
         try {
             const { error } = await supabase.auth.resend({
                 type: 'signup',
@@ -357,6 +393,9 @@ export default function RegisterScreen() {
             showSnackbar('New code sent! Check your email.', 'success');
         } catch (err: any) {
             showSnackbar(err.message || 'Failed to resend code.', 'error');
+        } finally {
+            setIsLoading(false);
+            isSubmitting.current = false;
         }
     };
 
