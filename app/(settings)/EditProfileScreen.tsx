@@ -143,7 +143,11 @@ export default function EditProfileScreen() {
 
             showSnackbar('Profile details updated successfully!', 'success');
             setTimeout(() => {
-                router.back();
+                if (router.canGoBack()) {
+                    router.back();
+                } else {
+                    router.replace('/(dashboard)/HomeScreen');
+                }
             }, 1500);
         } catch (error: any) {
             console.error("Error updating profile:", error);

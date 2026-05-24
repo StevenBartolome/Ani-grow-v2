@@ -631,7 +631,11 @@ export default function AIAssistantScreen() {
 
     const handleClose = useCallback(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        router.back();
+        if (router.canGoBack()) {
+            router.back();
+        } else {
+            router.replace('/(dashboard)/HomeScreen');
+        }
     }, []);
 
     const farmId = (profile as any)?.farm_id ?? '';

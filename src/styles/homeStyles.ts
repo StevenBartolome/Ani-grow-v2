@@ -211,10 +211,15 @@ export const useHomeStyles = () => {
         },
         quickActionRow: {
             flexDirection: 'row',
-            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            justifyContent: 'space-around',
+            alignItems: 'flex-start',
         },
         actionButton: {
             alignItems: 'center',
+            width: '18%',
+            minWidth: 68,
+            marginVertical: 4,
         },
         actionIconBox: {
             width: 56,

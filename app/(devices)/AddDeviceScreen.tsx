@@ -77,7 +77,13 @@ export default function AddDeviceScreen() {
                     showSnackbar('Configuration sent! Device restarting...');
                     // For existing devices, no need to name — go back after config
                     if (isExistingDevice) {
-                        setTimeout(() => router.back(), 1200);
+                        setTimeout(() => {
+                            if (router.canGoBack()) {
+                                router.back();
+                            } else {
+                                router.replace('/(devices)/DevicesScreen');
+                            }
+                        }, 1200);
                     } else {
                         setStep(4);
                     }
@@ -104,7 +110,11 @@ export default function AddDeviceScreen() {
 
                 showSnackbar(`${selectedType} registered successfully!`);
                 setTimeout(() => {
-                    router.back();
+                    if (router.canGoBack()) {
+                        router.back();
+                    } else {
+                        router.replace('/(devices)/DevicesScreen');
+                    }
                 }, 1200);
             } catch (error) {
                 console.error('Failed to register device:', error);
@@ -124,7 +134,11 @@ export default function AddDeviceScreen() {
                         if (!isExistingDevice && step > 1) {
                             setStep(step - 1);
                         } else {
-                            router.back();
+                            if (router.canGoBack()) {
+                                router.back();
+                            } else {
+                                router.replace('/(devices)/DevicesScreen');
+                            }
                         }
                     }} />
                 </View>

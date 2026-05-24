@@ -213,7 +213,7 @@ export default function AnimalsScreen() {
                         />
                     }
                 >
-                    <View style={[styles.sectionTitleRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                    <View style={[styles.sectionTitleRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }]}>
                         <View>
                             <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Housings</Text>
                             <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>

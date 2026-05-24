@@ -710,7 +710,7 @@ export default function HomeScreen() {
                             <>
                                 <Text style={[homeStyles.sectionTitle, { color: colors.text, marginTop: 8 }]}>Quick Actions</Text>
                                 <View style={[homeStyles.quickActionsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
-                                    <View style={[homeStyles.quickActionRow, { gap: 4 }]}>
+                                    <View style={homeStyles.quickActionRow}>
                                         {filteredQuickActions.map(item => (
                                             <Pressable
                                                 key={item.label}
@@ -728,7 +728,7 @@ export default function HomeScreen() {
                                                         <MaterialIcons name={item.icon as any} size={24} color={item.color} />
                                                     )}
                                                 </View>
-                                                <Text style={[textStyles.label, { color: colors.text, marginTop: 8, fontSize: 11 }]}>
+                                                <Text style={[textStyles.label, { color: colors.text, marginTop: 8, fontSize: 11, textAlign: 'center' }]}>
                                                     {item.label}
                                                 </Text>
                                             </Pressable>

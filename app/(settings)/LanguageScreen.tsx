@@ -30,7 +30,11 @@ export default function LanguageScreen() {
         setTimeout(() => {
             setLanguage(pendingLanguage);
             setIsSaving(false);
-            router.back();
+            if (router.canGoBack()) {
+                router.back();
+            } else {
+                router.replace('/(dashboard)/HomeScreen');
+            }
         }, 1200); // 1.2s premium, natural transition delay
     };
 

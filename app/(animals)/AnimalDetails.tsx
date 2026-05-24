@@ -675,7 +675,7 @@ export default function AnimalDetailsScreen() {
                         >
                             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                                 <MaterialIcons name="layers" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
-                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 16, flex: 1 }]} numberOfLines={1}>
+                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 16, flex: 1 }]}>
                                     {selectedBatchLabel || 'Select a batch'}
                                 </Text>
                             </View>
@@ -843,20 +843,6 @@ export default function AnimalDetailsScreen() {
                                 >
                                     <MaterialIcons name="check-circle-outline" size={18} color="#27AE60" style={{ marginRight: 6 }} />
                                     <Text style={[textStyles.h3, { color: '#27AE60', fontSize: 13 }]}>Complete</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    activeOpacity={0.8}
-                                    style={{ flex: 1, borderWidth: 1.5, borderColor: colors.textGrey, borderRadius: 12, paddingVertical: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}
-                                    onPress={() => {
-                                        setConfirmActionType('archiveBatch');
-                                        setConfirmModalType('warning');
-                                        setConfirmModalTitle('Archive Batch?');
-                                        setConfirmModalMessage(`Archive "${selectedBatch.name}"? It will be hidden from active view but records are kept.`);
-                                        setConfirmModalVisible(true);
-                                    }}
-                                >
-                                    <MaterialIcons name="archive" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
-                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 13 }]}>Archive</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
