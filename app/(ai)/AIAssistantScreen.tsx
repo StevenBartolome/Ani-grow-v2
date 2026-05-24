@@ -1052,7 +1052,7 @@ export default function AIAssistantScreen() {
         if (id === activeConvId) { setSidebarOpen(false); return; }
         setActiveConvId(id);
         setMessages([]);
-        setActiveMsg(null);
+        setMsgModal(null);
         setSidebarOpen(false);
         const raw = await AsyncStorage.getItem(msgsKey(id));
         if (raw) { try { setMessages(JSON.parse(raw)); } catch { } }
@@ -1061,7 +1061,7 @@ export default function AIAssistantScreen() {
     const startNewChat = useCallback(() => {
         setActiveConvId(null);
         setMessages([]);
-        setActiveMsg(null);
+        setMsgModal(null);
         setSidebarOpen(false);
     }, []);
 

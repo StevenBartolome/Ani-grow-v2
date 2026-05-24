@@ -14,6 +14,7 @@ import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { Header } from '@/components/Header';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import ActionModal from '@/components/ActionModal';
 import { supabase } from '@/lib/supabase';
 
 interface RegisteredDevice {
@@ -26,7 +27,7 @@ interface RegisteredDevice {
 
 type FilterType = 'All' | 'AniFeed' | 'AniWeigh';
 
-const DeviceCard = ({ device, onPress }: { device: RegisteredDevice; onPress: () => void }) => {
+const DeviceCard = ({ device, onPress, onConnectPress }: { device: RegisteredDevice; onPress: () => void; onConnectPress: () => void }) => {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
 
@@ -65,21 +66,23 @@ const DeviceCard = ({ device, onPress }: { device: RegisteredDevice; onPress: ()
                     />
                 </View>
 
-                {/* Status dot */}
-                <View style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 4,
-                    backgroundColor: isOnline ? colors.primary + '15' : colors.bgLight,
-                    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20,
-                    borderWidth: 1, borderColor: isOnline ? colors.primary + '30' : colors.stroke,
-                }}>
-                    <View style={{
-                        width: 6, height: 6, borderRadius: 3,
-                        backgroundColor: isOnline ? colors.primary : colors.textGrey,
-                    }} />
-                    <Text style={[textStyles.label, { fontSize: 10, color: isOnline ? colors.primary : colors.textGrey }]}>
-                        {isOnline ? 'Online' : 'Offline'}
-                    </Text>
-                </View>
+                {/* Connection cloud icon — tap to open IoT setup */}
+                <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={onConnectPress}
+                    style={{
+                        width: 32, height: 32, borderRadius: 10,
+                        backgroundColor: isOnline ? colors.primary + '15' : colors.bgLight,
+                        alignItems: 'center', justifyContent: 'center',
+                        borderWidth: 1, borderColor: isOnline ? colors.primary + '30' : colors.stroke,
+                    }}
+                >
+                    <MaterialIcons
+                        name={isOnline ? 'cloud-done' : 'cloud-off'}
+                        size={18}
+                        color={isOnline ? colors.primary : colors.textGrey}
+                    />
+                </TouchableOpacity>
             </View>
 
             {/* Device name */}
@@ -155,6 +158,31 @@ export default function DevicesScreen() {
     const filters: FilterType[] = ['All', 'AniFeed', 'AniWeigh'];
 
     const [refreshing, setRefreshing] = useState(false);
+
+    // Disconnect confirmation modal
+    const [disconnectModalVisible, setDisconnectModalVisible] = useState(false);
+    const [disconnectTarget, setDisconnectTarget] = useState<RegisteredDevice | null>(null);
+
+    const handleCloudPress = (device: RegisteredDevice) => {
+        if (device.status === 'online') {
+            // Already connected — prompt to disconnect
+            setDisconnectTarget(device);
+            setDisconnectModalVisible(true);
+        } else {
+            // Offline — go to connection setup
+            router.push(
+                `/(devices)/AddDeviceScreen?existingDeviceId=${device.id}&existingDeviceName=${encodeURIComponent(device.name)}&existingDeviceType=${device.type}` as any
+            );
+        }
+    };
+
+    const handleDisconnectConfirm = async () => {
+        if (!disconnectTarget) return;
+        setDisconnectModalVisible(false);
+        await supabase.from('devices').update({ status: 'offline' }).eq('id', disconnectTarget.id);
+        setDevices(prev => prev.map(d => d.id === disconnectTarget.id ? { ...d, status: 'offline' } : d));
+        setDisconnectTarget(null);
+    };
 
     const fetchDevices = useCallback(async (isRefresh = false) => {
         if (!farmId) { setLoading(false); return; }
@@ -246,15 +274,6 @@ export default function DevicesScreen() {
                                     ? 'Add your first AniWeigh or AniFeed device to start monitoring your livestock.'
                                     : `No ${activeFilter} devices match the current filter.`}
                             </Text>
-                            {devices.length === 0 && (
-                                <TouchableOpacity
-                                    style={{ backgroundColor: colors.primary, paddingHorizontal: 28, paddingVertical: 14, borderRadius: 100 }}
-                                    activeOpacity={0.8}
-                                    onPress={() => router.push('/(devices)/AddDeviceScreen')}
-                                >
-                                    <Text style={[textStyles.btnLabel, { color: colors.onPrimary }]}>Add Device</Text>
-                                </TouchableOpacity>
-                            )}
                         </View>
                     ) : (
                         <View style={{ paddingHorizontal: hPad, paddingBottom: 24 }}>
@@ -262,24 +281,6 @@ export default function DevicesScreen() {
                             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Registered Devices</Text>
-                                    <TouchableOpacity
-                                        activeOpacity={0.7}
-                                        style={{
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            gap: 4,
-                                            backgroundColor: colors.primary + '15',
-                                            borderColor: colors.primary + '30',
-                                            borderWidth: 1,
-                                            borderRadius: 20,
-                                            paddingHorizontal: 12,
-                                            paddingVertical: 5,
-                                        }}
-                                        onPress={() => router.push('/(devices)/AddDeviceScreen')}
-                                    >
-                                        <MaterialIcons name="add" size={14} color={colors.primary} />
-                                        <Text style={[textStyles.btnLabel, { color: colors.primary, fontSize: 11 }]}>Add Device</Text>
-                                    </TouchableOpacity>
                                 </View>
                                 <View style={{ flexDirection: 'row', gap: 6 }}>
                                     {[
@@ -303,11 +304,12 @@ export default function DevicesScreen() {
                                                 device={device}
                                                 onPress={() => {
                                                     if (device.type === 'AniWeigh') {
-                                                        router.push(`/(devices)/AniWeighScreen?deviceId=${device.id}` as any);
+                                                        router.push(`/(devices)/AniWeighScreen?deviceId=${device.id}&status=${device.status}` as any);
                                                     } else {
-                                                        router.push(`/(devices)/AniFeedScreen?deviceId=${device.id}` as any);
+                                                        router.push(`/(devices)/AniFeedScreen?deviceId=${device.id}&status=${device.status}` as any);
                                                     }
                                                 }}
+                                                onConnectPress={() => handleCloudPress(device)}
                                             />
                                         </View>
                                     ))}
@@ -323,6 +325,17 @@ export default function DevicesScreen() {
             </View>
 
             <FloatingNavBar />
+
+            <ActionModal
+                visible={disconnectModalVisible}
+                type="confirmation"
+                title={`Disconnect ${disconnectTarget?.name ?? 'Device'}?`}
+                message={`This will take "${disconnectTarget?.name}" offline. You can reconnect it anytime by tapping the cloud icon.`}
+                confirmText="Disconnect"
+                cancelText="Cancel"
+                onConfirm={handleDisconnectConfirm}
+                onCancel={() => { setDisconnectModalVisible(false); setDisconnectTarget(null); }}
+            />
         </SafeAreaView>
     );
 }

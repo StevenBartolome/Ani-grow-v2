@@ -121,7 +121,9 @@ export default function AniFeedScreen() {
     const textStyles = useTextStyles();
     const anifeedStyles = useAniFeedStyles();
     const router = useRouter();
-    const { deviceId } = useLocalSearchParams();
+    const params = useLocalSearchParams<{ deviceId?: string; status?: string }>();
+    const deviceId = params.deviceId ?? '';
+    const initialStatus = params.status;
 
     if (systemConfig?.featureFlags && !systemConfig.featureFlags.feedingEnabled) {
         return (
@@ -140,7 +142,7 @@ export default function AniFeedScreen() {
 
     // ─── Device + Schedule State ─────────────────────────────────
     const [isLoading, setIsLoading] = useState(true);
-    const [isConnected, setIsConnected] = useState(true);
+    const [isConnected, setIsConnected] = useState(initialStatus ? initialStatus === 'online' : false);
     const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
     const [schedule, setSchedule] = useState<FeedScheduleInfo | null>(null);
     const [dispenseLogs, setDispenseLogs] = useState<DispenseLogEntry[]>([]);
@@ -665,8 +667,30 @@ export default function AniFeedScreen() {
                         <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 13 }]}>Manage Feeds</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                        style={[anifeedStyles.actionButton, { backgroundColor: isConnected ? colors.primary + '1A' : colors.surface, borderWidth: isConnected ? 0 : 1.5, borderColor: isConnected ? 'transparent' : colors.stroke }]}
-                        onPress={handleConnectionToggle}
+                        disabled={isLoading}
+                        style={[
+                            anifeedStyles.actionButton,
+                            {
+                                backgroundColor: isConnected ? colors.primary + '1A' : colors.surface,
+                                borderWidth: isConnected ? 0 : 1.5,
+                                borderColor: isConnected ? 'transparent' : colors.stroke,
+                                opacity: isLoading ? 0.5 : 1
+                            }
+                        ]}
+                        onPress={() => {
+                            if (isConnected) {
+                                // Online — prompt to disconnect
+                                setModalType('confirmation');
+                                setModalTitle('Disconnect AniFeed?');
+                                setModalMessage(`This will take "${deviceInfo?.name}" offline. You can reconnect it anytime by tapping the cloud icon.`);
+                                setModalVisible(true);
+                            } else {
+                                // Offline — go to connection setup
+                                router.push(
+                                    `/(devices)/AddDeviceScreen?existingDeviceId=${deviceId}&existingDeviceName=${encodeURIComponent(deviceInfo?.name ?? '')}&existingDeviceType=AniFeed` as any
+                                );
+                            }
+                        }}
                     >
                         <MaterialIcons name={isConnected ? 'cloud-done' : 'cloud-off'} size={20} color={isConnected ? colors.primary : colors.textGrey} />
                     </TouchableOpacity>

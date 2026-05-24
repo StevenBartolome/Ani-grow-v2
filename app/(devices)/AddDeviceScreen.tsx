@@ -3,7 +3,7 @@ import { View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-nat
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 
 import { useTheme } from '@/context/ThemeContext';
 import { useTextStyles } from '@/constants/textStyles';
@@ -20,11 +20,18 @@ export default function AddDeviceScreen() {
     const styles = useDevicesStyles();
     const router = useRouter();
 
-    const [selectedType, setSelectedType] = useState<DeviceType>(null);
-    const [step, setStep] = useState(1);
+    // When opened from an existing device's cloud icon, these params are passed
+    const params = useLocalSearchParams<{ existingDeviceId?: string; existingDeviceName?: string; existingDeviceType?: string }>();
+    const isExistingDevice = !!params.existingDeviceId;
+    const existingType = params.existingDeviceType as DeviceType | undefined;
+    const existingName = params.existingDeviceName ?? '';
+
+    const [selectedType, setSelectedType] = useState<DeviceType>(isExistingDevice ? (existingType ?? null) : null);
+    // Skip type selection step for existing devices — go straight to hotspot step
+    const [step, setStep] = useState(isExistingDevice ? 2 : 1);
     const [wifiSsid, setWifiSsid] = useState('');
     const [wifiPassword, setWifiPassword] = useState('');
-    const [deviceName, setDeviceName] = useState('');
+    const [deviceName, setDeviceName] = useState(isExistingDevice ? existingName : '');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSendingConfig, setIsSendingConfig] = useState(false);
     const [hardwareDeviceId, setHardwareDeviceId] = useState<string | null>(null);
@@ -68,7 +75,12 @@ export default function AddDeviceScreen() {
                         console.warn('Failed to parse hardware device ID JSON:', e);
                     }
                     showSnackbar('Configuration sent! Device restarting...');
-                    setStep(4);
+                    // For existing devices, no need to name — go back after config
+                    if (isExistingDevice) {
+                        setTimeout(() => router.back(), 1200);
+                    } else {
+                        setStep(4);
+                    }
                 } else {
                     throw new Error('Device responded with error status.');
                 }
@@ -107,8 +119,9 @@ export default function AddDeviceScreen() {
             {/* Header */}
             <View style={styles.headerTopRow}>
                 <View style={{ width: 44, height: 44 }}>
-                    <BackButton onPress={() => { 
-                        if (step > 1) {
+                    <BackButton onPress={() => {
+                        // For existing devices, step 2 is the first step — go back to the device screen
+                        if (!isExistingDevice && step > 1) {
                             setStep(step - 1);
                         } else {
                             router.back();
@@ -116,7 +129,9 @@ export default function AddDeviceScreen() {
                     }} />
                 </View>
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
-                    {step === 1 ? 'Add New Device' : step === 2 ? `Connect to ${selectedType}` : step === 3 ? `Setup ${selectedType}` : 'Name Device'}
+                    {isExistingDevice
+                        ? (step === 2 ? `Connect ${existingName}` : step === 3 ? `Setup ${existingName}` : `${existingName}`)
+                        : (step === 1 ? 'Add New Device' : step === 2 ? `Connect to ${selectedType}` : step === 3 ? `Setup ${selectedType}` : 'Name Device')}
                 </Text>
                 <View style={{ width: 44, height: 44 }} />
             </View>
@@ -181,14 +196,32 @@ export default function AddDeviceScreen() {
 
                 {step === 2 && (
                     <View style={[styles.stepContainer, { alignItems: 'center', paddingTop: 40 }]}>
+                        {/* Device type badge */}
+                        <View style={{
+                            flexDirection: 'row', alignItems: 'center', gap: 6,
+                            backgroundColor: selectedType === 'AniWeigh' ? colors.smartScale + '1A' : colors.secondary + '1A',
+                            paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, marginBottom: 20,
+                        }}>
+                            <MaterialIcons
+                                name={selectedType === 'AniWeigh' ? 'monitor-weight' : 'grain'}
+                                size={16}
+                                color={selectedType === 'AniWeigh' ? colors.smartScale : colors.secondary}
+                            />
+                            <Text style={[textStyles.label, { color: selectedType === 'AniWeigh' ? colors.smartScale : colors.secondary, fontSize: 13 }]}>
+                                {selectedType ?? 'Device'}
+                            </Text>
+                        </View>
+
                         <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, textAlign: 'center', marginBottom: 24 }]}>
-                            Connect to Your {selectedType} Device
+                            Connect to Your {isExistingDevice ? existingName : selectedType} Device
                         </Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 16, lineHeight: 24, paddingHorizontal: 20 }]}>
                             Go to your phone's or tablet's Wi-Fi settings and join your {selectedType} device's network:
                         </Text>
                         <View style={{ backgroundColor: colors.primary + '1A', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, marginVertical: 16 }}>
-                            <Text style={[textStyles.h2, { color: colors.primary, fontSize: 18 }]}>AniWeigh_Setup</Text>
+                            <Text style={[textStyles.h2, { color: colors.primary, fontSize: 18 }]}>
+                                {selectedType === 'AniFeed' ? 'AniFeed_Setup' : 'AniWeigh_Setup'}
+                            </Text>
                         </View>
                         <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 16 }]}>
                             Then return to this app.
@@ -199,10 +232,10 @@ export default function AddDeviceScreen() {
                 {step === 3 && (
                     <View style={styles.stepContainer}>
                         <Text style={[textStyles.h1, { color: '#006400', fontSize: 26, marginBottom: 8 }]}>
-                            Setup {selectedType}
+                            Setup {isExistingDevice ? existingName : selectedType}
                         </Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, marginBottom: 32 }]}>
-                            Follow these steps to connect your scale to WiFi.
+                            Follow these steps to connect your {selectedType} to WiFi.
                         </Text>
 
                         {/* Sub-step 1 */}
@@ -293,7 +326,8 @@ export default function AddDeviceScreen() {
             </ScrollView>
 
             {/* The bottom bar is hidden on step 3 because it has its own Connect Device button */}
-            {step !== 3 && (
+            {/* For existing devices, step 4 (naming) is also skipped — no bottom bar needed there */}
+            {step !== 3 && !(isExistingDevice && step === 4) && (
                 <View style={[styles.bottomBar, { backgroundColor: 'transparent' }]}>
                     <TouchableOpacity
                         style={[
