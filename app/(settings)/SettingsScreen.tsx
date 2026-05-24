@@ -267,6 +267,37 @@ export default function SettingsScreen() {
                             </TouchableOpacity>
 
                             <TouchableOpacity
+                                style={settingsStyles.row}
+                                activeOpacity={0.7}
+                                onPress={() => router.push('/(settings)/ChangeEmailScreen' as any)}
+                            >
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#3B82F6' + '1A' }]}>
+                                        <MaterialIcons name="alternate-email" size={22} color="#3B82F6" />
+                                    </View>
+                                    <View>
+                                        <Text style={settingsStyles.rowTitle}>Change Email</Text>
+                                        <Text style={settingsStyles.rowDescription}>{userEmail}</Text>
+                                    </View>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={settingsStyles.row}
+                                activeOpacity={0.7}
+                                onPress={() => router.push('/(settings)/ChangePhoneScreen' as any)}
+                            >
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#10B981' + '1A' }]}>
+                                        <MaterialIcons name="phone" size={22} color="#10B981" />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>Change Phone Number</Text>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
                                 style={[settingsStyles.row, settingsStyles.rowNoBorder]}
                                 activeOpacity={0.7}
                                 onPress={() => router.push('/(settings)/MFAScreen')}

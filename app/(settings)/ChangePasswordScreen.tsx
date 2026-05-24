@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ScrollView, TouchableOpacity, View, TextInput, ActivityIndicator } from 'react-native';
 import { Text } from '@/components/Text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -34,6 +34,9 @@ export default function ChangePasswordScreen() {
     const [selectedMethod, setSelectedMethod] = useState<VerificationMethod>('email');
     const [otpCode, setOtpCode] = useState('');
     const [timer, setTimer] = useState(0);
+
+    // TextInput ref — focused once when entering OTP step to avoid keyboard spam
+    const otpInputRef = useRef<TextInput>(null);
 
     // MFA Factor info for authenticator
     const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
@@ -73,6 +76,13 @@ export default function ChangePasswordScreen() {
         });
     }, []);
 
+    // Focus the hidden OTP input once when entering OTP step
+    useEffect(() => {
+        if (screenState === 'otp') {
+            setTimeout(() => otpInputRef.current?.focus(), 100);
+        }
+    }, [screenState]);
+
     // Countdown Timer Effect
     useEffect(() => {
         let interval: any;
@@ -96,9 +106,14 @@ export default function ChangePasswordScreen() {
     };
 
     // Proceed to verification selection
-    const handleProceedToVerification = () => {
+    const handleProceedToVerification = async () => {
         if (!currentPassword || !newPassword || !confirmPassword) {
             showSnackbar('Please complete all password fields.');
+            return;
+        }
+
+        if (currentPassword === newPassword) {
+            showSnackbar('New password cannot be the same as the current password.');
             return;
         }
 
@@ -113,7 +128,32 @@ export default function ChangePasswordScreen() {
             return;
         }
 
-        setScreenState('methods');
+        setIsLoading(true);
+        try {
+            // 1. Verify current password
+            const { error: signInError } = await supabase.auth.signInWithPassword({
+                email: userEmail,
+                password: currentPassword
+            });
+            
+            if (signInError) {
+                throw new Error('Incorrect current password.');
+            }
+
+            // 2. Proceed to methods screen for account verification
+            if (hasMfaFactor) {
+                setSelectedMethod('authenticator');
+            } else {
+                setSelectedMethod('email');
+            }
+            setScreenState('methods');
+
+        } catch (err: any) {
+            console.error('[ChangePassword] Verify current password error:', err);
+            showSnackbar(err.message || 'Verification failed. Please check your current password.');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     // ── Real OTP / Challenge Sending ────────────────────────────────
@@ -499,8 +539,8 @@ export default function ChangePasswordScreen() {
                                         onChangeText={handleOtpChange}
                                         keyboardType="number-pad"
                                         maxLength={6}
-                                        autoFocus
                                         caretHidden
+                                        ref={otpInputRef}
                                         style={{
                                             position: 'absolute',
                                             width: '100%',

@@ -61,7 +61,7 @@ export default function EditProfileScreen() {
     const [isConfirmModalVisible, setConfirmModalVisible] = useState(false);
 
     const handleSave = () => {
-        if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim()) {
+        if (!firstName.trim() || !lastName.trim() || !username.trim()) {
             showSnackbar('Please complete all required details.');
             return;
         }
@@ -74,12 +74,6 @@ export default function EditProfileScreen() {
         const usernameRegex = /^[a-zA-Z0-9_]+$/;
         if (!usernameRegex.test(username.trim())) {
             showSnackbar('Username can only contain letters, numbers, and underscores.');
-            return;
-        }
-
-        const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-        if (!emailRegex.test(email.trim())) {
-            showSnackbar('Please enter a valid email address.');
             return;
         }
 
@@ -107,31 +101,16 @@ export default function EditProfileScreen() {
                 return;
             }
 
-            // Check if phone number is already registered to another user
-            const currentPhone = phoneNumber.trim();
-            if (currentPhone) {
-                const { data: existingPhone, error: phoneCheckError } = await supabase
-                    .from('users')
-                    .select('id')
-                    .eq('phone', currentPhone)
-                    .maybeSingle();
 
-                if (phoneCheckError) throw phoneCheckError;
-                if (existingPhone && existingPhone.id !== profile.uid) {
-                    showSnackbar('Phone number is already registered to another account.');
-                    return;
-                }
-            }
 
-            // Update user record in Supabase 'users' table
+            // Update user record in Supabase 'users' table (name + username only)
+            // Email and phone changes go through their dedicated verification screens
             const { error: updateError } = await supabase
                 .from('users')
                 .update({
                     first_name: firstName.trim(),
                     last_name: lastName.trim(),
                     username: currentUsername,
-                    phone: currentPhone,
-                    email: email.trim(),
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', profile.uid);
@@ -254,14 +233,29 @@ export default function EditProfileScreen() {
                                     autoCapitalize="words"
                                     backgroundColor={colors.surface}
                                 />
-                                <FloatingLabelInput
-                                    label="Phone Number"
-                                    icon="phone"
-                                    value={phoneNumber}
-                                    onChangeText={setPhoneNumber}
-                                    keyboardType="phone-pad"
-                                    backgroundColor={colors.surface}
-                                />
+                                {/* Phone — read-only, change via dedicated screen */}
+                                <View style={{
+                                    flexDirection: 'row', alignItems: 'center',
+                                    borderRadius: 12, borderWidth: 1, borderColor: colors.stroke,
+                                    backgroundColor: colors.cardFill,
+                                    paddingHorizontal: 16, paddingVertical: 14,
+                                    marginBottom: 8,
+                                }}>
+                                    <MaterialIcons name="phone" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[textStyles.body, { fontSize: 11, color: colors.textGrey, marginBottom: 1 }]}>Phone Number</Text>
+                                        <Text style={[textStyles.h3, { color: phoneNumber ? colors.text : colors.textGrey, fontSize: 14 }]} translate={false}>
+                                            {phoneNumber || 'Not set'}
+                                        </Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        onPress={() => router.push('/(settings)/ChangePhoneScreen' as any)}
+                                        style={{ backgroundColor: colors.primary + '15', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}
+                                    >
+                                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 12 }]}>Change</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
                         </View>
                     </View>
@@ -269,19 +263,28 @@ export default function EditProfileScreen() {
                     {/* Account Information Section */}
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>Account Information</Text>
-                        <Text style={styles.sectionDescription}>Details used to identify your account.</Text>
+                        <Text style={styles.sectionDescription}>Email changes require identity verification for security.</Text>
 
-                        <View style={[styles.card, { paddingVertical: 8 }]}>
-                            <View style={styles.inputGroup}>
-                                <FloatingLabelInput
-                                    label="Email Address"
-                                    icon="email"
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    autoCapitalize="none"
-                                    keyboardType="email-address"
-                                    backgroundColor={colors.surface}
-                                />
+                        <View style={styles.card}>
+                            {/* Email — read-only, change via dedicated screen */}
+                            <View style={{
+                                flexDirection: 'row', alignItems: 'center',
+                                paddingHorizontal: 4, paddingVertical: 8, gap: 12,
+                            }}>
+                                <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center' }}>
+                                    <MaterialIcons name="email" size={20} color={colors.primary} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.body, { fontSize: 11, color: colors.textGrey }]}>Email Address</Text>
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, marginTop: 1 }]} translate={false}>{email || '—'}</Text>
+                                </View>
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    onPress={() => router.push('/(settings)/ChangeEmailScreen' as any)}
+                                    style={{ backgroundColor: colors.primary + '15', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}
+                                >
+                                    <Text style={[textStyles.label, { color: colors.primary, fontSize: 12 }]}>Change</Text>
+                                </TouchableOpacity>
                             </View>
                         </View>
                     </View>

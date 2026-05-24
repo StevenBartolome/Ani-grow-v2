@@ -88,7 +88,7 @@ export default function ActionModal({
                                         onPress={onCancel}
                                         activeOpacity={0.7}
                                     >
-                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>{cancelText}</Text>
+                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14, textAlign: 'center' }]}>{cancelText}</Text>
                                     </TouchableOpacity>
                                 )}
 
@@ -101,7 +101,7 @@ export default function ActionModal({
                                     {isLoading ? (
                                         <ActivityIndicator size="small" color={colors.onPrimary} />
                                     ) : (
-                                        <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>{confirmText}</Text>
+                                        <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14, textAlign: 'center' }]}>{confirmText}</Text>
                                     )}
                                 </TouchableOpacity>
                             </View>
@@ -158,6 +158,7 @@ const styles = StyleSheet.create({
     btn: {
         flex: 1,
         paddingVertical: 14,
+        paddingHorizontal: 8,
         borderRadius: 100, // Very oval shape
         alignItems: 'center',
         justifyContent: 'center',
