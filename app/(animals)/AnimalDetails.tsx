@@ -6,7 +6,6 @@ import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimalIcon } from '@/components/AnimalIcon';
-import { AIInsightCard } from '@/components/AIInsightCard';
 import ActionModal, { ActionModalType } from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
@@ -97,9 +96,10 @@ export default function AnimalDetailsScreen() {
                 housingRes.data.current_count = expectedHousingCount;
             }
             setHousing(housingRes.data);
-            // Auto-select the first active batch, or the latest one
+            // Auto-select first active batch, then first archived; skip completed
             const activeBatch = batchList.find(b => b.status === 'active');
-            setSelectedBatchId(activeBatch?.id ?? batchList[0]?.id ?? null);
+            const firstVisible = batchList.find(b => b.status !== 'completed');
+            setSelectedBatchId(activeBatch?.id ?? firstVisible?.id ?? null);
         } catch (err) {
             console.error('[AnimalDetails] fetch error:', err);
             showSnackbar('Failed to load data.', 'error');
@@ -165,9 +165,11 @@ export default function AnimalDetailsScreen() {
 
     // ── Batch Selection ───────────────────────────────────────────
     const [batchModalVisible, setBatchModalVisible] = useState(false);
-    const batchOptions = batches.map(b => `${b.name} (${b.status === 'active' ? 'Active' : b.status === 'completed' ? 'Completed' : 'Archived'})`);
-    const selectedBatchLabel = selectedBatch
-        ? `${selectedBatch.name} (${selectedBatch.status === 'active' ? 'Active' : selectedBatch.status === 'completed' ? 'Completed' : 'Archived'})`
+    // Exclude completed batches from the selector
+    const visibleBatches = batches.filter(b => b.status !== 'completed');
+    const batchOptions = visibleBatches.map(b => `${b.name} (${b.status === 'active' ? 'Active' : 'Archived'})`);
+    const selectedBatchLabel = selectedBatch && selectedBatch.status !== 'completed'
+        ? `${selectedBatch.name} (${selectedBatch.status === 'active' ? 'Active' : 'Archived'})`
         : '';
 
     // ── Age Helper ────────────────────────────────────────────────
@@ -659,11 +661,11 @@ export default function AnimalDetailsScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {batches.length === 0 ? (
+                {visibleBatches.length === 0 ? (
                     <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 16, padding: 16, marginBottom: 20, alignItems: 'center' }}>
                         <MaterialIcons name="layers" size={28} color={colors.textGrey} />
                         <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 8, textAlign: 'center', fontSize: 13 }]}>
-                            No batches yet. Tap "New Batch" to add animals to this housing.
+                            No active batches. Tap "New Batch" to add animals to this housing.
                         </Text>
                     </View>
                 ) : (
@@ -765,29 +767,6 @@ export default function AnimalDetailsScreen() {
                             </Text>
                         </View>
 
-                        {/* AI Insight */}
-                        <AIInsightCard
-                            title="AI Health & Growth Insight"
-                            context={{
-                                type: 'animal',
-                                animalType: housing?.animal_type ?? '',
-                                housingName: housing?.name ?? '',
-                                data: {
-                                    batchName: selectedBatch.name,
-                                    animalType: housing?.animal_type,
-                                    housingCapacity: housing?.capacity,
-                                    liveHeads: selectedBatch.current_count,
-                                    initialCount: selectedBatch.estimated_count,
-                                    deceasedCount,
-                                    mortalityRate: selectedBatch.estimated_count > 0
-                                        ? ((deceasedCount / selectedBatch.estimated_count) * 100).toFixed(1) + '%'
-                                        : '0%',
-                                    arrivalDate: selectedBatch.arrival_date,
-                                    supplier: selectedBatch.supplier,
-                                    status: selectedBatch.status,
-                                },
-                            }}
-                        />
 
                         {/* Quick Actions */}
                         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
@@ -848,19 +827,6 @@ export default function AnimalDetailsScreen() {
                         )}
                     </>
                 )}
-
-                {/* AniBot placeholder */}
-                <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 16, padding: 16, marginBottom: 24, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: `${colors.primary}15`, alignItems: 'center', justifyContent: 'center' }}>
-                        <MaterialIcons name="auto-awesome" size={22} color={colors.primary} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>AniBot Insight</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2 }]}>
-                            AI growth projection will appear once batch data is available.
-                        </Text>
-                    </View>
-                </View>
             </ScrollView>
 
             {/* Batch Selection Modal */}
@@ -869,11 +835,11 @@ export default function AnimalDetailsScreen() {
                 onClose={() => setBatchModalVisible(false)}
                 onSelect={label => {
                     const idx = batchOptions.indexOf(label);
-                    if (idx >= 0) setSelectedBatchId(batches[idx].id);
+                    if (idx >= 0) setSelectedBatchId(visibleBatches[idx].id);
                     setBatchModalVisible(false);
                 }}
                 title="Select Batch"
-                description="Choose an active or past batch."
+                description="Choose an active or archived batch."
                 icon="layers"
                 options={batchOptions}
                 selectedValue={selectedBatchLabel}
