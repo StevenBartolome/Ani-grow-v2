@@ -282,27 +282,77 @@ export default function GrowthReportScreen() {
 
     const activeColor = getTabColor(selectedTab);
 
+    const latestWeighDayInfo = useMemo(() => {
+        if (weighSessions.length === 0) return null;
+
+        // Group all weigh sessions by date (YYYY-MM-DD)
+        const dateMap = new Map<string, typeof weighSessions>();
+        weighSessions.forEach(s => {
+            if (!s.recorded_at) return;
+            const dateKey = s.recorded_at.slice(0, 10);
+            if (!dateMap.has(dateKey)) {
+                dateMap.set(dateKey, []);
+            }
+            dateMap.get(dateKey)!.push(s);
+        });
+
+        // Sort dates ascending to find the latest
+        const sortedDates = Array.from(dateMap.keys()).sort();
+        if (sortedDates.length === 0) return null;
+        const latestDateKey = sortedDates[sortedDates.length - 1];
+        const sessionsToday = dateMap.get(latestDateKey) || [];
+
+        // Calculate average weight for this day (in kg)
+        const totalWeightGrams = sessionsToday.reduce((sum, s) => sum + (s.net_weight_grams || 0), 0);
+        const avgWeightKg = sessionsToday.length > 0 ? (totalWeightGrams / sessionsToday.length) / 1000 : 0;
+
+        // Count normal, overweight, underweight for this day
+        const normalCountToday = sessionsToday.filter(s => s.status === 'normal').length;
+        const underweightCountToday = sessionsToday.filter(s => s.status === 'underweight').length;
+        const overweightCountToday = sessionsToday.filter(s => s.status === 'overweight').length;
+
+        // Format the date label, e.g., "May 25, 2026"
+        let dateLabel = latestDateKey;
+        try {
+            const dateObj = new Date(latestDateKey);
+            if (!isNaN(dateObj.getTime())) {
+                dateLabel = dateObj.toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric'
+                });
+            }
+        } catch (_) {}
+
+        return {
+            dateLabel,
+            avgWeightKg,
+            normalCount: normalCountToday,
+            underweightCount: underweightCountToday,
+            overweightCount: overweightCountToday,
+            totalCount: sessionsToday.length
+        };
+    }, [weighSessions]);
+
     // ─── Line Chart Data Processing ─────────────────────────────────
     const lineChartData = useMemo(() => {
-        const arrivalDateKey = selectedBatch?.arrival_date?.slice(0, 10) ?? null;
-
-        // Helper: strict per-category average — returns null if no data, never cross-contaminates
-        const getAvg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-
         // No sessions → blank state
         if (weighSessions.length === 0) {
             return { labels: [] as string[], datasets: [{ data: [0] }], hasRealData: false, noData: true };
         }
 
         if (timeframe === 'Days') {
-            const dateMap = new Map<string, { underweight: number[]; normal: number[]; overweight: number[] }>();
+            const dateMap = new Map<string, { underweight: number; normal: number; overweight: number; total: number }>();
             weighSessions.forEach(s => {
                 const dateKey = s.recorded_at.slice(0, 10);
-                if (!dateMap.has(dateKey)) dateMap.set(dateKey, { underweight: [], normal: [], overweight: [] });
-                const val = (s.net_weight_grams || 0) / 1000;
-                if (s.status === 'underweight') dateMap.get(dateKey)!.underweight.push(val);
-                else if (s.status === 'overweight') dateMap.get(dateKey)!.overweight.push(val);
-                else dateMap.get(dateKey)!.normal.push(val);
+                if (!dateMap.has(dateKey)) {
+                    dateMap.set(dateKey, { underweight: 0, normal: 0, overweight: 0, total: 0 });
+                }
+                const counts = dateMap.get(dateKey)!;
+                counts.total += 1;
+                if (s.status === 'underweight') counts.underweight += 1;
+                else if (s.status === 'overweight') counts.overweight += 1;
+                else counts.normal += 1;
             });
 
             const sortedDates = Array.from(dateMap.keys()).sort();
@@ -313,29 +363,21 @@ export default function GrowthReportScreen() {
                 const parts = todayDateKey.split('-');
                 const todayLabel = parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : todayDateKey;
                 const labels = ['Arrival', todayLabel];
-                const dayData = dateMap.get(todayDateKey)!;
+                const dayCounts = dateMap.get(todayDateKey)!;
 
-                // Arrival value = 0 unless the recording IS on the arrival date (use actual weight then)
-                const isOnArrivalDate = arrivalDateKey && todayDateKey === arrivalDateKey;
-                const allOnDay = [...dayData.normal, ...dayData.underweight, ...dayData.overweight];
                 const arrivalVal = 0;
 
-                // Actual per-category values (null → 0, never bleed across categories)
-                const todayNormal  = getAvg(dayData.normal)      ?? 0;
-                const todayUnder   = getAvg(dayData.underweight)  ?? 0;
-                const todayOver    = getAvg(dayData.overweight)   ?? 0;
-
-                const normalFinal  = [arrivalVal, parseFloat(todayNormal.toFixed(2))];
-                const underFinal   = [arrivalVal, parseFloat(todayUnder.toFixed(2))];
-                const overFinal    = [arrivalVal, parseFloat(todayOver.toFixed(2))];
+                const normalFinal  = [arrivalVal, dayCounts.normal];
+                const underFinal   = [arrivalVal, dayCounts.underweight];
+                const overFinal    = [arrivalVal, dayCounts.overweight];
                 const zeroAnchor2  = { data: [0, 0], color: () => 'transparent', strokeWidth: 0, withDots: false };
 
                 // Check if selected filter has any data
                 const hasFilterData = selectedTab === 'All'
-                    ? allOnDay.length > 0
-                    : selectedTab === 'Underweight' ? dayData.underweight.length > 0
-                    : selectedTab === 'Normal'       ? dayData.normal.length > 0
-                    : dayData.overweight.length > 0;
+                    ? dayCounts.total > 0
+                    : selectedTab === 'Underweight' ? dayCounts.underweight > 0
+                    : selectedTab === 'Normal'       ? dayCounts.normal > 0
+                    : dayCounts.overweight > 0;
 
                 if (!hasFilterData && selectedTab !== 'All') {
                     return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true };
@@ -372,38 +414,21 @@ export default function GrowthReportScreen() {
                 return parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
             })];
 
-            // Compute per-category averages — null means no animals of that type logged that day
-            const normalAvgs  = datesToUse.map(d => getAvg(dateMap.get(d)!.normal));
-            const underAvgs   = datesToUse.map(d => getAvg(dateMap.get(d)!.underweight));
-            const overAvgs    = datesToUse.map(d => getAvg(dateMap.get(d)!.overweight));
+            // Compute counts
+            const normalCounts  = datesToUse.map(d => dateMap.get(d)!.normal);
+            const underCounts   = datesToUse.map(d => dateMap.get(d)!.underweight);
+            const overCounts    = datesToUse.map(d => dateMap.get(d)!.overweight);
 
-            // For 'All' tab: interpolate missing days within each series independently
-            const interpolate = (arr: (number | null)[]): number[] => {
-                let last: number | null = null;
-                return arr.map((v, idx) => {
-                    if (v !== null) { last = v; return parseFloat(v.toFixed(2)); }
-                    // find next valid
-                    let next: number | null = null;
-                    for (let i = idx + 1; i < arr.length; i++) { if (arr[i] !== null) { next = arr[i]; break; } }
-                    const base = last !== null && next !== null ? (last + next) / 2 : last ?? next ?? 0;
-                    return parseFloat(base.toFixed(2));
-                });
-            };
-
-            // For specific filter tabs: only actual data, 0 for missing days (no cross-bleed)
-            const toActualOnly = (arr: (number | null)[]): number[] =>
-                arr.map(v => v !== null ? parseFloat(v.toFixed(2)) : 0);
-
-            const normalFinal = [0, ...interpolate(normalAvgs)];
-            const underFinal  = [0, ...toActualOnly(underAvgs)];
-            const overFinal   = [0, ...toActualOnly(overAvgs)];
+            const normalFinal = [0, ...normalCounts];
+            const underFinal  = [0, ...underCounts];
+            const overFinal   = [0, ...overCounts];
 
             const zeroAnchorN = { data: Array(labels.length).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false };
 
             // Check if filter has any real data
             if (selectedTab !== 'All') {
-                const arr = selectedTab === 'Underweight' ? underAvgs : selectedTab === 'Normal' ? normalAvgs : overAvgs;
-                if (arr.every(v => v === null)) {
+                const arr = selectedTab === 'Underweight' ? underCounts : selectedTab === 'Normal' ? normalCounts : overCounts;
+                if (arr.every(v => v === 0)) {
                     return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true };
                 }
             }
@@ -434,7 +459,7 @@ export default function GrowthReportScreen() {
         } else {
             // ── Weeks timeframe ──
             const arrival = selectedBatch?.arrival_date ? new Date(selectedBatch.arrival_date) : null;
-            const weekMap = new Map<number, { underweight: number[]; normal: number[]; overweight: number[] }>();
+            const weekMap = new Map<number, { underweight: number; normal: number; overweight: number; total: number }>();
 
             weighSessions.forEach(s => {
                 const recorded = new Date(s.recorded_at);
@@ -446,11 +471,14 @@ export default function GrowthReportScreen() {
                     const startYear = new Date(weighSessions[0].recorded_at).getFullYear();
                     weekIdx = Math.floor((recorded.getTime() - new Date(startYear, 0, 1).getTime()) / (1000 * 60 * 60 * 24 * 7));
                 }
-                if (!weekMap.has(weekIdx)) weekMap.set(weekIdx, { underweight: [], normal: [], overweight: [] });
-                const val = (s.net_weight_grams || 0) / 1000;
-                if (s.status === 'underweight') weekMap.get(weekIdx)!.underweight.push(val);
-                else if (s.status === 'overweight') weekMap.get(weekIdx)!.overweight.push(val);
-                else weekMap.get(weekIdx)!.normal.push(val);
+                if (!weekMap.has(weekIdx)) {
+                    weekMap.set(weekIdx, { underweight: 0, normal: 0, overweight: 0, total: 0 });
+                }
+                const counts = weekMap.get(weekIdx)!;
+                counts.total += 1;
+                if (s.status === 'underweight') counts.underweight += 1;
+                else if (s.status === 'overweight') counts.overweight += 1;
+                else counts.normal += 1;
             });
 
             const sortedWeeks = Array.from(weekMap.keys()).sort();
@@ -463,26 +491,19 @@ export default function GrowthReportScreen() {
             if (sortedWeeks.length === 1) {
                 const todayWeek = sortedWeeks[0];
                 const labels = ['Arrival', `W${todayWeek}`];
-                const weekData = weekMap.get(todayWeek)!;
+                const weekCounts = weekMap.get(todayWeek)!;
 
-                // Arrival = 0 unless this IS week 1 (arrival week) and we check arrival_date match
-                const isArrivalWeek = arrival && todayWeek === 1;
-                const allOnWeek = [...weekData.normal, ...weekData.underweight, ...weekData.overweight];
                 const arrivalVal = 0;
 
-                const todayNormal = getAvg(weekData.normal)     ?? 0;
-                const todayUnder  = getAvg(weekData.underweight) ?? 0;
-                const todayOver   = getAvg(weekData.overweight)  ?? 0;
-
-                const normalFinal = [arrivalVal, parseFloat(todayNormal.toFixed(2))];
-                const underFinal  = [arrivalVal, parseFloat(todayUnder.toFixed(2))];
-                const overFinal   = [arrivalVal, parseFloat(todayOver.toFixed(2))];
+                const normalFinal = [arrivalVal, weekCounts.normal];
+                const underFinal  = [arrivalVal, weekCounts.underweight];
+                const overFinal   = [arrivalVal, weekCounts.overweight];
                 const zeroAnchorW = { data: [0, 0], color: () => 'transparent', strokeWidth: 0, withDots: false };
 
                 if (selectedTab !== 'All') {
-                    const hasData = selectedTab === 'Underweight' ? weekData.underweight.length > 0
-                        : selectedTab === 'Normal' ? weekData.normal.length > 0
-                        : weekData.overweight.length > 0;
+                    const hasData = selectedTab === 'Underweight' ? weekCounts.underweight > 0
+                        : selectedTab === 'Normal' ? weekCounts.normal > 0
+                        : weekCounts.overweight > 0;
                     if (!hasData) return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true };
                 }
 
@@ -513,33 +534,19 @@ export default function GrowthReportScreen() {
             // ── Multiple weeks ──
             const weeksToUse = sortedWeeks.slice(-5);
             const labels = ['Arrival', ...weeksToUse.map(w => `W${w}`)];
-            const normalAvgs = weeksToUse.map(w => getAvg(weekMap.get(w)!.normal));
-            const underAvgs  = weeksToUse.map(w => getAvg(weekMap.get(w)!.underweight));
-            const overAvgs   = weeksToUse.map(w => getAvg(weekMap.get(w)!.overweight));
+            const normalCounts = weeksToUse.map(w => weekMap.get(w)!.normal);
+            const underCounts  = weeksToUse.map(w => weekMap.get(w)!.underweight);
+            const overCounts   = weeksToUse.map(w => weekMap.get(w)!.overweight);
 
-            const interpolate = (arr: (number | null)[]): number[] => {
-                let last: number | null = null;
-                return arr.map((v, idx) => {
-                    if (v !== null) { last = v; return parseFloat(v.toFixed(2)); }
-                    let next: number | null = null;
-                    for (let i = idx + 1; i < arr.length; i++) { if (arr[i] !== null) { next = arr[i]; break; } }
-                    const base = last !== null && next !== null ? (last + next) / 2 : last ?? next ?? 0;
-                    return parseFloat(base.toFixed(2));
-                });
-            };
-
-            const toActualOnly = (arr: (number | null)[]): number[] =>
-                arr.map(v => v !== null ? parseFloat(v.toFixed(2)) : 0);
-
-            const normalFinal = [0, ...interpolate(normalAvgs)];
-            const underFinal  = [0, ...toActualOnly(underAvgs)];
-            const overFinal   = [0, ...toActualOnly(overAvgs)];
+            const normalFinal = [0, ...normalCounts];
+            const underFinal  = [0, ...underCounts];
+            const overFinal   = [0, ...overCounts];
 
             const zeroAnchorWW = { data: Array(labels.length).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false };
 
             if (selectedTab !== 'All') {
-                const arr = selectedTab === 'Underweight' ? underAvgs : selectedTab === 'Normal' ? normalAvgs : overAvgs;
-                if (arr.every(v => v === null)) {
+                const arr = selectedTab === 'Underweight' ? underCounts : selectedTab === 'Normal' ? normalCounts : overCounts;
+                if (arr.every(v => v === 0)) {
                     return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true };
                 }
             }
@@ -567,24 +574,25 @@ export default function GrowthReportScreen() {
                 hasRealData: true, noData: false
             };
         }
-    }, [weighSessions, selectedTab, timeframe, colors, activeColor, animalType, selectedBatch, OVERWEIGHT_COLOR]);
+    }, [weighSessions, selectedTab, timeframe, colors, activeColor, OVERWEIGHT_COLOR, selectedBatch]);
 
-    // ─── Comparison Chart: Previous vs Current Average Weight ─────────
-
-    // ─── Comparison Chart: Previous vs Current Average Weight ─────────
+    // ─── Comparison Chart: Counts Comparison ─────────────────────────
     const comparisonChartData = useMemo(() => {
-        const getAvg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-
         if (weighSessions.length === 0) {
             return { noData: true, labels: [] as string[], datasets: [{ data: [0] }] };
         }
 
         if (timeframe === 'Days') {
-            const dateMap = new Map<string, number[]>();
+            const dateMap = new Map<string, { underweight: number; normal: number; overweight: number }>();
             weighSessions.forEach(s => {
                 const key = s.recorded_at.slice(0, 10);
-                if (!dateMap.has(key)) dateMap.set(key, []);
-                dateMap.get(key)!.push((s.net_weight_grams || 0) / 1000);
+                if (!dateMap.has(key)) {
+                    dateMap.set(key, { underweight: 0, normal: 0, overweight: 0 });
+                }
+                const counts = dateMap.get(key)!;
+                if (s.status === 'underweight') counts.underweight += 1;
+                else if (s.status === 'overweight') counts.overweight += 1;
+                else counts.normal += 1;
             });
             const sortedDates = Array.from(dateMap.keys()).sort();
             if (sortedDates.length < 2) {
@@ -597,27 +605,22 @@ export default function GrowthReportScreen() {
                 return parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
             });
 
-            const currentAvgs = daysToUse.map(d => {
-                const v = getAvg(dateMap.get(d)!);
-                return v !== null ? parseFloat(v.toFixed(2)) : 0;
-            });
-            const prevAvgs = daysToUse.map((d, idx) => {
-                if (idx === 0) return currentAvgs[0];
-                const prevDay = daysToUse[idx - 1];
-                const v = getAvg(dateMap.get(prevDay)!);
-                return v !== null ? parseFloat(v.toFixed(2)) : currentAvgs[idx];
-            });
+            const normalCounts = daysToUse.map(d => dateMap.get(d)!.normal);
+            const underweightCounts = daysToUse.map(d => dateMap.get(d)!.underweight);
+            const overweightCounts = daysToUse.map(d => dateMap.get(d)!.overweight);
 
             return {
-                noData: false, labels,
+                noData: false,
+                labels,
                 datasets: [
-                    { data: currentAvgs, color: () => colors.primary, strokeWidth: 3 },
-                    { data: prevAvgs, color: () => '#F59E0B', strokeWidth: 2 },
+                    { data: normalCounts, color: () => colors.primary, strokeWidth: 3 },
+                    { data: underweightCounts, color: () => colors.secondary, strokeWidth: 3 },
+                    { data: overweightCounts, color: () => OVERWEIGHT_COLOR, strokeWidth: 3 },
                 ],
             };
         } else {
             const arrival = selectedBatch?.arrival_date ? new Date(selectedBatch.arrival_date) : null;
-            const weekMap = new Map<number, number[]>();
+            const weekMap = new Map<number, { underweight: number; normal: number; overweight: number }>();
             weighSessions.forEach(s => {
                 const recorded = new Date(s.recorded_at);
                 let weekIdx = 0;
@@ -628,8 +631,13 @@ export default function GrowthReportScreen() {
                     const startYear = new Date(weighSessions[0].recorded_at).getFullYear();
                     weekIdx = Math.floor((recorded.getTime() - new Date(startYear, 0, 1).getTime()) / (1000 * 60 * 60 * 24 * 7));
                 }
-                if (!weekMap.has(weekIdx)) weekMap.set(weekIdx, []);
-                weekMap.get(weekIdx)!.push((s.net_weight_grams || 0) / 1000);
+                if (!weekMap.has(weekIdx)) {
+                    weekMap.set(weekIdx, { underweight: 0, normal: 0, overweight: 0 });
+                }
+                const counts = weekMap.get(weekIdx)!;
+                if (s.status === 'underweight') counts.underweight += 1;
+                else if (s.status === 'overweight') counts.overweight += 1;
+                else counts.normal += 1;
             });
             const sortedWeeks = Array.from(weekMap.keys()).sort();
             if (sortedWeeks.length < 2) {
@@ -638,26 +646,22 @@ export default function GrowthReportScreen() {
 
             const weeksToUse = sortedWeeks.slice(-6);
             const labels = weeksToUse.map(w => `W${w}`);
-            const currentAvgs = weeksToUse.map(w => {
-                const v = getAvg(weekMap.get(w)!);
-                return v !== null ? parseFloat(v.toFixed(2)) : 0;
-            });
-            const prevAvgs = weeksToUse.map((w, idx) => {
-                if (idx === 0) return currentAvgs[0];
-                const prevWeek = weeksToUse[idx - 1];
-                const v = getAvg(weekMap.get(prevWeek)!);
-                return v !== null ? parseFloat(v.toFixed(2)) : currentAvgs[idx];
-            });
+            
+            const normalCounts = weeksToUse.map(w => weekMap.get(w)!.normal);
+            const underweightCounts = weeksToUse.map(w => weekMap.get(w)!.underweight);
+            const overweightCounts = weeksToUse.map(w => weekMap.get(w)!.overweight);
 
             return {
-                noData: false, labels,
+                noData: false,
+                labels,
                 datasets: [
-                    { data: currentAvgs, color: () => colors.primary, strokeWidth: 3 },
-                    { data: prevAvgs, color: () => '#F59E0B', strokeWidth: 2 },
+                    { data: normalCounts, color: () => colors.primary, strokeWidth: 3 },
+                    { data: underweightCounts, color: () => colors.secondary, strokeWidth: 3 },
+                    { data: overweightCounts, color: () => OVERWEIGHT_COLOR, strokeWidth: 3 },
                 ],
             };
         }
-    }, [weighSessions, timeframe, colors, selectedBatch]);
+    }, [weighSessions, timeframe, colors, selectedBatch, OVERWEIGHT_COLOR]);
 
     // ─── Fast Local AI Recommendations ──────────────────────────────
     const getGrowthAnalysis = () => {
@@ -861,6 +865,132 @@ export default function GrowthReportScreen() {
                             </ScrollView>
                         </View>
 
+                        {/* Latest Day Summary Card */}
+                        {latestWeighDayInfo ? (
+                            <View style={{
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.stroke,
+                                borderRadius: 20,
+                                padding: 18,
+                                marginBottom: 24,
+                                shadowColor: colors.shadow,
+                                shadowOffset: { width: 0, height: 4 },
+                                shadowOpacity: 0.1,
+                                shadowRadius: 8,
+                                elevation: 2,
+                            }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                                    <View>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.text }}>
+                                            Latest Day Summary
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
+                                            Recorded on {latestWeighDayInfo.dateLabel}
+                                        </Text>
+                                    </View>
+                                    <View style={{
+                                        backgroundColor: colors.primary + '15',
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 4,
+                                        borderRadius: 8,
+                                    }}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.primary }}>
+                                            {latestWeighDayInfo.totalCount} total logs
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {/* Stats Info Row */}
+                                <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 16 }}>
+                                    <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary + '10', alignItems: 'center', justifyContent: 'center' }}>
+                                        <MaterialIcons name="speed" size={22} color={colors.primary} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey }}>
+                                            Average Weight
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 2 }}>
+                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 22, color: colors.text }}>
+                                                {latestWeighDayInfo.avgWeightKg.toFixed(2)}
+                                            </Text>
+                                            <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 14, color: colors.textGrey, marginLeft: 4 }}>
+                                                kg
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+
+                                <View style={{ height: 1, backgroundColor: colors.divider, marginBottom: 16 }} />
+
+                                {/* 3 Column breakdown of underweight, normal, overweight */}
+                                <View style={{ flexDirection: 'row', gap: 10 }}>
+                                    {/* Underweight */}
+                                    <View style={{
+                                        flex: 1,
+                                        backgroundColor: '#F59E0B' + '12',
+                                        borderWidth: 1,
+                                        borderColor: '#F59E0B' + '30',
+                                        borderRadius: 12,
+                                        padding: 10,
+                                        alignItems: 'center',
+                                    }}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 9, color: '#F59E0B', opacity: 0.8 }} numberOfLines={1}>
+                                            UNDERWEIGHT
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: '#F59E0B', marginTop: 4 }}>
+                                            {latestWeighDayInfo.underweightCount}
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginTop: 2 }}>
+                                            logs
+                                        </Text>
+                                    </View>
+
+                                    {/* Normal */}
+                                    <View style={{
+                                        flex: 1,
+                                        backgroundColor: colors.primary + '12',
+                                        borderWidth: 1,
+                                        borderColor: colors.primary + '30',
+                                        borderRadius: 12,
+                                        padding: 10,
+                                        alignItems: 'center',
+                                    }}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 9, color: colors.primary, opacity: 0.8 }} numberOfLines={1}>
+                                            NORMAL
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.primary, marginTop: 4 }}>
+                                            {latestWeighDayInfo.normalCount}
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginTop: 2 }}>
+                                            logs
+                                        </Text>
+                                    </View>
+
+                                    {/* Overweight */}
+                                    <View style={{
+                                        flex: 1,
+                                        backgroundColor: OVERWEIGHT_COLOR + '12',
+                                        borderWidth: 1,
+                                        borderColor: OVERWEIGHT_COLOR + '30',
+                                        borderRadius: 12,
+                                        padding: 10,
+                                        alignItems: 'center',
+                                    }}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 9, color: OVERWEIGHT_COLOR, opacity: 0.8 }} numberOfLines={1}>
+                                            OVERWEIGHT
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: OVERWEIGHT_COLOR, marginTop: 4 }}>
+                                            {latestWeighDayInfo.overweightCount}
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginTop: 2 }}>
+                                            logs
+                                        </Text>
+                                    </View>
+                                </View>
+                            </View>
+                        ) : null}
+
                         {/* Head Count Display */}
                         <View style={{
                             flexDirection: 'row',
@@ -950,7 +1080,7 @@ export default function GrowthReportScreen() {
                                     width={width - (hPad * 2) - 18}
                                     height={240}
                                     yAxisLabel=""
-                                    yAxisSuffix="kg"
+                                    yAxisSuffix=""
                                     fromZero
                                     withDots={true}
                                     withInnerLines={true}
@@ -990,7 +1120,7 @@ export default function GrowthReportScreen() {
                                                     shadowRadius: 4,
                                                     elevation: 6,
                                                 }}>
-                                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.surface }}>{value.toFixed(2)} kg</Text>
+                                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.surface }}>{Math.round(value)} logs</Text>
                                                     <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.surface, opacity: 0.75 }}>{label}</Text>
                                                 </View>
                                             </>
@@ -1000,7 +1130,7 @@ export default function GrowthReportScreen() {
                                         backgroundColor: colors.surface,
                                         backgroundGradientFrom: colors.surface,
                                         backgroundGradientTo: colors.surface,
-                                        decimalPlaces: 1,
+                                        decimalPlaces: 0,
                                         color: (opacity = 1) => colors.stroke,
                                         labelColor: (opacity = 1) => colors.textGrey,
                                         strokeWidth: 3,
@@ -1047,9 +1177,9 @@ export default function GrowthReportScreen() {
                         {/* Comparison Chart: Current vs Previous Reading */}
                         <>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, marginBottom: 0 }]}>Weight Comparison</Text>
-                                <View style={{ backgroundColor: '#F59E0B1A', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: '#F59E0B' }}>vs Previous Read</Text>
+                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, marginBottom: 0 }]}>Status Comparison</Text>
+                                <View style={{ backgroundColor: colors.secondary + '20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.secondary }}>Distribution Over Time</Text>
                                 </View>
                             </View>
                             <View style={{
@@ -1082,8 +1212,8 @@ export default function GrowthReportScreen() {
                                             width={width - (hPad * 2) - 18}
                                             height={200}
                                             yAxisLabel=""
-                                            yAxisSuffix="kg"
-                                            fromZero={false}
+                                            yAxisSuffix=""
+                                            fromZero={true}
                                             withDots={true}
                                             withInnerLines={true}
                                             withOuterLines={false}
@@ -1119,7 +1249,7 @@ export default function GrowthReportScreen() {
                                                         shadowRadius: 4,
                                                         elevation: 6,
                                                     }}>
-                                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.surface }}>{value.toFixed(2)} kg</Text>
+                                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.surface }}>{Math.round(value)} logs</Text>
                                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.surface, opacity: 0.75 }}>{label}</Text>
                                                     </View>
                                                 );
@@ -1128,7 +1258,7 @@ export default function GrowthReportScreen() {
                                                 backgroundColor: colors.surface,
                                                 backgroundGradientFrom: colors.surface,
                                                 backgroundGradientTo: colors.surface,
-                                                decimalPlaces: 1,
+                                                decimalPlaces: 0,
                                                 color: (opacity = 1) => colors.stroke,
                                                 labelColor: (opacity = 1) => colors.textGrey,
                                                 strokeWidth: 2,
@@ -1150,11 +1280,15 @@ export default function GrowthReportScreen() {
                                         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, paddingBottom: 10, paddingLeft: 16 }}>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                                                 <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }} />
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Current</Text>
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Normal</Text>
                                             </View>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                                <View style={{ width: 24, height: 3, borderRadius: 1.5, backgroundColor: '#F59E0B' }} />
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Previous</Text>
+                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.secondary }} />
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Underweight</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#EF4444' }} />
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Overweight</Text>
                                             </View>
                                         </View>
                                     </>

@@ -25,7 +25,7 @@ interface DeviceInfo {
     status: string;
     housingId: string | null;
     housingName: string;
-    animalType: 'Pig' | 'Chicken';
+    animalType: 'Pig' | 'Piglet' | 'Chicken' | 'Chicks (with caution: must be in crate)';
 }
 
 interface WeightThreshold {
@@ -171,12 +171,12 @@ export default function AniWeighScreen() {
     const [snackbarMessage, setSnackbarMessage] = useState('');
     const [snackbarType, setSnackbarType] = useState<SnackbarType>('success');
 
-    // Live reading (from Supabase Realtime / simulator)
+    const [deviceUniqueCode, setDeviceUniqueCode] = useState('');
+
+    // Live reading (from Supabase Realtime)
     const [liveWeightG, setLiveWeightG] = useState<number | null>(null);
     const [liveStatus, setLiveStatus] = useState<'underweight' | 'normal' | 'overweight' | null>(null);
     const [liveFlash, setLiveFlash] = useState(false);
-    const [isSimulating, setIsSimulating] = useState(false);
-    const [simulationTimeLeft, setSimulationTimeLeft] = useState(0);
     const [housingBatches, setHousingBatches] = useState<{ id: string; name: string; current_count: number; arrival_date: string; age_at_arrival_days: number }[]>([]);
     const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
 
@@ -237,7 +237,7 @@ export default function AniWeighScreen() {
             const [deviceResult, housingsResult, todayStatsResult] = await Promise.all([
                 supabase
                     .from('devices')
-                    .select('id, name, status, housing_id, housings(name, animal_type)')
+                    .select('id, name, unique_code, status, housing_id, housings(name, animal_type)')
                     .eq('id', deviceId)
                     .single(),
                 supabase
@@ -250,6 +250,7 @@ export default function AniWeighScreen() {
 
             if (deviceResult.data) {
                 const d = deviceResult.data as any;
+                if (d.unique_code) setDeviceUniqueCode(d.unique_code);
                 const info: DeviceInfo = {
                     name: d.name,
                     status: d.status,
@@ -258,11 +259,9 @@ export default function AniWeighScreen() {
                     animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
                 };
 
-                if (!info.housingId) {
-                    const tempType = await AsyncStorage.getItem(`temp_animal_type_${deviceId}`);
-                    if (tempType === 'Pig' || tempType === 'Chicken') {
-                        info.animalType = tempType;
-                    }
+                const tempType = await AsyncStorage.getItem(`temp_animal_type_${deviceId}`);
+                if (tempType === 'Pig' || tempType === 'Piglet' || tempType === 'Chicken' || tempType === 'Chicks (with caution: must be in crate)') {
+                    info.animalType = tempType;
                 }
 
                 setDeviceInfo(info);
@@ -402,10 +401,16 @@ export default function AniWeighScreen() {
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'weigh_sessions', filter: `device_id=eq.${deviceId}` },
                 (payload) => {
+                    console.log('[AniWeigh Realtime] INSERT received:', payload.new);
                     const row = payload.new as any;
 
-                    // Only update and log if the incoming session matches the selected batch
-                    if (row.batch_id !== selectedBatchId) return;
+                    // Filter: only handle events that match the selected batch.
+                    // Use loose equality so null===null works correctly, and so
+                    // a freshly-inserted row with a batch is not silently dropped
+                    // when selectedBatchId hasn't resolved yet from the seed query.
+                    const rowBatch = row.batch_id ?? null;
+                    const uiBatch  = selectedBatchId ?? null;
+                    if (rowBatch !== uiBatch && uiBatch !== null) return;
 
                     // 1. Update live-scale display immediately
                     setLiveWeightG(row.net_weight_grams);
@@ -437,7 +442,9 @@ export default function AniWeighScreen() {
                     fetchStats();
                 }
             )
-            .subscribe();
+            .subscribe((status) => {
+                console.log('[AniWeigh Realtime] channel status:', status);
+            });
 
         return () => { supabase.removeChannel(channel); };
     }, [deviceId, fetchStats, selectedBatchId]);
@@ -445,8 +452,8 @@ export default function AniWeighScreen() {
     // ─── Derived values ──────────────────────────────────────────
     const animalType = deviceInfo?.animalType ?? 'Chicken';
     const housing    = deviceInfo?.housingName ?? 'Unassigned';
-    const animalColor = animalType === 'Pig' ? colors.pig : colors.chicken;
-    const isPigMode = animalType === 'Pig';
+    const isPigMode = animalType === 'Pig' || animalType === 'Piglet';
+    const animalColor = isPigMode ? colors.pig : colors.chicken;
 
     const numUnder = threshold ? threshold.underweightMaxGrams / 1000 : 0.8;
     const numOver  = threshold ? threshold.overweightMinGrams / 1000  : 1.5;
@@ -508,6 +515,102 @@ export default function AniWeighScreen() {
         setRangeSettingsVisible(true);
     };
 
+    const syncThresholdToDevice = async (uniqueCode: string, underKg: number, overKg: number) => {
+        if (!uniqueCode) return;
+        const urls = [
+            `http://anigrow-${uniqueCode}.local/threshold?under=${underKg}&over=${overKg}`,
+            `http://192.168.4.1/threshold?under=${underKg}&over=${overKg}`
+        ];
+        let success = false;
+        for (const url of urls) {
+            try {
+                console.log(`[ThresholdSync] Sending to: ${url}`);
+                const res = await Promise.race([
+                    fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
+                ]);
+                if (res.ok) {
+                    success = true;
+                    console.log(`[ThresholdSync] Success from: ${url}`);
+                    break;
+                }
+            } catch (e) {
+                console.warn(`[ThresholdSync] Failed for ${url}:`, e);
+            }
+        }
+        if (success) {
+            showSnackbar(`Weight range synchronized with physical device.`);
+        } else {
+            showSnackbar(`Weight range updated on cloud. Reconnect to device hotspot or local WiFi to synchronize.`, 'info');
+        }
+    };
+
+    const syncModeToDevice = async (uniqueCode: string, mode: string) => {
+        if (!uniqueCode) return;
+        const urls = [
+            `http://anigrow-${uniqueCode}.local/mode?mode=${mode}`,
+            `http://192.168.4.1/mode?mode=${mode}`
+        ];
+        let success = false;
+        for (const url of urls) {
+            try {
+                console.log(`[ModeSync] Sending to: ${url}`);
+                const res = await Promise.race([
+                    fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
+                ]);
+                if (res.ok) {
+                    success = true;
+                    console.log(`[ModeSync] Success from: ${url}`);
+                    break;
+                }
+            } catch (e) {
+                console.warn(`[ModeSync] Failed for ${url}:`, e);
+            }
+        }
+        if (success) {
+            showSnackbar(`Scale sorting mode synchronized to: ${mode}`);
+        } else {
+            showSnackbar(`Scale mode updated on cloud. Reconnect to device hotspot or local WiFi to synchronize.`, 'info');
+        }
+    };
+
+    const [isTaring, setIsTaring] = useState(false);
+    const handleTareDevice = async () => {
+        if (!deviceUniqueCode) {
+            showSnackbar('Device code not found.', 'error');
+            return;
+        }
+        setIsTaring(true);
+        const urls = [
+            `http://anigrow-${deviceUniqueCode}.local/tare`,
+            `http://192.168.4.1/tare`
+        ];
+        let success = false;
+        for (const url of urls) {
+            try {
+                console.log(`[Tare] Sending to: ${url}`);
+                const res = await Promise.race([
+                    fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
+                ]);
+                if (res.ok) {
+                    success = true;
+                    console.log(`[Tare] Success from: ${url}`);
+                    break;
+                }
+            } catch (e) {
+                console.warn(`[Tare] Failed for ${url}:`, e);
+            }
+        }
+        setIsTaring(false);
+        if (success) {
+            showSnackbar('Scale tared successfully.');
+        } else {
+            showSnackbar('Failed to tare device. Make sure you are on the same WiFi or connected to the device hotspot.', 'error');
+        }
+    };
+
     const handleSaveRanges = async () => {
         const under = parseFloat(tempUnderweight);
         const over  = parseFloat(tempOverweight);
@@ -541,102 +644,16 @@ export default function AniWeighScreen() {
             setRangeUnit(tempRangeUnit);
             setRangeSettingsVisible(false);
             showSnackbar(`Weight range updated (${tempRangeUnit}).`);
+
+            // Synchronize with physical device (underGrams and overGrams divided by 1000 as board uses kg)
+            const underKg = underGrams / 1000;
+            const overKg = overGrams / 1000;
+            await syncThresholdToDevice(deviceUniqueCode, underKg, overKg);
         } catch (err) {
             console.error('[handleSaveRanges] error:', err);
             showSnackbar('Failed to save weight range.', 'error');
         }
     };
-
-    // ─── Simulation handler ─────────────────────────────────────────
-    const handleStartSimulation = async () => {
-        if (!deviceInfo?.housingId || deviceInfo?.housingName === 'Unassigned') {
-            showSnackbar('Please assign a housing to this device first.', 'error');
-            return;
-        }
-
-        if (housingBatches.length > 0 && !selectedBatchId) {
-            showSnackbar('Please select a batch first.', 'error');
-            return;
-        }
-
-        if (housingBatches.length === 0) {
-            showSnackbar('Please create an active batch in this housing first.', 'error');
-            return;
-        }
-
-        setIsSimulating(true);
-        setSimulationTimeLeft(5);
-
-        // Count down 5 seconds
-        const interval = setInterval(() => {
-            setSimulationTimeLeft(prev => {
-                if (prev <= 1) {
-                    clearInterval(interval);
-                    return 0;
-                }
-                return prev - 1;
-            });
-        }, 1000);
-
-        setTimeout(async () => {
-            try {
-                const selectedBatch = housingBatches.find(b => b.id === selectedBatchId);
-                const animalCount = selectedBatch && selectedBatch.current_count > 0 ? selectedBatch.current_count : 1;
-
-                const underMax = threshold?.underweightMaxGrams ?? 800;
-                const overMin = threshold?.overweightMinGrams ?? 1500;
-
-                const payloads = [];
-
-                for (let i = 0; i < animalCount; i++) {
-                    const rand = Math.random();
-                    let simulatedWeightG = 1150;
-                    let status: 'underweight' | 'normal' | 'overweight' = 'normal';
-
-                    if (rand < 0.2) {
-                        simulatedWeightG = Math.round(underMax * 0.85);
-                        status = 'underweight';
-                    } else if (rand > 0.8) {
-                        simulatedWeightG = Math.round(overMin * 1.15);
-                        status = 'overweight';
-                    } else {
-                        simulatedWeightG = Math.round(underMax + (overMin - underMax) * (0.2 + Math.random() * 0.6));
-                        status = 'normal';
-                    }
-
-                    // Spread timestamps by 1 second each to ensure ordered log list
-                    const recordTime = new Date(Date.now() - (animalCount - 1 - i) * 1000).toISOString();
-
-                    payloads.push({
-                        device_id: deviceId,
-                        farm_id: farmId,
-                        batch_id: selectedBatchId,
-                        weigh_mode: 'individual',
-                        animal_type: animalType.toLowerCase() as 'chicken' | 'pig',
-                        animal_count: 1,
-                        gross_weight_grams: simulatedWeightG,
-                        tare_weight_grams: 0,
-                        net_weight_grams: simulatedWeightG,
-                        avg_weight_grams: simulatedWeightG,
-                        status: status,
-                        conducted_by: profile?.uid || (profile as any)?.id || null,
-                        recorded_at: recordTime,
-                    });
-                }
-
-                const { error } = await supabase.from('weigh_sessions').insert(payloads);
-                if (error) throw error;
-
-                showSnackbar(`Successfully weighed all ${animalCount} livestock in "${selectedBatch?.name || 'Batch'}" individually!`, 'success');
-            } catch (err: any) {
-                console.error('[Simulation Error]:', err);
-                showSnackbar('Simulation failed to log records.', 'error');
-            } finally {
-                setIsSimulating(false);
-            }
-        }, 5000);
-    };
-
 
     // ─── Edit modal (Housing / Animal Type / Batch) ─────────────────────
     const openEditModal = (target: 'Animal Type' | 'Housing' | 'Batch') => {
@@ -645,10 +662,13 @@ export default function AniWeighScreen() {
     };
 
     const getEditOptions = (): string[] => {
-        if (editTarget === 'Animal Type') return ['Pig', 'Chicken'];
+        if (editTarget === 'Animal Type') {
+            return ['Pig', 'Piglet', 'Chicken', 'Chicks (with caution: must be in crate)'];
+        }
         if (editTarget === 'Housing') {
+            const searchType = (animalType === 'Pig' || animalType === 'Piglet') ? 'pig' : 'chicken';
             return farmHousings
-                .filter(h => h.animal_type === animalType.toLowerCase())
+                .filter(h => h.animal_type === searchType)
                 .map(h => h.name);
         }
         if (editTarget === 'Batch') {
@@ -661,17 +681,24 @@ export default function AniWeighScreen() {
         setEditModalVisible(false);
         try {
             if (editTarget === 'Animal Type') {
-                const selectedType = val as 'Pig' | 'Chicken';
-                // Unassign housing when animal type changes — user must reassign manually
-                await supabase.from('devices').update({ housing_id: null }).eq('id', deviceId);
+                const selectedType = val as 'Pig' | 'Piglet' | 'Chicken' | 'Chicks (with caution: must be in crate)';
+                
                 await AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
                 setDeviceInfo(prev => {
-                    const updated = prev ? { ...prev, housingId: null, housingName: 'Unassigned', animalType: selectedType } as DeviceInfo : null;
+                    const updated = prev ? { ...prev, animalType: selectedType } as DeviceInfo : null;
                     deviceInfoRef.current = updated;
                     return updated;
                 });
-                showSnackbar(`Animal type set to ${selectedType}. Please reassign a housing.`);
-                setThreshold(null);
+                showSnackbar(`Category set to ${selectedType}.`);
+
+                // Map category selection to Board sequences
+                let modeCode = "PIGLET";
+                if (selectedType === 'Pig') modeCode = "PIG";
+                else if (selectedType === 'Piglet') modeCode = "PIGLET";
+                else if (selectedType === 'Chicken') modeCode = "CHICKEN";
+                else if (selectedType === 'Chicks (with caution: must be in crate)') modeCode = "CHICK";
+
+                await syncModeToDevice(deviceUniqueCode, modeCode);
             } else if (editTarget === 'Housing') {
                 setPendingEditVal(val);
                 setModalType('confirmation');
@@ -736,9 +763,9 @@ export default function AniWeighScreen() {
                                 setModalMessage(`This will take "${deviceInfo?.name}" offline. You can reconnect it anytime by tapping the cloud icon.`);
                                 setModalVisible(true);
                             } else {
-                                // Offline — go to connection setup
+                                // Offline — go to provisioning
                                 router.push(
-                                    `/(devices)/AddDeviceScreen?existingDeviceId=${deviceId}&existingDeviceName=${encodeURIComponent(deviceInfo?.name ?? '')}&existingDeviceType=AniWeigh` as any
+                                    `/(devices)/AddDeviceScreen?existingDeviceId=${deviceId}&existingDeviceName=${encodeURIComponent(deviceInfo?.name ?? '')}&existingDeviceType=AniWeigh&existingDeviceCode=${encodeURIComponent(deviceUniqueCode)}` as any
                                 );
                             }
                         }}
@@ -791,7 +818,7 @@ export default function AniWeighScreen() {
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
                             <View style={[aniweighStyles.tagsContainer, { marginTop: 0 }]}>
                                 <TouchableOpacity style={[aniweighStyles.tag, { backgroundColor: animalColor + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Animal Type')}>
-                                    <AnimalIcon type={animalType as any} size={14} color={animalColor} />
+                                    <AnimalIcon type={isPigMode ? 'Pig' : 'Chicken'} size={14} color={animalColor} />
                                     <Text style={[textStyles.label, { color: animalColor, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{animalType}</Text>
                                     <MaterialIcons name="arrow-drop-down" size={16} color={animalColor} />
                                 </TouchableOpacity>
@@ -812,53 +839,6 @@ export default function AniWeighScreen() {
                             </View>
                         </ScrollView>
                     </View>
-
-                    {/* Start Simulation Button */}
-                    {(() => {
-                        const canSimulate = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isSimulating;
-                        return (
-                            <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8 }}>
-                                <TouchableOpacity
-                                    activeOpacity={canSimulate ? 0.8 : 1}
-                                    disabled={!canSimulate}
-                                    onPress={handleStartSimulation}
-                                    style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: 8,
-                                        paddingVertical: 13,
-                                        borderRadius: 16,
-                                        backgroundColor: isSimulating 
-                                            ? colors.warning 
-                                            : canSimulate 
-                                            ? colors.secondary 
-                                            : colors.cardFill,
-                                        borderWidth: canSimulate || isSimulating ? 0 : 1,
-                                        borderColor: colors.stroke,
-                                        opacity: canSimulate || isSimulating ? 1 : 0.55,
-                                    }}
-                                >
-                                    {isSimulating ? (
-                                        <ActivityIndicator size="small" color="#fff" />
-                                    ) : (
-                                        <MaterialIcons name="play-circle-filled" size={20} color={canSimulate ? (colors.onPrimary ?? '#fff') : colors.textGrey} />
-                                    )}
-                                    <Text style={[textStyles.btnLabel, { color: canSimulate || isSimulating ? (colors.onPrimary ?? '#fff') : colors.textGrey, fontSize: 14 }]}>
-                                        {isSimulating 
-                                            ? `Weighing Livestock... (${simulationTimeLeft}s)` 
-                                            : 'Start Simulation'
-                                        }
-                                    </Text>
-                                </TouchableOpacity>
-                                {!canSimulate && !isSimulating && (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center', marginTop: 6 }]}>
-                                        Assign an animal type and housing to enable simulation.
-                                    </Text>
-                                )}
-                            </View>
-                        );
-                    })()}
 
                     {/* Segregation Stats */}
                     <View style={[aniweighStyles.statsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
@@ -939,7 +919,7 @@ export default function AniWeighScreen() {
                         }}
                     />
 
-                    {/* Live Scaling (IoT placeholder) */}
+                    {/* Live Scaling */}
                     <View style={aniweighStyles.liveSection}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                             <Text style={[textStyles.h3, { color: colors.text, fontSize: 18 }]}>Live Scaling</Text>
@@ -996,6 +976,35 @@ export default function AniWeighScreen() {
                                     </Text>
                                 </View>
                             </View>
+                            <TouchableOpacity
+                                style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    backgroundColor: colors.primary + '10',
+                                    borderWidth: 1.5,
+                                    borderColor: colors.primary + '30',
+                                    borderRadius: 9999,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 24,
+                                    marginTop: 24,
+                                    width: '100%',
+                                }}
+                                activeOpacity={0.75}
+                                onPress={handleTareDevice}
+                                disabled={isTaring}
+                            >
+                                {isTaring ? (
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                ) : (
+                                    <>
+                                        <MaterialIcons name="restart-alt" size={18} color={colors.primary} style={{ marginRight: 8 }} />
+                                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 14, fontWeight: '700' }]}>
+                                            Tare Scale
+                                        </Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
                         </View>
                     </View>
 

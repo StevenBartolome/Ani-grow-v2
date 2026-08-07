@@ -11,6 +11,7 @@ import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useDevicesStyles } from '@/styles/devicesStyles';
+import { supabase } from '@/lib/supabase';
 
 type DeviceType = 'AniFeed' | 'AniWeigh' | null;
 
@@ -21,10 +22,11 @@ export default function AddDeviceScreen() {
     const router = useRouter();
 
     // When opened from an existing device's cloud icon, these params are passed
-    const params = useLocalSearchParams<{ existingDeviceId?: string; existingDeviceName?: string; existingDeviceType?: string }>();
+    const params = useLocalSearchParams<{ existingDeviceId?: string; existingDeviceName?: string; existingDeviceType?: string; existingDeviceCode?: string }>();
     const isExistingDevice = !!params.existingDeviceId;
     const existingType = params.existingDeviceType as DeviceType | undefined;
     const existingName = params.existingDeviceName ?? '';
+    const existingCode = params.existingDeviceCode ?? '';
 
     const [selectedType, setSelectedType] = useState<DeviceType>(isExistingDevice ? (existingType ?? null) : null);
     // Skip type selection step for existing devices — go straight to hotspot step
@@ -35,6 +37,18 @@ export default function AddDeviceScreen() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSendingConfig, setIsSendingConfig] = useState(false);
     const [hardwareDeviceId, setHardwareDeviceId] = useState<string | null>(null);
+    // After /save succeeds the phone is still on the ESP hotspot (no internet).
+    // We park here and wait for the user to switch back before calling Supabase.
+    const [waitingReconnect, setWaitingReconnect] = useState(false);
+    const [configuredSsid, setConfiguredSsid] = useState('');
+
+    const getHotspotName = () => {
+        // Board 1 broadcasts: AniGrow_Setup_<chip_id>  where chip_id == unique_code
+        if (existingCode) return `AniGrow_Setup_${existingCode}`;
+        // Fallback for new-device flow (type selected but no code yet)
+        const prefix = selectedType === 'AniWeigh' ? 'AW' : 'AF';
+        return `AniGrow_Setup_${prefix}XXXXXXXXXX`;
+    };
 
     // Snackbar State
     const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -53,75 +67,125 @@ export default function AddDeviceScreen() {
         } else if (step === 2) {
             setStep(3);
         } else if (step === 3 && wifiSsid.trim()) {
-            // Attempt to send configuration to ESP32
             setIsSendingConfig(true);
             try {
-                // Send credentials to ESP32 AP WebServer
-                const res = await Promise.race([
-                    fetch(`http://192.168.4.1/save?ssid=${encodeURIComponent(wifiSsid.trim())}&pass=${encodeURIComponent(wifiPassword.trim())}`, {
-                        method: 'GET',
-                        headers: { 'Cache-Control': 'no-cache' }
-                    }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 8000))
-                ]) as Response;
+                const url = `http://192.168.4.1/save?ssid=${encodeURIComponent(wifiSsid.trim())}&pass=${encodeURIComponent(wifiPassword.trim())}`;
+                
+                const fetchWithRetry = async (targetUrl: string, retries = 3, delayMs = 2000): Promise<Response> => {
+                    for (let attempt = 1; attempt <= retries; attempt++) {
+                        try {
+                            console.log(`[AddDevice] Config send attempt ${attempt} of ${retries}...`);
+                            const res = await Promise.race([
+                                fetch(targetUrl, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
+                                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000))
+                            ]);
+                            return res;
+                        } catch (err) {
+                            if (attempt === retries) {
+                                throw err;
+                            }
+                            console.warn(`[AddDevice] Send attempt ${attempt} failed. Retrying in ${delayMs}ms...`, err);
+                            await new Promise(resolve => setTimeout(resolve, delayMs));
+                        }
+                    }
+                    throw new Error('All attempts failed');
+                };
 
-                if (res && res.ok) {
+                const res = await fetchWithRetry(url);
+
+                if (res.ok) {
+                    let chipId = '';
                     try {
                         const data = await res.json();
-                        if (data && data.device_id) {
-                            setHardwareDeviceId(data.device_id);
+                        chipId = data?.chip_id || data?.device_id || '';
+                        if (chipId) setHardwareDeviceId(chipId);
+                    } catch { /* parse is optional */ }
+
+                    if (isExistingDevice && params.existingDeviceId) {
+                        // Verify chip_id matches registered unique_code
+                        if (chipId && existingCode && chipId !== existingCode) {
+                            showSnackbar(
+                                `Wrong hotspot — board ID (${chipId}) doesn't match registered code (${existingCode}). Join the correct AniGrow_Setup network.`,
+                                'error'
+                            );
+                            setIsSendingConfig(false);
+                            return;
                         }
-                    } catch (e) {
-                        console.warn('Failed to parse hardware device ID JSON:', e);
-                    }
-                    showSnackbar('Configuration sent! Device restarting...');
-                    // For existing devices, no need to name — go back after config
-                    if (isExistingDevice) {
-                        setTimeout(() => {
-                            if (router.canGoBack()) {
-                                router.back();
-                            } else {
-                                router.replace('/(devices)/DevicesScreen');
-                            }
-                        }, 1200);
+
+                        // SUCCESS — but we are still on the ESP hotspot (no internet).
+                        // Show a "switch back to your WiFi" prompt; Supabase update
+                        // happens only after the user confirms they have internet again.
+                        setConfiguredSsid(wifiSsid.trim());
+                        setWaitingReconnect(true);
                     } else {
+                        // New-device flow: /save worked, device is restarting.
+                        // Tell user to switch back to regular WiFi before naming device.
+                        setConfiguredSsid(wifiSsid.trim());
+                        showSnackbar(`Config sent! Reconnect your phone to "${wifiSsid.trim()}" WiFi, then name your device.`, 'success');
                         setStep(4);
                     }
                 } else {
                     throw new Error('Device responded with error status.');
                 }
             } catch (error) {
-                console.error('Failed to send config:', error);
-                // Show real error so user knows it failed
-                showSnackbar('Failed to reach device. Make sure Mobile Data is OFF and you are connected to AniWeigh_Setup.', 'error');
+                console.error('[AddDevice] send config error:', error);
+                showSnackbar(
+                    'Could not reach the device. Make sure:\n• Your phone is connected to the AniGrow_Setup hotspot\n• Mobile data is OFF\n• No VPN is active',
+                    'error'
+                );
             }
             setIsSendingConfig(false);
         } else if (step === 4 && deviceName.trim()) {
-            // Register the device in Firebase RTDB
+            // New device flow: register it in Supabase after successful WiFi config
             setIsSubmitting(true);
             try {
-                // Use hardware ID if provided by the scale, otherwise fall back to generating one
-                const fallbackId = `${selectedType!.toLowerCase()}_${deviceName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
-                const deviceIdToRegister = hardwareDeviceId || fallbackId;
-
-                // Simulate device registration
-                // await registerDevice(deviceIdToRegister, deviceName.trim(), selectedType!);
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                const { error } = await supabase.from('devices').insert({
+                    name: deviceName.trim(),
+                    type: selectedType!.toLowerCase(),
+                    unique_code: hardwareDeviceId ?? '',
+                    status: 'online',
+                    last_seen: new Date().toISOString(),
+                });
+                if (error) throw error;
 
                 showSnackbar(`${selectedType} registered successfully!`);
                 setTimeout(() => {
-                    if (router.canGoBack()) {
-                        router.back();
-                    } else {
-                        router.replace('/(devices)/DevicesScreen');
-                    }
+                    if (router.canGoBack()) router.back();
+                    else router.replace('/(devices)/DevicesScreen');
                 }, 1200);
             } catch (error) {
-                console.error('Failed to register device:', error);
+                console.error('[AddDevice] register error:', error);
                 showSnackbar('Failed to register device. Please try again.', 'error');
                 setIsSubmitting(false);
             }
         }
+    };
+
+    // Called after user confirms they've switched back to regular WiFi.
+    // Now we have internet and can safely reach Supabase.
+    const handleConfirmReconnected = async () => {
+        setIsSubmitting(true);
+        try {
+            const { error: dbErr } = await supabase
+                .from('devices')
+                .update({ status: 'online', last_seen: new Date().toISOString() })
+                .eq('id', params.existingDeviceId!);
+
+            if (dbErr) {
+                console.error('[AddDevice] Supabase update failed:', dbErr);
+                showSnackbar('Still no internet — make sure your phone rejoined your regular WiFi, then try again.', 'error');
+            } else {
+                showSnackbar(`${existingName} is now online!`);
+                setTimeout(() => {
+                    if (router.canGoBack()) router.back();
+                    else router.replace('/(devices)/DevicesScreen');
+                }, 1400);
+            }
+        } catch (e) {
+            console.error('[AddDevice] confirm reconnect error:', e);
+            showSnackbar('Network error. Make sure you\'re back on your regular WiFi.', 'error');
+        }
+        setIsSubmitting(false);
     };
 
     return (
@@ -230,11 +294,21 @@ export default function AddDeviceScreen() {
                             Connect to Your {isExistingDevice ? existingName : selectedType} Device
                         </Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 16, lineHeight: 24, paddingHorizontal: 20 }]}>
-                            Go to your phone's or tablet's Wi-Fi settings and join your {selectedType} device's network:
+                            Go to your phone's or tablet's Wi-Fi settings and join your device's Setup network:
                         </Text>
-                        <View style={{ backgroundColor: colors.primary + '1A', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, marginVertical: 16 }}>
-                            <Text style={[textStyles.h2, { color: colors.primary, fontSize: 18 }]}>
-                                {selectedType === 'AniFeed' ? 'AniFeed_Setup' : 'AniWeigh_Setup'}
+                        <View style={{
+                            backgroundColor: colors.primary + '15',
+                            paddingHorizontal: 20, paddingVertical: 14,
+                            borderRadius: 12, marginVertical: 16,
+                            borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.primary + '60',
+                            alignItems: 'center', gap: 6,
+                        }}>
+                            <MaterialIcons name="wifi" size={20} color={colors.primary} />
+                            <Text style={[textStyles.h2, { color: colors.primary, fontSize: 16, fontFamily: 'Poppins-Bold', textAlign: 'center', letterSpacing: 0.4 }]}>
+                                {getHotspotName()}
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center' }]}>
+                                Open your phone's WiFi settings, find this network and connect to it
                             </Text>
                         </View>
                         <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 16 }]}>
@@ -243,13 +317,13 @@ export default function AddDeviceScreen() {
                     </View>
                 )}
 
-                {step === 3 && (
+                {step === 3 && !waitingReconnect && (
                     <View style={styles.stepContainer}>
                         <Text style={[textStyles.h1, { color: '#006400', fontSize: 26, marginBottom: 8 }]}>
                             Setup {isExistingDevice ? existingName : selectedType}
                         </Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, marginBottom: 32 }]}>
-                            Follow these steps to connect your {selectedType} to WiFi.
+                            Follow these steps to connect your {isExistingDevice ? existingName : selectedType} to WiFi.
                         </Text>
 
                         {/* Sub-step 1 */}
@@ -261,7 +335,7 @@ export default function AddDeviceScreen() {
                                 <Text style={[textStyles.h3, { color: colors.text }]}>Enter Home WiFi Details</Text>
                             </View>
                             <Text style={[textStyles.body, { color: colors.textGrey, marginLeft: 36, marginBottom: 16 }]}>
-                                Enter the name and password of the WiFi you want the scale to connect to.
+                                Enter the name and password of the WiFi you want the device to connect to.
                             </Text>
 
                             <View style={{ marginLeft: 36, gap: 12 }}>
@@ -290,7 +364,7 @@ export default function AddDeviceScreen() {
                                 <Text style={[textStyles.h3, { color: colors.text }]}>Send Configuration</Text>
                             </View>
                             <Text style={[textStyles.body, { color: colors.textGrey, marginLeft: 36, marginBottom: 16 }]}>
-                                Tap 'Connect Device' to send these credentials to your {selectedType} scale.
+                                Tap 'Connect Device' to send these credentials to your device.
                             </Text>
 
                             <TouchableOpacity
@@ -316,12 +390,87 @@ export default function AddDeviceScreen() {
                     </View>
                 )}
 
+                {step === 3 && waitingReconnect && (
+                    <View style={[styles.stepContainer, { alignItems: 'center', paddingTop: 40 }]}>
+                        {/* Success badge */}
+                        <View style={{
+                            width: 72, height: 72, borderRadius: 36,
+                            backgroundColor: '#006400' + '1A',
+                            alignItems: 'center', justifyContent: 'center',
+                            marginBottom: 24,
+                        }}>
+                            <MaterialIcons name="check-circle" size={44} color="#006400" />
+                        </View>
+
+                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 22, textAlign: 'center', marginBottom: 8 }]}>
+                            Credentials Sent!
+                        </Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 15, lineHeight: 22, marginBottom: 32 }]}>
+                            The device is restarting and connecting to your WiFi.{'\n'}
+                            Now switch your phone back to your regular WiFi:
+                        </Text>
+
+                        {/* WiFi name */}
+                        <View style={{
+                            backgroundColor: colors.primary + '15',
+                            paddingHorizontal: 20, paddingVertical: 14,
+                            borderRadius: 12, marginBottom: 32,
+                            borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.primary + '60',
+                            alignItems: 'center', gap: 6, width: '100%',
+                        }}>
+                            <MaterialIcons name="wifi" size={22} color={colors.primary} />
+                            <Text style={[textStyles.h2, { color: colors.primary, fontSize: 16, fontFamily: 'Poppins-Bold', textAlign: 'center' }]}>
+                                {configuredSsid || 'Your regular WiFi'}
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center' }]}>
+                                Open your phone's WiFi settings and reconnect to this network
+                            </Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={{
+                                backgroundColor: '#006400',
+                                paddingVertical: 16,
+                                paddingHorizontal: 32,
+                                borderRadius: 8,
+                                alignItems: 'center',
+                                width: '100%',
+                                opacity: isSubmitting ? 0.6 : 1,
+                            }}
+                            activeOpacity={0.8}
+                            onPress={handleConfirmReconnected}
+                            disabled={isSubmitting}
+                        >
+                            {isSubmitting ? (
+                                <ActivityIndicator color="#FFFFFF" />
+                            ) : (
+                                <Text style={[textStyles.btnLabel, { color: '#FFFFFF' }]}>
+                                    I'm Back on Regular WiFi
+                                </Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                )}
+
                 {step === 4 && (
                     <View style={styles.stepContainer}>
                         <View style={styles.progressHeader}>
                             <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, marginTop: 8 }]}>Name your {selectedType}</Text>
                             <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 8 }]}>
                                 Give your device a descriptive name so you can easily identify it later.
+                            </Text>
+                        </View>
+
+                        {/* Reconnect reminder for new-device flow */}
+                        <View style={{
+                            flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+                            backgroundColor: colors.primary + '12',
+                            padding: 12, borderRadius: 10, marginBottom: 20,
+                            borderWidth: 1, borderColor: colors.primary + '40',
+                        }}>
+                            <MaterialIcons name="info-outline" size={18} color={colors.primary} style={{ marginTop: 1 }} />
+                            <Text style={[textStyles.body, { color: colors.primary, fontSize: 13, flex: 1 }]}>
+                                Make sure your phone is reconnected to{configuredSsid ? ` "${configuredSsid}"` : ' your regular WiFi'} before finishing.
                             </Text>
                         </View>
 
@@ -339,8 +488,10 @@ export default function AddDeviceScreen() {
 
             </ScrollView>
 
-            {/* The bottom bar is hidden on step 3 because it has its own Connect Device button */}
-            {/* For existing devices, step 4 (naming) is also skipped — no bottom bar needed there */}
+            {/* Bottom bar hidden on:
+                - step 3 WiFi form (has its own Connect Device button)
+                - step 3 reconnect prompt (has its own "I'm Back" button)
+                - step 4 on existing-device flow (naming is skipped for existing) */}
             {step !== 3 && !(isExistingDevice && step === 4) && (
                 <View style={[styles.bottomBar, { backgroundColor: 'transparent' }]}>
                     <TouchableOpacity

@@ -20,6 +20,7 @@ import { supabase } from '@/lib/supabase';
 interface RegisteredDevice {
     id: string;
     name: string;
+    unique_code: string;
     status: 'online' | 'offline';
     type: 'AniFeed' | 'AniWeigh';
     animalType?: 'Pig' | 'Chicken';
@@ -169,9 +170,9 @@ export default function DevicesScreen() {
             setDisconnectTarget(device);
             setDisconnectModalVisible(true);
         } else {
-            // Offline — go to connection setup
+            // Offline — go to provisioning
             router.push(
-                `/(devices)/AddDeviceScreen?existingDeviceId=${device.id}&existingDeviceName=${encodeURIComponent(device.name)}&existingDeviceType=${device.type}` as any
+                `/(devices)/AddDeviceScreen?existingDeviceId=${device.id}&existingDeviceName=${encodeURIComponent(device.name)}&existingDeviceType=${device.type}&existingDeviceCode=${encodeURIComponent(device.unique_code)}` as any
             );
         }
     };
@@ -191,7 +192,7 @@ export default function DevicesScreen() {
         try {
             const { data, error } = await supabase
                 .from('devices')
-                .select('id, name, type, status, housings(animal_type)')
+                .select('id, name, unique_code, type, status, housings(animal_type)')
                 .eq('farm_id', farmId)
                 .order('name', { ascending: true });
             if (error) throw error;
@@ -199,6 +200,7 @@ export default function DevicesScreen() {
             const mapped: RegisteredDevice[] = (data ?? []).map((d: any) => ({
                 id: d.id,
                 name: d.name,
+                unique_code: d.unique_code ?? '',
                 status: d.status === 'online' ? 'online' : 'offline',
                 type: d.type === 'anifeed' ? 'AniFeed' : 'AniWeigh',
                 animalType: d.housings?.animal_type === 'pig' ? 'Pig' :

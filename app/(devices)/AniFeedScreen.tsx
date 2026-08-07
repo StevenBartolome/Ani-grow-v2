@@ -145,6 +145,7 @@ export default function AniFeedScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [isConnected, setIsConnected] = useState(initialStatus ? initialStatus === 'online' : false);
     const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
+    const [deviceUniqueCode, setDeviceUniqueCode] = useState('');
     const [schedule, setSchedule] = useState<FeedScheduleInfo | null>(null);
     const [dispenseLogs, setDispenseLogs] = useState<DispenseLogEntry[]>([]);
     const [lastDispensed, setLastDispensed] = useState<string | null>(null);
@@ -168,10 +169,6 @@ export default function AniFeedScreen() {
     const [selectedHour, setSelectedHour] = useState(12);
     const [selectedMinute, setSelectedMinute] = useState(0);
     const [selectedAmPm, setSelectedAmPm] = useState<'AM' | 'PM'>('AM');
-
-    // Custom Simulation States
-    const [isSimulating, setIsSimulating] = useState(false);
-    const [simulationTimeLeft, setSimulationTimeLeft] = useState(5);
 
     // Manual Dispense Modal
     const [manualDispenseVisible, setManualDispenseVisible] = useState(false);
@@ -209,7 +206,7 @@ export default function AniFeedScreen() {
             const [deviceResult, scheduleResult, logsResult, housingsResult, feedsResult] = await Promise.all([
                 supabase
                     .from('devices')
-                    .select('id, name, status, housing_id, housings(name, animal_type)')
+                    .select('id, name, unique_code, status, housing_id, housings(name, animal_type)')
                     .eq('id', deviceId as string)
                     .single(),
                 supabase
@@ -238,6 +235,7 @@ export default function AniFeedScreen() {
 
             if (deviceResult.data) {
                 const d = deviceResult.data as any;
+                if (d.unique_code) setDeviceUniqueCode(d.unique_code);
                 const info: DeviceInfo = {
                     name: d.name,
                     status: d.status,
@@ -394,97 +392,6 @@ export default function AniFeedScreen() {
             setDeviceInfo(prev => prev ? { ...prev, status: 'online' } : null);
             showSnackbar('AniFeed connected.');
         }
-    };
-
-    // ─── Simulation handler ─────────────────────────────────────────
-    const handleStartSimulation = async () => {
-        if (!schedule || !schedule.feedId) {
-            showSnackbar('Please configure a schedule and assign a feed first.', 'error');
-            return;
-        }
-
-        if (schedule.feedStockKg === undefined || schedule.feedStockKg === null || schedule.feedStockKg <= 0) {
-            showSnackbar('The assigned feed has no stock remaining.', 'error');
-            return;
-        }
-
-        const totalGrams = schedule.gramsPerDispense * schedule.timesPerDay;
-        const totalKg = totalGrams / 1000;
-
-        if (schedule.feedStockKg < totalKg) {
-            showSnackbar(`Insufficient stock. Need ${totalKg} kg, but only have ${schedule.feedStockKg} kg left.`, 'error');
-            return;
-        }
-
-        setIsSimulating(true);
-        setSimulationTimeLeft(5);
-
-        // Count down 5 seconds
-        const interval = setInterval(() => {
-            setSimulationTimeLeft(prev => {
-                if (prev <= 1) {
-                    clearInterval(interval);
-                    return 0;
-                }
-                return prev - 1;
-            });
-        }, 1000);
-
-        // Run simulation logic after 5 seconds
-        setTimeout(async () => {
-            try {
-                // Generate log entries for each scheduled time today
-                const recordsToInsert = (schedule.dispenseTimes ?? []).map(timeStr => {
-                    const [hours, minutes] = timeStr.split(':').map(Number);
-                    const dispenseAtDate = new Date();
-                    dispenseAtDate.setHours(hours, minutes, 0, 0);
-                    return {
-                        device_id: deviceId as string,
-                        farm_id: farmId,
-                        feed_id: schedule.feedId,
-                        housing_id: deviceInfo?.housingId ?? null,
-                        animal_type: deviceInfo?.animalType ? (deviceInfo.animalType.toLowerCase() as 'chicken' | 'pig') : null,
-                        grams_dispensed: schedule.gramsPerDispense,
-                        status: 'success' as const,
-                        triggered_by: 'schedule' as const,
-                        dispensed_at: dispenseAtDate.toISOString(),
-                    };
-                });
-
-                if (recordsToInsert.length > 0) {
-                    const { error: insertError } = await supabase
-                        .from('dispense_records')
-                        .insert(recordsToInsert);
-                    
-                    if (insertError) throw insertError;
-                }
-
-                // Deduct from remaining feeds stock
-                const newStockKg = Math.max(0, schedule.feedStockKg! - totalKg);
-                
-                // Update feeds stock in DB
-                const { error: updateError } = await supabase
-                    .from('feeds')
-                    .update({ stock_kg: newStockKg })
-                    .eq('id', schedule.feedId);
-
-                if (updateError) throw updateError;
-
-                // Update local state stock
-                setSchedule(prev => prev ? { ...prev, feedStockKg: newStockKg } : null);
-
-                showSnackbar(`Dispensed ${totalGrams}g successfully! Deducted ${totalKg} kg from feed stock.`, 'success');
-                
-                // Refresh records and screens
-                await fetchAll();
-                await fetchTodayTotal();
-            } catch (err: any) {
-                console.error('[Simulation Error]:', err);
-                showSnackbar('Simulation failed to log records.', 'error');
-            } finally {
-                setIsSimulating(false);
-            }
-        }, 5000);
     };
 
     // ─── Manual Dispense handler ────────────────────────────────────────
@@ -782,9 +689,9 @@ export default function AniFeedScreen() {
                                 setModalMessage(`This will take "${deviceInfo?.name}" offline. You can reconnect it anytime by tapping the cloud icon.`);
                                 setModalVisible(true);
                             } else {
-                                // Offline — go to connection setup
+                                // Offline — go to provisioning
                                 router.push(
-                                    `/(devices)/AddDeviceScreen?existingDeviceId=${deviceId}&existingDeviceName=${encodeURIComponent(deviceInfo?.name ?? '')}&existingDeviceType=AniFeed` as any
+                                    `/(devices)/AddDeviceScreen?existingDeviceId=${deviceId}&existingDeviceName=${encodeURIComponent(deviceInfo?.name ?? '')}&existingDeviceType=AniFeed&existingDeviceCode=${encodeURIComponent(deviceUniqueCode)}` as any
                                 );
                             }
                         }}
@@ -843,84 +750,43 @@ export default function AniFeedScreen() {
                         </ScrollView>
                     </View>
 
-                    {/* Action Buttons Row: Simulation + Manual Dispense */}
+                    {/* Manual Dispense */}
                     {(() => {
-                        const canSimulate = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isSimulating && !isManualDispensing;
-                        const canManual   = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isSimulating && !isManualDispensing;
+                        const canManual = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isManualDispensing;
                         return (
                             <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8 }}>
-                                <View style={{ flexDirection: 'row', gap: 10 }}>
-                                    {/* Simulation button */}
-                                    <TouchableOpacity
-                                        activeOpacity={canSimulate ? 0.8 : 1}
-                                        disabled={!canSimulate}
-                                        onPress={handleStartSimulation}
-                                        style={{
-                                            flex: 1,
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: 6,
-                                            paddingVertical: 13,
-                                            borderRadius: 16,
-                                            backgroundColor: isSimulating
-                                                ? colors.warning
-                                                : canSimulate
-                                                ? colors.secondary
-                                                : colors.cardFill,
-                                            borderWidth: canSimulate || isSimulating ? 0 : 1,
-                                            borderColor: colors.stroke,
-                                            opacity: canSimulate || isSimulating ? 1 : 0.55,
-                                        }}
-                                    >
-                                        {isSimulating ? (
-                                            <ActivityIndicator size="small" color="#fff" />
-                                        ) : (
-                                            <MaterialIcons name="play-circle-filled" size={18} color={canSimulate ? colors.onPrimary : colors.textGrey} />
-                                        )}
-                                        <Text style={[textStyles.btnLabel, { color: canSimulate || isSimulating ? colors.onPrimary : colors.textGrey, fontSize: 13 }]}>
-                                            {isSimulating
-                                                ? `Dispensing... (${simulationTimeLeft}s)`
-                                                : 'Simulate'}
-                                        </Text>
-                                    </TouchableOpacity>
-
-                                    {/* Manual Dispense button */}
-                                    <TouchableOpacity
-                                        activeOpacity={canManual ? 0.8 : 1}
-                                        disabled={!canManual}
-                                        onPress={handleOpenManualDispense}
-                                        style={{
-                                            flex: 1,
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: 6,
-                                            paddingVertical: 13,
-                                            borderRadius: 16,
-                                            backgroundColor: canManual ? colors.primary : colors.cardFill,
-                                            borderWidth: canManual ? 0 : 1,
-                                            borderColor: colors.stroke,
-                                            opacity: canManual ? 1 : 0.55,
-                                        }}
-                                    >
-                                        <MaterialIcons name="food-bank" size={18} color={canManual ? colors.onPrimary : colors.textGrey} />
-                                        <Text style={[textStyles.btnLabel, { color: canManual ? colors.onPrimary : colors.textGrey, fontSize: 13 }]}>
-                                            Manual Dispense
-                                        </Text>
-                                    </TouchableOpacity>
-                                </View>
-
-                                {!canSimulate && !isSimulating && (
+                                <TouchableOpacity
+                                    activeOpacity={canManual ? 0.8 : 1}
+                                    disabled={!canManual}
+                                    onPress={handleOpenManualDispense}
+                                    style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: 6,
+                                        paddingVertical: 13,
+                                        borderRadius: 16,
+                                        backgroundColor: canManual ? colors.primary : colors.cardFill,
+                                        borderWidth: canManual ? 0 : 1,
+                                        borderColor: colors.stroke,
+                                        opacity: canManual ? 1 : 0.55,
+                                    }}
+                                >
+                                    <MaterialIcons name="food-bank" size={18} color={canManual ? colors.onPrimary : colors.textGrey} />
+                                    <Text style={[textStyles.btnLabel, { color: canManual ? colors.onPrimary : colors.textGrey, fontSize: 13 }]}>
+                                        Manual Dispense
+                                    </Text>
+                                </TouchableOpacity>
+                                {!canManual && !isManualDispensing && (
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center', marginTop: 6 }]}>
-                                        Assign an animal type and housing to enable dispensing.
+                                        Assign an animal type and housing to enable manual dispensing.
                                     </Text>
                                 )}
                             </View>
                         );
                     })()}
 
-                    {/* Feed Level (IoT placeholder) */}
+                    {/* Current Feed Level */}
                     <View style={anifeedStyles.liveSection}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                             <Text style={[textStyles.h3, { color: colors.text, fontSize: 18 }]}>Current Feed Level</Text>
