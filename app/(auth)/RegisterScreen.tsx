@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     KeyboardAvoidingView,
     Platform,
@@ -50,6 +50,7 @@ const isStrongPassword = (v: string) =>
 
 export default function RegisterScreen() {
     const router = useRouter();
+    const params = useLocalSearchParams<{ email?: string; step?: string }>();
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const authStyles = useAuthStyles();
@@ -83,6 +84,8 @@ export default function RegisterScreen() {
     // Step 4 — OTP
     const [otpCode, setOtpCode] = useState('');
     const [pendingEmail, setPendingEmail] = useState('');
+    const [resendCooldown, setResendCooldown] = useState(0);
+    const otpInputRef = useRef<TextInput>(null);
 
     // Shared
     const [step, setStep] = useState(1);
@@ -90,6 +93,38 @@ export default function RegisterScreen() {
     const [snackbarVisible, setSnackbarVisible] = useState(false);
     const [snackbarMessage, setSnackbarMessage] = useState('');
     const [snackbarType, setSnackbarType] = useState<SnackbarType>('error');
+
+    useEffect(() => {
+        if (resendCooldown <= 0) return;
+        const timer = setInterval(() => {
+            setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [resendCooldown]);
+
+    useEffect(() => {
+        if (params.email) {
+            setEmail(params.email);
+            setPendingEmail(params.email);
+        }
+        if (params.step) {
+            const s = parseInt(params.step, 10);
+            if (s >= 1 && s <= 4) {
+                setStep(s);
+            } else if (s === 5) {
+                setStep(4);
+            }
+        }
+    }, [params.email, params.step]);
+
+    useEffect(() => {
+        if (step === 4) {
+            const timer = setTimeout(() => {
+                otpInputRef.current?.focus();
+            }, 100);
+            return () => clearTimeout(timer);
+        }
+    }, [step]);
 
     const showSnackbar = (message: string, type: SnackbarType = 'error') => {
         setSnackbarMessage(message);
@@ -112,34 +147,46 @@ export default function RegisterScreen() {
     const createUserProfile = async (userId: string, userEmail: string) => {
         if (!inviteData) return;
 
+        const profilePayload: Record<string, any> = {
+            id:          userId,
+            email:       userEmail,
+            first_name:  firstName.trim(),
+            last_name:   lastName.trim(),
+            username:    username.trim().toLowerCase(),
+            role:        inviteData.role,
+            farm_id:     inviteData.farm_id,
+            permissions: inviteData.permissions,
+            status:      'active',
+            updated_at:  new Date().toISOString(),
+            created_at:  new Date().toISOString(),
+        };
+
         const { error: profileError } = await supabase
             .from('users')
-            .upsert({
-                id:          userId,
-                email:       userEmail,
-                first_name:  firstName.trim(),
-                last_name:   lastName.trim(),
-                username:    username.trim().toLowerCase(),
-                role:        inviteData.role,
-                farm_id:     inviteData.farm_id,
-                permissions: inviteData.permissions,
-                status:      'Active',
-                invited_by:  inviteData.invite_id,
-                updated_at:  new Date().toISOString(),
-            });
+            .upsert(profilePayload, { onConflict: 'id' });
 
-        if (profileError) throw profileError;
+        if (profileError) {
+            console.error('[RegisterScreen] Profile upsert error:', profileError);
+            throw new Error(profileError.message || 'Failed to save profile in database.');
+        }
 
         // Mark the invite code as used via SECURITY DEFINER RPC
-        await supabase.rpc('mark_invite_used', { p_invite_id: inviteData.invite_id });
+        if (inviteData.invite_id) {
+            try {
+                await supabase.rpc('mark_invite_used', { p_invite_id: inviteData.invite_id });
+            } catch (rpcErr) {
+                console.warn('[RegisterScreen] mark_invite_used RPC warning:', rpcErr);
+            }
+        }
     };
 
     // ── Step 3: Sign up with email/password ───────────────────────
     const handleRegister = async () => {
         setIsLoading(true);
         try {
+            const targetEmail = email.trim();
             const { data, error } = await supabase.auth.signUp({
-                email: email.trim(),
+                email: targetEmail,
                 password,
                 options: {
                     data: {
@@ -152,23 +199,43 @@ export default function RegisterScreen() {
 
             if (error) throw error;
 
-            if (data.user) {
-                setPendingEmail(email.trim());
-                if (data.session) {
-                    // Email confirmation disabled — active session immediately
-                    await createUserProfile(data.user.id, data.user.email ?? email.trim());
-                    showSnackbar('Account created successfully!', 'success');
-                    setTimeout(() => router.replace('/(auth)/LoginScreen'), 1500);
-                } else {
-                    showSnackbar('Verification code sent to your email.', 'success');
-                    setStep(4);
+            setPendingEmail(targetEmail);
+
+            if (data?.session) {
+                // Email confirmation disabled — active session immediately
+                if (data.user) {
+                    await createUserProfile(data.user.id, data.user.email ?? targetEmail);
                 }
+                showSnackbar('Account created successfully!', 'success');
+                setTimeout(() => router.replace('/(auth)/LoginScreen'), 1500);
+            } else {
+                showSnackbar('Verification code sent to your email.', 'success');
+                setResendCooldown(60);
+                setStep(4);
             }
         } catch (err: any) {
-            if (err.message?.includes('already registered')) {
-                showSnackbar('This email is already registered.', 'error');
+            const msg = err.message || '';
+            if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already exists')) {
+                // Attempt to resend code for unconfirmed users
+                try {
+                    const targetEmail = email.trim();
+                    const { error: resendErr } = await supabase.auth.resend({
+                        type: 'signup',
+                        email: targetEmail,
+                    });
+                    if (!resendErr) {
+                        setPendingEmail(targetEmail);
+                        showSnackbar('Verification code sent to your email.', 'success');
+                        setResendCooldown(60);
+                        setStep(4);
+                        return;
+                    }
+                } catch (_) {
+                    // Ignore resend error and fall through
+                }
+                showSnackbar('This email is already registered. Please log in.', 'error');
             } else {
-                showSnackbar(err.message || 'Registration failed. Please try again.', 'error');
+                showSnackbar(msg || 'Registration failed. Please try again.', 'error');
             }
         } finally {
             setIsLoading(false);
@@ -348,15 +415,35 @@ export default function RegisterScreen() {
     };
 
     const handleResendCode = async () => {
+        if (resendCooldown > 0 || isLoading) return;
+
+        const targetEmail = (pendingEmail || email).trim();
+        if (!targetEmail) {
+            showSnackbar('Email address is missing. Please re-enter your details.', 'error');
+            return;
+        }
+
+        setIsLoading(true);
         try {
             const { error } = await supabase.auth.resend({
                 type: 'signup',
-                email: (pendingEmail || email).trim(),
+                email: targetEmail,
             });
+
             if (error) throw error;
-            showSnackbar('New code sent! Check your email.', 'success');
+
+            showSnackbar('New verification code sent! Check your email.', 'success');
+            setResendCooldown(60);
         } catch (err: any) {
-            showSnackbar(err.message || 'Failed to resend code.', 'error');
+            const msg = err.message || '';
+            if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('60 seconds') || msg.toLowerCase().includes('security purposes')) {
+                showSnackbar('Please wait a minute before requesting a new code.', 'info');
+                if (resendCooldown === 0) setResendCooldown(60);
+            } else {
+                showSnackbar(msg || 'Failed to resend code.', 'error');
+            }
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -594,23 +681,31 @@ export default function RegisterScreen() {
                                         </Text>
                                     </Text>
 
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', position: 'relative', paddingHorizontal: 4, marginBottom: 24 }}>
+                                    <TouchableOpacity
+                                        activeOpacity={1}
+                                        onPress={() => otpInputRef.current?.focus()}
+                                        style={{ flexDirection: 'row', justifyContent: 'space-between', position: 'relative', paddingHorizontal: 4, marginBottom: 24 }}
+                                    >
                                         {[0, 1, 2, 3, 4, 5].map((index) => {
                                             const isFocused = otpCode.length === index || (otpCode.length === 6 && index === 5);
                                             const isFilled  = otpCode.length > index;
                                             return (
-                                                <View key={index} style={{
-                                                    width: 50, height: 64, borderRadius: 14,
-                                                    backgroundColor: isFocused ? `${colors.primary}10` : colors.surface,
-                                                    borderWidth: 2,
-                                                    borderColor: isFocused ? colors.primary : isFilled ? `${colors.primary}40` : colors.stroke,
-                                                    justifyContent: 'center', alignItems: 'center',
-                                                    shadowColor: isFocused ? colors.primary : '#000',
-                                                    shadowOffset: { width: 0, height: isFocused ? 4 : 2 },
-                                                    shadowOpacity: isFocused ? 0.3 : 0.05,
-                                                    shadowRadius: isFocused ? 8 : 4,
-                                                    elevation: isFocused ? 6 : 2,
-                                                }}>
+                                                <View
+                                                    key={index}
+                                                    pointerEvents="none"
+                                                    style={{
+                                                        width: 50, height: 64, borderRadius: 14,
+                                                        backgroundColor: isFocused ? `${colors.primary}10` : colors.surface,
+                                                        borderWidth: 2,
+                                                        borderColor: isFocused ? colors.primary : isFilled ? `${colors.primary}40` : colors.stroke,
+                                                        justifyContent: 'center', alignItems: 'center',
+                                                        shadowColor: isFocused ? colors.primary : '#000',
+                                                        shadowOffset: { width: 0, height: isFocused ? 4 : 2 },
+                                                        shadowOpacity: isFocused ? 0.3 : 0.05,
+                                                        shadowRadius: isFocused ? 8 : 4,
+                                                        elevation: isFocused ? 6 : 2,
+                                                    }}
+                                                >
                                                     <Text style={[textStyles.h1, { fontSize: 28, color: isFocused ? colors.primary : colors.text, lineHeight: 34 }]}>
                                                         {otpCode[index] || ''}
                                                     </Text>
@@ -618,6 +713,7 @@ export default function RegisterScreen() {
                                             );
                                         })}
                                         <TextInput
+                                            ref={otpInputRef}
                                             value={otpCode}
                                             onChangeText={(text) => {
                                                 const numeric = text.replace(/[^0-9]/g, '');
@@ -629,10 +725,20 @@ export default function RegisterScreen() {
                                             caretHidden
                                             style={{ position: 'absolute', width: '100%', height: '100%', opacity: 0, zIndex: 10 }}
                                         />
-                                    </View>
+                                    </TouchableOpacity>
 
-                                    <TouchableOpacity onPress={handleResendCode} style={{ alignSelf: 'center', marginBottom: 16 }}>
-                                        <Text style={[textStyles.label, { color: colors.primary }]}>Resend Code</Text>
+                                    <TouchableOpacity
+                                        onPress={handleResendCode}
+                                        disabled={resendCooldown > 0 || isLoading}
+                                        style={{ alignSelf: 'center', marginBottom: 16, opacity: (resendCooldown > 0 || isLoading) ? 0.5 : 1 }}
+                                    >
+                                        <Text style={[textStyles.label, { color: (resendCooldown > 0 || isLoading) ? colors.textGrey : colors.primary }]}>
+                                            {resendCooldown > 0
+                                                ? `Resend Code (${resendCooldown}s)`
+                                                : isLoading
+                                                    ? 'Sending...'
+                                                    : 'Resend Code'}
+                                        </Text>
                                     </TouchableOpacity>
                                 </View>
                             )}
