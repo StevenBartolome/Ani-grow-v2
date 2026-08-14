@@ -23,13 +23,15 @@ import "../global.css";
 import { Stack } from "expo-router";
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
+import * as SystemUI from 'expo-system-ui';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LogBox, Platform } from 'react-native';
-import { ThemeProvider } from '@/context/ThemeContext';
+import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { FarmFilterProvider } from '@/context/FarmFilterContext';
 import { AniBotFAB } from '@/components/AniBotFAB';
+import { ThemeProvider as NavigationThemeProvider, DefaultTheme, DarkTheme } from '@react-navigation/native';
 
 // Silence non-critical deprecation and third-party package warnings
 LogBox.ignoreLogs([
@@ -39,6 +41,54 @@ LogBox.ignoreLogs([
 ]);
 
 SplashScreen.preventAutoHideAsync();
+
+function RootNavigator() {
+  const { colors, isDark } = useTheme();
+
+  const baseTheme = isDark ? DarkTheme : DefaultTheme;
+
+  const navigationTheme = {
+    ...baseTheme,
+    colors: {
+      ...baseTheme.colors,
+      background: colors.bgLight,
+      card: colors.surface,
+      text: colors.text,
+      border: colors.stroke,
+      primary: colors.primary,
+      notification: colors.error,
+    },
+  };
+
+  useEffect(() => {
+    // Set root background color to prevent white flickers on web and native
+    SystemUI.setBackgroundColorAsync(colors.bgLight);
+  }, [colors.bgLight]);
+
+  return (
+    <NavigationThemeProvider value={navigationTheme}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgLight } }}>
+        {/* Main nav screens — instant switch, no slide */}
+        <Stack.Screen name="(dashboard)/HomeScreen" options={{ animation: 'none' }} />
+        <Stack.Screen name="(dashboard)/VetDashboardScreen" options={{ animation: 'none' }} />
+        <Stack.Screen name="(devices)/DevicesScreen" options={{ animation: 'none' }} />
+        <Stack.Screen name="(animals)/AnimalsScreen" options={{ animation: 'none' }} />
+        <Stack.Screen name="(animals)/HealthRecordsScreen" options={{ animation: 'none' }} />
+        <Stack.Screen name="(analytics)/AnalyticsScreen" options={{ animation: 'none' }} />
+        <Stack.Screen name="(guide)/GuideScreen" options={{ animation: 'none' }} />
+        <Stack.Screen name="(ai)/AIAssistantScreen" />
+        <Stack.Screen name="(auth)/LoginScreen" />
+        <Stack.Screen name="(auth)/RegisterScreen" />
+        <Stack.Screen name="(auth)/ForgotPasswordScreen" />
+        <Stack.Screen name="(auth)/ResetPasswordScreen" />
+        <Stack.Screen name="(auth)/SetupAccountScreen" />
+        <Stack.Screen name="(settings)/PrivacyPolicyScreen" />
+        <Stack.Screen name="(auth)/TermsOfServiceScreen" />
+        <Stack.Screen name="(auth)/MFAChallengeScreen" />
+      </Stack>
+    </NavigationThemeProvider>
+  );
+}
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
@@ -64,24 +114,7 @@ export default function RootLayout() {
       <ThemeProvider>
         <AuthProvider>
           <FarmFilterProvider>
-            <Stack screenOptions={{ headerShown: false }}>
-              {/* Main nav screens — instant switch, no slide */}
-              <Stack.Screen name="(dashboard)/HomeScreen" options={{ animation: 'none' }} />
-              <Stack.Screen name="(devices)/DevicesScreen" options={{ animation: 'none' }} />
-              <Stack.Screen name="(animals)/AnimalsScreen" options={{ animation: 'none' }} />
-              <Stack.Screen name="(animals)/HealthRecordsScreen" options={{ animation: 'none' }} />
-              <Stack.Screen name="(analytics)/AnalyticsScreen" options={{ animation: 'none' }} />
-              <Stack.Screen name="(guide)/GuideScreen" options={{ animation: 'none' }} />
-              <Stack.Screen name="(ai)/AIAssistantScreen" />
-              <Stack.Screen name="(auth)/LoginScreen" />
-              <Stack.Screen name="(auth)/RegisterScreen" />
-              <Stack.Screen name="(auth)/ForgotPasswordScreen" />
-              <Stack.Screen name="(auth)/ResetPasswordScreen" />
-              <Stack.Screen name="(auth)/SetupAccountScreen" />
-              <Stack.Screen name="(settings)/PrivacyPolicyScreen" />
-              <Stack.Screen name="(auth)/TermsOfServiceScreen" />
-              <Stack.Screen name="(auth)/MFAChallengeScreen" />
-            </Stack>
+            <RootNavigator />
             <AniBotFAB />
           </FarmFilterProvider>
         </AuthProvider>

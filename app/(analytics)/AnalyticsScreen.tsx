@@ -12,7 +12,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
-import { ProfileDrawer } from '@/components/ProfileDrawer';
+import { Header } from '@/components/Header';
 
 export default function AnalyticsScreen() {
     const { profile } = useAuth();
@@ -24,7 +24,6 @@ export default function AnalyticsScreen() {
     const router = useRouter();
 
     const [animalFilter, setAnimalFilter] = useState<'Pigs' | 'Chickens'>('Pigs');
-    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
     const menuItems = [
         {
@@ -47,7 +46,7 @@ export default function AnalyticsScreen() {
         },
         {
             title: 'Prediction Forecast Report',
-            description: 'AI-driven projections estimating harvest dates and long-term costs based on active data.',
+            description: 'AI-driven projections estimating harvest dates and growth trajectories based on your active farm data.',
             icon: 'insights' as React.ComponentProps<typeof MaterialIcons>['name'],
             route: '/(analytics)/PredictionReportScreen',
         },
@@ -56,26 +55,7 @@ export default function AnalyticsScreen() {
     return (
         <SafeAreaView style={styles.safeArea}>
             <View style={styles.container}>
-                <View style={styles.headerTopRow}>
-                    <View style={styles.headerTitleRow}>
-                        <TouchableOpacity
-                            style={{ marginRight: 8, padding: 4 }}
-                            onPress={() => setProfileDrawerOpen(true)}
-                            activeOpacity={0.8}
-                        >
-                            <MaterialIcons name="menu" size={24} color={colors.text} />
-                        </TouchableOpacity>
-                        <Image
-                            source={require('../../assets/branding/anigrow_logo.svg')}
-                            style={{ width: 36, height: 36, marginRight: 10 }}
-                            contentFit="contain"
-                        />
-                        <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
-                            Ani-Grow
-                        </Text>
-                    </View>
-                    <View style={{ width: 40, height: 40 }} />
-                </View>
+                <Header />
 
                 <View style={{ paddingBottom: 16 }}>
                     <View style={styles.headerContainer}>
@@ -142,11 +122,6 @@ export default function AnalyticsScreen() {
                 </ScrollView>
             </View>
             <FloatingNavBar />
-            <ProfileDrawer
-                visible={profileDrawerOpen}
-                onClose={() => setProfileDrawerOpen(false)}
-                activeFarmName={farmName}
-            />
         </SafeAreaView>
     );
 }

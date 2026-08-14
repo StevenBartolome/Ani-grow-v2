@@ -20,8 +20,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useHomeStyles } from '@/styles/homeStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { AnimalIcon } from '@/components/AnimalIcon';
-import { FarmSwitcherDrawer } from '@/components/FarmSwitcherDrawer';
-import { ProfileDrawer } from '@/components/ProfileDrawer';
+import { Header } from '@/components/Header';
 import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -80,7 +79,7 @@ function timeAgo(date: Date | null): string {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
-    const { profile, hasPermission, refreshProfile } = useAuth();
+    const { profile, hasPermission, refreshProfile, role } = useAuth();
     const homeStyles = useHomeStyles();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
@@ -100,7 +99,7 @@ export default function HomeScreen() {
     } = useFarmFilter();
 
     // ── State ─────────────────────────────────────────────────────────────────
-    const [farmName, setFarmName]           = useState('your farm');
+    const [farmName, setFarmName]           = useState('');
     const [farmBreakdown, setFarmBreakdown] = useState<FarmBreakdown[]>([]);
     const [totalAnimals, setTotalAnimals]   = useState(0);
     const [animalSplit, setAnimalSplit]     = useState({ pigs: 0, chickens: 0 });
@@ -115,8 +114,6 @@ export default function HomeScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-    const [switcherOpen, setSwitcherOpen]   = useState(false);
-    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchStats = useCallback(async () => {
@@ -259,9 +256,14 @@ export default function HomeScreen() {
             const hasFarm = profile.farmId || (profile as any).farm_id;
             if (!hasFarm) {
                 router.replace('/(auth)/SetupAccountScreen');
+                return;
+            }
+            // Vets get their own dedicated dashboard
+            if (role === 'veterinarian') {
+                router.replace('/(dashboard)/VetDashboardScreen' as any);
             }
         }
-    }, [profile, router]);
+    }, [profile, role, router]);
 
     useEffect(() => {
         if (activeFarmIds.length > 0) fetchStats();
@@ -564,62 +566,7 @@ export default function HomeScreen() {
             <View style={homeStyles.container}>
 
                 {/* ── Header ─────────────────────────────────────────────────── */}
-                <View style={homeStyles.header}>
-                    <View style={homeStyles.headerLeft}>
-                        <TouchableOpacity
-                            style={[homeStyles.profileIcon, { marginRight: 10, width: 36, height: 36, backgroundColor: 'transparent' }]}
-                            onPress={() => setProfileDrawerOpen(true)}
-                            activeOpacity={0.8}
-                        >
-                            <MaterialIcons name="menu" size={24} color={colors.text} />
-                        </TouchableOpacity>
-                        <Image
-                            source={require('../../assets/branding/anigrow_logo.svg')}
-                            style={homeStyles.logo}
-                            contentFit="contain"
-                        />
-                        <View>
-                            <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
-                                Ani-Grow
-                            </Text>
-                            <TouchableOpacity
-                                onPress={() => isMultiFarm && setSwitcherOpen(true)}
-                                disabled={!isMultiFarm}
-                                activeOpacity={0.62}
-                                style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 1 }}
-                            >
-                                <Text translate={false} style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
-                                    {farmName}
-                                </Text>
-                                {isMultiFarm && (
-                                    <MaterialIcons name="arrow-drop-down" size={16} color={colors.textGrey} />
-                                )}
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                    <View style={homeStyles.headerRight}>
-                        <TouchableOpacity
-                            style={homeStyles.iconButton}
-                            onPress={() => router.push('/(dashboard)/NotificationScreen' as any)}
-                        >
-                            <View style={{ position: 'relative' }}>
-                                <MaterialIcons name="notifications" size={24} color={colors.icon} />
-                                {unreadNotifCount > 0 && (
-                                    <View style={{
-                                        position: 'absolute', top: -3, right: -3,
-                                        backgroundColor: '#EF4444', minWidth: 16, height: 16,
-                                        borderRadius: 8, justifyContent: 'center', alignItems: 'center',
-                                        paddingHorizontal: 3, borderWidth: 2, borderColor: colors.surface,
-                                    }}>
-                                        <Text style={{ color: '#FFF', fontSize: 9, fontFamily: 'Poppins-Bold' }}>
-                                            {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
-                                        </Text>
-                                    </View>
-                                )}
-                            </View>
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                <Header />
 
                 {/* ── Scroll Content ──────────────────────────────────────────── */}
                 <ScrollView
@@ -768,7 +715,7 @@ export default function HomeScreen() {
                             <>
                                 <Text style={[homeStyles.sectionTitle, { color: colors.text, marginTop: 8 }]}>Quick Actions</Text>
                                 <View style={[homeStyles.quickActionsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
-                                    <View style={[homeStyles.quickActionRow, { gap: 4 }]}>
+                                    <View style={homeStyles.quickActionRow}>
                                         {filteredQuickActions.map(item => (
                                             <Pressable
                                                 key={item.label}
@@ -786,7 +733,7 @@ export default function HomeScreen() {
                                                         <MaterialIcons name={item.icon as any} size={24} color={item.color} />
                                                     )}
                                                 </View>
-                                                <Text style={[textStyles.label, { color: colors.text, marginTop: 8, fontSize: 11 }]}>
+                                                <Text style={[textStyles.label, { color: colors.text, marginTop: 8, fontSize: 11, textAlign: 'center' }]}>
                                                     {item.label}
                                                 </Text>
                                             </Pressable>
@@ -1018,12 +965,6 @@ export default function HomeScreen() {
             </View>
 
             <FloatingNavBar />
-            <FarmSwitcherDrawer visible={switcherOpen} onClose={() => setSwitcherOpen(false)} />
-            <ProfileDrawer
-                visible={profileDrawerOpen}
-                onClose={() => setProfileDrawerOpen(false)}
-                activeFarmName={farmName}
-            />
         </SafeAreaView>
     );
 }

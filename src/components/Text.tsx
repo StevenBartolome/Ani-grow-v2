@@ -2,18 +2,87 @@ import React, { useState, useEffect } from 'react';
 import { Text as RNText, TextProps } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { queueTranslation } from '@/lib/translator';
+import { useAuth } from '@/context/AuthContext';
 
-async function translateNode(node: React.ReactNode, language: string): Promise<React.ReactNode> {
+function shouldSkipTranslation(text: string, profile: any): boolean {
+  const trimmed = text.trim();
+  const lowerText = trimmed.toLowerCase();
+
+  // 1. Skip brand names and default device setup Wi-Fi SSIDs
+  const brandKeywords = [
+    'anifeed',
+    'aniweigh',
+    'anibot',
+    'ani-grow',
+    'anigrow',
+    'aniweigh_setup',
+    'anifeed_setup'
+  ];
+  if (brandKeywords.some(keyword => lowerText.includes(keyword))) {
+    return true;
+  }
+
+  // 2. Skip email addresses, usernames, URLs, and phone numbers
+  if (
+    lowerText.includes('@') || 
+    lowerText.includes('http://') ||
+    lowerText.includes('https://') ||
+    lowerText.includes('www.') ||
+    /^\+?[0-9\s\-()]{7,}$/.test(trimmed)
+  ) {
+    return true;
+  }
+
+  // 3. Skip user's farm name, user proper names, or username
+  if (profile) {
+    const farmName = (profile.farm_name || profile.farmName || '').trim();
+    const firstName = (profile.first_name || profile.firstName || '').trim();
+    const lastName = (profile.last_name || profile.lastName || '').trim();
+    const username = (profile.username || '').trim();
+
+    if (farmName && (lowerText === farmName.toLowerCase() || lowerText.includes(farmName.toLowerCase()))) {
+      return true;
+    }
+    if (firstName && lowerText === firstName.toLowerCase()) {
+      return true;
+    }
+    if (lastName && lowerText === lastName.toLowerCase()) {
+      return true;
+    }
+    if (username && (lowerText === username.toLowerCase() || lowerText === `@${username.toLowerCase()}`)) {
+      return true;
+    }
+  }
+
+  // 4. Skip IDs, custom codes, Wi-Fi keys, and hex/UUID strings
+  if (
+    /^agr-[a-z0-9]{6}$/i.test(trimmed) || 
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) || 
+    /^[a-z0-9]+_[a-z0-9]+$/i.test(trimmed) || 
+    /^[A-Z0-9_]{4,20}$/.test(trimmed)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+async function translateNode(node: React.ReactNode, language: string, profile: any): Promise<React.ReactNode> {
   if (language === 'en') return node;
 
   if (typeof node === 'string') {
     const trimmed = node.trim();
     if (!trimmed || trimmed.length < 2 || /^\d[\d\s,.:%-]*$/.test(trimmed)) return node;
+    
+    if (shouldSkipTranslation(node, profile)) {
+      return node;
+    }
+    
     return queueTranslation(node, language);
   }
 
   if (Array.isArray(node)) {
-    const parts = await Promise.all(node.map((n) => translateNode(n, language)));
+    const parts = await Promise.all(node.map((n) => translateNode(n, language, profile)));
     return parts;
   }
 
@@ -24,8 +93,17 @@ interface CustomTextProps extends TextProps {
   translate?: boolean;
 }
 
-export function Text({ children, translate = true, ...props }: CustomTextProps) {
+export function Text({ children, translate = true, style, ...props }: CustomTextProps) {
   const { language } = useTheme();
+  
+  let authContext: any = null;
+  try {
+    authContext = useAuth();
+  } catch (e) {
+    // AuthProvider not loaded/ready yet (e.g. initial setup)
+  }
+  const profile = authContext?.profile;
+
   const [translatedChildren, setTranslatedChildren] = useState<React.ReactNode>(children);
 
   useEffect(() => {
@@ -34,11 +112,11 @@ export function Text({ children, translate = true, ...props }: CustomTextProps) 
       return;
     }
     let active = true;
-    translateNode(children, language).then((result) => {
+    translateNode(children, language, profile).then((result) => {
       if (active) setTranslatedChildren(result);
     });
     return () => { active = false; };
-  }, [children, language, translate]);
+  }, [children, language, translate, profile]);
 
-  return <RNText {...props}>{translatedChildren}</RNText>;
+  return <RNText style={[{ flexShrink: 1 }, style]} {...props}>{translatedChildren}</RNText>;
 }

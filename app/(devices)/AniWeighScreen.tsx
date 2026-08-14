@@ -18,13 +18,14 @@ import { useAniWeighStyles } from '@/styles/aniweighStyles';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { supabase } from '@/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface DeviceInfo {
     name: string;
     status: string;
     housingId: string | null;
     housingName: string;
-    animalType: 'Pig' | 'Chicken';
+    animalType: 'Pig' | 'Piglet' | 'Chicken' | 'Chicks (with caution: must be in crate)';
 }
 
 interface WeightThreshold {
@@ -80,6 +81,34 @@ function getFormattedDate(): string {
     return `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
 }
 
+function calculateBatchAge(arrivalDateStr: string, ageAtArrivalDays: number, animalType: 'Chicken' | 'Pig') {
+    if (!arrivalDateStr) return '0 days';
+    const arrivalDate = new Date(arrivalDateStr);
+    const today = new Date();
+    arrivalDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+
+    const diffTime = today.getTime() - arrivalDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const ageDays = Math.max(0, diffDays) + (ageAtArrivalDays || 0);
+
+    if (animalType === 'Chicken') {
+        return `${ageDays} ${ageDays === 1 ? 'day' : 'days'}`;
+    } else {
+        if (ageDays < 30) {
+            return `${ageDays} ${ageDays === 1 ? 'day' : 'days'}`;
+        } else {
+            const months = Math.floor(ageDays / 30);
+            const remainingDays = ageDays % 30;
+            if (remainingDays === 0) {
+                return `${months} ${months === 1 ? 'month' : 'months'} (${ageDays} days)`;
+            } else {
+                return `${months} ${months === 1 ? 'month' : 'months'}, ${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} (${ageDays} days)`;
+            }
+        }
+    }
+}
+
 export default function AniWeighScreen() {
     const { systemConfig, profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
@@ -88,8 +117,9 @@ export default function AniWeighScreen() {
     const textStyles = useTextStyles();
     const aniweighStyles = useAniWeighStyles();
     const router = useRouter();
-    const params = useLocalSearchParams<{ deviceId?: string }>();
+    const params = useLocalSearchParams<{ deviceId?: string; status?: string }>();
     const deviceId = params.deviceId ?? '';
+    const initialStatus = params.status;
 
     if (systemConfig?.featureFlags && !systemConfig.featureFlags.weighingEnabled) {
         return (
@@ -108,7 +138,7 @@ export default function AniWeighScreen() {
 
     // ─── State ───────────────────────────────────────────────────
     const [isLoading, setIsLoading] = useState(true);
-    const [isConnected, setIsConnected] = useState(true);
+    const [isConnected, setIsConnected] = useState(initialStatus ? initialStatus === 'online' : false);
     const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
     // Ref so realtime callback always has the latest deviceInfo without stale closure
     const deviceInfoRef = useRef<DeviceInfo | null>(null);
@@ -127,7 +157,7 @@ export default function AniWeighScreen() {
 
     // Edit modal
     const [editModalVisible, setEditModalVisible] = useState(false);
-    const [editTarget, setEditTarget] = useState<'Animal Type' | 'Housing' | null>(null);
+    const [editTarget, setEditTarget] = useState<'Animal Type' | 'Housing' | 'Batch' | null>(null);
 
     // Action modal
     const [modalVisible, setModalVisible] = useState(false);
@@ -141,10 +171,14 @@ export default function AniWeighScreen() {
     const [snackbarMessage, setSnackbarMessage] = useState('');
     const [snackbarType, setSnackbarType] = useState<SnackbarType>('success');
 
-    // Live reading (from Supabase Realtime / simulator)
+    const [deviceUniqueCode, setDeviceUniqueCode] = useState('');
+
+    // Live reading (from Supabase Realtime)
     const [liveWeightG, setLiveWeightG] = useState<number | null>(null);
     const [liveStatus, setLiveStatus] = useState<'underweight' | 'normal' | 'overweight' | null>(null);
     const [liveFlash, setLiveFlash] = useState(false);
+    const [housingBatches, setHousingBatches] = useState<{ id: string; name: string; current_count: number; arrival_date: string; age_at_arrival_days: number }[]>([]);
+    const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
 
     const showSnackbar = (msg: string, type: SnackbarType = 'success') => {
         setSnackbarMessage(msg); setSnackbarType(type); setSnackbarVisible(true);
@@ -155,11 +189,20 @@ export default function AniWeighScreen() {
         if (!deviceId) return;
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
-        const { data } = await supabase
+        
+        let query = supabase
             .from('weigh_sessions')
             .select('status')
             .eq('device_id', deviceId)
             .gte('recorded_at', todayStart.toISOString());
+
+        if (selectedBatchId) {
+            query = query.eq('batch_id', selectedBatchId);
+        } else {
+            query = query.is('batch_id', null);
+        }
+
+        const { data } = await query;
         if (data) {
             const rows = data as any[];
             const total = rows.length;
@@ -169,7 +212,7 @@ export default function AniWeighScreen() {
             const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0;
             setSegregationStats({ total, underweight: { count: under, percentage: pct(under) }, normal: { count: normal, percentage: pct(normal) }, overweight: { count: over, percentage: pct(over) } });
         }
-    }, [deviceId]);
+    }, [deviceId, selectedBatchId]);
 
     // ─── Fetch ───────────────────────────────────────────────────
     const fetchAll = useCallback(async (silent = false) => {
@@ -179,10 +222,22 @@ export default function AniWeighScreen() {
             const todayStart = new Date();
             todayStart.setHours(0, 0, 0, 0);
 
+            let todayStatsQuery = supabase
+                .from('weigh_sessions')
+                .select('status')
+                .eq('device_id', deviceId)
+                .gte('recorded_at', todayStart.toISOString());
+
+            if (selectedBatchId) {
+                todayStatsQuery = todayStatsQuery.eq('batch_id', selectedBatchId);
+            } else {
+                todayStatsQuery = todayStatsQuery.is('batch_id', null);
+            }
+
             const [deviceResult, housingsResult, todayStatsResult] = await Promise.all([
                 supabase
                     .from('devices')
-                    .select('id, name, status, housing_id, housings(name, animal_type)')
+                    .select('id, name, unique_code, status, housing_id, housings(name, animal_type)')
                     .eq('id', deviceId)
                     .single(),
                 supabase
@@ -190,15 +245,12 @@ export default function AniWeighScreen() {
                     .select('id, name, animal_type')
                     .eq('farm_id', farmId)
                     .eq('status', 'Active'),
-                supabase
-                    .from('weigh_sessions')
-                    .select('status')
-                    .eq('device_id', deviceId)
-                    .gte('recorded_at', todayStart.toISOString()),
+                todayStatsQuery,
             ]);
 
             if (deviceResult.data) {
                 const d = deviceResult.data as any;
+                if (d.unique_code) setDeviceUniqueCode(d.unique_code);
                 const info: DeviceInfo = {
                     name: d.name,
                     status: d.status,
@@ -206,9 +258,39 @@ export default function AniWeighScreen() {
                     housingName: d.housings?.name ?? 'Unassigned',
                     animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
                 };
+
+                const tempType = await AsyncStorage.getItem(`temp_animal_type_${deviceId}`);
+                if (tempType === 'Pig' || tempType === 'Piglet' || tempType === 'Chicken' || tempType === 'Chicks (with caution: must be in crate)') {
+                    info.animalType = tempType;
+                }
+
                 setDeviceInfo(info);
                 deviceInfoRef.current = info;   // keep ref in sync
                 setIsConnected(d.status === 'online');
+
+                // Fetch batches for this housing if assigned
+                if (info.housingId) {
+                    const { data: batchesData } = await supabase
+                        .from('batches')
+                        .select('id, name, current_count, arrival_date, age_at_arrival_days')
+                        .eq('housing_id', info.housingId)
+                        .eq('status', 'active')
+                        .order('created_at', { ascending: false });
+                    
+                    if (batchesData) {
+                        setHousingBatches(batchesData as any[]);
+                        setSelectedBatchId(prev => {
+                            const stillExists = (batchesData as any[]).some(b => b.id === prev);
+                            return stillExists ? prev : (batchesData[0]?.id ?? null);
+                        });
+                    } else {
+                        setHousingBatches([]);
+                        setSelectedBatchId(null);
+                    }
+                } else {
+                    setHousingBatches([]);
+                    setSelectedBatchId(null);
+                }
 
                 // Fetch weight threshold for this device + animal type
                 const { data: threshData } = await supabase
@@ -229,13 +311,21 @@ export default function AniWeighScreen() {
                     setTempRangeUnit('kg');
                 }
 
-                // Fetch recent sessions for this device only
-                const { data: logsData } = await supabase
+                // Fetch recent sessions for this device and selected batch
+                let logsQuery = supabase
                     .from('weigh_sessions')
                     .select('id, net_weight_grams, status, animal_type, recorded_at')
                     .eq('device_id', deviceId)
                     .order('recorded_at', { ascending: false })
                     .limit(3);
+
+                if (selectedBatchId) {
+                    logsQuery = logsQuery.eq('batch_id', selectedBatchId);
+                } else {
+                    logsQuery = logsQuery.is('batch_id', null);
+                }
+
+                const { data: logsData } = await logsQuery;
 
                 if (logsData) {
                     setWeightLogs((logsData as any[]).map(s => ({
@@ -268,7 +358,7 @@ export default function AniWeighScreen() {
         } finally {
             if (!silent) setIsLoading(false);
         }
-    }, [deviceId, farmId]);
+    }, [deviceId, farmId, selectedBatchId]);
 
     useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -279,18 +369,29 @@ export default function AniWeighScreen() {
     useEffect(() => {
         if (!deviceId) return;
 
-        // Seed initial live value from most recent record
-        supabase
+        // Seed initial live value from most recent record for the selected batch
+        let seedQuery = supabase
             .from('weigh_sessions')
             .select('net_weight_grams, status')
             .eq('device_id', deviceId)
             .order('recorded_at', { ascending: false })
-            .limit(1)
-            .single()
+            .limit(1);
+
+        if (selectedBatchId) {
+            seedQuery = seedQuery.eq('batch_id', selectedBatchId);
+        } else {
+            seedQuery = seedQuery.is('batch_id', null);
+        }
+
+        seedQuery
+            .maybeSingle()
             .then(({ data }) => {
                 if (data) {
                     setLiveWeightG((data as any).net_weight_grams);
                     setLiveStatus((data as any).status);
+                } else {
+                    setLiveWeightG(null);
+                    setLiveStatus(null);
                 }
             });
 
@@ -300,7 +401,16 @@ export default function AniWeighScreen() {
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'weigh_sessions', filter: `device_id=eq.${deviceId}` },
                 (payload) => {
+                    console.log('[AniWeigh Realtime] INSERT received:', payload.new);
                     const row = payload.new as any;
+
+                    // Filter: only handle events that match the selected batch.
+                    // Use loose equality so null===null works correctly, and so
+                    // a freshly-inserted row with a batch is not silently dropped
+                    // when selectedBatchId hasn't resolved yet from the seed query.
+                    const rowBatch = row.batch_id ?? null;
+                    const uiBatch  = selectedBatchId ?? null;
+                    if (rowBatch !== uiBatch && uiBatch !== null) return;
 
                     // 1. Update live-scale display immediately
                     setLiveWeightG(row.net_weight_grams);
@@ -332,16 +442,18 @@ export default function AniWeighScreen() {
                     fetchStats();
                 }
             )
-            .subscribe();
+            .subscribe((status) => {
+                console.log('[AniWeigh Realtime] channel status:', status);
+            });
 
         return () => { supabase.removeChannel(channel); };
-    }, [deviceId, fetchStats]);
+    }, [deviceId, fetchStats, selectedBatchId]);
 
     // ─── Derived values ──────────────────────────────────────────
     const animalType = deviceInfo?.animalType ?? 'Chicken';
     const housing    = deviceInfo?.housingName ?? 'Unassigned';
-    const animalColor = animalType === 'Pig' ? colors.pig : colors.chicken;
-    const isPigMode = animalType === 'Pig';
+    const isPigMode = animalType === 'Pig' || animalType === 'Piglet';
+    const animalColor = isPigMode ? colors.pig : colors.chicken;
 
     const numUnder = threshold ? threshold.underweightMaxGrams / 1000 : 0.8;
     const numOver  = threshold ? threshold.overweightMinGrams / 1000  : 1.5;
@@ -380,6 +492,7 @@ export default function AniWeighScreen() {
             const h = farmHousings.find(h => h.name === pendingEditVal);
             if (h) {
                 await supabase.from('devices').update({ housing_id: h.id }).eq('id', deviceId);
+                await AsyncStorage.removeItem(`temp_animal_type_${deviceId}`);
                 setDeviceInfo(prev => {
                     const updated = prev ? { ...prev, housingId: h.id, housingName: h.name, animalType: h.animal_type === 'pig' ? 'Pig' : 'Chicken' } as DeviceInfo : null;
                     deviceInfoRef.current = updated;
@@ -400,6 +513,102 @@ export default function AniWeighScreen() {
         setTempOverweight(oVal);
         setTempRangeUnit(rangeUnit);
         setRangeSettingsVisible(true);
+    };
+
+    const syncThresholdToDevice = async (uniqueCode: string, underKg: number, overKg: number) => {
+        if (!uniqueCode) return;
+        const urls = [
+            `http://anigrow-${uniqueCode}.local/threshold?under=${underKg}&over=${overKg}`,
+            `http://192.168.4.1/threshold?under=${underKg}&over=${overKg}`
+        ];
+        let success = false;
+        for (const url of urls) {
+            try {
+                console.log(`[ThresholdSync] Sending to: ${url}`);
+                const res = await Promise.race([
+                    fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
+                ]);
+                if (res.ok) {
+                    success = true;
+                    console.log(`[ThresholdSync] Success from: ${url}`);
+                    break;
+                }
+            } catch (e) {
+                console.warn(`[ThresholdSync] Failed for ${url}:`, e);
+            }
+        }
+        if (success) {
+            showSnackbar(`Weight range synchronized with physical device.`);
+        } else {
+            showSnackbar(`Weight range updated on cloud. Reconnect to device hotspot or local WiFi to synchronize.`, 'info');
+        }
+    };
+
+    const syncModeToDevice = async (uniqueCode: string, mode: string) => {
+        if (!uniqueCode) return;
+        const urls = [
+            `http://anigrow-${uniqueCode}.local/mode?mode=${mode}`,
+            `http://192.168.4.1/mode?mode=${mode}`
+        ];
+        let success = false;
+        for (const url of urls) {
+            try {
+                console.log(`[ModeSync] Sending to: ${url}`);
+                const res = await Promise.race([
+                    fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
+                ]);
+                if (res.ok) {
+                    success = true;
+                    console.log(`[ModeSync] Success from: ${url}`);
+                    break;
+                }
+            } catch (e) {
+                console.warn(`[ModeSync] Failed for ${url}:`, e);
+            }
+        }
+        if (success) {
+            showSnackbar(`Scale sorting mode synchronized to: ${mode}`);
+        } else {
+            showSnackbar(`Scale mode updated on cloud. Reconnect to device hotspot or local WiFi to synchronize.`, 'info');
+        }
+    };
+
+    const [isTaring, setIsTaring] = useState(false);
+    const handleTareDevice = async () => {
+        if (!deviceUniqueCode) {
+            showSnackbar('Device code not found.', 'error');
+            return;
+        }
+        setIsTaring(true);
+        const urls = [
+            `http://anigrow-${deviceUniqueCode}.local/tare`,
+            `http://192.168.4.1/tare`
+        ];
+        let success = false;
+        for (const url of urls) {
+            try {
+                console.log(`[Tare] Sending to: ${url}`);
+                const res = await Promise.race([
+                    fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
+                ]);
+                if (res.ok) {
+                    success = true;
+                    console.log(`[Tare] Success from: ${url}`);
+                    break;
+                }
+            } catch (e) {
+                console.warn(`[Tare] Failed for ${url}:`, e);
+            }
+        }
+        setIsTaring(false);
+        if (success) {
+            showSnackbar('Scale tared successfully.');
+        } else {
+            showSnackbar('Failed to tare device. Make sure you are on the same WiFi or connected to the device hotspot.', 'error');
+        }
     };
 
     const handleSaveRanges = async () => {
@@ -424,47 +633,87 @@ export default function AniWeighScreen() {
         };
         try {
             if (threshold?.id) {
-                await supabase.from('weight_thresholds').update(payload).eq('id', threshold.id);
+                const { error } = await supabase.from('weight_thresholds').update(payload).eq('id', threshold.id);
+                if (error) throw error;
                 setThreshold(prev => prev ? { ...prev, underweightMaxGrams: underGrams, normalMinGrams: underGrams + 1, normalMaxGrams: overGrams - 1, overweightMinGrams: overGrams } : null);
             } else {
-                const { data } = await supabase.from('weight_thresholds').insert(payload).select('id').single();
+                const { data, error } = await supabase.from('weight_thresholds').insert(payload).select('id').single();
+                if (error) throw error;
                 setThreshold({ id: (data as any)?.id ?? null, underweightMaxGrams: underGrams, normalMinGrams: underGrams + 1, normalMaxGrams: overGrams - 1, overweightMinGrams: overGrams });
             }
             setRangeUnit(tempRangeUnit);
             setRangeSettingsVisible(false);
             showSnackbar(`Weight range updated (${tempRangeUnit}).`);
-        } catch {
+
+            // Synchronize with physical device (underGrams and overGrams divided by 1000 as board uses kg)
+            const underKg = underGrams / 1000;
+            const overKg = overGrams / 1000;
+            await syncThresholdToDevice(deviceUniqueCode, underKg, overKg);
+        } catch (err) {
+            console.error('[handleSaveRanges] error:', err);
             showSnackbar('Failed to save weight range.', 'error');
         }
     };
 
-    // ─── Edit modal (Housing / Animal Type) ─────────────────────
-    const openEditModal = (target: 'Animal Type' | 'Housing') => {
+    // ─── Edit modal (Housing / Animal Type / Batch) ─────────────────────
+    const openEditModal = (target: 'Animal Type' | 'Housing' | 'Batch') => {
         setEditTarget(target);
         setEditModalVisible(true);
     };
 
     const getEditOptions = (): string[] => {
-        if (editTarget === 'Animal Type') return ['Pig', 'Chicken'];
+        if (editTarget === 'Animal Type') {
+            return ['Pig', 'Piglet', 'Chicken', 'Chicks (with caution: must be in crate)'];
+        }
         if (editTarget === 'Housing') {
+            const searchType = (animalType === 'Pig' || animalType === 'Piglet') ? 'pig' : 'chicken';
             return farmHousings
-                .filter(h => h.animal_type === animalType.toLowerCase())
+                .filter(h => h.animal_type === searchType)
                 .map(h => h.name);
+        }
+        if (editTarget === 'Batch') {
+            return housingBatches.map(b => b.name);
         }
         return [];
     };
 
-    const handleEditConfirm = (val: string) => {
+    const handleEditConfirm = async (val: string) => {
         setEditModalVisible(false);
-        if (editTarget === 'Animal Type') {
-            // Selecting animal type → show housings of that type for the user to pick
-            showSnackbar(`Change the Housing to a ${val} housing to switch type.`, 'info');
-        } else if (editTarget === 'Housing') {
-            setPendingEditVal(val);
-            setModalType('confirmation');
-            setModalTitle(`Update Housing?`);
-            setModalMessage(`Change this device's housing to "${val}"?`);
-            setModalVisible(true);
+        try {
+            if (editTarget === 'Animal Type') {
+                const selectedType = val as 'Pig' | 'Piglet' | 'Chicken' | 'Chicks (with caution: must be in crate)';
+                
+                await AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
+                setDeviceInfo(prev => {
+                    const updated = prev ? { ...prev, animalType: selectedType } as DeviceInfo : null;
+                    deviceInfoRef.current = updated;
+                    return updated;
+                });
+                showSnackbar(`Category set to ${selectedType}.`);
+
+                // Map category selection to Board sequences
+                let modeCode = "PIGLET";
+                if (selectedType === 'Pig') modeCode = "PIG";
+                else if (selectedType === 'Piglet') modeCode = "PIGLET";
+                else if (selectedType === 'Chicken') modeCode = "CHICKEN";
+                else if (selectedType === 'Chicks (with caution: must be in crate)') modeCode = "CHICK";
+
+                await syncModeToDevice(deviceUniqueCode, modeCode);
+            } else if (editTarget === 'Housing') {
+                setPendingEditVal(val);
+                setModalType('confirmation');
+                setModalTitle(`Update Housing?`);
+                setModalMessage(`Change this device's housing to "${val}"?`);
+                setModalVisible(true);
+            } else if (editTarget === 'Batch') {
+                const selected = housingBatches.find(b => b.name === val);
+                if (selected) {
+                    setSelectedBatchId(selected.id);
+                    showSnackbar(`Active batch set to "${selected.name}".`);
+                }
+            }
+        } catch (err) {
+            showSnackbar(`Failed to update ${editTarget}.`, 'error');
         }
     };
 
@@ -496,8 +745,30 @@ export default function AniWeighScreen() {
                 </View>
                 <View style={aniweighStyles.headerActions}>
                     <TouchableOpacity
-                        style={[aniweighStyles.actionButton, { backgroundColor: isConnected ? colors.primary + '1A' : colors.surface, borderWidth: isConnected ? 0 : 1.5, borderColor: isConnected ? 'transparent' : colors.stroke }]}
-                        onPress={handleConnectionToggle}
+                        disabled={isLoading}
+                        style={[
+                            aniweighStyles.actionButton,
+                            {
+                                backgroundColor: isConnected ? colors.primary + '1A' : colors.surface,
+                                borderWidth: isConnected ? 0 : 1.5,
+                                borderColor: isConnected ? 'transparent' : colors.stroke,
+                                opacity: isLoading ? 0.5 : 1
+                            }
+                        ]}
+                        onPress={() => {
+                            if (isConnected) {
+                                // Online — prompt to disconnect
+                                setModalType('confirmation');
+                                setModalTitle('Disconnect AniWeigh?');
+                                setModalMessage(`This will take "${deviceInfo?.name}" offline. You can reconnect it anytime by tapping the cloud icon.`);
+                                setModalVisible(true);
+                            } else {
+                                // Offline — go to provisioning
+                                router.push(
+                                    `/(devices)/AddDeviceScreen?existingDeviceId=${deviceId}&existingDeviceName=${encodeURIComponent(deviceInfo?.name ?? '')}&existingDeviceType=AniWeigh&existingDeviceCode=${encodeURIComponent(deviceUniqueCode)}` as any
+                                );
+                            }
+                        }}
                     >
                         <MaterialIcons name={isConnected ? 'cloud-done' : 'cloud-off'} size={20} color={isConnected ? colors.primary : colors.textGrey} />
                     </TouchableOpacity>
@@ -547,7 +818,7 @@ export default function AniWeighScreen() {
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
                             <View style={[aniweighStyles.tagsContainer, { marginTop: 0 }]}>
                                 <TouchableOpacity style={[aniweighStyles.tag, { backgroundColor: animalColor + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Animal Type')}>
-                                    <AnimalIcon type={animalType as any} size={14} color={animalColor} />
+                                    <AnimalIcon type={isPigMode ? 'Pig' : 'Chicken'} size={14} color={animalColor} />
                                     <Text style={[textStyles.label, { color: animalColor, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{animalType}</Text>
                                     <MaterialIcons name="arrow-drop-down" size={16} color={animalColor} />
                                 </TouchableOpacity>
@@ -556,6 +827,15 @@ export default function AniWeighScreen() {
                                     <Text style={[textStyles.label, { color: colors.info, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{housing}</Text>
                                     <MaterialIcons name="arrow-drop-down" size={16} color={colors.info} />
                                 </TouchableOpacity>
+                                {deviceInfo?.housingId && (
+                                    <TouchableOpacity style={[aniweighStyles.tag, { backgroundColor: colors.warning + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Batch')}>
+                                        <MaterialIcons name="layers" size={14} color={colors.warning} />
+                                        <Text style={[textStyles.label, { color: colors.warning, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>
+                                            {housingBatches.find(b => b.id === selectedBatchId)?.name ?? 'No Batch'}
+                                        </Text>
+                                        <MaterialIcons name="arrow-drop-down" size={16} color={colors.warning} />
+                                    </TouchableOpacity>
+                                )}
                             </View>
                         </ScrollView>
                     </View>
@@ -639,7 +919,7 @@ export default function AniWeighScreen() {
                         }}
                     />
 
-                    {/* Live Scaling (IoT placeholder) */}
+                    {/* Live Scaling */}
                     <View style={aniweighStyles.liveSection}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                             <Text style={[textStyles.h3, { color: colors.text, fontSize: 18 }]}>Live Scaling</Text>
@@ -696,8 +976,103 @@ export default function AniWeighScreen() {
                                     </Text>
                                 </View>
                             </View>
+                            <TouchableOpacity
+                                style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    backgroundColor: colors.primary + '10',
+                                    borderWidth: 1.5,
+                                    borderColor: colors.primary + '30',
+                                    borderRadius: 9999,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 24,
+                                    marginTop: 24,
+                                    width: '100%',
+                                }}
+                                activeOpacity={0.75}
+                                onPress={handleTareDevice}
+                                disabled={isTaring}
+                            >
+                                {isTaring ? (
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                ) : (
+                                    <>
+                                        <MaterialIcons name="restart-alt" size={18} color={colors.primary} style={{ marginRight: 8 }} />
+                                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 14, fontWeight: '700' }]}>
+                                            Tare Scale
+                                        </Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
                         </View>
                     </View>
+
+                    {/* Active Batches in House */}
+                    {deviceInfo?.housingId && (
+                        <View style={{ marginBottom: 24 }}>
+                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 18, marginBottom: 12 }]}>Active Batches in House</Text>
+                            
+                            {housingBatches.length === 0 ? (
+                                <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 18, alignItems: 'center' }}>
+                                    <MaterialIcons name="layers-clear" size={32} color={colors.textGrey} />
+                                    <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 8, fontSize: 13, textAlign: 'center' }]}>
+                                        No active batches found in this housing.
+                                    </Text>
+                                </View>
+                            ) : (
+                                housingBatches.map((batch, idx) => {
+                                    const ageLabel = calculateBatchAge(batch.arrival_date, batch.age_at_arrival_days, animalType as any);
+                                    return (
+                                        <View
+                                            key={batch.id ?? idx}
+                                            style={{
+                                                backgroundColor: colors.surface,
+                                                borderRadius: 16,
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                                padding: 16,
+                                                marginBottom: 10,
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                            }}
+                                        >
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
+                                                <View style={{
+                                                    width: 40,
+                                                    height: 40,
+                                                    borderRadius: 10,
+                                                    backgroundColor: colors.primary + '1A',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    marginRight: 12,
+                                                }}>
+                                                    <MaterialIcons name="layers" size={20} color={colors.primary} />
+                                                </View>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]} numberOfLines={1}>
+                                                        {batch.name}
+                                                    </Text>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2 }]}>
+                                                        Age: {ageLabel}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                            <View style={{ alignItems: 'flex-end' }}>
+                                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
+                                                    {batch.current_count}
+                                                </Text>
+                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>
+                                                    heads
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    );
+                                })
+                            )}
+                        </View>
+                    )}
 
                     {/* Recent Logs */}
                     <View style={aniweighStyles.logsSection}>

@@ -39,12 +39,14 @@ const getCategoryKeyword = (cat: string): string => {
     if (c.includes('pre-starter')) return 'pre-starter';
     if (c.includes('booster')) return 'booster';
     if (c.includes('starter')) return 'starter';
+    if (c.includes('piglet')) return 'piglet';
     if (c.includes('grower')) return 'grower';
     if (c.includes('finisher')) return 'finisher';
     if (c.includes('layer')) return 'layer';
     if (c.includes('breeder')) return 'breeder';
     if (c.includes('gestating')) return 'gestating';
     if (c.includes('lactating')) return 'lactating';
+    if (c.includes('chick crate') || c.includes('chick')) return 'chick';
     return '';
 };
 

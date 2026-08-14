@@ -52,6 +52,7 @@ export const COMMON_CATEGORIES: CategoryOption[] = [
     { name: 'Booster', animalType: 'pig' },
     { name: 'Pre-Starter', animalType: 'pig' },
     { name: 'Starter', animalType: 'pig' },
+    { name: 'Piglet', animalType: 'pig' },
     { name: 'Grower', animalType: 'pig' },
     { name: 'Finisher', animalType: 'pig' },
     { name: 'Gestating', animalType: 'pig' },
@@ -60,6 +61,7 @@ export const COMMON_CATEGORIES: CategoryOption[] = [
     // Chickens (Manok)
     { name: 'Chick Booster', animalType: 'chicken' },
     { name: 'Chick Starter', animalType: 'chicken' },
+    { name: 'Chick Crate', animalType: 'chicken' },
     { name: 'Grower', animalType: 'chicken' },
     { name: 'Finisher', animalType: 'chicken' },
     { name: 'Layer Mash', animalType: 'chicken' },

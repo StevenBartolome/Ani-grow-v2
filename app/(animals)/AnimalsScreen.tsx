@@ -11,7 +11,7 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnimalStyles } from '@/styles/animalStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
-import { ProfileDrawer } from '@/components/ProfileDrawer';
+import { Header } from '@/components/Header';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
@@ -23,6 +23,8 @@ interface HousingSummary {
     current_count: number;
     capacity: number;
     active_batch_name: string | null;
+    active_batch_arrival_date: string | null;
+    active_batch_age_at_arrival_days: number;
 }
 
 const ANIMAL_IMAGES: Record<string, any> = {
@@ -53,18 +55,48 @@ export default function AnimalsScreen() {
 
     const [housings, setHousings] = useState<HousingSummary[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
-    const fetchHousings = useCallback(async () => {
+    const calculateAge = (arrivalDateStr: string | null, ageAtArrivalDays: number, animalType: 'chicken' | 'pig') => {
+        if (!arrivalDateStr) return '';
+        const arrivalDate = new Date(arrivalDateStr);
+        const today = new Date();
+        arrivalDate.setHours(0,0,0,0);
+        today.setHours(0,0,0,0);
+        
+        const diffTime = today.getTime() - arrivalDate.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        const ageDays = Math.max(0, diffDays) + (ageAtArrivalDays || 0);
+
+        if (animalType === 'chicken') {
+            return `${ageDays} ${ageDays === 1 ? 'day' : 'days'}`;
+        } else {
+            if (ageDays < 30) {
+                return `${ageDays} ${ageDays === 1 ? 'day' : 'days'}`;
+            } else {
+                const months = Math.floor(ageDays / 30);
+                const remainingDays = ageDays % 30;
+                if (remainingDays === 0) {
+                    return `${months} ${months === 1 ? 'month' : 'months'} (${ageDays} days)`;
+                } else {
+                    return `${months} ${months === 1 ? 'month' : 'months'}, ${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} (${ageDays} days)`;
+                }
+            }
+        }
+    };
+
+    const [refreshing, setRefreshing] = useState(false);
+
+    const fetchHousings = useCallback(async (isRefresh = false) => {
         if (!farmId) { setIsLoading(false); return; }
-        setIsLoading(true);
+        if (isRefresh) setRefreshing(true);
+        else setIsLoading(true);
         try {
             // Fetch housings + their active batch (if any) in one query
             const { data, error } = await supabase
                 .from('housings')
                 .select(`
                     id, name, animal_type, current_count, capacity,
-                    batches(name, status)
+                    batches(id, name, status, current_count, arrival_date, age_at_arrival_days)
                 `)
                 .eq('farm_id', farmId)
                 .eq('status', 'Active')
@@ -72,19 +104,39 @@ export default function AnimalsScreen() {
 
             if (error) throw error;
 
-            const mapped: HousingSummary[] = (data ?? []).map((h: any) => ({
-                id: h.id,
-                name: h.name,
-                animal_type: h.animal_type,
-                current_count: h.current_count,
-                capacity: h.capacity,
-                active_batch_name: h.batches?.find((b: any) => b.status === 'active')?.name ?? null,
-            }));
+            const mapped: HousingSummary[] = (data ?? []).map((h: any) => {
+                const activeBatches = h.batches?.filter((b: any) => b.status === 'active') || [];
+                const expectedCount = activeBatches.reduce((sum: number, b: any) => sum + (b.current_count ?? 0), 0);
+                
+                let currentCount = h.current_count;
+                if (expectedCount !== h.current_count) {
+                    console.log(`[Self-Healing] Syncing housing ${h.name} (${h.id}) count from ${h.current_count} to ${expectedCount}`);
+                    supabase.from('housings')
+                        .update({ current_count: expectedCount })
+                        .eq('id', h.id)
+                        .then(({ error: uErr }) => {
+                            if (uErr) console.error(`[Self-Healing] Failed to update housing ${h.id}:`, uErr.message);
+                        });
+                    currentCount = expectedCount;
+                }
+
+                return {
+                    id: h.id,
+                    name: h.name,
+                    animal_type: h.animal_type,
+                    current_count: currentCount,
+                    capacity: h.capacity,
+                    active_batch_name: activeBatches[0]?.name ?? null,
+                    active_batch_arrival_date: activeBatches[0]?.arrival_date ?? null,
+                    active_batch_age_at_arrival_days: activeBatches[0]?.age_at_arrival_days ?? 0,
+                };
+            });
             setHousings(mapped);
         } catch (err) {
             console.error('[AnimalsScreen] fetch error:', err);
         } finally {
-            setIsLoading(false);
+            if (isRefresh) setRefreshing(false);
+            else setIsLoading(false);
         }
     }, [farmId]);
 
@@ -137,26 +189,7 @@ export default function AnimalsScreen() {
         <SafeAreaView style={styles.safeArea}>
             <View style={styles.container}>
                 {/* Header */}
-                <View style={styles.headerTopRow}>
-                    <View style={styles.headerTitleRow}>
-                        <TouchableOpacity
-                            style={{ marginRight: 8, padding: 4 }}
-                            onPress={() => setProfileDrawerOpen(true)}
-                            activeOpacity={0.8}
-                        >
-                            <MaterialIcons name="menu" size={24} color={colors.text} />
-                        </TouchableOpacity>
-                        <Image
-                            source={require('../../assets/branding/anigrow_logo.svg')}
-                            style={{ width: 36, height: 36, marginRight: 10 }}
-                            contentFit="contain"
-                        />
-                        <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, lineHeight: 24 }]}>
-                            Ani-Grow
-                        </Text>
-                    </View>
-                    <View style={{ width: 40, height: 40 }} />
-                </View>
+                <Header />
 
                 <View style={styles.headerContainer}>
                     <View style={styles.headerTextContainer}>
@@ -173,14 +206,14 @@ export default function AnimalsScreen() {
                     showsVerticalScrollIndicator={false}
                     refreshControl={
                         <RefreshControl
-                            refreshing={isLoading}
-                            onRefresh={fetchHousings}
+                            refreshing={refreshing}
+                            onRefresh={() => fetchHousings(true)}
                             colors={[colors.primary]}
                             tintColor={colors.primary}
                         />
                     }
                 >
-                    <View style={[styles.sectionTitleRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                    <View style={[styles.sectionTitleRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }]}>
                         <View>
                             <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Housings</Text>
                             <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
@@ -281,12 +314,7 @@ export default function AnimalsScreen() {
                                                         {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
                                                     </Text>
                                                 </Text>
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                                                    Active batch:{' '}
-                                                    <Text style={{ color: housing.active_batch_name ? colors.text : colors.textGrey, fontFamily: 'Poppins-SemiBold' }}>
-                                                        {housing.active_batch_name ?? '—'}
-                                                    </Text>
-                                                </Text>
+
                                                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                                                     <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
                                                         <Text style={{ color: accent, fontSize: 11, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }}>
@@ -310,11 +338,6 @@ export default function AnimalsScreen() {
             </View>
 
             <FloatingNavBar />
-            <ProfileDrawer
-                visible={profileDrawerOpen}
-                onClose={() => setProfileDrawerOpen(false)}
-                activeFarmName={farmName}
-            />
         </SafeAreaView>
     );
 }

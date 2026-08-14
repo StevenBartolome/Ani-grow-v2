@@ -55,9 +55,9 @@ async function callEdgeFunction(body: Record<string, any>): Promise<any> {
  * Fetch a single AI-generated insight for the given farm data context.
  * Results are cached in memory — same context = no extra API call.
  */
-export async function getInsight(context: AIInsightContext): Promise<string> {
+export async function getInsight(context: AIInsightContext, bypassCache = false): Promise<string> {
   const cacheKey = JSON.stringify(context);
-  if (insightCache.has(cacheKey)) return insightCache.get(cacheKey)!;
+  if (!bypassCache && insightCache.has(cacheKey)) return insightCache.get(cacheKey)!;
   const data = await callEdgeFunction({ type: 'insight', context });
   const result = data?.result ?? '';
   insightCache.set(cacheKey, result);

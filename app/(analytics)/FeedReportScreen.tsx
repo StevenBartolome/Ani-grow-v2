@@ -54,7 +54,6 @@ export default function FeedReportScreen() {
         category: string;
         feedName: string;
         consumption: number;
-        costPerKg: number;
     }[]>([]);
     const [timeframe, setTimeframe] = useState<'This Week' | 'This Month'>('This Week');
     const [isLoading, setIsLoading] = useState(true);
@@ -152,7 +151,6 @@ export default function FeedReportScreen() {
                 category: string;
                 feedName: string;
                 consumption: number;
-                costPerKg: number;
             }>();
 
             (data || []).forEach((record: any) => {
@@ -162,20 +160,6 @@ export default function FeedReportScreen() {
 
                 const categoryName = feed?.category || 'General';
                 const brandName = feed ? (feed.brand ? `${feed.name} (${feed.brand})` : feed.name) : 'Unknown Feed';
-                
-                // Map cost based on category or name
-                let cost = 40.00;
-                const lowerCategory = categoryName.toLowerCase();
-                const lowerBrand = brandName.toLowerCase();
-                if (lowerCategory.includes('booster') || lowerBrand.includes('booster') || lowerCategory.includes('pre-starter') || lowerBrand.includes('pre-starter')) {
-                    cost = 45.00;
-                } else if (lowerCategory.includes('starter') || lowerBrand.includes('starter')) {
-                    cost = 42.00;
-                } else if (lowerCategory.includes('grower') || lowerBrand.includes('grower')) {
-                    cost = 38.00;
-                } else if (lowerCategory.includes('finisher') || lowerBrand.includes('finisher')) {
-                    cost = 36.00;
-                }
 
                 const key = `${categoryName}-${brandName}`;
                 if (groupedMap.has(key)) {
@@ -186,7 +170,6 @@ export default function FeedReportScreen() {
                         category: categoryName,
                         feedName: brandName,
                         consumption: kg,
-                        costPerKg: cost,
                     });
                 }
             });
@@ -286,11 +269,6 @@ export default function FeedReportScreen() {
     };
 
     const totalConsumption = reportData.reduce((sum, item) => sum + item.consumption, 0);
-    const totalCost = reportData.reduce((sum, item) => sum + (item.consumption * item.costPerKg), 0);
-
-    const formatCurrency = (amount: number) => {
-        return amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    };
 
     const housingsOptions = filteredHousings.map(h => h.name);
     const selectedHousingOptionStr = selectedHousing ? selectedHousing.name : 'No House Selected';
@@ -303,18 +281,8 @@ export default function FeedReportScreen() {
         const sorted = [...reportData].sort((a, b) => b.consumption - a.consumption);
         const topFeed = sorted[0];
         const pct = totalConsumption > 0 ? Math.round((topFeed.consumption / totalConsumption) * 100) : 0;
-        
-        return `${selectedHousing?.name ?? 'This house'} has consumed a total of ${totalConsumption.toFixed(1)} kg of feed. The primary feed was ${topFeed.feedName} (${topFeed.category}), accounting for ${pct}% of overall intake.`;
-    };
 
-    const getCostAnalysis = () => {
-        if (reportData.length === 0) {
-            return "No cost logs available because there are no feed records for this timeframe.";
-        }
-        const sortedByCost = [...reportData].sort((a, b) => b.costPerKg - a.costPerKg);
-        const mostExpensive = sortedByCost[0];
-        
-        return `Overall feeding cost in ${selectedHousing?.name ?? 'this house'} is ₱${formatCurrency(totalCost)}. The premium feed used is ${mostExpensive.feedName} at ₱${mostExpensive.costPerKg.toFixed(2)}/kg. Strategic feeding based on growth category helps optimize conversion ratios.`;
+        return `${selectedHousing?.name ?? 'This house'} has consumed a total of ${totalConsumption.toFixed(1)} kg of feed. The primary feed was ${topFeed.feedName} (${topFeed.category}), accounting for ${pct}% of overall intake.`;
     };
 
     return (
@@ -569,71 +537,10 @@ export default function FeedReportScreen() {
                             </View>
                         </View>
 
-                        <AIInsightCard 
+                        <AIInsightCard
                             title="AniBot Analysis"
                             staticContent={getBotAnalysis()}
                             variant="green"
-                        />
-
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, marginTop: 16, marginBottom: 16 }]}>Feed Cost</Text>
-
-                        {/* Cost Table container */}
-                        <View style={{
-                            backgroundColor: colors.surface,
-                            borderRadius: 16,
-                            borderWidth: 1,
-                            borderColor: colors.stroke,
-                            marginBottom: 24,
-                            shadowColor: colors.shadow,
-                            shadowOffset: { width: 0, height: 4 },
-                            shadowOpacity: 0.1,
-                            shadowRadius: 10,
-                            elevation: 2,
-                            overflow: 'hidden'
-                        }}>
-                            <View style={{ flexDirection: 'row', backgroundColor: colors.inputFill, padding: 16, borderBottomWidth: 1, borderBottomColor: colors.stroke }}>
-                                <Text style={[textStyles.h3, { flex: 2, color: colors.text, fontSize: 13 }]}>Category</Text>
-                                <Text style={[textStyles.h3, { flex: 1, textAlign: 'right', color: colors.text, fontSize: 13 }]}>Cost/kg</Text>
-                                <Text style={[textStyles.h3, { flex: 1, textAlign: 'right', color: colors.text, fontSize: 13 }]}>Total</Text>
-                            </View>
-                            
-                            {reportData.map((data, idx) => (
-                                <View key={idx} style={{ 
-                                    flexDirection: 'row', 
-                                    padding: 16, 
-                                    borderBottomWidth: idx < reportData.length - 1 ? 1 : 0, 
-                                    borderBottomColor: colors.stroke,
-                                    alignItems: 'center'
-                                }}>
-                                    <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
-                                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: getCategoryColor(data.category), marginRight: 12 }} />
-                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 13 }]} numberOfLines={1}>{data.category}</Text>
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={[textStyles.label, { textAlign: 'right', color: colors.textGrey, fontSize: 13 }]}>
-                                            ₱{data.costPerKg.toFixed(0)}
-                                        </Text>
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={[textStyles.h3, { textAlign: 'right', color: colors.text, fontSize: 13 }]}>
-                                            ₱{formatCurrency(data.consumption * data.costPerKg)}
-                                        </Text>
-                                    </View>
-                                </View>
-                            ))}
-
-                            <View style={{ flexDirection: 'row', backgroundColor: colors.inputFill, padding: 16, borderTopWidth: 1, borderTopColor: colors.stroke }}>
-                                <Text style={[textStyles.h3, { flex: 2, color: colors.text }]}>Overall Cost</Text>
-                                <Text style={[textStyles.h2, { flex: 2, textAlign: 'right', color: colors.warning, fontSize: 16 }]}>
-                                    ₱{formatCurrency(totalCost)}
-                                </Text>
-                            </View>
-                        </View>
-
-                        <AIInsightCard 
-                            title="Cost Efficiency"
-                            staticContent={getCostAnalysis()}
-                            variant="orange"
                         />
                     </>
                 )}

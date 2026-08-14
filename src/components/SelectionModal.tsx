@@ -144,12 +144,13 @@ export function SelectionModal({
                                         backgroundColor: (requireConfirm ? draftValue : selectedValue) === option ? colors.primary + '1A' : colors.surface,
                                         flexDirection: 'row',
                                         justifyContent: 'space-between',
-                                        alignItems: 'center'
+                                        alignItems: 'center',
+                                        gap: 12,
                                     }}
                                     onPress={() => handleOptionPress(option)}
                                 >
-                                    <Text style={[textStyles.body, { color: (requireConfirm ? draftValue : selectedValue) === option ? colors.primary : colors.text }]}>{option}</Text>
-                                    {(requireConfirm ? draftValue : selectedValue) === option && <MaterialIcons name="check" size={18} color={colors.primary} />}
+                                    <Text style={[textStyles.body, { color: (requireConfirm ? draftValue : selectedValue) === option ? colors.primary : colors.text, flex: 1 }]}>{option}</Text>
+                                    {(requireConfirm ? draftValue : selectedValue) === option && <MaterialIcons name="check" size={18} color={colors.primary} style={{ marginLeft: 4 }} />}
                                 </TouchableOpacity>
                             )) : (
                                 !enableOther && <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginVertical: 16 }]}>No results found.</Text>

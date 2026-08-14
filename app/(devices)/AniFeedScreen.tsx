@@ -19,6 +19,7 @@ import { useAniFeedStyles } from '@/styles/anifeedStyles';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { supabase } from '@/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface DeviceInfo {
     name: string;
@@ -121,7 +122,9 @@ export default function AniFeedScreen() {
     const textStyles = useTextStyles();
     const anifeedStyles = useAniFeedStyles();
     const router = useRouter();
-    const { deviceId } = useLocalSearchParams();
+    const params = useLocalSearchParams<{ deviceId?: string; status?: string }>();
+    const deviceId = params.deviceId ?? '';
+    const initialStatus = params.status;
 
     if (systemConfig?.featureFlags && !systemConfig.featureFlags.feedingEnabled) {
         return (
@@ -140,12 +143,14 @@ export default function AniFeedScreen() {
 
     // ─── Device + Schedule State ─────────────────────────────────
     const [isLoading, setIsLoading] = useState(true);
-    const [isConnected, setIsConnected] = useState(true);
+    const [isConnected, setIsConnected] = useState(initialStatus ? initialStatus === 'online' : false);
     const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
+    const [deviceUniqueCode, setDeviceUniqueCode] = useState('');
     const [schedule, setSchedule] = useState<FeedScheduleInfo | null>(null);
     const [dispenseLogs, setDispenseLogs] = useState<DispenseLogEntry[]>([]);
     const [lastDispensed, setLastDispensed] = useState<string | null>(null);
     const [liveTodayGrams, setLiveTodayGrams] = useState<number | null>(null);
+    const [liveTodayDispenseCount, setLiveTodayDispenseCount] = useState<number | null>(null);
     const [liveFlash, setLiveFlash] = useState(false);
 
     // Options for edit modals (fetched from farm)
@@ -165,9 +170,10 @@ export default function AniFeedScreen() {
     const [selectedMinute, setSelectedMinute] = useState(0);
     const [selectedAmPm, setSelectedAmPm] = useState<'AM' | 'PM'>('AM');
 
-    // Custom Simulation States
-    const [isSimulating, setIsSimulating] = useState(false);
-    const [simulationTimeLeft, setSimulationTimeLeft] = useState(5);
+    // Manual Dispense Modal
+    const [manualDispenseVisible, setManualDispenseVisible] = useState(false);
+    const [manualGrams, setManualGrams] = useState('');
+    const [isManualDispensing, setIsManualDispensing] = useState(false);
 
     // Edit field modal (Housing, Brand, AnimalType)
     const [editModalVisible, setEditModalVisible] = useState(false);
@@ -193,12 +199,14 @@ export default function AniFeedScreen() {
     // ─── Fetch ───────────────────────────────────────────────────
     const fetchAll = useCallback(async () => {
         if (!deviceId || !farmId) { setIsLoading(false); return; }
-        setIsLoading(true);
+        if (!deviceInfo) {
+            setIsLoading(true);
+        }
         try {
             const [deviceResult, scheduleResult, logsResult, housingsResult, feedsResult] = await Promise.all([
                 supabase
                     .from('devices')
-                    .select('id, name, status, housing_id, housings(name, animal_type)')
+                    .select('id, name, unique_code, status, housing_id, housings(name, animal_type)')
                     .eq('id', deviceId as string)
                     .single(),
                 supabase
@@ -210,7 +218,7 @@ export default function AniFeedScreen() {
                     .maybeSingle(),
                 supabase
                     .from('dispense_records')
-                    .select('id, grams_dispensed, status, dispensed_at')
+                    .select('id, grams_dispensed, status, dispensed_at, housing_id, housings(name)')
                     .eq('device_id', deviceId as string)
                     .order('dispensed_at', { ascending: false })
                     .limit(3),
@@ -227,13 +235,23 @@ export default function AniFeedScreen() {
 
             if (deviceResult.data) {
                 const d = deviceResult.data as any;
-                setDeviceInfo({
+                if (d.unique_code) setDeviceUniqueCode(d.unique_code);
+                const info: DeviceInfo = {
                     name: d.name,
                     status: d.status,
                     housingId: d.housing_id ?? null,
                     housingName: d.housings?.name ?? 'Unassigned',
                     animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
-                });
+                };
+
+                if (!info.housingId) {
+                    const tempType = await AsyncStorage.getItem(`temp_animal_type_${deviceId}`);
+                    if (tempType === 'Pig' || tempType === 'Chicken') {
+                        info.animalType = tempType;
+                    }
+                }
+
+                setDeviceInfo(info);
                 setIsConnected(d.status === 'online');
             }
 
@@ -256,14 +274,15 @@ export default function AniFeedScreen() {
             }
 
             if (logsResult.data && logsResult.data.length > 0) {
-                const housingName = (deviceResult.data as any)?.housings?.name ?? 'Unassigned';
                 const mapped: DispenseLogEntry[] = logsResult.data.map((r: any) => ({
                     id: r.id,
                     status: r.status,
                     amount: `${r.grams_dispensed}g`,
                     amountGrams: r.grams_dispensed,
                     timestamp: new Date(r.dispensed_at).getTime(),
-                    housingName,
+                    // Use the housing recorded on this specific dispense event,
+                    // NOT the device's current housing (which may have changed).
+                    housingName: (r.housings as any)?.name ?? 'Unassigned',
                 }));
                 setDispenseLogs(mapped);
                 setLastDispensed(`${formatLogTime(mapped[0].timestamp)} (${mapped[0].amount})`);
@@ -301,6 +320,7 @@ export default function AniFeedScreen() {
         if (data) {
             const total = (data as any[]).reduce((sum, r) => sum + (r.grams_dispensed || 0), 0);
             setLiveTodayGrams(total);
+            setLiveTodayDispenseCount(data.length);
         }
     }, [deviceId]);
 
@@ -314,6 +334,7 @@ export default function AniFeedScreen() {
                     const row = payload.new as any;
                     if (row.status === 'success') {
                         setLiveTodayGrams(prev => (prev ?? 0) + (row.grams_dispensed || 0));
+                        setLiveTodayDispenseCount(prev => (prev ?? 0) + 1);
                     }
                     setLiveFlash(true);
                     setTimeout(() => setLiveFlash(false), 600);
@@ -373,95 +394,83 @@ export default function AniFeedScreen() {
         }
     };
 
-    // ─── Simulation handler ─────────────────────────────────────────
-    const handleStartSimulation = async () => {
-        if (!schedule || !schedule.feedId) {
-            showSnackbar('Please configure a schedule and assign a feed first.', 'error');
+    // ─── Manual Dispense handler ────────────────────────────────────────
+    const handleOpenManualDispense = () => {
+        if (!schedule?.feedId) {
+            showSnackbar('Please configure a feed schedule first.', 'error');
             return;
         }
+        if (!deviceInfo?.housingId || deviceInfo.housingName === 'Unassigned') {
+            showSnackbar('Assign an animal type and housing first.', 'error');
+            return;
+        }
+        // Pre-fill with schedule amount
+        setManualGrams(String(schedule?.gramsPerDispense ?? 500));
+        setManualDispenseVisible(true);
+    };
 
+    const handleConfirmManualDispense = async () => {
+        const grams = parseInt(manualGrams, 10);
+        if (isNaN(grams) || grams < 1) {
+            showSnackbar('Enter a valid amount in grams.', 'error');
+            return;
+        }
+        if (!schedule?.feedId) {
+            showSnackbar('No feed assigned. Please configure a schedule first.', 'error');
+            return;
+        }
         if (schedule.feedStockKg === undefined || schedule.feedStockKg === null || schedule.feedStockKg <= 0) {
             showSnackbar('The assigned feed has no stock remaining.', 'error');
             return;
         }
-
-        const totalGrams = schedule.gramsPerDispense * schedule.timesPerDay;
-        const totalKg = totalGrams / 1000;
-
-        if (schedule.feedStockKg < totalKg) {
-            showSnackbar(`Insufficient stock. Need ${totalKg} kg, but only have ${schedule.feedStockKg} kg left.`, 'error');
+        const gramsAsKg = grams / 1000;
+        if (schedule.feedStockKg < gramsAsKg) {
+            showSnackbar(`Insufficient stock. Need ${gramsAsKg} kg, only ${schedule.feedStockKg} kg left.`, 'error');
             return;
         }
 
-        setIsSimulating(true);
-        setSimulationTimeLeft(5);
-
-        // Count down 5 seconds
-        const interval = setInterval(() => {
-            setSimulationTimeLeft(prev => {
-                if (prev <= 1) {
-                    clearInterval(interval);
-                    return 0;
-                }
-                return prev - 1;
-            });
-        }, 1000);
-
-        // Run simulation logic after 5 seconds
-        setTimeout(async () => {
-            try {
-                // Generate log entries for each scheduled time today
-                const recordsToInsert = (schedule.dispenseTimes ?? []).map(timeStr => {
-                    const [hours, minutes] = timeStr.split(':').map(Number);
-                    const dispenseAtDate = new Date();
-                    dispenseAtDate.setHours(hours, minutes, 0, 0);
-                    return {
-                        device_id: deviceId as string,
-                        farm_id: farmId,
-                        feed_id: schedule.feedId,
-                        housing_id: deviceInfo?.housingId ?? null,
-                        animal_type: deviceInfo?.animalType ? (deviceInfo.animalType.toLowerCase() as 'chicken' | 'pig') : null,
-                        grams_dispensed: schedule.gramsPerDispense,
-                        status: 'success' as const,
-                        triggered_by: 'schedule' as const,
-                        dispensed_at: dispenseAtDate.toISOString(),
-                    };
+        setIsManualDispensing(true);
+        try {
+            const now = new Date().toISOString();
+            const { error: insertError } = await supabase
+                .from('dispense_records')
+                .insert({
+                    device_id: deviceId as string,
+                    farm_id: farmId,
+                    feed_id: schedule.feedId,
+                    housing_id: deviceInfo?.housingId ?? null,
+                    animal_type: deviceInfo?.animalType
+                        ? (deviceInfo.animalType.toLowerCase() as 'chicken' | 'pig')
+                        : null,
+                    grams_dispensed: grams,
+                    status: 'success',
+                    triggered_by: 'manual',
+                    dispensed_at: now,
                 });
 
-                if (recordsToInsert.length > 0) {
-                    const { error: insertError } = await supabase
-                        .from('dispense_records')
-                        .insert(recordsToInsert);
-                    
-                    if (insertError) throw insertError;
-                }
+            if (insertError) throw insertError;
 
-                // Deduct from remaining feeds stock
-                const newStockKg = Math.max(0, schedule.feedStockKg! - totalKg);
-                
-                // Update feeds stock in DB
-                const { error: updateError } = await supabase
-                    .from('feeds')
-                    .update({ stock_kg: newStockKg })
-                    .eq('id', schedule.feedId);
+            // Deduct from feed stock
+            const newStockKg = Math.max(0, schedule.feedStockKg! - gramsAsKg);
+            const { error: updateError } = await supabase
+                .from('feeds')
+                .update({ stock_kg: newStockKg })
+                .eq('id', schedule.feedId);
 
-                if (updateError) throw updateError;
+            if (updateError) throw updateError;
 
-                // Update local state stock
-                setSchedule(prev => prev ? { ...prev, feedStockKg: newStockKg } : null);
+            setSchedule(prev => prev ? { ...prev, feedStockKg: newStockKg } : null);
+            setManualDispenseVisible(false);
+            showSnackbar(`Manually dispensed ${grams}g successfully!`, 'success');
 
-                showSnackbar(`Dispensed ${totalGrams}g successfully! Deducted ${totalKg} kg from feed stock.`, 'success');
-                
-                // Refresh records and screens
-                await fetchAll();
-                await fetchTodayTotal();
-            } catch (err: any) {
-                console.error('[Simulation Error]:', err);
-                showSnackbar('Simulation failed to log records.', 'error');
-            } finally {
-                setIsSimulating(false);
-            }
-        }, 5000);
+            await fetchAll();
+            await fetchTodayTotal();
+        } catch (err: any) {
+            console.error('[Manual Dispense Error]:', err);
+            showSnackbar('Failed to log manual dispense.', 'error');
+        } finally {
+            setIsManualDispensing(false);
+        }
     };
 
     // ─── Schedule save ────────────────────────────────────────────
@@ -576,12 +585,14 @@ export default function AniFeedScreen() {
                 const selectedType = val as 'Pig' | 'Chicken';
                 // Unassign housing when animal type changes — user must reassign manually
                 await supabase.from('devices').update({ housing_id: null }).eq('id', deviceId as string);
+                await AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
                 setDeviceInfo(prev => prev ? { ...prev, housingId: null, housingName: 'Unassigned', animalType: selectedType } : null);
                 showSnackbar(`Animal type set to ${selectedType}. Please reassign a housing.`);
             } else if (editTarget === 'Housing') {
                 const h = farmHousings.find(h => h.name === val);
                 if (!h) return;
                 await supabase.from('devices').update({ housing_id: h.id }).eq('id', deviceId as string);
+                await AsyncStorage.removeItem(`temp_animal_type_${deviceId}`);
                 setDeviceInfo(prev => prev ? { ...prev, housingId: h.id, housingName: h.name, animalType: h.animal_type === 'pig' ? 'Pig' : 'Chicken' } : null);
                 showSnackbar('Housing updated.');
             } else if (editTarget === 'Brand') {
@@ -660,8 +671,30 @@ export default function AniFeedScreen() {
                         <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 13 }]}>Manage Feeds</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                        style={[anifeedStyles.actionButton, { backgroundColor: isConnected ? colors.primary + '1A' : colors.surface, borderWidth: isConnected ? 0 : 1.5, borderColor: isConnected ? 'transparent' : colors.stroke }]}
-                        onPress={handleConnectionToggle}
+                        disabled={isLoading}
+                        style={[
+                            anifeedStyles.actionButton,
+                            {
+                                backgroundColor: isConnected ? colors.primary + '1A' : colors.surface,
+                                borderWidth: isConnected ? 0 : 1.5,
+                                borderColor: isConnected ? 'transparent' : colors.stroke,
+                                opacity: isLoading ? 0.5 : 1
+                            }
+                        ]}
+                        onPress={() => {
+                            if (isConnected) {
+                                // Online — prompt to disconnect
+                                setModalType('confirmation');
+                                setModalTitle('Disconnect AniFeed?');
+                                setModalMessage(`This will take "${deviceInfo?.name}" offline. You can reconnect it anytime by tapping the cloud icon.`);
+                                setModalVisible(true);
+                            } else {
+                                // Offline — go to provisioning
+                                router.push(
+                                    `/(devices)/AddDeviceScreen?existingDeviceId=${deviceId}&existingDeviceName=${encodeURIComponent(deviceInfo?.name ?? '')}&existingDeviceType=AniFeed&existingDeviceCode=${encodeURIComponent(deviceUniqueCode)}` as any
+                                );
+                            }
+                        }}
                     >
                         <MaterialIcons name={isConnected ? 'cloud-done' : 'cloud-off'} size={20} color={isConnected ? colors.primary : colors.textGrey} />
                     </TouchableOpacity>
@@ -717,54 +750,43 @@ export default function AniFeedScreen() {
                         </ScrollView>
                     </View>
 
-                    {/* Start Simulation Button */}
+                    {/* Manual Dispense */}
                     {(() => {
-                        const canSimulate = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isSimulating;
+                        const canManual = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isManualDispensing;
                         return (
                             <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8 }}>
                                 <TouchableOpacity
-                                    activeOpacity={canSimulate ? 0.8 : 1}
-                                    disabled={!canSimulate}
-                                    onPress={handleStartSimulation}
+                                    activeOpacity={canManual ? 0.8 : 1}
+                                    disabled={!canManual}
+                                    onPress={handleOpenManualDispense}
                                     style={{
                                         flexDirection: 'row',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        gap: 8,
+                                        gap: 6,
                                         paddingVertical: 13,
                                         borderRadius: 16,
-                                        backgroundColor: isSimulating 
-                                            ? colors.warning 
-                                            : canSimulate 
-                                            ? colors.secondary 
-                                            : colors.cardFill,
-                                        borderWidth: canSimulate || isSimulating ? 0 : 1,
+                                        backgroundColor: canManual ? colors.primary : colors.cardFill,
+                                        borderWidth: canManual ? 0 : 1,
                                         borderColor: colors.stroke,
-                                        opacity: canSimulate || isSimulating ? 1 : 0.55,
+                                        opacity: canManual ? 1 : 0.55,
                                     }}
                                 >
-                                    {isSimulating ? (
-                                        <ActivityIndicator size="small" color="#fff" />
-                                    ) : (
-                                        <MaterialIcons name="play-circle-filled" size={20} color={canSimulate ? colors.onPrimary : colors.textGrey} />
-                                    )}
-                                    <Text style={[textStyles.btnLabel, { color: canSimulate || isSimulating ? colors.onPrimary : colors.textGrey, fontSize: 14 }]}>
-                                        {isSimulating 
-                                            ? `Dispensing Feeds... (${simulationTimeLeft}s)` 
-                                            : 'Start Simulation'
-                                        }
+                                    <MaterialIcons name="food-bank" size={18} color={canManual ? colors.onPrimary : colors.textGrey} />
+                                    <Text style={[textStyles.btnLabel, { color: canManual ? colors.onPrimary : colors.textGrey, fontSize: 13 }]}>
+                                        Manual Dispense
                                     </Text>
                                 </TouchableOpacity>
-                                {!canSimulate && !isSimulating && (
+                                {!canManual && !isManualDispensing && (
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center', marginTop: 6 }]}>
-                                        Assign an animal type and housing to enable simulation.
+                                        Assign an animal type and housing to enable manual dispensing.
                                     </Text>
                                 )}
                             </View>
                         );
                     })()}
 
-                    {/* Feed Level (IoT placeholder) */}
+                    {/* Current Feed Level */}
                     <View style={anifeedStyles.liveSection}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                             <Text style={[textStyles.h3, { color: colors.text, fontSize: 18 }]}>Current Feed Level</Text>
@@ -922,6 +944,7 @@ export default function AniFeedScreen() {
                     {/* AI Feed Recommendations */}
                     <AIInsightCard
                         title="AI Feed Recommendations"
+                        forceFresh={true}
                         context={{
                             type: 'feed',
                             animalType: deviceInfo?.animalType ?? 'livestock',
@@ -931,6 +954,7 @@ export default function AniFeedScreen() {
                                 timesPerDay: schedule?.timesPerDay ?? null,
                                 gramsPerDispense: schedule?.gramsPerDispense ?? null,
                                 todayTotalGrams: liveTodayGrams ?? null,
+                                todayCompletedDispensesCount: liveTodayDispenseCount ?? null,
                                 recentDispenses: dispenseLogs.slice(0, 5).map(l => ({
                                     amountGrams: l.amountGrams,
                                     status: l.status,
@@ -1028,6 +1052,88 @@ export default function AniFeedScreen() {
                 onConfirm={handleModalConfirm}
                 onCancel={() => setModalVisible(false)}
             />
+
+            {/* Manual Dispense modal */}
+            <Modal visible={manualDispenseVisible} transparent animationType="fade" onRequestClose={() => !isManualDispensing && setManualDispenseVisible(false)}>
+                <View style={[anifeedStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
+                    <View style={[anifeedStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center' }]}>
+                        {/* Icon */}
+                        <View style={[anifeedStyles.iconContainer, { backgroundColor: colors.primary + '1A' }]}>
+                            <MaterialIcons name="food-bank" size={32} color={colors.primary} />
+                        </View>
+
+                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 6, fontSize: 20 }]}>Manual Dispense</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20, fontSize: 13 }]}>
+                            Logged instantly with the current time. Adjust the amount if needed.
+                        </Text>
+
+                        {/* Grams input */}
+                        <View style={{ width: '100%', marginBottom: 8 }}>
+                            <FloatingLabelInput
+                                label="Amount (grams)"
+                                icon="line-weight"
+                                value={manualGrams}
+                                keyboardType="numeric"
+                                onChangeText={t => setManualGrams(t.replace(/[^0-9]/g, ''))}
+                            />
+                        </View>
+
+                        {/* Feed stock hint */}
+                        {schedule?.feedStockKg !== undefined && schedule.feedStockKg !== null && (
+                            <Text style={[textStyles.body, { color: schedule.feedStockKg < 10 ? colors.error : colors.textGrey, fontSize: 12, marginBottom: 16, textAlign: 'center' }]}>
+                                Feed stock remaining: {schedule.feedStockKg} kg
+                            </Text>
+                        )}
+
+                        {/* Buttons */}
+                        <View style={{ flexDirection: 'row', gap: 10, width: '100%', marginTop: 8 }}>
+                            <TouchableOpacity
+                                onPress={() => setManualDispenseVisible(false)}
+                                disabled={isManualDispensing}
+                                style={{
+                                    flex: 1,
+                                    paddingVertical: 13,
+                                    borderRadius: 14,
+                                    alignItems: 'center',
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    backgroundColor: colors.cardFill,
+                                    opacity: isManualDispensing ? 0.5 : 1,
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 14 }]}>Cancel</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={handleConfirmManualDispense}
+                                disabled={isManualDispensing}
+                                style={{
+                                    flex: 1,
+                                    paddingVertical: 13,
+                                    borderRadius: 14,
+                                    alignItems: 'center',
+                                    flexDirection: 'row',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                    backgroundColor: colors.primary,
+                                    opacity: isManualDispensing ? 0.7 : 1,
+                                }}
+                                activeOpacity={0.8}
+                            >
+                                {isManualDispensing ? (
+                                    <ActivityIndicator size="small" color={colors.onPrimary} />
+                                ) : (
+                                    <MaterialIcons name="check" size={16} color={colors.onPrimary} />
+                                )}
+                                <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 14 }]}>
+                                    {isManualDispensing ? 'Logging...' : 'Dispense'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Schedule modal */}
             <Modal visible={scheduleModalVisible} transparent animationType="fade">

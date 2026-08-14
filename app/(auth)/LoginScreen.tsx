@@ -16,14 +16,13 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuthStyles } from '@/styles/authStyles';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const textStyles = useTextStyles();
   const authStyles = useAuthStyles();
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signIn } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -75,20 +74,6 @@ export default function LoginScreen() {
         return;
       }
       showSnackbar(error.message || 'Invalid email or password.', 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    setIsLoading(true);
-    try {
-      await signInWithGoogle();
-      // No need to show snackbar here as the app will automatically redirect once auth is complete
-    } catch (error: any) {
-      if (error.message !== 'canceled') {
-        showSnackbar(error.message || 'Google login failed.', 'error');
-      }
     } finally {
       setIsLoading(false);
     }
@@ -167,28 +152,6 @@ export default function LoginScreen() {
                 <Text style={[textStyles.btnLabel, authStyles.primaryButtonText]}>
                     {isLoading ? 'Logging in...' : 'Log In'}
                 </Text>
-              </TouchableOpacity>
-
-              {/* Divider */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 32 }}>
-                <View style={{ flex: 1, height: 1, backgroundColor: colors.stroke }} />
-                <Text style={[textStyles.label, { color: colors.textGrey, marginHorizontal: 16 }]}>Or login with</Text>
-                <View style={{ flex: 1, height: 1, backgroundColor: colors.stroke }} />
-              </View>
-
-              {/* Google Button */}
-              <TouchableOpacity
-                activeOpacity={0.8}
-                style={[authStyles.socialButton, isLoading && { opacity: 0.7 }]}
-                onPress={handleGoogleLogin}
-                disabled={isLoading}
-              >
-                <Image
-                  source={require('../../assets/branding/google_logo.svg')}
-                  style={{ width: 24, height: 24 }}
-                  contentFit="contain"
-                />
-                <Text style={authStyles.socialButtonText}>Continue with Google</Text>
               </TouchableOpacity>
 
               {/* Sign Up Link */}

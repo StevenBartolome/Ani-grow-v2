@@ -16,62 +16,317 @@ const CORS = {
 
 const ANIBOT_SYSTEM = `You are AniBot, the intelligent AI assistant built into AniGrow — a smart livestock farm management platform. You have full access to the farm database via tools and can do everything a farmer can do in the app:
 
-READ:
-• Farm overview, housings, devices
-• Animal batches with mortality stats
-• Health records (vaccinations, treatments, illness, deworming, vitamins, mortality)
-• Weight logs from AniWeigh scales
-• Feed dispense logs from AniFeed devices
-• Available feed inventory
+  READ:
+  • Farm overview, housings, devices
+  • Animal batches with mortality stats
+  • Health records (vaccinations, treatments, illness, deworming, vitamins, mortality)
+  • Weight logs from AniWeigh scales
+  • Feed dispense logs from AniFeed devices
+  • Available feed inventory
 
-WRITE (take action when the farmer asks):
-• Register new batch of animals into a housing
-• Add heads to an existing batch
-• Record deceased animals (with cause)
-• Update batch status (complete / archive)
-• Add health records
-• Create new housing
-• Update housing (rename, change capacity)
-• Delete housing
-• Create new feed type
-• Update feed info
+  WRITE (take action when the farmer asks):
+  • Register new batch of animals into a housing
+  • Add heads to an existing batch
+  • Record deceased animals (with cause)
+  • Update batch status (complete / archive)
+  • Add health records
+  • Create new housing
+  • Update housing (rename, change capacity)
+  • Delete housing
+  • Create new feed type
+  • Update feed info
 
-Rules:
-- Always call get_farm_overview first when you need IDs (housing, device, batch) before performing write actions.
-- Never guess IDs — always fetch them via tools.
-- After every write action, clearly confirm: "✅ Done — [what you did]".
-- If the user gives you all the details needed, proceed directly without asking again.
-- Be concise, friendly, and specific. Use metric units (kg, grams).
-- For destructive actions (delete housing), warn the user and confirm intent before proceeding.
+  Rules:
+  - Always call get_farm_overview first when you need IDs (housing, device, batch) before performing write actions.
+  - Never guess IDs — always fetch them via tools.
+  - After every write action, clearly confirm: "✅ Done — [what you did]".
+  - If the user gives you all the details needed, proceed directly without asking again.
+  - Be concise, friendly, and specific. Use metric units (kg, grams). Note that raw weight values in database logs (like net_weight_grams) are in grams, so you must divide by 1000 to get kg (e.g. 850 grams = 0.85 kg). Double-check your math and decimal points carefully so that a 0.85 kg weight is never written as 85 kg.
+  - For destructive actions (delete housing), warn the user and confirm intent before proceeding.
 
-VALIDATION — CRITICAL:
-- When a tool returns { validation_error: true }, STOP. Do NOT proceed with the action.
-- Explain the conflict clearly to the user (e.g. "That housing only has space for X more animals but you're adding Y").
-- Always present options and ask the user to choose. For example:
-  "⚠️ Pig Pen C has a capacity of 80 but already has 10 animals — only 70 spots remain, and you're trying to add 90.
-   What would you like to do?
-   1. Increase the housing capacity to fit 90 more (new total capacity: 100)
-   2. Adjust the batch count to 70 (maximum available space)
-   3. Cancel"
-- Wait for the user's choice before taking any further action.
-- Never register, add, or update anything that would exceed a housing's capacity without explicit user approval.
+  VALIDATION — CRITICAL:
+  - When a tool returns { validation_error: true }, STOP. Do NOT proceed with the action.
+  - Explain the conflict clearly to the user (e.g. "That housing only has space for X more animals but you're adding Y").
+  - Always present options and ask the user to choose. For example:
+    "⚠️ Pig Pen C has a capacity of 80 but already has 10 animals — only 70 spots remain, and you're trying to add 90.
+    What would you like to do?
+    1. Increase the housing capacity to fit 90 more (new total capacity: 100)
+    2. Adjust the batch count to 70 (maximum available space)
+    3. Cancel"
+  - Wait for the user's choice before taking any further action.
+  - Never register, add, or update anything that would exceed a housing's capacity without explicit user approval.
 
-Navigation hints — append up to 2 nav tags at the very end of your response (after the last sentence, nothing after the tags):
-[NAV:animals] — Animals list
-[NAV:animal_details:housingId=ID] — Specific animal housing
-[NAV:health_records:housingId=ID&batchId=ID] — Health records for a batch
-[NAV:health_records:housingId=ID] — Health records for a housing
-[NAV:weight_scale:deviceId=ID] — AniWeigh device screen
-[NAV:feed_device:deviceId=ID] — AniFeed device screen
-[NAV:weight_logs] — All weight logs
-[NAV:feed_records] — All feed records
-[NAV:devices] — Devices list
-[NAV:home] — Home dashboard
-[NAV:notifications] — Notifications
+  Navigation hints — append up to 2 nav tags at the very end of your response (after the last sentence, nothing after the tags):
+  [NAV:animals] — Animals list
+  [NAV:animal_details:housingId=ID] — Specific animal housing
+  [NAV:health_records:housingId=ID&batchId=ID] — Health records for a batch
+  [NAV:health_records:housingId=ID] — Health records for a housing
+  [NAV:weight_scale:deviceId=ID] — AniWeigh device screen
+  [NAV:feed_device:deviceId=ID] — AniFeed device screen
+  [NAV:weight_logs] — All weight logs
+  [NAV:feed_records] — All feed records
+  [NAV:devices] — Devices list
+  [NAV:home] — Home dashboard
+  [NAV:notifications] — Notifications
 
-Only append tags relevant to the response. Substitute real IDs from tool results — never write "ID" literally. Skip tags for general chat.`;
+  Only append tags relevant to the response. Substitute real IDs from tool results — never write "ID" literally. Skip tags for general chat.
 
-const INSIGHT_SYSTEM = `You are FarmAI, an intelligent agricultural assistant for AniGrow. Be concise, practical, and specific to the data provided. Use metric units (kg, grams). Avoid generic advice — always ground your response in the numbers given. Respond in 2-4 sentences of plain readable text. You may use bullet points (•) but no markdown headers. Be direct and actionable.`;
+  PIG CARE GUIDE — Age-Based Recommendations:
+  - Use get_pig_care_recommendations whenever a farmer asks about pig feeding, feed amount, supplements, medications, vitamins, dewormers, or vaccination schedule.
+  - First call get_animals to get the batch's arrival_date and age_at_arrival_days.
+  - Compute current age in days: age_at_arrival_days + Math.floor((Date.now() - new Date(arrival_date).getTime()) / 86400000)
+  - Then call get_pig_care_recommendations with the computed age_days.
+  - When presenting results: always show the current feed product + daily amount per pig, then list current/upcoming care actions (medication name, dosage, route, and purpose).
+  - If the farmer asks about a specific pen or batch, compute the exact age from that batch's data.`;
+
+const INSIGHT_SYSTEM = `You are FarmAI, an intelligent agricultural assistant for AniGrow.
+
+  Format your response in this EXACT structure — no deviations:
+
+  HEADLINE: [5-8 word summary of the current situation]
+  1. [First actionable recommendation — specific to the data, 1-2 sentences]
+  2. [Second actionable recommendation if applicable — 1-2 sentences]
+  3. [Third actionable recommendation if applicable — 1-2 sentences]
+
+  Rules:
+  - Always start with "HEADLINE:" on its own line
+  - Use numbered items (1., 2., 3.) for recommendations.
+  - You do not need to provide multiple numbered items if the advice is simple or short; providing just one recommendation is perfectly fine.
+  - Maximum 3 items
+  - Use metric units (kg, grams). Note that raw weight values in database logs (like net_weight_grams) are in grams, so you must divide by 1000 to get kg (e.g. 850 grams = 0.85 kg). Double-check your math and decimal points carefully so that a 0.85 kg weight is never written as 85 kg.
+  - Ground every point in the exact numbers provided — no generic advice
+  - No markdown headers, no extra text, no asterisks, no dashes
+  - Be direct and actionable`;
+
+// ─── Pig Care Guide Data ──────────────────────────────────────────────────────
+
+const PIG_FEEDING_STAGES = [
+  {
+    stage: 'Newborn',
+    days_start: 0, days_end: 4,
+    product: null,
+    amount_per_day: 'Colostrum only (sow milk)',
+    notes: 'Ensure all piglets nurse colostrum within the first 6 hours of birth.',
+  },
+  {
+    stage: 'Booster',
+    days_start: 5, days_end: 35,
+    product: 'Early Wean IMMUNOBOOSTER',
+    amount_per_day: '50–70 grams per piglet',
+    notes: 'Begin creep feeding to prepare piglets for weaning.',
+  },
+  {
+    stage: 'Pre-Starter',
+    days_start: 36, days_end: 60,
+    product: 'Early Wean SUPER START',
+    amount_per_day: '500–700 grams per pig',
+    notes: 'Transition feed immediately after weaning.',
+  },
+  {
+    stage: 'Starter',
+    days_start: 61, days_end: 90,
+    product: 'PIGROLAC Premium Hog Starter',
+    amount_per_day: '1.0–1.2 kg per pig',
+    notes: 'Switch when pigs reach approx. 18–20 kg body weight (around 2 months old).',
+  },
+  {
+    stage: 'Grower',
+    days_start: 91, days_end: 120,
+    product: 'PIGROLAC Premium Hog Grower',
+    amount_per_day: '1.7–2.0 kg per pig',
+    notes: '',
+  },
+  {
+    stage: 'Finisher',
+    days_start: 121, days_end: 9999,
+    product: 'PIGROLAC Premium Hog Finisher',
+    amount_per_day: '2.0–2.2 kg per pig',
+    notes: '',
+  },
+];
+
+// Special sow/breeder feeding guide (by pregnancy/lactation stage)
+const SOW_FEEDING_GUIDE = [
+  { stage: 'Flushing (pre-breeding)', product: 'Mama PRO Premium Developer', amount_per_day: '3.0–3.5 kg' },
+  { stage: 'Pregnancy Day 1–7', product: 'Mama PRO Premium Developer', amount_per_day: '2.0 kg' },
+  { stage: 'Pregnancy Day 8–90', product: 'Mama PRO Premium Developer', amount_per_day: '2.0–2.8 kg (feed to condition)' },
+  { stage: 'Pregnancy Day 91–100', product: 'Mama PRO Premium Developer', amount_per_day: '3.0 kg' },
+  { stage: 'Pregnancy Day 101–110', product: 'Mama PRO Premium Milkmaker', amount_per_day: '3.0 kg' },
+  { stage: '3 days before farrowing', product: 'Mama PRO Premium Milkmaker', amount_per_day: 'Gradually reduce to 0–0.5 kg on farrowing day' },
+  { stage: 'Lactation Day 1–3', product: 'Mama PRO Premium Milkmaker', amount_per_day: 'Start at 1 kg on day 1, gradually increase' },
+  { stage: 'Lactation Day 4 until weaning', product: 'Mama PRO Premium Milkmaker', amount_per_day: 'Ad libitum (unlimited)' },
+];
+
+const PIG_CARE_SCHEDULE = [
+  // ── Piglet (Days 1–33) ──────────────────────────────────────────────────────
+  {
+    day_start: 1, day_end: 3,
+    action: 'Newborn care tasks',
+    purpose: 'Basic care and hygiene',
+    medication: null,
+    dosage: null,
+    route: null,
+    tasks: 'Clean piglet, ensure colostrum intake, clip needle teeth, cut navel cord, dock tail',
+  },
+  {
+    day_start: 1, day_end: 3,
+    action: 'Diarrhea prevention',
+    purpose: 'Prevent scours/diarrhea in newborns',
+    medication: 'APRALYTE',
+    dosage: 'Mix 2 tbsp in 40 mL water; give 1 mL per piglet (or 1 mL/kg body weight if severe)',
+    route: 'Oral (drench)',
+  },
+  {
+    day_start: 3, day_end: 3,
+    action: 'Iron injection',
+    purpose: 'Prevent anemia and stunting; boost immunity',
+    medication: 'JECTRAN PREMIUM with ZINC',
+    dosage: '1 mL per piglet',
+    route: 'IM Injection',
+  },
+  {
+    day_start: 10, day_end: 10,
+    action: 'Growth boost injection',
+    purpose: 'Stimulate faster growth',
+    medication: 'BEXAN SP',
+    dosage: '1 mL per piglet',
+    route: 'IM Injection',
+  },
+  {
+    day_start: 10, day_end: 14,
+    action: 'Disease prevention + castration of boar piglets',
+    purpose: 'Strengthen immunity and prevent illness',
+    medication: 'VETRACIN PREMIUM',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+  {
+    day_start: 14, day_end: 14,
+    action: 'Iron booster shot',
+    purpose: 'Prevent anemia; strengthen immunity',
+    medication: 'JECTRAN PREMIUM with ZINC',
+    dosage: '1 mL per piglet',
+    route: 'IM Injection',
+  },
+  {
+    day_start: 21, day_end: 21,
+    action: 'Hog Cholera vaccination',
+    purpose: 'Protection against Hog Cholera (Classical Swine Fever)',
+    medication: 'COGLAPEST',
+    dosage: '2 mL per piglet',
+    route: 'Injection',
+  },
+  {
+    day_start: 23, day_end: 33,
+    action: 'Pre-weaning stress reduction',
+    purpose: 'Reduce weaning stress with probiotics, acidifiers, electrolytes, and enzymes',
+    medication: 'DIGESTIAIDE 4X',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+  {
+    day_start: 25, day_end: 25,
+    action: 'Pre-weaning growth booster',
+    purpose: 'Prepare piglets for weaning',
+    medication: 'BEXAN SP',
+    dosage: '1 mL per piglet',
+    route: 'IM Injection',
+  },
+  // ── Growing Pig (Days 35–120) ─────────────────────────────────────────────
+  {
+    day_start: 35, day_end: 35,
+    action: 'Deworming',
+    purpose: 'Remove intestinal worms that slow growth',
+    medication: 'LATIGO-1000',
+    dosage: '1 sachet per 10 piglets; mix in water or feed',
+    route: 'Oral / In-feed',
+  },
+  {
+    day_start: 36, day_end: 42,
+    action: 'Pneumonia prevention — pulse medication',
+    purpose: 'Prevent pneumonia outbreak',
+    medication: 'VETRACIN GOLD',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+  {
+    day_start: 42, day_end: 42,
+    action: 'Hog Cholera booster vaccination',
+    purpose: 'Booster shot for Hog Cholera',
+    medication: 'COGLAPEST',
+    dosage: '2 mL per head',
+    route: 'Injection',
+  },
+  {
+    day_start: 42, day_end: 42,
+    action: 'Diarrhea treatment',
+    purpose: 'Treatment for severe diarrhea',
+    medication: 'BACTERID',
+    dosage: '1 mL per 20 kg body weight',
+    route: 'Injection',
+    conditional: 'Only if symptoms of severe diarrhea are present',
+  },
+  {
+    day_start: 60, day_end: 60,
+    action: 'Growth boost injection',
+    purpose: 'Stimulate fast growth',
+    medication: 'BEXAN SP',
+    dosage: '3 mL per head',
+    route: 'IM Injection',
+  },
+  {
+    day_start: 60, day_end: 60,
+    action: 'Pneumonia treatment',
+    purpose: 'Treatment for severe pneumonia',
+    medication: 'SUSTALIN LA',
+    dosage: '1 mL per 10 kg body weight',
+    route: 'Injection',
+    conditional: 'Only if symptoms of severe pneumonia are present',
+  },
+  {
+    day_start: 66, day_end: 72,
+    action: 'Pneumonia prevention — pulse medication',
+    purpose: 'Prevent pneumonia outbreak',
+    medication: 'VETRACIN GOLD',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+  {
+    day_start: 66, day_end: 72,
+    action: 'Deworming',
+    purpose: 'Remove worms that slow growth',
+    medication: 'LATIGO-1000',
+    dosage: '1 sachet per 3 growers; mix in water or feed',
+    route: 'Oral / In-feed',
+  },
+  {
+    day_start: 96, day_end: 102,
+    action: 'Pneumonia prevention — pulse medication',
+    purpose: 'Prevent pneumonia outbreak',
+    medication: 'VETRACIN GOLD',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+  {
+    day_start: 115, day_end: 120,
+    action: 'Pneumonia prevention — pulse medication',
+    purpose: 'Prevent pneumonia outbreak',
+    medication: 'VETRACIN GOLD',
+    dosage: '2 tsp per gallon of drinking water',
+    route: 'In-water medication',
+  },
+];
+
+// Anytime (use if serious infection/complications arise)
+const PIG_ANYTIME_CARE = [
+  {
+    action: 'Severe infection or pneumonia complications',
+    medication: 'VETRACIN ULTIMA',
+    dosage: '1 sachet per 1 gallon of drinking water; administer for 5–7 days',
+    route: 'In-water medication',
+    note: 'Use when there are serious bacterial infections or pneumonia complications in any stage.',
+  },
+];
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -124,7 +379,7 @@ const TOOLS = [
   },
   {
     name: 'get_weight_logs',
-    description: 'Get recent weight measurements from AniWeigh scales. Multi-farm admins: pass farm_id to query a specific farm.',
+    description: 'Get recent weight measurements from AniWeigh scales. The returned log records contain weights in grams under the net_weight_grams field (e.g. 850 means 850 grams or 0.85 kg). You must divide by 1000 to report/analyze weights in kg. Multi-farm admins: pass farm_id to query a specific farm.',
     input_schema: {
       type: 'object',
       properties: {
@@ -163,6 +418,7 @@ const TOOLS = [
         animal_type: { type: 'string', description: '"chicken" or "pig"' },
         supplier: { type: 'string', description: 'Optional: supplier/source' },
         arrival_date: { type: 'string', description: 'Optional: YYYY-MM-DD (default today)' },
+        age_at_arrival_days: { type: 'number', description: 'Optional: age of the animals at arrival in days (default 0)' },
       },
       required: ['housing_id', 'name', 'initial_count', 'animal_type'],
     },
@@ -297,13 +553,29 @@ const TOOLS = [
       required: ['feed_id'],
     },
   },
+
+  // ── Pig Care Guide tool ──────────────────────────────────────────────────────
+  {
+    name: 'get_pig_care_recommendations',
+    description: 'Get age-based pig care recommendations: correct feed product and daily amount per pig, scheduled medications, vaccines, supplements, dewormers, and dosages. Use whenever a farmer asks what to feed their pigs, what supplements or medications to give, or what the care schedule is for a pig batch. First call get_animals to get arrival_date and age_at_arrival_days, compute age_days = age_at_arrival_days + floor((Date.now() - new Date(arrival_date).getTime()) / 86400000), then call this tool.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        age_days: {
+          type: 'number',
+          description: 'Current age of the pig(s) in days. Compute as: age_at_arrival_days + Math.floor((Date.now() - new Date(arrival_date).getTime()) / 86400000)',
+        },
+      },
+      required: ['age_days'],
+    },
+  },
 ];
 
 // ─── Tool executor ────────────────────────────────────────────────────────────
 
 async function executeTool(db: any, farmId: string, userId: string, name: string, input: any, allowedFarmIds?: string[]): Promise<any> {
   // READ tools support an optional farm_id override for multi-farm admins
-  const READ_TOOLS = ['get_farm_overview','get_animals','get_health_records','get_mortality_records','get_weight_logs','get_feed_logs','get_feeds'];
+  const READ_TOOLS = ['get_farm_overview', 'get_animals', 'get_health_records', 'get_mortality_records', 'get_weight_logs', 'get_feed_logs', 'get_feeds'];
   const effectiveFarmId = (
     input.farm_id &&
     READ_TOOLS.includes(name) &&
@@ -332,7 +604,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
         let query = db
           .from('batches')
-          .select('id, name, animal_type, estimated_count, current_count, arrival_date, supplier, status, housing_id, housings(id, name)')
+          .select('id, name, animal_type, estimated_count, current_count, arrival_date, age_at_arrival_days, supplier, status, housing_id, housings(id, name)')
           .order('created_at', { ascending: false });
 
         if (input.housing_id) {
@@ -504,6 +776,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
             current_count: input.initial_count,
             supplier: input.supplier ?? null,
             arrival_date: input.arrival_date ?? today,
+            age_at_arrival_days: input.age_at_arrival_days ?? 0,
             status: 'active',
             created_by: userId || null,
           })
@@ -536,8 +809,8 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
         const housing = batch.housings as any;
         const housingCurrentCount = housing?.current_count ?? 0;
-        const housingCapacity     = housing?.capacity ?? 0;
-        const availableSpace      = housingCapacity - housingCurrentCount;
+        const housingCapacity = housing?.capacity ?? 0;
+        const availableSpace = housingCapacity - housingCurrentCount;
 
         // ── Capacity validation ──────────────────────────────────────────────
         if (input.count > availableSpace) {
@@ -554,7 +827,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
         }
 
         const newBatchCount = (batch.current_count ?? 0) + input.count;
-        const newEstimated  = (batch.estimated_count ?? 0) + input.count;
+        const newEstimated = (batch.estimated_count ?? 0) + input.count;
 
         const { error } = await db.from('batches').update({
           current_count: newBatchCount,
@@ -575,15 +848,16 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
         // Fetch batch + housing
         const { data: batch, error: bFetchErr } = await db
           .from('batches')
-          .select('id, current_count, housing_id, housings(current_count)')
+          .select('id, current_count, housing_id, housings(current_count, farm_id)')
           .eq('id', input.batch_id)
           .single();
         if (bFetchErr || !batch) return { success: false, error: 'Batch not found' };
 
         const n = input.count;
-        const newBatchCount   = Math.max(0, (batch.current_count ?? 0) - n);
-        const housingCount    = (batch.housings as any)?.current_count ?? 0;
+        const newBatchCount = Math.max(0, (batch.current_count ?? 0) - n);
+        const housingCount = (batch.housings as any)?.current_count ?? 0;
         const newHousingCount = Math.max(0, housingCount - n);
+        const fId = (batch.housings as any)?.farm_id ?? null;
 
         // Decrement counts
         const { error: bErr } = await db.from('batches').update({
@@ -603,6 +877,8 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
           : `${n} animal(s) deceased. Cause: ${input.cause}.`;
 
         await db.from('health_records').insert({
+          farm_id: fId,
+          housing_id: batch.housing_id,
           batch_id: input.batch_id,
           record_type: 'mortality',
           title: `Mortality — ${input.cause}`,
@@ -628,7 +904,19 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
       }
 
       case 'add_health_record': {
+        // Retrieve batch and housing to get farm_id and housing_id
+        const { data: batch } = await db
+          .from('batches')
+          .select('housing_id, housings(farm_id)')
+          .eq('id', input.batch_id)
+          .single();
+
+        const hId = batch?.housing_id ?? null;
+        const fId = (batch?.housings as any)?.farm_id ?? null;
+
         const { data, error } = await db.from('health_records').insert({
+          farm_id: fId,
+          housing_id: hId,
           batch_id: input.batch_id,
           record_type: input.record_type,
           title: input.title,
@@ -662,7 +950,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
       case 'update_housing': {
         const updates: any = { updated_at: new Date().toISOString() };
-        if (input.name)     updates.name     = input.name;
+        if (input.name) updates.name = input.name;
         if (input.capacity) updates.capacity = input.capacity;
 
         const { error } = await db.from('housings').update(updates).eq('id', input.housing_id);
@@ -695,8 +983,8 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
       case 'update_feed': {
         const updates: any = { updated_at: new Date().toISOString() };
-        if (input.name !== undefined)     updates.name     = input.name;
-        if (input.brand !== undefined)    updates.brand    = input.brand;
+        if (input.name !== undefined) updates.name = input.name;
+        if (input.brand !== undefined) updates.brand = input.brand;
         if (input.category !== undefined) updates.category = input.category;
         if (input.supplier !== undefined) updates.supplier = input.supplier;
         if (input.stock_kg !== undefined) updates.stock_kg = input.stock_kg;
@@ -704,6 +992,62 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
         const { error } = await db.from('feeds').update(updates).eq('id', input.feed_id);
         if (error) return { success: false, error: error.message };
         return { success: true, message: `Feed updated successfully.` };
+      }
+
+      // ── Pig Care Guide ────────────────────────────────────────────────────────
+      case 'get_pig_care_recommendations': {
+        const ageDays = Math.max(0, Math.floor(input.age_days ?? 0));
+
+        // Find current feeding stage
+        const feedStage =
+          PIG_FEEDING_STAGES.find(s => ageDays >= s.days_start && ageDays <= s.days_end) ??
+          PIG_FEEDING_STAGES[PIG_FEEDING_STAGES.length - 1]; // fallback to finisher
+
+        // Determine pig stage label
+        let pigStage = 'Unknown';
+        if (ageDays <= 4) pigStage = 'Newborn';
+        else if (ageDays <= 33) pigStage = 'Piglet';
+        else if (ageDays <= 120) pigStage = 'Grower';
+        else pigStage = 'Finisher / Market Hog';
+
+        // Classify care schedule items relative to current age
+        const CURRENT_WINDOW = 3;   // ±3 days = "do now"
+        const UPCOMING_DAYS = 14;  // look 14 days ahead
+        const PAST_DAYS = 7;   // warn about items missed in last 7 days
+
+        const current_care: any[] = [];
+        const upcoming_care: any[] = [];
+        const overdue_care: any[] = [];
+
+        for (const item of PIG_CARE_SCHEDULE) {
+          const withinCurrent = item.day_end >= ageDays - CURRENT_WINDOW &&
+            item.day_start <= ageDays + CURRENT_WINDOW;
+          const withinUpcoming = item.day_start > ageDays + CURRENT_WINDOW &&
+            item.day_start <= ageDays + UPCOMING_DAYS;
+          const withinOverdue = item.day_end >= ageDays - PAST_DAYS &&
+            item.day_end < ageDays - CURRENT_WINDOW;
+
+          if (withinCurrent) current_care.push(item);
+          else if (withinUpcoming) upcoming_care.push(item);
+          else if (withinOverdue) overdue_care.push(item);
+        }
+
+        return {
+          age_days: ageDays,
+          pig_stage: pigStage,
+          feed_recommendation: {
+            stage: feedStage.stage,
+            product: feedStage.product,
+            daily_amount: feedStage.amount_per_day,
+            notes: feedStage.notes,
+          },
+          sow_feeding_note: 'For sow/breeder feeding use Mama PRO Premium Developer (gestation) and Mama PRO Premium Milkmaker (lactation). Ask about sow care for detailed schedule.',
+          current_care,
+          upcoming_care,
+          recently_overdue_care: overdue_care,
+          anytime_care: PIG_ANYTIME_CARE,
+          source: 'AniGrow Pig Care Guide — Pigrolac Premium Hog Feeds',
+        };
       }
 
       default:
@@ -719,16 +1063,16 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 interface NavLink { label: string; route: string; icon: string; params?: Record<string, string>; }
 
 const NAV_MAP: Record<string, { label: string; route: string; icon: string }> = {
-  home:           { label: 'Home Dashboard',  route: '/(dashboard)/HomeScreen',          icon: 'home'             },
-  animals:        { label: 'Animals',         route: '/(animals)/AnimalsScreen',         icon: 'pets'             },
-  animal_details: { label: 'Animal Details',  route: '/(animals)/AnimalDetails',         icon: 'info'             },
-  health_records: { label: 'Health Records',  route: '/(animals)/HealthRecordsScreen',   icon: 'medical-services' },
-  devices:        { label: 'Devices',         route: '/(devices)/DevicesScreen',         icon: 'devices'          },
-  weight_scale:   { label: 'AniWeigh Scale',  route: '/(devices)/AniWeighScreen',        icon: 'monitor-weight'   },
-  feed_device:    { label: 'AniFeed Device',  route: '/(devices)/AniFeedScreen',         icon: 'grass'            },
-  weight_logs:    { label: 'Weight Logs',     route: '/(devices)/RecentLogsScreen',      icon: 'monitor-weight'   },
-  feed_records:   { label: 'Feed Records',    route: '/(devices)/DispenseRecordsScreen', icon: 'grass'            },
-  notifications:  { label: 'Notifications',   route: '/(dashboard)/NotificationScreen',  icon: 'notifications'    },
+  home: { label: 'Home Dashboard', route: '/(dashboard)/HomeScreen', icon: 'home' },
+  animals: { label: 'Animals', route: '/(animals)/AnimalsScreen', icon: 'pets' },
+  animal_details: { label: 'Animal Details', route: '/(animals)/AnimalDetails', icon: 'info' },
+  health_records: { label: 'Health Records', route: '/(animals)/HealthRecordsScreen', icon: 'medical-services' },
+  devices: { label: 'Devices', route: '/(devices)/DevicesScreen', icon: 'devices' },
+  weight_scale: { label: 'AniWeigh Scale', route: '/(devices)/AniWeighScreen', icon: 'monitor-weight' },
+  feed_device: { label: 'AniFeed Device', route: '/(devices)/AniFeedScreen', icon: 'grass' },
+  weight_logs: { label: 'Weight Logs', route: '/(devices)/RecentLogsScreen', icon: 'monitor-weight' },
+  feed_records: { label: 'Feed Records', route: '/(devices)/DispenseRecordsScreen', icon: 'grass' },
+  notifications: { label: 'Notifications', route: '/(dashboard)/NotificationScreen', icon: 'notifications' },
 };
 
 function parseNavTags(text: string): { cleanText: string; navigation: NavLink[] } {
@@ -755,7 +1099,7 @@ function parseNavTags(text: string): { cleanText: string; navigation: NavLink[] 
 // ─── Anthropic caller ─────────────────────────────────────────────────────────
 
 async function callClaude(apiKey: string, system: string, messages: any[], maxTokens: number, tools?: any[]) {
-  const body: any = { model: 'claude-3-5-haiku-latest', max_tokens: maxTokens, system, messages };
+  const body: any = { model: 'claude-haiku-4-5', max_tokens: maxTokens, system, messages };
   if (tools) body.tools = tools;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -775,7 +1119,7 @@ serve(async (req: Request) => {
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
-    const supabaseUrl    = Deno.env.get('SUPABASE_URL')!;
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const db = createClient(supabaseUrl, serviceRoleKey);
 
@@ -834,10 +1178,21 @@ serve(async (req: Request) => {
     // ── Insight (no tool use) ─────────────────────────────────────────────────
     if (type === 'insight') {
       let system = INSIGHT_SYSTEM;
-      if (ctx.type === 'weight')  system += '\n\nFocus on weight segregation analysis and care recommendations.';
-      if (ctx.type === 'feed')    system += '\n\nFocus on feed dispensing patterns and optimization recommendations.';
-      if (ctx.type === 'animal')  system += '\n\nFocus on the animal\'s growth, health status, and recommended next actions.';
-      if (ctx.type === 'health')  system += '\n\nFocus on health record trends, risk assessment, and follow-up priorities.';
+      if (ctx.type === 'weight') system += '\n\nFocus on weight segregation analysis and care recommendations.';
+      if (ctx.type === 'feed') {
+        system += `\n\nFocus on feed dispensing patterns and optimization recommendations.
+  Specifically for the feed dispensing schedule:
+  - Under data, you are provided with:
+    * timesPerDay: the target number of scheduled dispenses per day.
+    * gramsPerDispense: the target grams of feed per dispense.
+    * todayTotalGrams: the total grams successfully dispensed today.
+    * todayCompletedDispensesCount: the exact number of successful dispenses completed today.
+  - A dispense schedule is fully completed for the day if todayCompletedDispensesCount >= timesPerDay.
+  - Do NOT recommend dispensing more feed if todayCompletedDispensesCount >= timesPerDay. In this case, clearly state that the feeding schedule for today has been successfully completed.
+  - Be extremely accurate with arithmetic and logic. Double-check your completed count against the target.`;
+      }
+      if (ctx.type === 'animal') system += '\n\nFocus on the animal\'s growth, health status, and recommended next actions.';
+      if (ctx.type === 'health') system += '\n\nFocus on health record trends, risk assessment, and follow-up priorities.';
 
       const data = await callClaude(apiKey, system, [
         { role: 'user', content: `Farm data:\n${JSON.stringify(ctx, null, 2)}\n\nProvide a concise insight.` },
@@ -850,9 +1205,9 @@ serve(async (req: Request) => {
 
     // ── AniBot chat with agentic tool use ─────────────────────────────────────
     if (type === 'chat') {
-      const farmId  = ctx.farmId ?? ctx.farmIds?.[0];
+      const farmId = ctx.farmId ?? ctx.farmIds?.[0];
       const farmIds: string[] = ctx.farmIds ?? (farmId ? [farmId] : []);
-      const userId  = ctx.userId ?? '';
+      const userId = ctx.userId ?? '';
       if (!farmId) throw new Error('farmId required for AniBot chat');
 
       let system = ANIBOT_SYSTEM;
@@ -864,25 +1219,25 @@ serve(async (req: Request) => {
           return `• "${name}" (farm_id: ${id})`;
         }).join('\n');
         system += `\n\n─── MULTI-FARM ADMIN ───
-You manage ${farmIds.length} farms. The user has selected "All Farms" mode so you can access all of them.
+  You manage ${farmIds.length} farms. The user has selected "All Farms" mode so you can access all of them.
 
-Managed farms:
-${farmList}
+  Managed farms:
+  ${farmList}
 
-Primary/active farm: "${ctx.farmName}" (farm_id: ${farmId})
+  Primary/active farm: "${ctx.farmName}" (farm_id: ${farmId})
 
-READ TOOL RULES:
-- All read tools (get_farm_overview, get_animals, get_health_records, get_mortality_records, get_weight_logs, get_feed_logs, get_feeds) accept an optional "farm_id" parameter.
-- To query a specific farm, pass its farm_id. To query the primary farm, omit farm_id.
-- For cross-farm reports (e.g. "give me a summary of all farms"), call each read tool once per farm, passing the correct farm_id each time, then synthesize the results.
+  READ TOOL RULES:
+  - All read tools (get_farm_overview, get_animals, get_health_records, get_mortality_records, get_weight_logs, get_feed_logs, get_feeds) accept an optional "farm_id" parameter.
+  - To query a specific farm, pass its farm_id. To query the primary farm, omit farm_id.
+  - For cross-farm reports (e.g. "give me a summary of all farms"), call each read tool once per farm, passing the correct farm_id each time, then synthesize the results.
 
-WRITE TOOL RULES:
-- Write tools always operate on the primary farm unless the user explicitly names another farm.
-- If the user says "add animals to Farm X", first call get_farm_overview with Farm X's farm_id to get its housing IDs, then use register_batch.`;
+  WRITE TOOL RULES:
+  - Write tools always operate on the primary farm unless the user explicitly names another farm.
+  - If the user says "add animals to Farm X", first call get_farm_overview with Farm X's farm_id to get its housing IDs, then use register_batch.`;
       }
 
       // Support image analysis — attach image to the last user message if present
-      const imageData      = ctx.imageData as string | undefined;
+      const imageData = ctx.imageData as string | undefined;
       const imageMediaType = (ctx.imageMediaType as string | undefined) ?? 'image/jpeg';
 
       const loopMessages: any[] = (messages ?? []).map((m: any, idx: number) => {

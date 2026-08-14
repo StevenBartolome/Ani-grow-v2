@@ -81,7 +81,11 @@ export default function ForgotPasswordScreen() {
 
       showSnackbar('Password reset link sent! Check your email.', 'success');
       setTimeout(() => {
-        router.back();
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace('/(auth)/LoginScreen');
+        }
       }, 3000);
     } catch (error: any) {
       console.error('Reset password error:', error);

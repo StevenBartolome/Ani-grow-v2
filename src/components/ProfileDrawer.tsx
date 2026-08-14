@@ -127,7 +127,7 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
             }
             return `${activeFarmIds.length} Farms`;
         }
-        return activeFarmName || 'your farm';
+        return activeFarmName || '';
     }, [activeFarmIds, managedFarms, activeFarmName]);
 
     const themeOptions: { mode: ThemeMode; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name'] }[] = [

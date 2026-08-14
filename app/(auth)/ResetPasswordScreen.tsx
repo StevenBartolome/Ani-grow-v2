@@ -195,7 +195,11 @@ export default function ResetPasswordScreen() {
     } else if (step > 1) {
       setStep(step - 1);
     } else {
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/(auth)/LoginScreen');
+      }
     }
   };
 

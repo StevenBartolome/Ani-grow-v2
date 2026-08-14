@@ -97,7 +97,7 @@ export default function DispenseRecordsScreen() {
 
             const { data, error } = await supabase
                 .from('dispense_records')
-                .select('id, grams_dispensed, status, dispensed_at, device_id')
+                .select('id, grams_dispensed, status, dispensed_at, device_id, housing_id, housings(id, name)')
                 .in('device_id', targetIds)
                 .order('dispensed_at', { ascending: false })
                 .limit(300);
@@ -106,6 +106,16 @@ export default function DispenseRecordsScreen() {
 
             const mapped: DispenseRecord[] = (data ?? []).map((r: any) => {
                 const dev = deviceMap[r.device_id];
+                // Prefer the housing stored on this specific dispense record.
+                // Fall back to device's current housing only if the record has no housing_id.
+                const recordHousingId: string | null = (r.housings as any)?.id ?? r.housing_id ?? null;
+                const recordHousingName: string = (r.housings as any)?.name ?? dev?.housingName ?? 'Unassigned';
+
+                // Also register this housing in the filter options
+                if (recordHousingId && !housingMap[recordHousingId]) {
+                    housingMap[recordHousingId] = recordHousingName;
+                }
+
                 return {
                     id: r.id,
                     grams_dispensed: r.grams_dispensed,
@@ -113,10 +123,13 @@ export default function DispenseRecordsScreen() {
                     dispensed_at: r.dispensed_at,
                     deviceId: r.device_id,
                     deviceName: dev?.name ?? 'Unknown Device',
-                    housingId: dev?.housingId ?? null,
-                    housingName: dev?.housingName ?? 'Unassigned',
+                    housingId: recordHousingId,
+                    housingName: recordHousingName,
                 };
             });
+
+            // Rebuild housing options from actual record data (not just device current state)
+            setHousingOptions(Object.entries(housingMap).map(([id, name]) => ({ id, name })));
             setRecords(mapped);
         } catch (err) {
             console.error('[DispenseRecordsScreen] fetch error:', err);
