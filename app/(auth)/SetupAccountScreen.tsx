@@ -614,6 +614,20 @@ export default function SetupAccountScreen() {
                                                 </View>
                                             )}
                                         </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            style={{ alignSelf: 'center', marginTop: 16, padding: 8 }}
+                                            onPress={() => {
+                                                setIsOtpSent(false);
+                                                setOtpCode('');
+                                                setOtpError('');
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={{ color: colors.primary, fontFamily: 'Poppins-Medium', fontSize: 13 }}>
+                                                Incorrect phone number? Edit Details
+                                            </Text>
+                                        </TouchableOpacity>
                                     </>
                                 )}
                             </View>

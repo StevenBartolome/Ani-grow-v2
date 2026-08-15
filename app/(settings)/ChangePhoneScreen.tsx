@@ -306,6 +306,7 @@ export default function ChangePhoneScreen() {
     const handleBack = () => {
         if (step === 'otp_new') {
             setOtpCode('');
+            setStep('input');
         } else if (step === 'otp_current') {
             setOtpCode('');
             setMfaChallengeId(null);
@@ -664,12 +665,21 @@ export default function ChangePhoneScreen() {
                             {isLoading ? (
                                 <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 20 }} />
                             ) : (
-                                <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-                                    <Text style={[textStyles.body, { color: colors.textGrey }]}>Didn't receive code? </Text>
-                                    <TouchableOpacity disabled={timer > 0} onPress={sendNewPhoneOtp}>
-                                        <Text style={[textStyles.label, { color: timer > 0 ? colors.textGrey : colors.primary }]}>
-                                            {timer > 0 ? `Resend in ${timer}s` : 'Resend Code'}
-                                        </Text>
+                                <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 12 }}>
+                                        <Text style={[textStyles.body, { color: colors.textGrey }]}>Didn't receive code? </Text>
+                                        <TouchableOpacity disabled={timer > 0} onPress={sendNewPhoneOtp}>
+                                            <Text style={[textStyles.label, { color: timer > 0 ? colors.textGrey : colors.primary }]}>
+                                                {timer > 0 ? `Resend in ${timer}s` : 'Resend Code'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={{ paddingVertical: 6 }}
+                                        onPress={handleBack}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[textStyles.label, { color: colors.primary }]}>Change phone number</Text>
                                     </TouchableOpacity>
                                 </View>
                             )}

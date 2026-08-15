@@ -944,7 +944,7 @@ export default function AnimalDetailsScreen() {
 
                                 <TouchableOpacity
                                     activeOpacity={0.8}
-                                    style={{ flex: 1, borderWidth: 1.5, borderColor: colors.stroke, backgroundColor: colors.surface, borderRadius: 12, paddingVertical: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}
+                                    style={{ flex: 1, borderWidth: 1.5, borderColor: '#27AE60', backgroundColor: '#27AE6010', borderRadius: 12, paddingVertical: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}
                                     onPress={() => {
                                         setConfirmActionType('completeBatch');
                                         setConfirmModalType('confirmation');
@@ -953,8 +953,8 @@ export default function AnimalDetailsScreen() {
                                         setConfirmModalVisible(true);
                                     }}
                                 >
-                                    <MaterialIcons name="check-circle-outline" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
-                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 13 }]}>Complete Batch</Text>
+                                    <MaterialIcons name="check-circle-outline" size={18} color="#27AE60" style={{ marginRight: 6 }} />
+                                    <Text style={[textStyles.h3, { color: '#27AE60', fontSize: 13 }]}>Complete Batch</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
@@ -1076,7 +1076,7 @@ export default function AnimalDetailsScreen() {
                                     <TouchableOpacity
                                         style={{
                                             flex: 1,
-                                            backgroundColor: isAddHeadsDisabled ? colors.cardFill : colors.primary,
+                                            backgroundColor: '#27AE60',
                                             paddingVertical: 14,
                                             borderRadius: 30,
                                             alignItems: 'center'
@@ -1085,7 +1085,7 @@ export default function AnimalDetailsScreen() {
                                         disabled={isAddHeadsDisabled}
                                         activeOpacity={isAddHeadsDisabled ? 1 : 0.7}
                                     >
-                                        <Text style={[textStyles.h3, { color: isAddHeadsDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Add</Text>
+                                        <Text style={[textStyles.h3, { color: '#FFF', fontSize: 14 }]}>Add</Text>
                                     </TouchableOpacity>
                                 </View>
                             </ScrollView>
@@ -1370,7 +1370,7 @@ export default function AnimalDetailsScreen() {
                                     <TouchableOpacity
                                         style={{
                                             flex: 1,
-                                            backgroundColor: isNewBatchDisabled ? colors.cardFill : colors.primary,
+                                            backgroundColor: '#27AE60',
                                             paddingVertical: 14,
                                             borderRadius: 30,
                                             alignItems: 'center'
@@ -1379,7 +1379,7 @@ export default function AnimalDetailsScreen() {
                                         disabled={isNewBatchDisabled}
                                         activeOpacity={isNewBatchDisabled ? 1 : 0.7}
                                     >
-                                        <Text style={[textStyles.h3, { color: isNewBatchDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Create</Text>
+                                        <Text style={[textStyles.h3, { color: '#FFF', fontSize: 14 }]}>Create</Text>
                                     </TouchableOpacity>
                                 </View>
                             </ScrollView>
@@ -1530,7 +1530,7 @@ export default function AnimalDetailsScreen() {
                                     <TouchableOpacity
                                         style={{
                                             flex: 1,
-                                            backgroundColor: isEditBatchDisabled ? colors.cardFill : colors.primary,
+                                            backgroundColor: '#27AE60',
                                             paddingVertical: 14,
                                             borderRadius: 30,
                                             alignItems: 'center'
@@ -1539,7 +1539,7 @@ export default function AnimalDetailsScreen() {
                                         disabled={isEditBatchDisabled}
                                         activeOpacity={isEditBatchDisabled ? 1 : 0.7}
                                     >
-                                        <Text style={[textStyles.h3, { color: isEditBatchDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Save</Text>
+                                        <Text style={[textStyles.h3, { color: '#FFF', fontSize: 14 }]}>Save</Text>
                                     </TouchableOpacity>
                                 </View>
                             </ScrollView>
@@ -1696,7 +1696,7 @@ export default function AnimalDetailsScreen() {
                                     <TouchableOpacity
                                         style={{
                                             flex: 1,
-                                            backgroundColor: isSellDeductDisabled ? colors.cardFill : '#27AE60',
+                                            backgroundColor: '#27AE60',
                                             paddingVertical: 14,
                                             borderRadius: 30,
                                             alignItems: 'center'
@@ -1705,7 +1705,7 @@ export default function AnimalDetailsScreen() {
                                         disabled={isSellDeductDisabled}
                                         activeOpacity={isSellDeductDisabled ? 1 : 0.7}
                                     >
-                                        <Text style={[textStyles.h3, { color: isSellDeductDisabled ? colors.textGrey : '#FFF', fontSize: 14 }]}>Proceed</Text>
+                                        <Text style={[textStyles.h3, { color: '#FFF', fontSize: 14 }]}>Proceed</Text>
                                     </TouchableOpacity>
                                 </View>
                             </ScrollView>
