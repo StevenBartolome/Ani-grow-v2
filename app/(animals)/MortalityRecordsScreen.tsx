@@ -46,6 +46,7 @@ interface BatchInfo {
     animal_type: string;
     estimated_count: number;
     current_count: number;
+    sold_count?: number;
     arrival_date: string;
     housing_id: string;
     status: string;
@@ -197,7 +198,7 @@ export default function MortalityRecordsScreen() {
             const [batchRes, housingRes, recordsRes] = await Promise.all([
                 supabase
                     .from('batches')
-                    .select('id, name, animal_type, estimated_count, current_count, arrival_date, housing_id, status')
+                    .select('id, name, animal_type, estimated_count, current_count, sold_count, arrival_date, housing_id, status')
                     .eq('id', batchId)
                     .single(),
                 supabase
@@ -286,7 +287,7 @@ export default function MortalityRecordsScreen() {
             const totalDeceased = (allMortality ?? []).reduce(
                 (sum: number, r: any) => sum + (r.affected_count ?? 0), 0
             );
-            const newCurrentCount = Math.max(0, (batch?.estimated_count ?? 0) - totalDeceased);
+            const newCurrentCount = Math.max(0, (batch?.estimated_count ?? 0) - (batch?.sold_count ?? 0) - totalDeceased);
 
             const { error: bErr } = await supabase
                 .from('batches')
@@ -323,7 +324,7 @@ export default function MortalityRecordsScreen() {
     // ── Derived stats ─────────────────────────────────────────────────────────
     const totalDeceased   = records.reduce((s, r) => s + r.affected_count, 0);
     const mortalityRatePct = mortalityRate(batch?.estimated_count ?? 0, totalDeceased);
-    const liveCount       = Math.max(0, (batch?.estimated_count ?? 0) - totalDeceased);
+    const liveCount       = batch?.current_count ?? Math.max(0, (batch?.estimated_count ?? 0) - (batch?.sold_count ?? 0) - totalDeceased);
 
     // Cause breakdown
     const causeSummary: Record<string, number> = {};

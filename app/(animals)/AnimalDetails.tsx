@@ -32,6 +32,7 @@ interface Batch {
     animal_type: 'chicken' | 'pig';
     estimated_count: number;
     current_count: number;
+    sold_count?: number;
     arrival_date: string;
     supplier: string | null;
     status: 'active' | 'completed' | 'archived';
@@ -52,6 +53,7 @@ export default function AnimalDetailsScreen() {
 
     const [housing, setHousing] = useState<Housing | null>(null);
     const [batches, setBatches] = useState<Batch[]>([]);
+    const [batchMortalityMap, setBatchMortalityMap] = useState<Record<string, number>>({});
     const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -59,19 +61,23 @@ export default function AnimalDetailsScreen() {
     const selectedBatch = batches.find(b => b.id === selectedBatchId) ?? null;
     const isPig = housing?.animal_type === 'pig';
     const accentColor = isPig ? ((colors as any).pig ?? '#E67E22') : ((colors as any).chicken ?? '#F1C40F');
-    const deceasedCount = selectedBatch
-        ? Math.max(0, selectedBatch.estimated_count - selectedBatch.current_count)
+    const deceasedCount = selectedBatch ? (batchMortalityMap[selectedBatch.id] ?? 0) : 0;
+    const derivedSoldCount = selectedBatch
+        ? Math.max(0, selectedBatch.estimated_count - selectedBatch.current_count - deceasedCount)
         : 0;
+    const soldCount = selectedBatch ? Math.max(selectedBatch.sold_count ?? 0, derivedSoldCount) : 0;
 
     // ── Fetch ─────────────────────────────────────────────────────
     const fetchData = useCallback(async () => {
         if (!housingId) return;
         setIsLoading(true);
         try {
-            const [housingRes, batchRes] = await Promise.all([
+            const [housingRes, batchRes, mortalityRes] = await Promise.all([
                 supabase.from('housings').select('id, name, animal_type, capacity, current_count').eq('id', housingId).single(),
-                supabase.from('batches').select('id, name, animal_type, estimated_count, current_count, arrival_date, supplier, status, age_at_arrival_days')
+                supabase.from('batches').select('id, name, animal_type, estimated_count, current_count, sold_count, arrival_date, supplier, status, age_at_arrival_days')
                     .eq('housing_id', housingId).order('created_at', { ascending: false }),
+                supabase.from('health_records').select('batch_id, affected_count')
+                    .eq('housing_id', housingId).eq('record_type', 'mortality').is('deleted_at', null),
             ]);
 
             if (housingRes.error) throw housingRes.error;
@@ -79,6 +85,14 @@ export default function AnimalDetailsScreen() {
 
             const batchList = batchRes.data ?? [];
             setBatches(batchList);
+
+            const mMap: Record<string, number> = {};
+            (mortalityRes.data ?? []).forEach((r: any) => {
+                if (r.batch_id) {
+                    mMap[r.batch_id] = (mMap[r.batch_id] || 0) + (r.affected_count ?? 0);
+                }
+            });
+            setBatchMortalityMap(mMap);
 
             // Self-healing check for housing count
             const expectedHousingCount = batchList
@@ -429,11 +443,15 @@ export default function AnimalDetailsScreen() {
                 const newCount = Math.max(0, available - qty);
                 const shouldComplete = sellDeductMarkCompleted || newCount === 0;
 
+                const currentSoldCount = Math.max(selectedBatch.sold_count ?? 0, derivedSoldCount);
+                const newSoldCount = currentSoldCount + qty;
+
                 // 1. Update batch record
                 const { error: bErr } = await supabase
                     .from('batches')
                     .update({
                         current_count: newCount,
+                        sold_count: newSoldCount,
                         status: shouldComplete ? 'completed' : 'active',
                         updated_at: new Date().toISOString(),
                     })
@@ -853,6 +871,15 @@ export default function AnimalDetailsScreen() {
                             )}
                             <Text style={[textStyles.body, { color: colors.text, fontSize: 14, marginTop: 2 }]}>
                                 Initial count: <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{selectedBatch.estimated_count}</Text>
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14, marginTop: 2 }]}>
+                                Sold / Harvested: <Text style={{ fontFamily: 'Poppins-SemiBold', color: '#27AE60' }}>{soldCount}</Text>
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14, marginTop: 2 }]}>
+                                Deceased: <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.error }}>{deceasedCount}</Text>
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14, marginTop: 2 }]}>
+                                Current Live Heads: <Text style={{ fontFamily: 'Poppins-SemiBold', color: accentColor }}>{selectedBatch.current_count}</Text>
                             </Text>
                         </View>
 

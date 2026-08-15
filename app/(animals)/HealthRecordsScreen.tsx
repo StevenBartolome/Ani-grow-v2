@@ -1085,7 +1085,7 @@ export default function HealthRecordsScreen() {
         try {
             const { data: batch, error: bFetchErr } = await supabase
                 .from('batches')
-                .select('estimated_count, status')
+                .select('estimated_count, sold_count, status')
                 .eq('id', batchId)
                 .single();
             if (bFetchErr || !batch) {
@@ -1107,7 +1107,7 @@ export default function HealthRecordsScreen() {
             const totalDeceased = (allMortality ?? []).reduce(
                 (sum: number, r: any) => sum + (r.affected_count ?? 0), 0
             );
-            const newBatchCount = Math.max(0, (batch.estimated_count ?? 0) - totalDeceased);
+            const newBatchCount = Math.max(0, (batch.estimated_count ?? 0) - (batch.sold_count ?? 0) - totalDeceased);
 
             const { error: bErr } = await supabase
                 .from('batches')
