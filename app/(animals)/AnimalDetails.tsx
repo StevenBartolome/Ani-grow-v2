@@ -129,7 +129,28 @@ export default function AnimalDetailsScreen() {
     const [confirmModalType, setConfirmModalType] = useState<ActionModalType>('confirmation');
     const [confirmModalTitle, setConfirmModalTitle] = useState('');
     const [confirmModalMessage, setConfirmModalMessage] = useState('');
-    const [confirmActionType, setConfirmActionType] = useState<'addHeads' | 'deceased' | 'newBatch' | 'editBatch' | 'completeBatch' | 'archiveBatch' | null>(null);
+    const [confirmActionType, setConfirmActionType] = useState<'addHeads' | 'deceased' | 'newBatch' | 'editBatch' | 'completeBatch' | 'archiveBatch' | 'sellDeduct' | null>(null);
+
+    // ── Sell / Deduct Modal ──────────────────────────────────────
+    const [sellDeductVisible, setSellDeductVisible] = useState(false);
+    const [sellDeductQuantity, setSellDeductQuantity] = useState('');
+    const [sellDeductReason, setSellDeductReason] = useState('Sold / Harvested');
+    const [sellDeductOtherReason, setSellDeductOtherReason] = useState('');
+    const [sellDeductMarkCompleted, setSellDeductMarkCompleted] = useState(false);
+    const [sellDeductReasonModalVisible, setSellDeductReasonModalVisible] = useState(false);
+    const [sellDeductError, setSellDeductError] = useState<string | null>(null);
+
+    const validateSellDeduct = (val: string) => {
+        const n = parseInt(val, 10);
+        const available = selectedBatch?.current_count ?? 0;
+        if (!val || isNaN(n) || n <= 0) {
+            setSellDeductError('Please enter a valid quantity.');
+        } else if (n > available) {
+            setSellDeductError(`Exceeds available count (${n}/${available}).`);
+        } else {
+            setSellDeductError(null);
+        }
+    };
 
     // ── Add Heads Modal ───────────────────────────────────────────
     const [addHeadsVisible, setAddHeadsVisible] = useState(false);
@@ -377,10 +398,78 @@ export default function AnimalDetailsScreen() {
         setConfirmModalVisible(true);
     };
 
+    const isSellDeductDisabled = !sellDeductQuantity || !!sellDeductError || parseInt(sellDeductQuantity, 10) <= 0;
+
+    const handleSellDeductClick = () => {
+        if (isSellDeductDisabled || !selectedBatch) return;
+        const qty = parseInt(sellDeductQuantity, 10);
+        const available = selectedBatch.current_count ?? 0;
+        const remaining = Math.max(0, available - qty);
+        const willComplete = sellDeductMarkCompleted || remaining === 0;
+        const reasonText = sellDeductReason === 'Other' ? (sellDeductOtherReason.trim() || 'Deduction') : sellDeductReason;
+
+        setSellDeductVisible(false);
+        setConfirmActionType('sellDeduct');
+        setConfirmModalType('confirmation');
+        setConfirmModalTitle(willComplete ? 'Sell & Complete Batch?' : 'Sell / Deduct Animals?');
+        setConfirmModalMessage(
+            willComplete
+                ? `Deduct ${qty} animals (${reasonText}) and mark batch "${selectedBatch.name}" as completed?`
+                : `Deduct ${qty} animals (${reasonText}) from "${selectedBatch.name}"? ${remaining} head(s) will remain active.`
+        );
+        setConfirmModalVisible(true);
+    };
+
     const handleConfirmAction = async () => {
         setIsSaving(true);
         try {
-            if (confirmActionType === 'addHeads' && selectedBatchId) {
+            if (confirmActionType === 'sellDeduct' && selectedBatchId && selectedBatch) {
+                const qty = parseInt(sellDeductQuantity, 10);
+                const available = selectedBatch.current_count ?? 0;
+                const newCount = Math.max(0, available - qty);
+                const shouldComplete = sellDeductMarkCompleted || newCount === 0;
+
+                // 1. Update batch record
+                const { error: bErr } = await supabase
+                    .from('batches')
+                    .update({
+                        current_count: newCount,
+                        status: shouldComplete ? 'completed' : 'active',
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', selectedBatchId);
+                if (bErr) throw bErr;
+
+                // 2. Recalculate housing current_count
+                const otherBatchesCount = batches
+                    .filter(b => b.id !== selectedBatchId && b.status === 'active')
+                    .reduce((sum: number, b: any) => sum + (b.current_count ?? 0), 0);
+                const newHousingCount = otherBatchesCount + (shouldComplete ? 0 : newCount);
+
+                const { error: hErr } = await supabase
+                    .from('housings')
+                    .update({
+                        current_count: newHousingCount,
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', housingId);
+                if (hErr) throw hErr;
+
+                const reasonText = sellDeductReason === 'Other' ? (sellDeductOtherReason.trim() || 'Deduction') : sellDeductReason;
+
+                if (shouldComplete) {
+                    showSnackbar(`Deducted ${qty} animals (${reasonText}). Batch "${selectedBatch.name}" marked as completed!`);
+                } else {
+                    showSnackbar(`Deducted ${qty} animals (${reasonText}). ${newCount} remaining in batch.`);
+                }
+
+                setSellDeductVisible(false);
+                setSellDeductQuantity('');
+                setSellDeductReason('Sold / Harvested');
+                setSellDeductOtherReason('');
+                setSellDeductMarkCompleted(false);
+
+            } else if (confirmActionType === 'addHeads' && selectedBatchId) {
                 const n = parseInt(addHeadsNumber, 10);
                 const { error: bErr } = await supabase
                     .from('batches')
@@ -811,7 +900,24 @@ export default function AnimalDetailsScreen() {
                             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
                                 <TouchableOpacity
                                     activeOpacity={0.8}
-                                    style={{ flex: 1, borderWidth: 1.5, borderColor: '#27AE60', borderRadius: 12, paddingVertical: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}
+                                    style={{ flex: 1, borderWidth: 1.5, borderColor: '#27AE60', backgroundColor: '#27AE6010', borderRadius: 12, paddingVertical: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}
+                                    onPress={() => {
+                                        const avail = selectedBatch.current_count ?? 0;
+                                        setSellDeductQuantity(String(avail > 0 ? avail : ''));
+                                        setSellDeductReason('Sold / Harvested');
+                                        setSellDeductOtherReason('');
+                                        setSellDeductMarkCompleted(true);
+                                        setSellDeductError(null);
+                                        setSellDeductVisible(true);
+                                    }}
+                                >
+                                    <MaterialIcons name="storefront" size={18} color="#27AE60" style={{ marginRight: 6 }} />
+                                    <Text style={[textStyles.h3, { color: '#27AE60', fontSize: 13 }]}>Sell / Deduct</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={{ flex: 1, borderWidth: 1.5, borderColor: colors.stroke, backgroundColor: colors.surface, borderRadius: 12, paddingVertical: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}
                                     onPress={() => {
                                         setConfirmActionType('completeBatch');
                                         setConfirmModalType('confirmation');
@@ -820,8 +926,8 @@ export default function AnimalDetailsScreen() {
                                         setConfirmModalVisible(true);
                                     }}
                                 >
-                                    <MaterialIcons name="check-circle-outline" size={18} color="#27AE60" style={{ marginRight: 6 }} />
-                                    <Text style={[textStyles.h3, { color: '#27AE60', fontSize: 13 }]}>Complete</Text>
+                                    <MaterialIcons name="check-circle-outline" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 13 }]}>Complete Batch</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
@@ -1415,6 +1521,186 @@ export default function AnimalDetailsScreen() {
                 </View>
             </Modal>
 
+            {/* Sell / Deduct Animals Modal */}
+            <Modal visible={sellDeductVisible} transparent animationType="fade">
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                        style={{ width: '100%', maxWidth: 340, maxHeight: '90%' }}
+                    >
+                        <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 24, overflow: 'hidden' }}>
+                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
+                                <View style={{ backgroundColor: '#27AE601A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                    <MaterialIcons name="storefront" size={32} color="#27AE60" />
+                                </View>
+                                <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Sell / Deduct Animals</Text>
+                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                    Enter the count and reason to deduct animals from batch "{selectedBatch?.name}".
+                                </Text>
+
+                                <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                                    <View style={{ flex: 1 }}>
+                                        <FloatingLabelInput
+                                            label={`Quantity to Sell/Deduct (Max: ${selectedBatch?.current_count ?? 0})`}
+                                            icon={isPig ? 'pig' : 'chicken'}
+                                            value={sellDeductQuantity}
+                                            onChangeText={t => {
+                                                const clean = t.replace(/[^0-9]/g, '');
+                                                setSellDeductQuantity(clean);
+                                                validateSellDeduct(clean);
+                                                const num = parseInt(clean, 10);
+                                                const avail = selectedBatch?.current_count ?? 0;
+                                                if (!isNaN(num) && num >= avail && avail > 0) {
+                                                    setSellDeductMarkCompleted(true);
+                                                }
+                                            }}
+                                            keyboardType="numeric"
+                                            backgroundColor={colors.surface}
+                                            error={sellDeductError ?? undefined}
+                                        />
+                                    </View>
+
+                                    <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
+                                        <TouchableOpacity
+                                            activeOpacity={0.7}
+                                            style={{
+                                                width: 44,
+                                                height: 27,
+                                                borderRadius: 8,
+                                                backgroundColor: colors.cardFill,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                borderWidth: 1.5,
+                                                borderColor: colors.stroke,
+                                            }}
+                                            onPress={() => {
+                                                const current = parseInt(sellDeductQuantity || '0', 10);
+                                                const maxLimit = selectedBatch?.current_count ?? 0;
+                                                const next = Math.min(maxLimit, current + 1);
+                                                setSellDeductQuantity(String(next));
+                                                validateSellDeduct(String(next));
+                                                if (next >= maxLimit && maxLimit > 0) setSellDeductMarkCompleted(true);
+                                            }}
+                                        >
+                                            <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            activeOpacity={0.7}
+                                            style={{
+                                                width: 44,
+                                                height: 27,
+                                                borderRadius: 8,
+                                                backgroundColor: colors.cardFill,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                borderWidth: 1.5,
+                                                borderColor: colors.stroke,
+                                            }}
+                                            onPress={() => {
+                                                const current = parseInt(sellDeductQuantity || '0', 10);
+                                                const next = Math.max(1, current - 1);
+                                                setSellDeductQuantity(String(next));
+                                                validateSellDeduct(String(next));
+                                                const avail = selectedBatch?.current_count ?? 0;
+                                                if (next < avail) setSellDeductMarkCompleted(false);
+                                            }}
+                                        >
+                                            <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+
+                                <View style={{ width: '100%', marginBottom: 16 }}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', paddingLeft: 4, fontFamily: 'Poppins-SemiBold', fontSize: 11 }]}>
+                                        Reason / Action
+                                    </Text>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30, paddingHorizontal: 16, height: 58, backgroundColor: colors.surface }}
+                                        onPress={() => setSellDeductReasonModalVisible(true)}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            <MaterialIcons name="storefront" size={20} color={colors.icon} style={{ marginRight: 12 }} />
+                                            <Text style={[textStyles.body, { color: colors.text }]}>{sellDeductReason}</Text>
+                                        </View>
+                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {sellDeductReason === 'Other' && (
+                                    <View style={{ width: '100%', marginBottom: 16 }}>
+                                        <FloatingLabelInput label="Specific Reason" icon="edit" value={sellDeductOtherReason} onChangeText={setSellDeductOtherReason} backgroundColor={colors.surface} />
+                                    </View>
+                                )}
+
+                                {/* Mark Batch Cycle Completed Toggle */}
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={{
+                                        width: '100%',
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 12,
+                                        padding: 12,
+                                        borderRadius: 16,
+                                        borderWidth: 1.5,
+                                        borderColor: sellDeductMarkCompleted ? '#27AE60' : colors.stroke,
+                                        backgroundColor: sellDeductMarkCompleted ? '#27AE600D' : colors.surface,
+                                        marginBottom: 24,
+                                    }}
+                                    onPress={() => setSellDeductMarkCompleted(!sellDeductMarkCompleted)}
+                                >
+                                    <MaterialIcons
+                                        name={sellDeductMarkCompleted ? 'check-box' : 'check-box-outline-blank'}
+                                        size={22}
+                                        color={sellDeductMarkCompleted ? '#27AE60' : colors.textGrey}
+                                    />
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 13 }]}>Mark Batch as Completed</Text>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>End batch cycle (all animals sold / harvested)</Text>
+                                    </View>
+                                </TouchableOpacity>
+
+                                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                    <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setSellDeductVisible(false)} activeOpacity={0.7}>
+                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={{
+                                            flex: 1,
+                                            backgroundColor: isSellDeductDisabled ? colors.cardFill : '#27AE60',
+                                            paddingVertical: 14,
+                                            borderRadius: 30,
+                                            alignItems: 'center'
+                                        }}
+                                        onPress={handleSellDeductClick}
+                                        disabled={isSellDeductDisabled}
+                                        activeOpacity={isSellDeductDisabled ? 1 : 0.7}
+                                    >
+                                        <Text style={[textStyles.h3, { color: isSellDeductDisabled ? colors.textGrey : '#FFF', fontSize: 14 }]}>Proceed</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
+                        </View>
+                    </KeyboardAvoidingView>
+                </View>
+            </Modal>
+
+            {/* Sell / Deduct Reason Selection */}
+            <SelectionModal
+                visible={sellDeductReasonModalVisible}
+                onClose={() => setSellDeductReasonModalVisible(false)}
+                onSelect={val => { setSellDeductReason(val); setSellDeductReasonModalVisible(false); }}
+                title="Select Action / Reason"
+                description="Choose why animals are being sold or deducted."
+                icon="storefront"
+                options={['Sold / Harvested', 'Culling / Reduction', 'Transfer', 'Other']}
+                selectedValue={sellDeductReason}
+                enableSearch={false}
+                requireConfirm={false}
+            />
+
             {/* Deceased Reason Selection */}
             <SelectionModal
                 visible={deceasedReasonModalVisible}
@@ -1440,6 +1726,7 @@ export default function AnimalDetailsScreen() {
                     confirmActionType === 'editBatch' ? 'Update' :
                     confirmActionType === 'completeBatch' ? 'Complete' :
                     confirmActionType === 'archiveBatch' ? 'Archive' :
+                    confirmActionType === 'sellDeduct' ? 'Deduct' :
                     'Add'
                 }
                 cancelText="Cancel"

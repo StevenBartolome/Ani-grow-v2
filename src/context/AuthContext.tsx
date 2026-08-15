@@ -120,6 +120,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           uid: data.id,
           firstName: data.first_name,
           lastName: data.last_name,
+          farmId: data.farm_id,
           phone: data.phone,
           phoneNumber: data.phone,
           customPermissions: data.custom_permissions || { add: [], remove: [] },
@@ -127,22 +128,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } as UserProfile);
         setRole(data.role);
       } else {
-        // [AUTO-REGISTER] If no profile exists, create one (e.g. for Google users)
+        // [AUTO-REGISTER] If no profile exists, create one using metadata passed during signUp or OAuth
         console.log('No profile found, creating auto-registration record...');
 
-        // Extract names from Google metadata
-        const fullName = currentUser.user_metadata?.full_name || '';
-        const firstName = currentUser.user_metadata?.given_name || fullName.split(' ')[0] || 'User';
-        const lastName = currentUser.user_metadata?.family_name || fullName.split(' ').slice(1).join(' ') || '';
+        const meta = currentUser.user_metadata || {};
+        const fullName = meta.full_name || meta.name || '';
+        const firstName = meta.first_name || meta.given_name || fullName.split(' ')[0] || 'User';
+        const lastName = meta.last_name || meta.family_name || fullName.split(' ').slice(1).join(' ') || '';
+        const username = meta.username || (currentUser.email?.split('@')[0] || 'user') + Math.floor(Math.random() * 1000);
+        const role = meta.role || 'farm_admin';
+        const farmId = meta.farm_id || null;
+        const permissions = meta.permissions || {};
 
         const newProfile = {
           id: currentUser.id,
           email: currentUser.email,
           first_name: firstName,
           last_name: lastName,
-          username: (currentUser.email?.split('@')[0] || 'user') + Math.floor(Math.random() * 1000),
-          role: 'farm_admin',
-          status: 'active',
+          username: username,
+          role: role,
+          farm_id: farmId,
+          permissions: permissions,
+          status: 'Active',
           platform: Platform.OS === 'web' ? 'web' : 'mobile',
           custom_permissions: { add: [], remove: [] },
           assigned_modules: [],
@@ -161,12 +168,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
+        if (meta.invite_id) {
+          try {
+            await supabase.rpc('mark_invite_used', { p_invite_id: meta.invite_id });
+          } catch (rpcErr) {
+            console.warn('[AuthContext] mark_invite_used RPC warning:', rpcErr);
+          }
+        }
+
         if (createdData) {
           setProfile({
             ...createdData,
             uid: createdData.id,
             firstName: createdData.first_name,
             lastName: createdData.last_name,
+            farmId: createdData.farm_id,
             phone: createdData.phone,
             phoneNumber: createdData.phone,
             customPermissions: createdData.custom_permissions || { add: [], remove: [] },

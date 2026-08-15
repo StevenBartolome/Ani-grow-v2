@@ -33,8 +33,33 @@ export default function ChangePhoneScreen() {
     const currentPhone = profile?.phone || (profile as any)?.phoneNumber || '';
     const hasCurrentPhone = !!currentPhone.trim();
 
-    const [newPhone, setNewPhone] = useState('');
+    const [newPhone, setNewPhone] = useState('+63');
     const [newPhoneError, setNewPhoneError] = useState('');
+
+    const handlePhoneChange = (val: string) => {
+        let cleaned = val.replace(/[^\d+]/g, '');
+        if (cleaned === '' || cleaned === '+') {
+            setNewPhone('+63');
+            setNewPhoneError('');
+            return;
+        }
+        if (!cleaned.startsWith('+63')) {
+            if (cleaned.startsWith('63')) {
+                cleaned = '+' + cleaned;
+            } else if (cleaned.startsWith('09')) {
+                cleaned = '+63' + cleaned.substring(1);
+            } else if (cleaned.startsWith('9')) {
+                cleaned = '+63' + cleaned;
+            } else {
+                cleaned = '+63' + cleaned.replace(/^\+?63?/, '');
+            }
+        }
+        if (cleaned.length > 13) {
+            cleaned = cleaned.substring(0, 13);
+        }
+        setNewPhone(cleaned);
+        setNewPhoneError('');
+    };
 
     // Step state
     const [step, setStep] = useState<Step>('input');
@@ -371,8 +396,9 @@ export default function ChangePhoneScreen() {
                                         label="New Phone Number"
                                         icon="phone"
                                         value={newPhone}
-                                        onChangeText={(t) => { setNewPhone(t); setNewPhoneError(''); }}
+                                        onChangeText={handlePhoneChange}
                                         keyboardType="phone-pad"
+                                        placeholder="+639XXXXXXXXX"
                                         backgroundColor={colors.surface}
                                     />
                                     {!!newPhoneError && (

@@ -302,7 +302,7 @@ export default function SetupAccountScreen() {
                 farm_id: inviteCodeData.farm_id,
                 role: inviteCodeData.role,
                 permissions: inviteCodeData.permissions,
-                status: 'active',
+                status: 'Active',
                 updated_at: new Date().toISOString(),
             };
 

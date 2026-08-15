@@ -19,7 +19,7 @@ export interface UserProfile {
   role: BaseUserRole;
   roleId?: string;
   platform: 'web' | 'mobile';
-  status: 'active' | 'suspended' | 'pending';
+  status: 'Active' | 'active' | 'suspended' | 'pending' | string;
   customPermissions: CustomPermissions;
   assignedModules: string[];
   lastLogin: any;
