@@ -58,6 +58,7 @@ export default function SegregationRecordsScreen() {
                 .from('weigh_sessions')
                 .select('id, status, recorded_at')
                 .eq('device_id', deviceId as string)
+                .neq('status', 'invalid')  // ghost/test readings marked invalid, not deleted — see migration_006
                 .order('recorded_at', { ascending: false })
                 .limit(500);
             if (error) throw error;

@@ -16,12 +16,14 @@ import { Header } from '@/components/Header';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import ActionModal from '@/components/ActionModal';
 import { supabase } from '@/lib/supabase';
+import { getDeviceDisplayStatus } from '@/lib/deviceStatus';
 
 interface RegisteredDevice {
     id: string;
     name: string;
     unique_code: string;
-    status: 'online' | 'offline';
+    status: 'online' | 'offline' | 'maintenance';
+    lastSeen: string | null;
     type: 'AniFeed' | 'AniWeigh';
     animalType?: 'Pig' | 'Chicken';
 }
@@ -156,6 +158,15 @@ export default function DevicesScreen() {
     const [devices, setDevices] = useState<RegisteredDevice[]>([]);
     const [loading, setLoading] = useState(true);
 
+    // Ticks forward periodically so a device's derived online/offline status
+    // re-evaluates against DEVICE_ONLINE_THRESHOLD_MS purely from the passage
+    // of time — no new data needed for a stale device to flip to "Offline".
+    const [nowTick, setNowTick] = useState(Date.now());
+    useEffect(() => {
+        const interval = setInterval(() => setNowTick(Date.now()), 15000);
+        return () => clearInterval(interval);
+    }, []);
+
     const filters: FilterType[] = ['All', 'AniFeed', 'AniWeigh'];
 
     const [refreshing, setRefreshing] = useState(false);
@@ -192,7 +203,7 @@ export default function DevicesScreen() {
         try {
             const { data, error } = await supabase
                 .from('devices')
-                .select('id, name, unique_code, type, status, housings(animal_type)')
+                .select('id, name, unique_code, type, status, last_seen, housings(animal_type)')
                 .eq('farm_id', farmId)
                 .order('name', { ascending: true });
             if (error) throw error;
@@ -201,7 +212,8 @@ export default function DevicesScreen() {
                 id: d.id,
                 name: d.name,
                 unique_code: d.unique_code ?? '',
-                status: d.status === 'online' ? 'online' : 'offline',
+                status: d.status ?? 'offline',
+                lastSeen: d.last_seen ?? null,
                 type: d.type === 'anifeed' ? 'AniFeed' : 'AniWeigh',
                 animalType: d.housings?.animal_type === 'pig' ? 'Pig' :
                     d.housings?.animal_type === 'chicken' ? 'Chicken' : undefined,
@@ -217,9 +229,16 @@ export default function DevicesScreen() {
 
     useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
+    // Resolve each device's *real* status (manual flag + heartbeat freshness)
+    // against the current tick, so staleness shows up without a refetch.
+    const liveDevices: RegisteredDevice[] = devices.map(d => ({
+        ...d,
+        status: getDeviceDisplayStatus(d.status, d.lastSeen, nowTick),
+    }));
+
     const filteredDevices = activeFilter === 'All'
-        ? devices
-        : devices.filter(d => d.type === activeFilter);
+        ? liveDevices
+        : liveDevices.filter(d => d.type === activeFilter);
 
     return (
         <SafeAreaView style={styles.safeArea}>

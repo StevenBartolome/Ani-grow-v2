@@ -115,6 +115,7 @@ export default function RecentLogsScreen() {
                 .from('weigh_sessions')
                 .select('id, net_weight_grams, status, animal_type, recorded_at, device_id')
                 .in('device_id', targetDeviceIds)
+                .neq('status', 'invalid')  // ghost/test readings marked invalid, not deleted — see migration_006
                 .order('recorded_at', { ascending: false })
                 .limit(200);
 

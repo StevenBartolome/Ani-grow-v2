@@ -20,10 +20,12 @@ import { AnimalIcon } from '@/components/AnimalIcon';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { supabase } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getDeviceDisplayStatus } from '@/lib/deviceStatus';
 
 interface DeviceInfo {
     name: string;
     status: string;
+    lastSeen: string | null;
     housingId: string | null;
     housingName: string;
     animalType: 'Pig' | 'Chicken';
@@ -206,7 +208,7 @@ export default function AniFeedScreen() {
             const [deviceResult, scheduleResult, logsResult, housingsResult, feedsResult] = await Promise.all([
                 supabase
                     .from('devices')
-                    .select('id, name, unique_code, status, housing_id, housings(name, animal_type)')
+                    .select('id, name, unique_code, status, last_seen, housing_id, housings(name, animal_type)')
                     .eq('id', deviceId as string)
                     .single(),
                 supabase
@@ -239,6 +241,7 @@ export default function AniFeedScreen() {
                 const info: DeviceInfo = {
                     name: d.name,
                     status: d.status,
+                    lastSeen: d.last_seen ?? null,
                     housingId: d.housing_id ?? null,
                     housingName: d.housings?.name ?? 'Unassigned',
                     animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
@@ -252,7 +255,7 @@ export default function AniFeedScreen() {
                 }
 
                 setDeviceInfo(info);
-                setIsConnected(d.status === 'online');
+                setIsConnected(getDeviceDisplayStatus(info.status, info.lastSeen) === 'online');
             }
 
             if (scheduleResult.data) {
@@ -298,6 +301,19 @@ export default function AniFeedScreen() {
     }, [deviceId, farmId]);
 
     useEffect(() => { fetchAll(); }, [fetchAll]);
+
+    // Re-derive isConnected from the last known heartbeat every 15s, purely
+    // from the passage of time — catches a device going stale/dark even
+    // when nothing new has arrived to trigger a re-fetch.
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setDeviceInfo(prev => {
+                if (prev) setIsConnected(getDeviceDisplayStatus(prev.status, prev.lastSeen) === 'online');
+                return prev;
+            });
+        }, 15000);
+        return () => clearInterval(interval);
+    }, []);
 
     // Re-fetch when navigating back (e.g. after adding feeds in ManageFeedsScreen)
     useFocusEffect(

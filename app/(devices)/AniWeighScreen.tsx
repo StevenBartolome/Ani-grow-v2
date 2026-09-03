@@ -19,10 +19,13 @@ import { AnimalIcon } from '@/components/AnimalIcon';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { supabase } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getDeviceDisplayStatus } from '@/lib/deviceStatus';
 
 interface DeviceInfo {
     name: string;
     status: string;
+    lastSeen: string | null;
+    weighingActive: boolean;
     housingId: string | null;
     housingName: string;
     animalType: 'Pig' | 'Piglet' | 'Chicken' | 'Chicks (with caution: must be in crate)';
@@ -194,6 +197,7 @@ export default function AniWeighScreen() {
             .from('weigh_sessions')
             .select('status')
             .eq('device_id', deviceId)
+            .neq('status', 'invalid')  // ghost/test readings marked invalid, not deleted — see migration_006
             .gte('recorded_at', todayStart.toISOString());
 
         if (selectedBatchId) {
@@ -226,6 +230,7 @@ export default function AniWeighScreen() {
                 .from('weigh_sessions')
                 .select('status')
                 .eq('device_id', deviceId)
+                .neq('status', 'invalid')  // ghost/test readings marked invalid, not deleted — see migration_006
                 .gte('recorded_at', todayStart.toISOString());
 
             if (selectedBatchId) {
@@ -237,7 +242,7 @@ export default function AniWeighScreen() {
             const [deviceResult, housingsResult, todayStatsResult] = await Promise.all([
                 supabase
                     .from('devices')
-                    .select('id, name, unique_code, status, housing_id, housings(name, animal_type)')
+                    .select('id, name, unique_code, status, last_seen, weighing_active, housing_id, housings(name, animal_type)')
                     .eq('id', deviceId)
                     .single(),
                 supabase
@@ -254,6 +259,8 @@ export default function AniWeighScreen() {
                 const info: DeviceInfo = {
                     name: d.name,
                     status: d.status,
+                    lastSeen: d.last_seen ?? null,
+                    weighingActive: !!d.weighing_active,
                     housingId: d.housing_id ?? null,
                     housingName: d.housings?.name ?? 'Unassigned',
                     animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
@@ -266,7 +273,7 @@ export default function AniWeighScreen() {
 
                 setDeviceInfo(info);
                 deviceInfoRef.current = info;   // keep ref in sync
-                setIsConnected(d.status === 'online');
+                setIsConnected(getDeviceDisplayStatus(info.status, info.lastSeen) === 'online');
 
                 // Fetch batches for this housing if assigned
                 if (info.housingId) {
@@ -316,6 +323,7 @@ export default function AniWeighScreen() {
                     .from('weigh_sessions')
                     .select('id, net_weight_grams, status, animal_type, recorded_at')
                     .eq('device_id', deviceId)
+                    .neq('status', 'invalid')  // ghost/test readings marked invalid, not deleted — see migration_006
                     .order('recorded_at', { ascending: false })
                     .limit(3);
 
@@ -362,18 +370,31 @@ export default function AniWeighScreen() {
 
     useEffect(() => { fetchAll(); }, [fetchAll]);
 
-    const [refreshing, setRefreshing] = useState(false);
-    const onRefresh = useCallback(async () => { setRefreshing(true); await fetchAll(); setRefreshing(false); }, [fetchAll]);
-
-    // ─── Realtime subscription — mirrors the IoT data stream ────────
+    // Re-derive isConnected from the last known heartbeat every 15s, purely
+    // from the passage of time — catches a device going stale/dark even
+    // when nothing new has arrived to trigger a re-fetch.
     useEffect(() => {
-        if (!deviceId) return;
+        const interval = setInterval(() => {
+            const info = deviceInfoRef.current;
+            if (!info) return;
+            setIsConnected(getDeviceDisplayStatus(info.status, info.lastSeen) === 'online');
+        }, 15000);
+        return () => clearInterval(interval);
+    }, []);
 
-        // Seed initial live value from most recent record for the selected batch
+    // Fetches the most recent (non-invalid) reading for Live Scaling. Pulled
+    // out so both the mount effect below AND pull-to-refresh can call it —
+    // previously only ran once on mount, so marking a stale/ghost row
+    // 'invalid' directly in the database wouldn't be reflected here until
+    // the screen was unmounted and remounted (e.g. navigating away and
+    // back), even though the underlying query already excluded it.
+    const fetchLiveSeed = useCallback(async () => {
+        if (!deviceId) return;
         let seedQuery = supabase
             .from('weigh_sessions')
             .select('net_weight_grams, status')
             .eq('device_id', deviceId)
+            .neq('status', 'invalid')  // ghost/test readings marked invalid, not deleted — see migration_006
             .order('recorded_at', { ascending: false })
             .limit(1);
 
@@ -383,17 +404,52 @@ export default function AniWeighScreen() {
             seedQuery = seedQuery.is('batch_id', null);
         }
 
-        seedQuery
-            .maybeSingle()
-            .then(({ data }) => {
-                if (data) {
-                    setLiveWeightG((data as any).net_weight_grams);
-                    setLiveStatus((data as any).status);
-                } else {
-                    setLiveWeightG(null);
-                    setLiveStatus(null);
+        const { data } = await seedQuery.maybeSingle();
+        if (data) {
+            setLiveWeightG((data as any).net_weight_grams);
+            setLiveStatus((data as any).status);
+        } else {
+            setLiveWeightG(null);
+            setLiveStatus(null);
+        }
+    }, [deviceId, selectedBatchId]);
+
+    const [refreshing, setRefreshing] = useState(false);
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await Promise.all([fetchAll(), fetchLiveSeed()]);
+        setRefreshing(false);
+    }, [fetchAll, fetchLiveSeed]);
+
+    // ─── Live "is it running" — watches devices.weighing_active ─────
+    // Pushed by board1.ino immediately on Start/Stop/Reset (not just the
+    // periodic heartbeat), so this reflects state within a second or two.
+    useEffect(() => {
+        if (!deviceId) return;
+        const channel = supabase
+            .channel(`device-running-${deviceId}`)
+            .on(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'devices', filter: `id=eq.${deviceId}` },
+                (payload) => {
+                    const active = !!(payload.new as any)?.weighing_active;
+                    setDeviceInfo(prev => {
+                        if (!prev) return prev;
+                        const updated = { ...prev, weighingActive: active };
+                        deviceInfoRef.current = updated;
+                        return updated;
+                    });
                 }
-            });
+            )
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, [deviceId]);
+
+    // ─── Realtime subscription — mirrors the IoT data stream ────────
+    useEffect(() => {
+        if (!deviceId) return;
+
+        fetchLiveSeed();
 
         const channel = supabase
             .channel(`aniweigh-live-${deviceId}`)
@@ -575,40 +631,139 @@ export default function AniWeighScreen() {
         }
     };
 
+    // Tare is relayed through Supabase (device_commands) rather than a direct
+    // LAN call — the board polls for it every ~5s (see checkPendingCommands()
+    // in board1.ino), so this works regardless of which network the phone is
+    // on, unlike threshold/mode sync below which still need the same LAN.
     const [isTaring, setIsTaring] = useState(false);
+    // Shared relay for every remote device command (tare/start/stop/reset) —
+    // inserts a device_commands row, waits for the board to mark it done via
+    // Realtime, and reports success/pending. Works regardless of which
+    // network the phone and the board are each on.
+    const sendDeviceCommand = async (
+        command: 'tare' | 'start' | 'stop' | 'reset',
+        successMessage: string,
+        pendingMessage: string,
+        timeoutMs = 30000,
+    ): Promise<boolean> => {
+        const requestedBy = (profile as any)?.uid ?? (profile as any)?.id ?? null;
+        const { data, error } = await supabase
+            .from('device_commands')
+            .insert({ device_id: deviceId, command, requested_by: requestedBy })
+            .select('id')
+            .single();
+        if (error) throw error;
+        const commandId = (data as any).id;
+
+        const confirmed = await new Promise<boolean>((resolve) => {
+            const timeout = setTimeout(() => {
+                supabase.removeChannel(channel);
+                resolve(false);
+            }, timeoutMs);
+            const channel = supabase
+                .channel(`device-cmd-${commandId}`)
+                .on(
+                    'postgres_changes',
+                    { event: 'UPDATE', schema: 'public', table: 'device_commands', filter: `id=eq.${commandId}` },
+                    (payload) => {
+                        if ((payload.new as any)?.status === 'done') {
+                            clearTimeout(timeout);
+                            supabase.removeChannel(channel);
+                            resolve(true);
+                        }
+                    }
+                )
+                .subscribe();
+        });
+
+        showSnackbar(confirmed ? successMessage : pendingMessage, confirmed ? 'success' : 'info');
+        return confirmed;
+    };
+
     const handleTareDevice = async () => {
-        if (!deviceUniqueCode) {
-            showSnackbar('Device code not found.', 'error');
-            return;
-        }
         setIsTaring(true);
-        const urls = [
-            `http://anigrow-${deviceUniqueCode}.local/tare`,
-            `http://192.168.4.1/tare`
-        ];
-        let success = false;
-        for (const url of urls) {
-            try {
-                console.log(`[Tare] Sending to: ${url}`);
-                const res = await Promise.race([
-                    fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
-                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
-                ]);
-                if (res.ok) {
-                    success = true;
-                    console.log(`[Tare] Success from: ${url}`);
-                    break;
-                }
-            } catch (e) {
-                console.warn(`[Tare] Failed for ${url}:`, e);
-            }
+        try {
+            await sendDeviceCommand(
+                'tare',
+                'Scale tared successfully.',
+                "Tare requested — the device hasn't confirmed yet. It'll apply as soon as it's reachable."
+            );
+        } catch (err) {
+            console.error('[Tare] error:', err);
+            showSnackbar('Failed to request tare.', 'error');
+        } finally {
+            setIsTaring(false);
         }
-        setIsTaring(false);
-        if (success) {
-            showSnackbar('Scale tared successfully.');
-        } else {
-            showSnackbar('Failed to tare device. Make sure you are on the same WiFi or connected to the device hotspot.', 'error');
+    };
+
+    // ─── Start / Stop / Reset ──────────────────────────────────────────
+    const [isStarting, setIsStarting] = useState(false);
+    const handleStartDevice = async () => {
+        setIsStarting(true);
+        try {
+            await sendDeviceCommand(
+                'start',
+                `Start confirmed (${animalType}) — the device is taring and getting ready, give it a few seconds.`,
+                "Start requested — the device hasn't confirmed yet. It'll begin as soon as it's reachable."
+            );
+        } catch (err) {
+            console.error('[Start] error:', err);
+            showSnackbar('Failed to start device.', 'error');
+        } finally {
+            setIsStarting(false);
         }
+    };
+
+    const [isStopping, setIsStopping] = useState(false);
+    const handleStopDevice = async () => {
+        setIsStopping(true);
+        try {
+            await sendDeviceCommand(
+                'stop',
+                'Stopped. Tap Start when you\'re ready to resume.',
+                "Stop requested — the device hasn't confirmed yet. It'll pause as soon as it's reachable."
+            );
+        } catch (err) {
+            console.error('[Stop] error:', err);
+            showSnackbar('Failed to stop device.', 'error');
+        } finally {
+            setIsStopping(false);
+        }
+    };
+
+    const [isResetting, setIsResetting] = useState(false);
+    const handleResetDevice = async () => {
+        setIsResetting(true);
+        try {
+            await sendDeviceCommand(
+                'reset',
+                'Reset confirmed — the device is restarting (takes ~15-20 seconds), then Tap Start to resume.',
+                "Reset requested — the device hasn't confirmed yet. It'll reset as soon as it's reachable.",
+                15000
+            );
+        } catch (err) {
+            console.error('[Reset] error:', err);
+            showSnackbar('Failed to reset device.', 'error');
+        } finally {
+            setIsResetting(false);
+        }
+    };
+
+    // Confirmation modal shared by Stop and Reset (both interrupt whatever
+    // the device is doing — worth a confirm tap, unlike Start/Tare).
+    const [controlModalVisible, setControlModalVisible] = useState(false);
+    const [controlAction, setControlAction] = useState<'stop' | 'reset' | null>(null);
+
+    const openControlConfirm = (action: 'stop' | 'reset') => {
+        setControlAction(action);
+        setControlModalVisible(true);
+    };
+
+    const confirmControlAction = () => {
+        setControlModalVisible(false);
+        if (controlAction === 'stop') handleStopDevice();
+        else if (controlAction === 'reset') handleResetDevice();
+        setControlAction(null);
     };
 
     const handleSaveRanges = async () => {
@@ -976,35 +1131,116 @@ export default function AniWeighScreen() {
                                     </Text>
                                 </View>
                             </View>
-                            <TouchableOpacity
-                                style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    backgroundColor: colors.primary + '10',
-                                    borderWidth: 1.5,
-                                    borderColor: colors.primary + '30',
-                                    borderRadius: 9999,
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 24,
-                                    marginTop: 24,
-                                    width: '100%',
-                                }}
-                                activeOpacity={0.75}
-                                onPress={handleTareDevice}
-                                disabled={isTaring}
-                            >
-                                {isTaring ? (
-                                    <ActivityIndicator size="small" color={colors.primary} />
-                                ) : (
-                                    <>
-                                        <MaterialIcons name="restart-alt" size={18} color={colors.primary} style={{ marginRight: 8 }} />
-                                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 14, fontWeight: '700' }]}>
-                                            Tare Scale
-                                        </Text>
-                                    </>
-                                )}
-                            </TouchableOpacity>
+                            {/* Running indicator — reflects devices.weighing_active, pushed by the
+                                board immediately on Start/Stop/Reset rather than waiting on the
+                                next periodic heartbeat. */}
+                            <View style={{
+                                flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                                marginTop: 20, alignSelf: 'center',
+                                backgroundColor: deviceInfo?.weighingActive ? colors.primary + '15' : colors.cardFill,
+                                borderWidth: 1, borderColor: deviceInfo?.weighingActive ? colors.primary + '40' : colors.stroke,
+                                borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5,
+                            }}>
+                                <View style={{
+                                    width: 7, height: 7, borderRadius: 3.5,
+                                    backgroundColor: deviceInfo?.weighingActive ? colors.primary : colors.textGrey,
+                                }} />
+                                <Text style={[textStyles.label, {
+                                    fontSize: 12, fontWeight: '700',
+                                    color: deviceInfo?.weighingActive ? colors.primary : colors.textGrey,
+                                }]}>
+                                    {deviceInfo?.weighingActive ? 'Running — weighing animals' : 'Idle — tap Start to begin'}
+                                </Text>
+                            </View>
+
+                            {/* Device Controls — Start/Stop the whole IoT remotely, plus Tare and
+                                a hardware-safe Reset. All relayed through Supabase, so they work
+                                regardless of which network the phone is on. */}
+                            <View style={{ marginTop: 12, width: '100%', gap: 10 }}>
+                                <View style={{ flexDirection: 'row', gap: 10 }}>
+                                    <TouchableOpacity
+                                        style={{
+                                            flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                                            backgroundColor: colors.primary,
+                                            borderRadius: 9999, paddingVertical: 12,
+                                        }}
+                                        activeOpacity={0.8}
+                                        onPress={handleStartDevice}
+                                        disabled={isStarting}
+                                    >
+                                        {isStarting ? (
+                                            <ActivityIndicator size="small" color={colors.onPrimary} />
+                                        ) : (
+                                            <>
+                                                <MaterialIcons name="play-arrow" size={18} color={colors.onPrimary} style={{ marginRight: 6 }} />
+                                                <Text style={[textStyles.label, { color: colors.onPrimary, fontSize: 14, fontWeight: '700' }]}>Start</Text>
+                                            </>
+                                        )}
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={{
+                                            flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                                            backgroundColor: colors.textGrey + '15',
+                                            borderWidth: 1.5, borderColor: colors.stroke,
+                                            borderRadius: 9999, paddingVertical: 12,
+                                        }}
+                                        activeOpacity={0.75}
+                                        onPress={() => openControlConfirm('stop')}
+                                        disabled={isStopping}
+                                    >
+                                        {isStopping ? (
+                                            <ActivityIndicator size="small" color={colors.textGrey} />
+                                        ) : (
+                                            <>
+                                                <MaterialIcons name="stop" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
+                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 14, fontWeight: '700' }]}>Stop</Text>
+                                            </>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
+                                <View style={{ flexDirection: 'row', gap: 10 }}>
+                                    <TouchableOpacity
+                                        style={{
+                                            flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                                            backgroundColor: colors.primary + '10',
+                                            borderWidth: 1.5, borderColor: colors.primary + '30',
+                                            borderRadius: 9999, paddingVertical: 12,
+                                        }}
+                                        activeOpacity={0.75}
+                                        onPress={handleTareDevice}
+                                        disabled={isTaring}
+                                    >
+                                        {isTaring ? (
+                                            <ActivityIndicator size="small" color={colors.primary} />
+                                        ) : (
+                                            <>
+                                                <MaterialIcons name="restart-alt" size={18} color={colors.primary} style={{ marginRight: 6 }} />
+                                                <Text style={[textStyles.label, { color: colors.primary, fontSize: 14, fontWeight: '700' }]}>Tare Scale</Text>
+                                            </>
+                                        )}
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={{
+                                            flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                                            backgroundColor: colors.error + '10',
+                                            borderWidth: 1.5, borderColor: colors.error + '30',
+                                            borderRadius: 9999, paddingVertical: 12,
+                                        }}
+                                        activeOpacity={0.75}
+                                        onPress={() => openControlConfirm('reset')}
+                                        disabled={isResetting}
+                                    >
+                                        {isResetting ? (
+                                            <ActivityIndicator size="small" color={colors.error} />
+                                        ) : (
+                                            <>
+                                                <MaterialIcons name="power-settings-new" size={18} color={colors.error} style={{ marginRight: 6 }} />
+                                                <Text style={[textStyles.label, { color: colors.error, fontSize: 14, fontWeight: '700' }]}>Reset</Text>
+                                            </>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
                         </View>
                     </View>
 
@@ -1174,6 +1410,22 @@ export default function AniWeighScreen() {
                 cancelText="Cancel"
                 onConfirm={handleModalConfirm}
                 onCancel={() => setModalVisible(false)}
+            />
+
+            {/* Stop / Reset confirm modal */}
+            <ActionModal
+                visible={controlModalVisible}
+                type={controlAction === 'reset' ? 'warning' : 'confirmation'}
+                title={controlAction === 'reset' ? 'Reset Device?' : 'Stop Device?'}
+                message={
+                    controlAction === 'reset'
+                        ? 'This turns off every relay and fully restarts the board — use this if it seems stuck (e.g. after a power interruption mid-cycle) or you just want a clean slate. It will come back up idle; tap Start afterward to resume.'
+                        : "This pauses weighing — the device won't start a new cycle until you tap Start again. Your animal type stays set, no need to re-pick it."
+                }
+                confirmText={controlAction === 'reset' ? 'Reset' : 'Stop'}
+                cancelText="Cancel"
+                onConfirm={confirmControlAction}
+                onCancel={() => { setControlModalVisible(false); setControlAction(null); }}
             />
 
             {/* Range settings modal */}
