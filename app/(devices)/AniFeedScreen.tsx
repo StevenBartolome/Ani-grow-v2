@@ -39,6 +39,7 @@ interface FeedScheduleInfo {
     feedBrand: string;
     dispenseTimes: string[];
     feedStockKg?: number | null;
+    feedExpiryDate?: string | null;
 }
 
 interface DispenseLogEntry {
@@ -157,7 +158,7 @@ export default function AniFeedScreen() {
 
     // Options for edit modals (fetched from farm)
     const [farmHousings, setFarmHousings] = useState<{ id: string; name: string; animal_type: string }[]>([]);
-    const [farmFeeds, setFarmFeeds] = useState<{ id: string; name: string; brand: string; animal_type: string; stock_kg?: number | null }[]>([]);
+    const [farmFeeds, setFarmFeeds] = useState<{ id: string; name: string; brand: string; animal_type: string; stock_kg?: number | null; expiry_date?: string | null }[]>([]);
 
     // Schedule edit modal
     const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
@@ -213,7 +214,7 @@ export default function AniFeedScreen() {
                     .single(),
                 supabase
                     .from('feed_schedules')
-                    .select('id, times_per_day, grams_per_dispense, feed_id, dispense_times, feeds(name, brand, stock_kg)')
+                    .select('id, times_per_day, grams_per_dispense, feed_id, dispense_times, feeds(name, brand, stock_kg, expiry_date)')
                     .eq('device_id', deviceId as string)
                     .order('created_at', { ascending: false })
                     .limit(1)
@@ -231,7 +232,7 @@ export default function AniFeedScreen() {
                     .eq('status', 'Active'),
                 supabase
                     .from('feeds')
-                    .select('id, name, brand, animal_type, stock_kg')
+                    .select('id, name, brand, animal_type, stock_kg, expiry_date')
                     .eq('farm_id', farmId),
             ]);
 
@@ -269,6 +270,7 @@ export default function AniFeedScreen() {
                     feedBrand: wholeFeedName,
                     dispenseTimes: s.dispense_times ?? ['08:00', '12:00', '18:00'],
                     feedStockKg: s.feeds?.stock_kg ?? null,
+                    feedExpiryDate: s.feeds?.expiry_date ?? null,
                 });
                 setTempTimesPerDay(String(s.times_per_day));
                 setTempGrams(String(s.grams_per_dispense));
@@ -439,6 +441,11 @@ export default function AniFeedScreen() {
             showSnackbar('The assigned feed has no stock remaining.', 'error');
             return;
         }
+        // STRICT — never dispense a feed past its own expiry date.
+        if (schedule.feedExpiryDate && schedule.feedExpiryDate < new Date().toLocaleDateString('en-CA')) {
+            showSnackbar(`This feed expired on ${schedule.feedExpiryDate} — replace it before dispensing.`, 'error');
+            return;
+        }
         const gramsAsKg = grams / 1000;
         if (schedule.feedStockKg < gramsAsKg) {
             showSnackbar(`Insufficient stock. Need ${gramsAsKg} kg, only ${schedule.feedStockKg} kg left.`, 'error');
@@ -448,6 +455,24 @@ export default function AniFeedScreen() {
         setIsManualDispensing(true);
         try {
             const now = new Date().toISOString();
+
+            // Attribute this dispense to whichever batch currently occupies the
+            // housing, same "most recent active batch" lookup record_weigh_session
+            // already does server-side for weigh_sessions — lets a Weighing
+            // Session's feed-vs-growth comparison actually find this row later.
+            let activeBatchId: string | null = null;
+            if (deviceInfo?.housingId) {
+                const { data: activeBatch } = await supabase
+                    .from('batches')
+                    .select('id')
+                    .eq('housing_id', deviceInfo.housingId)
+                    .eq('status', 'active')
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                activeBatchId = activeBatch?.id ?? null;
+            }
+
             const { error: insertError } = await supabase
                 .from('dispense_records')
                 .insert({
@@ -455,6 +480,7 @@ export default function AniFeedScreen() {
                     farm_id: farmId,
                     feed_id: schedule.feedId,
                     housing_id: deviceInfo?.housingId ?? null,
+                    batch_id: activeBatchId,
                     animal_type: deviceInfo?.animalType
                         ? (deviceInfo.animalType.toLowerCase() as 'chicken' | 'pig')
                         : null,
@@ -619,11 +645,18 @@ export default function AniFeedScreen() {
                 });
                 if (!f) return;
 
+                // STRICT — don't let an expired feed get assigned to an
+                // active dispensing schedule in the first place.
+                if (f.expiry_date && f.expiry_date < new Date().toLocaleDateString('en-CA')) {
+                    showSnackbar(`"${f.name}" expired on ${f.expiry_date} — pick a different feed or update its expiry in Manage Feeds.`, 'error');
+                    return;
+                }
+
                 const wholeFeedName = f.brand ? `${f.name} (${f.brand})` : f.name;
                 if (schedule?.id) {
                     const { error } = await supabase.from('feed_schedules').update({ feed_id: f.id }).eq('id', schedule.id);
                     if (error) throw error;
-                    setSchedule(prev => prev ? { ...prev, feedId: f.id, feedBrand: wholeFeedName, feedStockKg: f.stock_kg ?? null } : null);
+                    setSchedule(prev => prev ? { ...prev, feedId: f.id, feedBrand: wholeFeedName, feedStockKg: f.stock_kg ?? null, feedExpiryDate: f.expiry_date ?? null } : null);
                 } else {
                     const payload = {
                         device_id: deviceId as string,
@@ -645,6 +678,7 @@ export default function AniFeedScreen() {
                         feedBrand: wholeFeedName,
                         dispenseTimes: ['08:00', '12:00', '18:00'],
                         feedStockKg: f.stock_kg ?? null,
+                        feedExpiryDate: f.expiry_date ?? null,
                     });
                 }
                 showSnackbar('Feed updated.');

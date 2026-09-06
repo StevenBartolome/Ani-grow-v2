@@ -16,6 +16,8 @@ import { LineChart } from 'react-native-chart-kit';
 import { BackButton } from '@/components/BackButton';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
+import { PrintReportButton } from '@/components/PrintReportButton';
+import { ReportDocument, ReportStat } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -80,8 +82,11 @@ export default function PredictionReportScreen() {
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
+    const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
 
-    const { type } = useLocalSearchParams();
+    // batchId (e.g. linked from a Weighing Session Report) takes priority
+    // over the default "first housing, most recent batch" auto-pick below.
+    const { type, batchId: requestedBatchId } = useLocalSearchParams<{ type?: string; batchId?: string }>();
     const initialType = typeof type === 'string'
         ? (type.toLowerCase().includes('chicken') ? 'chicken' : 'pig')
         : 'pig';
@@ -139,6 +144,7 @@ export default function PredictionReportScreen() {
                     .from('batches')
                     .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id)')
                     .eq('housings.farm_id', farmId)
+                    .eq('status', 'active') // sold/completed batches shouldn't clutter this picker
                     .order('arrival_date', { ascending: false }),
             ]);
 
@@ -150,6 +156,32 @@ export default function PredictionReportScreen() {
 
             setAllHousings(housingsData);
             setAllBatches(batchesData);
+
+            // An explicitly-requested batch wins outright.
+            const requestedBatch = typeof requestedBatchId === 'string'
+                ? batchesData.find(b => b.id === requestedBatchId)
+                : undefined;
+            if (requestedBatch) {
+                const requestedHousing = housingsData.find(h => h.id === requestedBatch.housing_id);
+                if (requestedHousing) {
+                    setAnimalType(requestedHousing.animal_type === 'chicken' ? 'chicken' : 'pig');
+                    animalTypeRef.current = requestedHousing.animal_type === 'chicken' ? 'chicken' : 'pig';
+                }
+                setSelectedHousingId(requestedBatch.housing_id);
+                setSelectedBatchId(requestedBatch.id);
+
+                const [reqWeighRes, reqHealthRes] = await Promise.all([
+                    supabase.from('weigh_sessions').select('id, net_weight_grams, status, recorded_at, batch_id')
+                        .eq('batch_id', requestedBatch.id).order('recorded_at', { ascending: true }),
+                    supabase.from('health_records').select('id, record_type, affected_count, record_date')
+                        .eq('batch_id', requestedBatch.id).is('deleted_at', null),
+                ]);
+                setWeighSessions((reqWeighRes.data || []) as WeighSession[]);
+                setHealthRecords((reqHealthRes.data || []) as HealthRecord[]);
+                lastLoadedBatchIdRef.current = requestedBatch.id;
+                setIsLoading(false);
+                return;
+            }
 
             const filteredH = housingsData.filter(h => h.animal_type === animalTypeRef.current);
             if (filteredH.length > 0) {
@@ -480,6 +512,53 @@ export default function PredictionReportScreen() {
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     };
 
+    // ─── PDF Report Builder ──────────────────────────────────────────────────
+    const buildPredictionReport = useCallback((): ReportDocument | null => {
+        if (!selectedBatch) return null;
+
+        const growthStats: ReportStat[] = [
+            { label: 'Avg Weight (Latest)', value: latestAvgWeightKg !== null ? `${latestAvgWeightKg.toFixed(2)} kg` : '—' },
+            { label: 'Daily Gain', value: dailyGainKg !== null ? `${dailyGainKg.toFixed(3)} kg/day` : '—' },
+            { label: 'Harvest Target', value: `${harvestTargetKg} kg` },
+            { label: 'Prediction Confidence', value: `${confidencePct}%` },
+        ];
+
+        const harvestStats: ReportStat[] = [
+            { label: 'Days To Harvest', value: daysToHarvest !== null ? String(daysToHarvest) : 'Not enough data', accent: daysToHarvest === 0 ? 'good' : undefined },
+            { label: 'Estimated Harvest Date', value: formatDate(estimatedHarvestDate) },
+            { label: 'Survival Rate', value: survivalRate !== null ? `${survivalRate}%` : '—', accent: survivalRate !== null ? (parseFloat(survivalRate) < 90 ? 'warn' : 'good') : undefined },
+            { label: 'Recorded Deaths', value: String(totalDeceased), accent: totalDeceased > 0 ? 'bad' : undefined },
+        ];
+
+        const projectionRows = forecastChartData.labels.map((label, i) => [label, `${forecastChartData.datasets[0].data[i]} kg`]);
+
+        return {
+            reportTitle: 'Growth Prediction Report',
+            farmName,
+            subtitle: `${selectedBatch.name} · ${selectedHousing?.name ?? 'No Housing'} · ${animalType === 'pig' ? 'Pigs' : 'Chickens'}`,
+            meta: [
+                { label: 'Batch', value: selectedBatch.name },
+                { label: 'Housing', value: selectedHousing?.name ?? '—' },
+                { label: 'Animal Type', value: animalType === 'pig' ? 'Pig' : 'Chicken' },
+                { label: 'Current Age', value: currentAgeDays !== null ? `Day ${currentAgeDays}` : '—' },
+                { label: 'Head Count', value: String(selectedBatch.current_count) },
+                ...(currentFeedStage ? [{ label: 'Feed Stage', value: currentFeedStage }] : []),
+            ],
+            sections: [
+                { heading: 'Current Growth Status', stats: growthStats },
+                { heading: 'Harvest Prediction', stats: harvestStats, paragraphs: [getInsightText()] },
+                {
+                    heading: `Projected Weight — Next ${timeframe}`,
+                    table: {
+                        headers: ['Timeline', 'Projected Weight'],
+                        rows: projectionRows,
+                        note: weighSessions.length < 2 ? 'Projection requires at least 2 weigh-ins on separate days for an accurate growth rate.' : undefined,
+                    },
+                },
+            ],
+        };
+    }, [selectedBatch, selectedHousing, animalType, currentAgeDays, latestAvgWeightKg, dailyGainKg, harvestTargetKg, confidencePct, daysToHarvest, estimatedHarvestDate, survivalRate, totalDeceased, forecastChartData, timeframe, currentFeedStage, farmName, weighSessions]);
+
     const activeColor = animalType === 'pig' ? (colors.pig ?? '#EC4899') : (colors.chicken ?? '#F97316');
 
     const housingsOptions = filteredHousings.map(h => h.name);
@@ -498,7 +577,10 @@ export default function PredictionReportScreen() {
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
                     Prediction &amp; Forecast
                 </Text>
-                <View style={{ width: 44, height: 44 }} />
+                <PrintReportButton
+                    buildReport={buildPredictionReport}
+                    emptyMessage="Select a batch first."
+                />
             </View>
 
             <ScrollView

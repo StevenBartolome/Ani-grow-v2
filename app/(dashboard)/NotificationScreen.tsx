@@ -10,6 +10,7 @@ import { useNotificationStyles } from '@/styles/notificationStyles';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
+import { sortByPriority } from '@/lib/notify';
 
 interface AppNotification {
     id: string;
@@ -17,8 +18,17 @@ interface AppNotification {
     message: string;
     time: string;
     type: 'alert' | 'info' | 'warning' | 'success';
+    category: string | null;
+    created_at: string;
     isRead: boolean;
 }
+
+const CATEGORY_LABEL: Record<string, string> = {
+    device_alert: 'Device',
+    weight_alert: 'Weight',
+    feed_alert: 'Feed',
+    health_alert: 'Health',
+};
 
 function formatTime(ts: string): string {
     const diff = Date.now() - new Date(ts).getTime();
@@ -56,7 +66,7 @@ export default function NotificationScreen() {
         try {
             let query = supabase
                 .from('notifications')
-                .select('id, title, message, type, is_read, created_at')
+                .select('id, title, message, type, category, is_read, created_at')
                 .order('created_at', { ascending: false });
 
             if (farmId) {
@@ -69,12 +79,14 @@ export default function NotificationScreen() {
             if (error) throw error;
 
             setNotifications(
-                (data ?? []).map(n => ({
+                sortByPriority(data ?? []).map(n => ({
                     id: n.id,
                     title: n.title,
                     message: n.message,
                     time: formatTime(n.created_at),
                     type: mapType(n.type),
+                    category: n.category,
+                    created_at: n.created_at,
                     isRead: n.is_read,
                 }))
             );
@@ -144,6 +156,13 @@ export default function NotificationScreen() {
                             )}
                         </View>
                     </View>
+                    {item.category && CATEGORY_LABEL[item.category] && (
+                        <View style={{ alignSelf: 'flex-start', backgroundColor: color + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, marginBottom: 4 }}>
+                            <Text style={[textStyles.label, { color, fontSize: 9, letterSpacing: 0.5 }]}>
+                                {CATEGORY_LABEL[item.category].toUpperCase()}
+                            </Text>
+                        </View>
+                    )}
                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 14, lineHeight: 20 }]} numberOfLines={2}>
                         {item.message}
                     </Text>

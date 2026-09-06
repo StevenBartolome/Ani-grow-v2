@@ -9,6 +9,8 @@ import { LineChart } from 'react-native-chart-kit';
 import { BackButton } from '@/components/BackButton';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
+import { PrintReportButton } from '@/components/PrintReportButton';
+import { ReportDocument } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -59,9 +61,13 @@ export default function GrowthReportScreen() {
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
+    const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
 
-    // Route search params
-    const { type } = useLocalSearchParams();
+    // Route search params — batchId (e.g. linked from a Weighing Session
+    // Report) takes priority over the default "first housing, most recent
+    // batch" auto-pick below, so arriving from a specific batch's report
+    // doesn't force a manual re-pick.
+    const { type, batchId: requestedBatchId } = useLocalSearchParams<{ type?: string; batchId?: string }>();
     const initialType = typeof type === 'string'
         ? (type.toLowerCase().includes('chicken') ? 'chicken' : 'pig')
         : 'pig';
@@ -125,6 +131,7 @@ export default function GrowthReportScreen() {
                     .from('batches')
                     .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id)')
                     .eq('housings.farm_id', farmId)
+                    .eq('status', 'active') // sold/completed batches shouldn't clutter this picker
                     .order('arrival_date', { ascending: false })
             ]);
 
@@ -136,6 +143,33 @@ export default function GrowthReportScreen() {
 
             setAllHousings(housingsData);
             setAllBatches(batchesData);
+
+            // An explicitly-requested batch wins outright — resolve its own
+            // housing/animal type rather than falling through to the
+            // "first housing, most recent batch" default below.
+            const requestedBatch = typeof requestedBatchId === 'string'
+                ? batchesData.find(b => b.id === requestedBatchId)
+                : undefined;
+            if (requestedBatch) {
+                const requestedHousing = housingsData.find(h => h.id === requestedBatch.housing_id);
+                if (requestedHousing) {
+                    setAnimalType(requestedHousing.animal_type === 'chicken' ? 'chicken' : 'pig');
+                    animalTypeRef.current = requestedHousing.animal_type === 'chicken' ? 'chicken' : 'pig';
+                }
+                setSelectedHousingId(requestedBatch.housing_id);
+                setSelectedBatchId(requestedBatch.id);
+
+                const { data: weighData, error: weighError } = await supabase
+                    .from('weigh_sessions')
+                    .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id')
+                    .eq('batch_id', requestedBatch.id)
+                    .order('recorded_at', { ascending: true });
+                if (weighError) throw weighError;
+                setWeighSessions((weighData || []) as WeighSession[]);
+                lastLoadedBatchIdRef.current = requestedBatch.id;
+                setIsLoading(false);
+                return;
+            }
 
             const filteredH = housingsData.filter(h => h.animal_type === animalTypeRef.current);
             if (filteredH.length > 0) {
@@ -261,6 +295,73 @@ export default function GrowthReportScreen() {
         const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
         return Math.max(0, diffDays) + (selectedBatch.age_at_arrival_days || 0);
     }, [selectedBatch]);
+
+    // ─── PDF Report Builder ──────────────────────────────────────────
+    // Full day-by-day breakdown (not limited to the chart's last-5-dates
+    // window) — a formal report shows the whole recorded history.
+    const buildGrowthReport = useCallback((): ReportDocument | null => {
+        if (!selectedBatch || weighSessions.length === 0) return null;
+
+        const dateMap = new Map<string, { underweight: number; normal: number; overweight: number; weights: number[] }>();
+        weighSessions.forEach(s => {
+            const key = s.recorded_at.slice(0, 10);
+            if (!dateMap.has(key)) dateMap.set(key, { underweight: 0, normal: 0, overweight: 0, weights: [] });
+            const entry = dateMap.get(key)!;
+            if (s.status === 'underweight') entry.underweight += 1;
+            else if (s.status === 'overweight') entry.overweight += 1;
+            else entry.normal += 1;
+            entry.weights.push(s.net_weight_grams);
+        });
+        const sortedDates = Array.from(dateMap.keys()).sort();
+        const rows = sortedDates.map(d => {
+            const entry = dateMap.get(d)!;
+            const avgKg = entry.weights.reduce((a, b) => a + b, 0) / entry.weights.length / 1000;
+            let dateLabel = d;
+            try {
+                dateLabel = new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            } catch { /* keep raw key */ }
+            return [dateLabel, entry.weights.length, `${avgKg.toFixed(2)} kg`, entry.underweight, entry.normal, entry.overweight];
+        });
+
+        const avgWeightKg = weighSessions.reduce((s, w) => s + w.net_weight_grams, 0) / weighSessions.length / 1000;
+        const arrivalLabel = selectedBatch.arrival_date
+            ? new Date(selectedBatch.arrival_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+            : '—';
+
+        return {
+            reportTitle: 'Growth Report',
+            farmName,
+            subtitle: `${selectedBatch.name} · ${selectedHousing?.name ?? 'No Housing'} · ${animalType === 'pig' ? 'Pigs' : 'Chickens'}`,
+            meta: [
+                { label: 'Batch', value: selectedBatch.name },
+                { label: 'Housing', value: selectedHousing?.name ?? '—' },
+                { label: 'Animal Type', value: animalType === 'pig' ? 'Pig' : 'Chicken' },
+                { label: 'Current Age', value: currentDay !== null ? `Day ${currentDay}` : '—' },
+                { label: 'Head Count', value: String(selectedBatch.current_count) },
+                { label: 'Arrival Date', value: arrivalLabel },
+            ],
+            sections: [
+                {
+                    heading: 'Summary',
+                    stats: [
+                        { label: 'Total Weighed', value: String(totalWeighs) },
+                        { label: 'Average Weight', value: `${avgWeightKg.toFixed(2)} kg` },
+                        { label: 'Underweight', value: String(underweightCount), accent: underweightCount > 0 ? 'warn' : undefined },
+                        { label: 'Normal', value: String(normalCount), accent: 'good' },
+                        { label: 'Overweight', value: String(overweightCount), accent: overweightCount > 0 ? 'bad' : undefined },
+                    ],
+                },
+                {
+                    heading: 'Day-by-Day Breakdown',
+                    table: {
+                        headers: ['Date', 'Weighed', 'Avg Weight', 'Under', 'Normal', 'Over'],
+                        rows,
+                        note: 'Each row reflects all recorded weigh-ins on that calendar date.',
+                    },
+                },
+            ],
+        };
+    }, [selectedBatch, selectedHousing, weighSessions, animalType, currentDay, farmName, totalWeighs, underweightCount, normalCount, overweightCount]);
 
     const tabs = ['All', 'Underweight', 'Normal', 'Overweight'] as const;
 
@@ -702,7 +803,10 @@ export default function GrowthReportScreen() {
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
                     {animalType === 'pig' ? 'Pigs' : 'Chickens'} Growth
                 </Text>
-                <View style={{ width: 44, height: 44 }} />
+                <PrintReportButton
+                    buildReport={buildGrowthReport}
+                    emptyMessage="Select a batch with recorded weigh-ins first."
+                />
             </View>
 
             <ScrollView 

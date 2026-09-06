@@ -22,6 +22,7 @@ import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import { Header } from '@/components/Header';
 import { supabase } from '@/lib/supabase';
+import { categoryPriority } from '@/lib/notify';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ interface AlertNotif {
     title: string;
     message: string;
     type: 'alert' | 'warning' | 'info' | 'success';
+    category: string | null;
 }
 
 interface HousingCard {
@@ -143,7 +145,7 @@ export default function HomeScreen() {
                 // Notifications — all selected farms
                 supabase
                     .from('notifications')
-                    .select('id, title, message, type, is_read')
+                    .select('id, title, message, type, category, is_read')
                     .in('farm_id', activeFarmIds)
                     .eq('is_read', false)
                     .order('created_at', { ascending: false })
@@ -206,7 +208,7 @@ export default function HomeScreen() {
             if (notifRes.data) {
                 setUnreadNotifCount(notifRes.data.length);
                 setRecentAlerts(notifRes.data.map((n: any) => ({
-                    id: n.id, title: n.title, message: n.message, type: mapNotifType(n.type),
+                    id: n.id, title: n.title, message: n.message, type: mapNotifType(n.type), category: n.category,
                 })));
             }
 
@@ -643,7 +645,13 @@ export default function HomeScreen() {
                                 ) : (
                                     <View style={{ gap: 8 }}>
                                         {[...recentAlerts]
-                                            .sort((a, b) => ALERT_PRIORITY[a.type] - ALERT_PRIORITY[b.type])
+                                            .sort((a, b) => {
+                                                // Severity hierarchy first — Device > Weight > Feed > Health —
+                                                // then the existing per-type ranking as a tiebreak.
+                                                const catDiff = categoryPriority(b.category) - categoryPriority(a.category);
+                                                if (catDiff !== 0) return catDiff;
+                                                return ALERT_PRIORITY[a.type] - ALERT_PRIORITY[b.type];
+                                            })
                                             .map(alert => {
                                                 const { name, color } = alertIcon(alert.type);
                                                 return (

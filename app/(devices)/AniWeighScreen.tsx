@@ -180,8 +180,74 @@ export default function AniWeighScreen() {
     const [liveWeightG, setLiveWeightG] = useState<number | null>(null);
     const [liveStatus, setLiveStatus] = useState<'underweight' | 'normal' | 'overweight' | null>(null);
     const [liveFlash, setLiveFlash] = useState(false);
+
+    // ─── Live sampling progress (real values pushed by the board) ───
+    // Fed by devices.sample_progress, updated by board1.ino's
+    // postSampleProgress() on every one of its 5 real internal samples —
+    // works from any network, same as everything else in this app.
+    // Purely a display concern — real classification/recording still only
+    // ever comes from the confirmed weigh_sessions row (see liveWeightG/
+    // liveStatus above and the realtime INSERT handler below), which is
+    // also what clears this once it lands.
+    interface SampleProgress {
+        stage: 'sampling' | 'averaging' | 'done';
+        sampleIndex?: number;
+        total?: number;
+        sampleValue?: number;
+        average?: number;
+        perChick?: number;
+        chickCount?: number;
+    }
+    const [sampleProgress, setSampleProgress] = useState<SampleProgress | null>(null);
+    const sampleProgressStaleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const applySampleProgress = (raw: any) => {
+        if (!raw || typeof raw !== 'object') return;
+        setSampleProgress(raw as SampleProgress);
+        if (sampleProgressStaleTimeoutRef.current) clearTimeout(sampleProgressStaleTimeoutRef.current);
+        // Safety net — if the confirmed weigh_sessions row never arrives
+        // (network hiccup between the board and Supabase), don't leave the
+        // screen stuck on "Sample 3/5" forever.
+        sampleProgressStaleTimeoutRef.current = setTimeout(() => setSampleProgress(null), 20000);
+    };
+
     const [housingBatches, setHousingBatches] = useState<{ id: string; name: string; current_count: number; arrival_date: string; age_at_arrival_days: number }[]>([]);
     const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+
+    // ─── Mandatory pre-weighing gate ──────────────────────────────
+    // The live scale view (Live Scaling card, Start/Stop/Tare/Reset) only
+    // unlocks once there's an active weighing_sessions row for this device —
+    // created by explicitly picking House + Batch + Animal Type below, fresh
+    // every run. Every physical reading that comes in through
+    // record_weigh_session() while this is in_progress gets attached to it
+    // (see the updated RPC) and bumps completed_quantity automatically.
+    interface ActiveSession {
+        id: string;
+        batch_id: string;
+        housing_id: string;
+        animal_type: 'pig' | 'chicken';
+        weigh_mode: 'individual' | 'batch';
+        expected_quantity: number;
+        completed_quantity: number;
+        farm_day: number | null;
+    }
+    const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
+    const activeSessionRef = useRef<ActiveSession | null>(null);
+    const [isSessionLoading, setIsSessionLoading] = useState(true);
+
+    const [gateHousingId, setGateHousingId] = useState<string | null>(null);
+    const [gateBatchId, setGateBatchId] = useState<string | null>(null);
+    const [gateAnimalType, setGateAnimalType] = useState<'pig' | 'chicken'>('pig');
+    // Only meaningful for chickens — some farms weigh bird-by-bird, others
+    // weigh a whole crate/tray at once. Pigs are always weighed individually,
+    // so this stays fixed and hidden in that case.
+    const [gateWeighMode, setGateWeighMode] = useState<'individual' | 'batch'>('individual');
+    const [gateBatches, setGateBatches] = useState<{ id: string; name: string; current_count: number; arrival_date: string; age_at_arrival_days: number }[]>([]);
+    const [gateHousingModalVisible, setGateHousingModalVisible] = useState(false);
+    const [gateBatchModalVisible, setGateBatchModalVisible] = useState(false);
+    const [isBeginningSession, setIsBeginningSession] = useState(false);
+    const [finishModalVisible, setFinishModalVisible] = useState(false);
+    const [isFinishingSession, setIsFinishingSession] = useState(false);
 
     const showSnackbar = (msg: string, type: SnackbarType = 'success') => {
         setSnackbarMessage(msg); setSnackbarType(type); setSnackbarVisible(true);
@@ -370,6 +436,150 @@ export default function AniWeighScreen() {
 
     useEffect(() => { fetchAll(); }, [fetchAll]);
 
+    // ─── Active weighing session (the gate) ───────────────────────
+    const fetchActiveSession = useCallback(async () => {
+        if (!deviceId) { setIsSessionLoading(false); return; }
+        setIsSessionLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('weighing_sessions')
+                .select('id, batch_id, housing_id, animal_type, weigh_mode, expected_quantity, completed_quantity, farm_day')
+                .eq('device_id', deviceId)
+                .eq('status', 'in_progress')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            if (error) throw error;
+            const session = (data as ActiveSession | null) ?? null;
+            setActiveSession(session);
+            activeSessionRef.current = session;
+        } catch (err) {
+            console.error('[AniWeighScreen] fetchActiveSession error:', err);
+        } finally {
+            setIsSessionLoading(false);
+        }
+    }, [deviceId]);
+
+    useEffect(() => { fetchActiveSession(); }, [fetchActiveSession]);
+
+    // Batches for whichever house is picked in the gate — independent of
+    // the device's own persisted housing_id, since house/batch/animal type
+    // are freshly picked every run rather than reused.
+    useEffect(() => {
+        if (!gateHousingId) { setGateBatches([]); setGateBatchId(null); return; }
+        let cancelled = false;
+        (async () => {
+            const { data } = await supabase
+                .from('batches')
+                .select('id, name, current_count, arrival_date, age_at_arrival_days')
+                .eq('housing_id', gateHousingId)
+                .eq('status', 'active')
+                .order('created_at', { ascending: false });
+            if (!cancelled) {
+                setGateBatches((data as any[]) ?? []);
+                setGateBatchId(null);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [gateHousingId]);
+
+    const handleBeginWeighingSession = async () => {
+        if (!gateHousingId || !gateBatchId || !farmId) return;
+        const batch = gateBatches.find(b => b.id === gateBatchId);
+        if (!batch) return;
+        setIsBeginningSession(true);
+        try {
+            const arrivalDate = new Date(batch.arrival_date);
+            const today = new Date();
+            arrivalDate.setHours(0, 0, 0, 0);
+            today.setHours(0, 0, 0, 0);
+            const diffDays = Math.floor((today.getTime() - arrivalDate.getTime()) / (1000 * 60 * 60 * 24));
+            const farmDay = Math.max(0, diffDays) + (batch.age_at_arrival_days || 0);
+
+            const { data, error } = await supabase
+                .from('weighing_sessions')
+                .insert({
+                    farm_id: farmId,
+                    housing_id: gateHousingId,
+                    batch_id: gateBatchId,
+                    device_id: deviceId,
+                    animal_type: gateAnimalType,
+                    weigh_mode: gateAnimalType === 'chicken' ? gateWeighMode : 'individual',
+                    farm_day: farmDay,
+                    expected_quantity: batch.current_count,
+                    completed_quantity: 0,
+                    status: 'in_progress',
+                    created_by: (profile as any)?.id ?? (profile as any)?.uid ?? null,
+                })
+                .select('id, batch_id, housing_id, animal_type, weigh_mode, expected_quantity, completed_quantity, farm_day')
+                .single();
+            if (error) throw error;
+            const session = data as ActiveSession;
+            setActiveSession(session);
+            activeSessionRef.current = session;
+            showSnackbar('Weighing session started — you can begin weighing now.', 'success');
+        } catch (err: any) {
+            // Postgres unique-violation (23505) means a session for this
+            // device is ALREADY in_progress — a race with another tap, or
+            // one that survived a power cut without being cleanly finished.
+            // Resume that one instead of erroring out.
+            if (err?.code === '23505') {
+                console.warn('[AniWeighScreen] a session was already active for this device — resuming it instead.');
+                await fetchActiveSession();
+                showSnackbar('A weighing session was already in progress — resuming it.', 'info');
+            } else {
+                console.error('[AniWeighScreen] begin session error:', err);
+                showSnackbar('Could not start a weighing session.', 'error');
+            }
+        } finally {
+            setIsBeginningSession(false);
+        }
+    };
+
+    const handleFinishSession = async () => {
+        if (!activeSession) return;
+        setIsFinishingSession(true);
+        try {
+            const { error } = await supabase
+                .from('weighing_sessions')
+                .update({ status: 'completed', completed_at: new Date().toISOString() })
+                .eq('id', activeSession.id);
+            if (error) throw error;
+            const finishedId = activeSession.id;
+            setActiveSession(null);
+            activeSessionRef.current = null;
+            setFinishModalVisible(false);
+            // Clear the gate so it re-prefills fresh (from the device's own
+            // housing) for the next run instead of silently keeping this
+            // run's picks around.
+            setGateHousingId(null);
+            setGateBatchId(null);
+            setGateWeighMode('individual');
+            router.push(`/(weighing)/SessionReportScreen?sessionId=${finishedId}` as any);
+        } catch (err) {
+            console.error('[AniWeighScreen] finish session error:', err);
+            showSnackbar('Could not finish this session.', 'error');
+        } finally {
+            setIsFinishingSession(false);
+        }
+    };
+
+    // Pre-fill the gate's House + Animal Type from this device's own
+    // assigned housing — a scale physically lives in one house and rarely
+    // moves, so re-picking that from scratch every run is pure friction.
+    // Batch is deliberately left blank (see handleFinishSession) since it's
+    // the one field that genuinely changes over time and is worth an
+    // explicit confirm every time. Still fully editable — just a head start.
+    useEffect(() => {
+        if (activeSession) return;
+        if (gateHousingId) return;
+        if (!deviceInfo?.housingId) return;
+        const housing = farmHousings.find(h => h.id === deviceInfo.housingId);
+        if (!housing) return;
+        setGateHousingId(housing.id);
+        setGateAnimalType(housing.animal_type === 'chicken' ? 'chicken' : 'pig');
+    }, [activeSession, deviceInfo?.housingId, farmHousings, gateHousingId]);
+
     // Re-derive isConnected from the last known heartbeat every 15s, purely
     // from the passage of time — catches a device going stale/dark even
     // when nothing new has arrived to trigger a re-fetch.
@@ -417,9 +627,9 @@ export default function AniWeighScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
-        await Promise.all([fetchAll(), fetchLiveSeed()]);
+        await Promise.all([fetchAll(), fetchLiveSeed(), fetchActiveSession()]);
         setRefreshing(false);
-    }, [fetchAll, fetchLiveSeed]);
+    }, [fetchAll, fetchLiveSeed, fetchActiveSession]);
 
     // ─── Live "is it running" — watches devices.weighing_active ─────
     // Pushed by board1.ino immediately on Start/Stop/Reset (not just the
@@ -439,6 +649,12 @@ export default function AniWeighScreen() {
                         deviceInfoRef.current = updated;
                         return updated;
                     });
+
+                    // Real sample-by-sample progress, pushed by board1.ino's
+                    // postSampleProgress() on the same row this channel
+                    // already watches — see SampleProgress state above.
+                    const progress = (payload.new as any)?.sample_progress;
+                    if (progress) applySampleProgress(progress);
                 }
             )
             .subscribe();
@@ -474,6 +690,12 @@ export default function AniWeighScreen() {
                     setLiveFlash(true);
                     setTimeout(() => setLiveFlash(false), 600);
 
+                    // The confirmed result has landed — clear any in-progress
+                    // sampling display so the confirmed number above takes
+                    // over as authoritative.
+                    if (sampleProgressStaleTimeoutRef.current) clearTimeout(sampleProgressStaleTimeoutRef.current);
+                    setSampleProgress(null);
+
                     // 2. Prepend new entry directly into logs — no extra fetch needed.
                     //    Using deviceInfoRef avoids stale closure issues.
                     const info = deviceInfoRef.current;
@@ -496,6 +718,20 @@ export default function AniWeighScreen() {
                     //    because fetchAll re-fetches logs from DB and would overwrite
                     //    the entry we just injected, causing the "flicker then revert" bug.
                     fetchStats();
+
+                    // 4. If this reading belongs to the active gated session (see
+                    //    record_weigh_session's weighing_session_id linking), bump
+                    //    its progress locally — matches what the RPC just did in
+                    //    the database.
+                    const session = activeSessionRef.current;
+                    if (session && row.weighing_session_id === session.id) {
+                        setActiveSession(prev => {
+                            if (!prev) return prev;
+                            const updated = { ...prev, completed_quantity: prev.completed_quantity + 1 };
+                            activeSessionRef.current = updated;
+                            return updated;
+                        });
+                    }
                 }
             )
             .subscribe((status) => {
@@ -944,10 +1180,145 @@ export default function AniWeighScreen() {
                 </View>
             </View>
 
-            {isLoading ? (
+            {isLoading || isSessionLoading ? (
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                     <ActivityIndicator size="large" color={colors.primary} />
                 </View>
+            ) : !activeSession ? (
+                // ─── Mandatory pre-weighing gate ───────────────────────
+                // No active weighing_sessions row for this device — the live
+                // scale view stays locked until Animal Type + House + Batch
+                // are all picked and "Begin Weighing" is tapped.
+                <ScrollView contentContainerStyle={aniweighStyles.contentContainer} showsVerticalScrollIndicator={false}>
+                    <View style={{ paddingTop: 24, paddingBottom: 40 }}>
+                        <View style={{ alignItems: 'center', marginBottom: 24 }}>
+                            <MaterialIcons name="fact-check" size={40} color={colors.primary} />
+                            <Text style={[textStyles.h2, { color: colors.text, marginTop: 12, textAlign: 'center' }]}>Set Up This Weighing Run</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', paddingHorizontal: 20 }]}>
+                                Confirm what's being weighed before the scale unlocks.
+                            </Text>
+                        </View>
+
+                        <Text style={[textStyles.label, { color: colors.text, marginBottom: 8 }]}>Animal Type</Text>
+                        <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.stroke, padding: 4, marginBottom: 20 }}>
+                            {(['pig', 'chicken'] as const).map(type => {
+                                const isSelected = gateAnimalType === type;
+                                return (
+                                    <TouchableOpacity
+                                        key={type}
+                                        onPress={() => { setGateAnimalType(type); setGateHousingId(null); if (type === 'pig') setGateWeighMode('individual'); }}
+                                        activeOpacity={0.8}
+                                        style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, backgroundColor: isSelected ? colors.primary : 'transparent' }}
+                                    >
+                                        <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.textGrey, fontSize: 14, fontWeight: '700' }]}>
+                                            {type === 'pig' ? 'Pig' : 'Chicken'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+
+                        {gateAnimalType === 'chicken' && (
+                            <>
+                                <Text style={[textStyles.label, { color: colors.text, marginBottom: 8 }]}>Weighing Setup</Text>
+                                <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.stroke, padding: 4, marginBottom: 20 }}>
+                                    {([
+                                        { key: 'individual' as const, label: 'Individual' },
+                                        { key: 'batch' as const, label: 'By Tray / Crate' },
+                                    ]).map(opt => {
+                                        const isSelected = gateWeighMode === opt.key;
+                                        return (
+                                            <TouchableOpacity
+                                                key={opt.key}
+                                                onPress={() => setGateWeighMode(opt.key)}
+                                                activeOpacity={0.8}
+                                                style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, backgroundColor: isSelected ? colors.primary : 'transparent' }}
+                                            >
+                                                <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.textGrey, fontSize: 13, fontWeight: '700' }]}>
+                                                    {opt.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </>
+                        )}
+
+                        <Text style={[textStyles.label, { color: colors.text, marginBottom: 8 }]}>House</Text>
+                        <TouchableOpacity
+                            activeOpacity={0.8}
+                            onPress={() => setGateHousingModalVisible(true)}
+                            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 14, marginBottom: 20 }}
+                        >
+                            <Text style={[textStyles.body, { color: gateHousingId ? colors.text : colors.textGrey, flex: 1 }]}>
+                                {farmHousings.find(h => h.id === gateHousingId)?.name ?? 'Select a house...'}
+                            </Text>
+                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                        </TouchableOpacity>
+
+                        <Text style={[textStyles.label, { color: colors.text, marginBottom: 8 }]}>Batch</Text>
+                        <TouchableOpacity
+                            activeOpacity={gateHousingId ? 0.8 : 1}
+                            disabled={!gateHousingId}
+                            onPress={() => setGateBatchModalVisible(true)}
+                            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 14, marginBottom: 8, opacity: gateHousingId ? 1 : 0.6 }}
+                        >
+                            <Text style={[textStyles.body, { color: gateBatchId ? colors.text : colors.textGrey, flex: 1 }]}>
+                                {gateBatches.find(b => b.id === gateBatchId)?.name ?? (gateHousingId ? 'Select a batch...' : 'Pick a house first')}
+                            </Text>
+                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                        </TouchableOpacity>
+                        {gateBatchId && (
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginBottom: 20 }]}>
+                                Expected: {gateBatches.find(b => b.id === gateBatchId)?.current_count ?? 0} {gateAnimalType === 'pig' ? 'pigs' : 'chickens'}
+                            </Text>
+                        )}
+
+                        <TouchableOpacity
+                            activeOpacity={0.85}
+                            disabled={!gateHousingId || !gateBatchId || isBeginningSession}
+                            onPress={handleBeginWeighingSession}
+                            style={{ height: 52, borderRadius: 26, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 12, opacity: (!gateHousingId || !gateBatchId || isBeginningSession) ? 0.5 : 1 }}
+                        >
+                            {isBeginningSession ? (
+                                <ActivityIndicator size="small" color={colors.onPrimary} />
+                            ) : (
+                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 15 }]}>Begin Weighing</Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+
+                    <SelectionModal
+                        visible={gateHousingModalVisible}
+                        onClose={() => setGateHousingModalVisible(false)}
+                        onSelect={(val) => {
+                            const matched = farmHousings.find(h => h.animal_type === gateAnimalType && h.name === val);
+                            if (matched) setGateHousingId(matched.id);
+                            setGateHousingModalVisible(false);
+                        }}
+                        title="Select House"
+                        description="Which house is being weighed?"
+                        icon="home"
+                        options={farmHousings.filter(h => h.animal_type === gateAnimalType).map(h => h.name)}
+                        selectedValue={farmHousings.find(h => h.id === gateHousingId)?.name ?? ''}
+                        requireConfirm={false}
+                    />
+                    <SelectionModal
+                        visible={gateBatchModalVisible}
+                        onClose={() => setGateBatchModalVisible(false)}
+                        onSelect={(val) => {
+                            const matched = gateBatches.find(b => b.name === val);
+                            if (matched) setGateBatchId(matched.id);
+                            setGateBatchModalVisible(false);
+                        }}
+                        title="Select Batch"
+                        description="Which batch in this house is being weighed?"
+                        icon="layers"
+                        options={gateBatches.map(b => b.name)}
+                        selectedValue={gateBatches.find(b => b.id === gateBatchId)?.name ?? ''}
+                        requireConfirm={false}
+                    />
+                </ScrollView>
             ) : (
                 <ScrollView contentContainerStyle={aniweighStyles.contentContainer} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
 
@@ -1090,12 +1461,49 @@ export default function AniWeighScreen() {
                         <View style={[aniweighStyles.liveCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
                             <View style={aniweighStyles.liveScaleCircle}>
                                 <View style={[aniweighStyles.liveScaleInnerCircle, {
-                                    borderColor: liveWeightG != null
+                                    borderColor: sampleProgress
+                                        ? colors.primary
+                                        : liveWeightG != null
                                         ? (liveStatus === 'underweight' ? colors.warning : liveStatus === 'overweight' ? colors.error : colors.primary)
                                         : colors.stroke,
                                     backgroundColor: liveFlash ? (colors.primary + '15') : 'transparent',
                                 }]}>
-                                    {liveWeightG != null ? (
+                                    {sampleProgress?.stage === 'sampling' ? (
+                                        <>
+                                            <Text style={[textStyles.h3, { color: colors.primary, fontSize: 15 }]}>
+                                                Sample {sampleProgress.sampleIndex ?? 0}/{sampleProgress.total ?? 5}
+                                            </Text>
+                                            <View style={{ flexDirection: 'row', gap: 4, marginTop: 6 }}>
+                                                {[0, 1, 2, 3, 4].map(i => (
+                                                    <View key={i} style={{
+                                                        width: 8, height: 8, borderRadius: 4,
+                                                        backgroundColor: i < (sampleProgress.sampleIndex ?? 0) ? colors.primary : colors.stroke,
+                                                    }} />
+                                                ))}
+                                            </View>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 6 }]}>
+                                                {((sampleProgress.sampleValue ?? 0) / 1000).toFixed(2)} kg
+                                            </Text>
+                                        </>
+                                    ) : sampleProgress?.stage === 'averaging' ? (
+                                        <>
+                                            <ActivityIndicator size="small" color={colors.primary} />
+                                            <Text style={[textStyles.body, { color: colors.text, fontSize: 12, marginTop: 8, textAlign: 'center' }]}>
+                                                {isPigMode ? 'Averaging...' : 'Averaging tray...'}
+                                            </Text>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2 }]}>
+                                                ~{((sampleProgress.average ?? 0) / 1000).toFixed(2)} kg
+                                            </Text>
+                                        </>
+                                    ) : sampleProgress?.stage === 'done' ? (
+                                        <>
+                                            <Text style={[textStyles.h1, { color: colors.text, fontSize: 28 }]}>
+                                                {(((isPigMode ? sampleProgress.average : sampleProgress.perChick) ?? 0) / 1000).toFixed(2)}
+                                            </Text>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>kg{!isPigMode ? ' / chick' : ''}</Text>
+                                            <MaterialIcons name="sensors" size={14} color={colors.primary} style={{ marginTop: 4 }} />
+                                        </>
+                                    ) : liveWeightG != null ? (
                                         <>
                                             <Text style={[textStyles.h1, { color: colors.text, fontSize: 28 }]}>
                                                 {(liveWeightG / 1000).toFixed(2)}
@@ -1150,6 +1558,15 @@ export default function AniWeighScreen() {
                                     color: deviceInfo?.weighingActive ? colors.primary : colors.textGrey,
                                 }]}>
                                     {deviceInfo?.weighingActive ? 'Running — weighing animals' : 'Idle — tap Start to begin'}
+                                </Text>
+                            </View>
+
+                            {/* This run's progress — bumped automatically as each physical
+                                reading comes in tagged to the active weighing session. */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 }}>
+                                <MaterialIcons name="checklist" size={14} color={colors.textGrey} />
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                    This run: {activeSession.completed_quantity}/{activeSession.expected_quantity} weighed
                                 </Text>
                             </View>
 
@@ -1240,6 +1657,39 @@ export default function AniWeighScreen() {
                                         )}
                                     </TouchableOpacity>
                                 </View>
+                                <TouchableOpacity
+                                    style={{
+                                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1.5, borderColor: colors.stroke,
+                                        borderRadius: 9999, paddingVertical: 12,
+                                        opacity: activeSession.completed_quantity === 0 ? 0.5 : 1,
+                                    }}
+                                    activeOpacity={activeSession.completed_quantity === 0 ? 1 : 0.75}
+                                    onPress={() => {
+                                        // STRICT: can't close out — and generate a report for — a
+                                        // session where literally nothing was weighed. This is
+                                        // exactly what previously produced an empty "no weight
+                                        // recorded" report.
+                                        if (activeSession.completed_quantity === 0) {
+                                            showSnackbar('Weigh at least one animal before finishing this session.', 'error');
+                                            return;
+                                        }
+                                        setFinishModalVisible(true);
+                                    }}
+                                    disabled={isFinishingSession}
+                                >
+                                    {isFinishingSession ? (
+                                        <ActivityIndicator size="small" color={colors.text} />
+                                    ) : (
+                                        <>
+                                            <MaterialIcons name="fact-check" size={18} color={colors.text} style={{ marginRight: 6 }} />
+                                            <Text style={[textStyles.label, { color: colors.text, fontSize: 14, fontWeight: '700' }]}>
+                                                {activeSession.completed_quantity === 0 ? 'Weigh at least 1 to finish' : 'Finish Weighing Session'}
+                                            </Text>
+                                        </>
+                                    )}
+                                </TouchableOpacity>
                             </View>
                         </View>
                     </View>
@@ -1426,6 +1876,19 @@ export default function AniWeighScreen() {
                 cancelText="Cancel"
                 onConfirm={confirmControlAction}
                 onCancel={() => { setControlModalVisible(false); setControlAction(null); }}
+            />
+
+            {/* Finish weighing session confirm modal */}
+            <ActionModal
+                visible={finishModalVisible}
+                type="confirmation"
+                title="Finish Weighing Session?"
+                message={activeSession ? `${activeSession.completed_quantity} of ${activeSession.expected_quantity} have been weighed so far. This closes out the run as a permanent historical record and takes you to its report. The next run will ask you to pick house/batch/animal type again.` : ''}
+                confirmText="Finish"
+                cancelText="Cancel"
+                onConfirm={handleFinishSession}
+                onCancel={() => setFinishModalVisible(false)}
+                isLoading={isFinishingSession}
             />
 
             {/* Range settings modal */}

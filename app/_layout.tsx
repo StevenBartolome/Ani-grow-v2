@@ -31,6 +31,8 @@ import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { FarmFilterProvider } from '@/context/FarmFilterContext';
 import { AniBotFAB } from '@/components/AniBotFAB';
+import { OfflineSyncBanner } from '@/components/OfflineSyncBanner';
+import { NotificationWatcher } from '@/components/NotificationWatcher';
 import { ThemeProvider as NavigationThemeProvider, DefaultTheme, DarkTheme } from '@react-navigation/native';
 
 // Silence non-critical deprecation and third-party package warnings
@@ -116,6 +118,8 @@ export default function RootLayout() {
           <FarmFilterProvider>
             <RootNavigator />
             <AniBotFAB />
+            <OfflineSyncBanner />
+            <NotificationWatcher />
           </FarmFilterProvider>
         </AuthProvider>
       </ThemeProvider>

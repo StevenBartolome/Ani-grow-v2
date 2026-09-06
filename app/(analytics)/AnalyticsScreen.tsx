@@ -27,6 +27,12 @@ export default function AnalyticsScreen() {
 
     const menuItems = [
         {
+            title: 'Weighing History & Reports',
+            description: 'Browse past weighing sessions and generate a Week 1-4, full-history, or custom date-range report.',
+            icon: 'scale' as React.ComponentProps<typeof MaterialIcons>['name'],
+            route: '/(weighing)/WeighingSessionsScreen',
+        },
+        {
             title: 'Growth Report',
             description: 'Analyze average daily gains and overall weight trends across your livestock.',
             icon: 'trending-up' as React.ComponentProps<typeof MaterialIcons>['name'],

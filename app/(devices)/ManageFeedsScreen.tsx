@@ -27,6 +27,26 @@ interface FeedItem {
     animal_type: 'chicken' | 'pig';
     stock_kg: number;
     supplier: string;
+    date_started: string | null;
+    expiry_date: string | null;
+}
+
+const DATE_FORMAT_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isValidDateString(s: string): boolean {
+    if (!DATE_FORMAT_RE.test(s)) return false;
+    const d = new Date(s + 'T00:00:00');
+    return !isNaN(d.getTime());
+}
+
+function todayDateString(): string {
+    return new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local time
+}
+
+function daysUntil(dateStr: string): number {
+    const target = new Date(dateStr + 'T00:00:00');
+    const today = new Date(todayDateString() + 'T00:00:00');
+    return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 type FilterType = 'All' | 'Chickens' | 'Pigs';
@@ -94,7 +114,7 @@ export default function ManageFeedsScreen() {
         try {
             const { data, error } = await supabase
                 .from('feeds')
-                .select('id, name, brand, category, animal_type, stock_kg, supplier')
+                .select('id, name, brand, category, animal_type, stock_kg, supplier, date_started, expiry_date')
                 .eq('farm_id', farmId)
                 .order('name', { ascending: true });
             if (error) throw error;
@@ -123,6 +143,9 @@ export default function ManageFeedsScreen() {
     const [tempFeedStock, setTempFeedStock] = useState('0');
     const [tempFeedStockError, setTempFeedStockError] = useState<string | null>(null);
     const [tempFeedStockUnit, setTempFeedStockUnit] = useState<'kg' | 'g'>('kg');
+    const [tempDateStarted, setTempDateStarted] = useState('');
+    const [tempExpiryDate, setTempExpiryDate] = useState('');
+    const [dateError, setDateError] = useState<string | null>(null);
     const [feedTypeModalVisible, setFeedTypeModalVisible] = useState(false);
     const [feedNameModalVisible, setFeedNameModalVisible] = useState(false);
     const [feedCategoryModalVisible, setFeedCategoryModalVisible] = useState(false);
@@ -174,6 +197,9 @@ export default function ManageFeedsScreen() {
         setTempFeedStock('');
         setTempFeedStockUnit('kg');
         setTempFeedStockError(null);
+        setTempDateStarted(todayDateString());
+        setTempExpiryDate('');
+        setDateError(null);
         setIsCustomFeedName(false);
         setIsCustomCategory(false);
         setEditModalVisible(true);
@@ -209,6 +235,9 @@ export default function ManageFeedsScreen() {
                 setTempFeedStockUnit('kg');
             }
             setTempFeedStockError(null);
+            setTempDateStarted(f.date_started ?? '');
+            setTempExpiryDate(f.expiry_date ?? '');
+            setDateError(null);
             setEditModalVisible(true);
         }
     };
@@ -239,12 +268,44 @@ export default function ManageFeedsScreen() {
         return true;
     };
 
+    // STRICT by design — better to block a bad date pair up front than to
+    // let expired/nonsensical feed data quietly enter reports later.
+    const validateDates = (started: string, expiry: string): boolean => {
+        if (!started.trim() || !expiry.trim()) {
+            setDateError('Date Started and Expiry Date are both required.');
+            return false;
+        }
+        if (!isValidDateString(started) || !isValidDateString(expiry)) {
+            setDateError('Dates must be in YYYY-MM-DD format.');
+            return false;
+        }
+        if (started > todayDateString()) {
+            setDateError('Date Started cannot be in the future.');
+            return false;
+        }
+        if (expiry <= started) {
+            setDateError('Expiry Date must be after Date Started.');
+            return false;
+        }
+        // Only enforced for genuinely NEW feeds — editing an older record to
+        // document/correct it shouldn't be blocked just because time has
+        // since passed.
+        if (!editingFeedId && expiry <= todayDateString()) {
+            setDateError('Expiry Date must be in the future for a newly added feed.');
+            return false;
+        }
+        setDateError(null);
+        return true;
+    };
+
     const isSaveDisabled = !!(
         !tempFeedName.trim() ||
         !tempFeedStock.trim() ||
         !!tempFeedStockError ||
         isNaN(parseFloat(tempFeedStock)) ||
-        parseFloat(tempFeedStock) <= 0
+        parseFloat(tempFeedStock) <= 0 ||
+        !tempDateStarted.trim() ||
+        !tempExpiryDate.trim()
     );
 
     const handleSaveClick = () => {
@@ -252,6 +313,7 @@ export default function ManageFeedsScreen() {
         if (!tempFeedName.trim()) { showSnackbar('Please enter a feed name.', 'error'); return; }
         const isValid = validateStock(tempFeedStock);
         if (!isValid) return;
+        if (!validateDates(tempDateStarted, tempExpiryDate)) return;
         setEditModalVisible(false);
         setConfirmAction('save');
         setConfirmModalType('confirmation');
@@ -271,13 +333,15 @@ export default function ManageFeedsScreen() {
                 const stockVal = parseFloat(tempFeedStock) || 0;
                 const stockInKg = tempFeedStockUnit === 'g' ? stockVal / 1000 : stockVal;
                 const payload = {
-                    name:        tempFeedName.trim(),
-                    brand:       tempFeedBrand.trim() || null,
-                    supplier:    tempFeedSupplier.trim() || null,
-                    category:    tempFeedCategory.trim() || null,
-                    animal_type: LABEL_TO_DB[tempFeedType] as 'chicken' | 'pig',
-                    stock_kg:    stockInKg,
-                    updated_at:  new Date().toISOString(),
+                    name:         tempFeedName.trim(),
+                    brand:        tempFeedBrand.trim() || null,
+                    supplier:     tempFeedSupplier.trim() || null,
+                    category:     tempFeedCategory.trim() || null,
+                    animal_type:  LABEL_TO_DB[tempFeedType] as 'chicken' | 'pig',
+                    stock_kg:     stockInKg,
+                    date_started: tempDateStarted.trim(),
+                    expiry_date:  tempExpiryDate.trim(),
+                    updated_at:   new Date().toISOString(),
                 };
                 if (editingFeedId) {
                     const { error } = await supabase.from('feeds').update(payload).eq('id', editingFeedId);
@@ -363,7 +427,21 @@ export default function ManageFeedsScreen() {
                                                 <MaterialIcons name="restaurant-menu" size={20} color={colors.primary} />
                                             </View>
                                             <View style={{ flex: 1 }}>
-                                                <Text style={[textStyles.h3, { color: colors.text }]}>{feed.name}</Text>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                    <Text style={[textStyles.h3, { color: colors.text }]}>{feed.name}</Text>
+                                                    {feed.expiry_date && daysUntil(feed.expiry_date) < 0 && (
+                                                        <View style={{ backgroundColor: colors.error + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                                            <Text style={[textStyles.label, { color: colors.error, fontSize: 10 }]}>EXPIRED</Text>
+                                                        </View>
+                                                    )}
+                                                    {feed.expiry_date && daysUntil(feed.expiry_date) >= 0 && daysUntil(feed.expiry_date) <= 7 && (
+                                                        <View style={{ backgroundColor: colors.warning + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                                            <Text style={[textStyles.label, { color: colors.warning, fontSize: 10 }]}>
+                                                                {daysUntil(feed.expiry_date) === 0 ? 'EXPIRES TODAY' : `${daysUntil(feed.expiry_date)}D LEFT`}
+                                                            </Text>
+                                                        </View>
+                                                    )}
+                                                </View>
                                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]} numberOfLines={1}>
                                                     {ANIMAL_TYPE_LABEL[feed.animal_type]}
                                                     {feed.category ? ` · ${feed.category}` : ''}
@@ -642,6 +720,32 @@ export default function ManageFeedsScreen() {
                                     </TouchableOpacity>
                                 </View>
                             </View>
+
+                            <View style={{ width: '100%', flexDirection: 'row', gap: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                    <FloatingLabelInput
+                                        label="Date Started (YYYY-MM-DD)"
+                                        icon="event"
+                                        value={tempDateStarted}
+                                        onChangeText={t => { setTempDateStarted(t); if (dateError) validateDates(t, tempExpiryDate); }}
+                                        backgroundColor={colors.surface}
+                                    />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <FloatingLabelInput
+                                        label="Expiry Date (YYYY-MM-DD)"
+                                        icon="event-busy"
+                                        value={tempExpiryDate}
+                                        onChangeText={t => { setTempExpiryDate(t); if (dateError) validateDates(tempDateStarted, t); }}
+                                        backgroundColor={colors.surface}
+                                    />
+                                </View>
+                            </View>
+                            {dateError && (
+                                <Text style={[textStyles.body, { color: colors.error, fontSize: 12, marginTop: -12, marginBottom: 12 }]}>
+                                    {dateError}
+                                </Text>
+                            )}
 
                             <View style={{ width: '100%', marginBottom: 16 }}>
                                 <TouchableOpacity

@@ -16,7 +16,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { useGuideStyles } from '@/styles/guideStyles';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
-import { computeAgeDays, computePigCareRecommendation } from '@/constants/pigCare';
+import { computeAgeDays, computePigCareRecommendation, CareScheduleItem } from '@/constants/pigCare';
+import { computeChickenCareRecommendation } from '@/constants/chickenCare';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -167,6 +168,53 @@ export default function GuideScreen() {
 
     useEffect(() => { fetchBatches(); }, [fetchBatches]);
 
+    // ── Latest weighing-session growth summary, for the AI insight below ──────
+    // Additive: reads whatever Weighing Sessions has already recorded for this
+    // batch (see app/(weighing)/), so AniBot's text can reference real recent
+    // growth instead of only the static phase timeline. Silently absent if the
+    // batch hasn't been weighed yet via that flow.
+    const [growthSummary, setGrowthSummary] = useState<{ farmDay: number | null; avgWeightKg: number; growthRateKgPerDay: number | null } | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function loadGrowthSummary() {
+            if (!selectedBatchId) { setGrowthSummary(null); return; }
+            try {
+                const { data: sessions } = await supabase
+                    .from('weighing_sessions')
+                    .select('id, farm_day')
+                    .eq('batch_id', selectedBatchId)
+                    .eq('status', 'completed')
+                    .order('created_at', { ascending: false })
+                    .limit(2);
+                if (!sessions || sessions.length === 0) { if (!cancelled) setGrowthSummary(null); return; }
+
+                const latest = sessions[0] as { id: string; farm_day: number | null };
+                const { data: latestRows } = await supabase.from('weigh_sessions').select('net_weight_grams').eq('weighing_session_id', latest.id);
+                if (!latestRows || latestRows.length === 0) { if (!cancelled) setGrowthSummary(null); return; }
+                const latestAvg = latestRows.reduce((s: number, r: any) => s + r.net_weight_grams, 0) / latestRows.length;
+
+                let growthRateKgPerDay: number | null = null;
+                if (sessions.length > 1) {
+                    const prev = sessions[1] as { id: string; farm_day: number | null };
+                    const { data: prevRows } = await supabase.from('weigh_sessions').select('net_weight_grams').eq('weighing_session_id', prev.id);
+                    if (prevRows && prevRows.length > 0 && latest.farm_day !== null && prev.farm_day !== null) {
+                        const prevAvg = prevRows.reduce((s: number, r: any) => s + r.net_weight_grams, 0) / prevRows.length;
+                        const days = latest.farm_day - prev.farm_day;
+                        if (days > 0) growthRateKgPerDay = (latestAvg - prevAvg) / days / 1000;
+                    }
+                }
+
+                if (!cancelled) setGrowthSummary({ farmDay: latest.farm_day, avgWeightKg: latestAvg / 1000, growthRateKgPerDay });
+            } catch (err) {
+                console.error('[GuideScreen] growth summary error:', err);
+                if (!cancelled) setGrowthSummary(null);
+            }
+        }
+        loadGrowthSummary();
+        return () => { cancelled = true; };
+    }, [selectedBatchId]);
+
     // ── Auto-select first batch whenever animal filter or batch list changes ──
     useEffect(() => {
         const filtered = batches.filter(b =>
@@ -205,6 +253,16 @@ export default function GuideScreen() {
     };
     const currentPhaseIndex = getCurrentPhaseIndex();
 
+    // Real, day-specific care recommendation (feed stage/product/amount +
+    // due-now/upcoming/overdue tasks with medication/dosage/route) — this is
+    // the same data previously only fed to the AI card's text. Computed here
+    // once so the "What To Do Now" section below and buildAIContext() share it.
+    const careRec = currentDay === null
+        ? null
+        : animalFilter === 'Pigs'
+            ? computePigCareRecommendation(currentDay)
+            : computeChickenCareRecommendation(currentDay);
+
     // Build AI context from real batch data — Claude reasons freely, not from static strings
     const buildAIContext = () => {
         if (!selectedBatch || currentDay === null) {
@@ -223,35 +281,44 @@ export default function GuideScreen() {
             ageDays: currentDay,
             liveHeads: selectedBatch.current_count,
             currentPhase: currentPhaseIndex >= 0 ? phases[currentPhaseIndex].name : 'Unknown',
+            // Real recent weighing-session data, if this batch has any — see
+            // app/(weighing)/. Lets AniBot's advice reflect actual growth
+            // instead of only the static phase timeline.
+            ...(growthSummary ? {
+                lastWeighedFarmDay: growthSummary.farmDay,
+                lastWeighedAvgWeightKg: Number(growthSummary.avgWeightKg.toFixed(2)),
+                recentGrowthRateKgPerDay: growthSummary.growthRateKgPerDay !== null ? Number(growthSummary.growthRateKgPerDay.toFixed(3)) : undefined,
+            } : {}),
         };
 
-        // For pigs: add lightweight care-schedule snapshot so AI has real context
-        if (animalFilter === 'Pigs') {
-            const rec = computePigCareRecommendation(currentDay);
+        // Add the real, computed care-schedule snapshot (feed stage + due-now/
+        // upcoming/overdue tasks) so AI has real context — now shared by both
+        // pigs and chickens via `careRec` (see "What To Do Now" section below,
+        // which renders this same data directly for the user, not just the AI).
+        if (careRec) {
             return {
                 type: 'animal' as const,
-                animalType: 'pig',
+                animalType: animalFilter === 'Pigs' ? 'pig' : 'chicken',
                 housingName: base.housingName,
                 data: {
                     ...base,
-                    currentFeedStage: rec.feedStage,
-                    currentFeed: rec.feedProduct,
-                    dailyFeedAmount: rec.dailyAmount,
-                    careActionsDueNow: rec.dueNow.map(c =>
+                    currentFeedStage: careRec.feedStage,
+                    currentFeed: careRec.feedProduct,
+                    dailyFeedAmount: careRec.dailyAmount,
+                    careActionsDueNow: careRec.dueNow.map(c =>
                         c.medication ? `${c.action} — ${c.medication} (${c.dosage})` : c.action
                     ),
-                    careActionsUpcoming: rec.upcoming.slice(0, 3).map(c =>
+                    careActionsUpcoming: careRec.upcoming.slice(0, 3).map(c =>
                         `Day ${c.day_start}: ${c.action}${c.medication ? ' (' + c.medication + ')' : ''}`
                     ),
-                    overdueActions: rec.recentlyOverdue.map(c => c.action),
+                    overdueActions: careRec.recentlyOverdue.map(c => c.action),
                 },
             };
         }
 
-        // For chickens: just the batch facts — Claude uses its own knowledge
         return {
             type: 'animal' as const,
-            animalType: 'chicken',
+            animalType: animalFilter === 'Pigs' ? 'pig' : 'chicken',
             housingName: base.housingName,
             data: base,
         };
@@ -402,6 +469,142 @@ export default function GuideScreen() {
                         </Text>
                     </View>
                 </View>
+
+                {/* ── What To Do Now — real, day-specific schedule, not a static tip ── */}
+                {selectedBatch && careRec && (
+                    <View style={{
+                        backgroundColor: colors.surface,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: colors.stroke,
+                        padding: 16,
+                        marginBottom: 20,
+                        shadowColor: colors.shadow,
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 8,
+                        elevation: 2,
+                    }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                            <MaterialIcons name="checklist" size={20} color={colors.primary} style={{ marginRight: 8 }} />
+                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 16 }]}>
+                                What To Do Now — Day {careRec.ageDays}
+                            </Text>
+                        </View>
+
+                        {/* Feed stage */}
+                        <View style={{
+                            backgroundColor: colors.primary + '0D',
+                            borderRadius: 10,
+                            padding: 12,
+                            marginBottom: 12,
+                        }}>
+                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, letterSpacing: 0.5, marginBottom: 4 }]}>
+                                FEED STAGE — {careRec.feedStage.toUpperCase()}
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14, fontFamily: 'Poppins-SemiBold', marginBottom: 2 }]}>
+                                {careRec.feedProduct ?? 'No specific product'}
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                {careRec.dailyAmount}
+                            </Text>
+                            {!!careRec.feedNotes && (
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 4, fontStyle: 'italic' }]}>
+                                    {careRec.feedNotes}
+                                </Text>
+                            )}
+                        </View>
+
+                        {/* Overdue — most urgent, shown first */}
+                        {careRec.recentlyOverdue.length > 0 && (
+                            <View style={{ marginBottom: 12 }}>
+                                <Text style={[textStyles.label, { color: colors.error, fontSize: 11, letterSpacing: 0.5, marginBottom: 6 }]}>
+                                    ⚠ NEEDS ATTENTION — MISSED
+                                </Text>
+                                {careRec.recentlyOverdue.map((item: CareScheduleItem, i: number) => (
+                                    <View key={i} style={{
+                                        flexDirection: 'row', backgroundColor: colors.error + '14',
+                                        borderRadius: 8, padding: 10, marginBottom: 6,
+                                        borderWidth: 1, borderColor: colors.error + '33',
+                                    }}>
+                                        <MaterialIcons name="error-outline" size={16} color={colors.error} style={{ marginRight: 8, marginTop: 2 }} />
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}>
+                                                {item.action}
+                                            </Text>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                                Was due Day {item.day_start}{item.day_end !== item.day_start ? `–${item.day_end}` : ''}
+                                                {item.medication ? ` · ${item.medication} (${item.dosage})` : ''}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+
+                        {/* Due now */}
+                        <Text style={[textStyles.label, { color: colors.text, fontSize: 11, letterSpacing: 0.5, marginBottom: 6 }]}>
+                            DUE NOW
+                        </Text>
+                        {careRec.dueNow.length === 0 ? (
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginBottom: 12 }]}>
+                                No care tasks scheduled for today — just monitor feed, water, and general health.
+                            </Text>
+                        ) : (
+                            <View style={{ marginBottom: 12 }}>
+                                {careRec.dueNow.map((item: CareScheduleItem, i: number) => (
+                                    <View key={i} style={{
+                                        flexDirection: 'row', backgroundColor: colors.warning + '14',
+                                        borderRadius: 8, padding: 10, marginBottom: 6,
+                                        borderWidth: 1, borderColor: colors.warning + '33',
+                                    }}>
+                                        <MaterialIcons name="vaccines" size={16} color={colors.warning} style={{ marginRight: 8, marginTop: 2 }} />
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}>
+                                                {item.action}
+                                            </Text>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 1 }]}>
+                                                {item.purpose}
+                                            </Text>
+                                            {item.medication && (
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2 }]}>
+                                                    {item.medication} — {item.dosage} ({item.route})
+                                                </Text>
+                                            )}
+                                            {item.tasks && (
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2 }]}>
+                                                    {item.tasks}
+                                                </Text>
+                                            )}
+                                            {item.conditional && (
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2, fontStyle: 'italic' }]}>
+                                                    Note: {item.conditional}
+                                                </Text>
+                                            )}
+                                        </View>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+
+                        {/* Upcoming */}
+                        {careRec.upcoming.length > 0 && (
+                            <View>
+                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, letterSpacing: 0.5, marginBottom: 6 }]}>
+                                    COMING UP (NEXT 7 DAYS)
+                                </Text>
+                                {careRec.upcoming.map((item: CareScheduleItem, i: number) => (
+                                    <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 4 }}>
+                                        <MaterialIcons name="schedule" size={14} color={colors.textGrey} style={{ marginRight: 6, marginTop: 2 }} />
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, flex: 1 }]}>
+                                            Day {item.day_start}: {item.action}{item.medication ? ` (${item.medication})` : ''}
+                                        </Text>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+                    </View>
+                )}
 
                 {/* ── AniBot Insight — real AI, not static string ── */}
                 {!isBatchLoading && selectedBatchId && (

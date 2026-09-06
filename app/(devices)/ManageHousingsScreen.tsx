@@ -17,6 +17,7 @@ import { AnimalIcon } from '@/components/AnimalIcon';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
+import { getQueuedActions, isNetworkError, queueAction } from '@/lib/offlineQueue';
 
 interface HousingItem {
     id: string;
@@ -25,6 +26,9 @@ interface HousingItem {
     capacity: number;
     current_count: number;
     status: string;
+    /** Set locally when this row was queued offline and hasn't synced to the
+     *  server yet — replaced by the real row once fetchHousings() runs again. */
+    _pendingSync?: boolean;
 }
 
 type FilterType = 'All' | 'Chickens' | 'Pigs';
@@ -59,7 +63,25 @@ export default function ManageHousingsScreen() {
                 .eq('farm_id', farmId)
                 .order('name', { ascending: true });
             if (error) throw error;
-            setHousings(data ?? []);
+
+            // Keep any still-unsynced offline additions visible (with their
+            // Pending Sync badge) rather than letting them disappear the
+            // moment this refetch runs, before the queue has actually
+            // flushed them for real.
+            const queued = await getQueuedActions();
+            const pendingHousings: HousingItem[] = queued
+                .filter(a => a.table === 'housings' && a.operation === 'insert')
+                .map(a => ({
+                    id: `pending-${a.id}`,
+                    name: a.data.name,
+                    animal_type: a.data.animal_type,
+                    capacity: a.data.capacity ?? 0,
+                    current_count: 0,
+                    status: a.data.status ?? 'Active',
+                    _pendingSync: true,
+                }));
+
+            setHousings([...(data ?? []), ...pendingHousings]);
         } catch (err: any) {
             showSnackbar(err.message || 'Failed to load housings.', 'error');
         } finally {
@@ -222,7 +244,30 @@ export default function ManageHousingsScreen() {
             }
             await fetchHousings();
         } catch (err: any) {
-            showSnackbar(err.message || 'Action failed.', 'error');
+            // A genuine network failure (WiFi dropped mid-submit) queues the
+            // save instead of losing it — it'll retry automatically (see
+            // OfflineSyncBanner) and this list already shows it as pending
+            // via fetchHousings()'s queued-item merge above.
+            if (confirmAction === 'save' && isNetworkError(err)) {
+                const payload = {
+                    name: tempHousingName.trim(),
+                    animal_type: LABEL_TO_DB[tempHousingType] as 'chicken' | 'pig',
+                    capacity: parseInt(tempCapacity || '0', 10),
+                    updated_at: new Date().toISOString(),
+                    ...(editingHousingId ? {} : { farm_id: farmId }),
+                };
+                await queueAction({
+                    table: 'housings',
+                    operation: editingHousingId ? 'update' : 'insert',
+                    data: payload,
+                    matchId: editingHousingId ?? undefined,
+                    label: payload.name,
+                });
+                showSnackbar(`You're offline — "${payload.name}" will be saved automatically once you're back online.`, 'info');
+                await fetchHousings();
+            } else {
+                showSnackbar(err.message || 'Action failed.', 'error');
+            }
         } finally {
             setIsSaving(false);
             setConfirmModalVisible(false);
@@ -289,25 +334,34 @@ export default function ManageHousingsScreen() {
                                         borderBottomWidth: index < filteredHousings.length - 1 ? 1 : 0,
                                         borderBottomColor: colors.stroke,
                                     }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                                             <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                                                 <MaterialIcons name="home" size={20} color={colors.primary} />
                                             </View>
-                                            <View>
-                                                <Text style={[textStyles.h3, { color: colors.text }]}>{housing.name}</Text>
+                                            <View style={{ flex: 1 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                    <Text style={[textStyles.h3, { color: colors.text }]}>{housing.name}</Text>
+                                                    {housing._pendingSync && (
+                                                        <View style={{ backgroundColor: colors.warning + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                                            <Text style={[textStyles.label, { color: colors.warning, fontSize: 9 }]}>PENDING SYNC</Text>
+                                                        </View>
+                                                    )}
+                                                </View>
                                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
                                                     {ANIMAL_TYPE_LABEL[housing.animal_type]} · {housing.current_count}/{housing.capacity > 0 ? housing.capacity : '—'} heads
                                                 </Text>
                                             </View>
                                         </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                                            <TouchableOpacity onPress={() => openEditModal(housing.id)}>
-                                                <MaterialIcons name="edit" size={22} color={colors.textGrey} />
-                                            </TouchableOpacity>
-                                            <TouchableOpacity onPress={() => confirmDelete(housing.id)}>
-                                                <MaterialIcons name="delete-outline" size={22} color={colors.error} />
-                                            </TouchableOpacity>
-                                        </View>
+                                        {!housing._pendingSync && (
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                                <TouchableOpacity onPress={() => openEditModal(housing.id)}>
+                                                    <MaterialIcons name="edit" size={22} color={colors.textGrey} />
+                                                </TouchableOpacity>
+                                                <TouchableOpacity onPress={() => confirmDelete(housing.id)}>
+                                                    <MaterialIcons name="delete-outline" size={22} color={colors.error} />
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
                                     </View>
                                 ))
                             )}

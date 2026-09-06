@@ -9,6 +9,8 @@ import { LineChart } from 'react-native-chart-kit';
 import { BackButton } from '@/components/BackButton';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
+import { PrintReportButton } from '@/components/PrintReportButton';
+import { ReportDocument } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -39,6 +41,7 @@ export default function FeedReportScreen() {
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
+    const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
 
     // Route search params
     const { type } = useLocalSearchParams();
@@ -285,6 +288,49 @@ export default function FeedReportScreen() {
         return `${selectedHousing?.name ?? 'This house'} has consumed a total of ${totalConsumption.toFixed(1)} kg of feed. The primary feed was ${topFeed.feedName} (${topFeed.category}), accounting for ${pct}% of overall intake.`;
     };
 
+    // ─── PDF Report Builder ──────────────────────────────────────
+    const buildFeedReport = useCallback((): ReportDocument | null => {
+        if (!selectedHousing) return null;
+
+        const sorted = [...reportData].sort((a, b) => b.consumption - a.consumption);
+        const rows = sorted.map(item => [
+            item.feedName,
+            item.category,
+            `${item.consumption.toFixed(2)} kg`,
+            totalConsumption > 0 ? `${Math.round((item.consumption / totalConsumption) * 100)}%` : '0%',
+        ]);
+
+        return {
+            reportTitle: 'Feed Consumption Report',
+            farmName,
+            subtitle: `${selectedHousing.name} · ${animalType === 'pig' ? 'Pigs' : 'Chickens'} · ${timeframe}`,
+            meta: [
+                { label: 'Housing', value: selectedHousing.name },
+                { label: 'Animal Type', value: animalType === 'pig' ? 'Pig' : 'Chicken' },
+                { label: 'Report Period', value: timeframe },
+                { label: 'Head Count', value: String(selectedHousing.current_count) },
+            ],
+            sections: [
+                {
+                    heading: 'Summary',
+                    stats: [
+                        { label: 'Total Consumption', value: `${totalConsumption.toFixed(1)} kg` },
+                        { label: 'Feed Types Used', value: String(reportData.length) },
+                    ],
+                    paragraphs: [getBotAnalysis()],
+                },
+                {
+                    heading: 'Feed Breakdown',
+                    table: {
+                        headers: ['Feed', 'Category', 'Consumption', '% of Total'],
+                        rows,
+                        note: rows.length === 0 ? 'No feed consumption recorded for this period.' : undefined,
+                    },
+                },
+            ],
+        };
+    }, [selectedHousing, animalType, timeframe, reportData, totalConsumption, farmName]);
+
     return (
         <SafeAreaView style={styles.safeArea}>
             {/* Header */}
@@ -295,7 +341,10 @@ export default function FeedReportScreen() {
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
                     {animalType === 'pig' ? 'Pigs' : 'Chickens'} Feed Report
                 </Text>
-                <View style={{ width: 44, height: 44 }} />
+                <PrintReportButton
+                    buildReport={buildFeedReport}
+                    emptyMessage="Select a housing first."
+                />
             </View>
 
             <ScrollView 

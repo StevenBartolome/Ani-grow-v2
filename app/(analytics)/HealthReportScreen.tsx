@@ -9,6 +9,8 @@ import { LineChart, PieChart } from 'react-native-chart-kit';
 import { BackButton } from '@/components/BackButton';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
+import { PrintReportButton } from '@/components/PrintReportButton';
+import { ReportDocument } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -59,6 +61,7 @@ export default function HealthReportScreen() {
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
+    const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
 
     // Route search params
     const { type } = useLocalSearchParams();
@@ -119,6 +122,7 @@ export default function HealthReportScreen() {
                     .from('batches')
                     .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id)')
                     .eq('housings.farm_id', farmId)
+                    .eq('status', 'active') // sold/completed batches shouldn't clutter this picker
                     .order('arrival_date', { ascending: false })
             ]);
 
@@ -377,6 +381,59 @@ export default function HealthReportScreen() {
     const batchesOptions = filteredBatches.map(b => b.name);
     const selectedBatchOptionStr = selectedBatch ? selectedBatch.name : 'No Batch Selected';
 
+    // ─── PDF Report Builder ──────────────────────────────────────
+    const buildHealthReport = useCallback((): ReportDocument | null => {
+        if (!selectedBatch) return null;
+
+        const eventRows = healthRecords.map(r => {
+            let dateLabel = r.record_date;
+            try {
+                dateLabel = new Date(r.record_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            } catch { /* keep raw */ }
+            return [
+                dateLabel,
+                r.record_type.charAt(0).toUpperCase() + r.record_type.slice(1),
+                r.title || '—',
+                r.severity.charAt(0).toUpperCase() + r.severity.slice(1),
+                r.affected_count ?? '—',
+            ];
+        });
+
+        return {
+            reportTitle: 'Health Report',
+            farmName,
+            subtitle: `${selectedBatch.name} · ${selectedHousing?.name ?? 'No Housing'} · ${animalType === 'pig' ? 'Pigs' : 'Chickens'}`,
+            meta: [
+                { label: 'Batch', value: selectedBatch.name },
+                { label: 'Housing', value: selectedHousing?.name ?? '—' },
+                { label: 'Animal Type', value: animalType === 'pig' ? 'Pig' : 'Chicken' },
+                { label: 'Head Count', value: String(selectedBatch.current_count) },
+            ],
+            sections: [
+                {
+                    heading: 'Summary',
+                    stats: [
+                        { label: 'Total Events', value: String(healthRecords.length) },
+                        { label: 'Vaccinations', value: String(vaccinationCount), accent: 'good' },
+                        { label: 'Routine Care', value: String(routineCareCount) },
+                        { label: 'Active Illnesses', value: String(activeIllnesses), accent: activeIllnesses > 0 ? 'warn' : undefined },
+                        { label: 'Mortality Rate', value: `${mortalityRate}%`, accent: parseFloat(mortalityRate) > 3 ? 'bad' : 'good' },
+                        { label: 'Deceased', value: String(totalDeceased), accent: totalDeceased > 0 ? 'bad' : undefined },
+                    ],
+                    paragraphs: [getHealthAnalysis()],
+                },
+                {
+                    heading: 'Health Event Log',
+                    table: {
+                        headers: ['Date', 'Type', 'Title', 'Severity', 'Affected'],
+                        rows: eventRows,
+                        note: eventRows.length === 0 ? 'No health events recorded for this batch yet.' : undefined,
+                    },
+                },
+            ],
+        };
+    }, [selectedBatch, selectedHousing, animalType, healthRecords, vaccinationCount, routineCareCount, activeIllnesses, mortalityRate, totalDeceased, farmName]);
+
     return (
         <SafeAreaView style={styles.safeArea}>
             {/* Header */}
@@ -387,7 +444,10 @@ export default function HealthReportScreen() {
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
                     {animalType === 'pig' ? 'Pigs' : 'Chickens'} Health Report
                 </Text>
-                <View style={{ width: 44, height: 44 }} />
+                <PrintReportButton
+                    buildReport={buildHealthReport}
+                    emptyMessage="Select a batch first."
+                />
             </View>
 
             <ScrollView 
