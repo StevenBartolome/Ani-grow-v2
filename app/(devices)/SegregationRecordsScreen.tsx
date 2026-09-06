@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -44,6 +44,7 @@ export default function SegregationRecordsScreen() {
     const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
     const [stats, setStats] = useState<SegregationStat[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [dateRangeLabel, setDateRangeLabel] = useState('—');
 
     const toggleCard = (id: string) => {
@@ -122,6 +123,12 @@ export default function SegregationRecordsScreen() {
 
     useEffect(() => { fetchRecords(); }, [fetchRecords]);
 
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await fetchRecords();
+        setRefreshing(false);
+    }, [fetchRecords]);
+
     const renderStatsCard = (stat: SegregationStat) => {
         const isExpanded = !!expandedCards[stat.id];
         return (
@@ -190,8 +197,19 @@ export default function SegregationRecordsScreen() {
                 </View>
             </View>
 
-            <ScrollView contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
-                {loading ? (
+            <ScrollView
+                contentContainerStyle={styles.contentContainer}
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        tintColor={colors.primary}
+                        colors={[colors.primary]}
+                    />
+                }
+            >
+                {loading && !refreshing ? (
                     <View style={{ alignItems: 'center', marginTop: 40 }}>
                         <ActivityIndicator size="large" color={colors.primary} />
                         <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Crunching segregation data...</Text>

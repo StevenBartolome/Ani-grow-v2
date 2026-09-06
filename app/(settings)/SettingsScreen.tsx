@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Alert,
+    RefreshControl,
     ScrollView,
     TouchableOpacity,
     View,
@@ -18,7 +19,7 @@ import ActionModal from '@/components/ActionModal';
 import { ConfirmationModal } from '@/components/ConfirmationModal';
 
 export default function SettingsScreen() {
-    const { profile, signOut } = useAuth();
+    const { profile, signOut, refreshProfile } = useAuth();
     const settingsStyles = useSettingsStyles();
     const textStyles = useTextStyles();
     const { colors, isDark, themeMode, setThemeMode, language } = useTheme();
@@ -31,6 +32,7 @@ export default function SettingsScreen() {
 
     const [isLogoutModalVisible, setLogoutModalVisible] = useState(false);
     const [themeDropdownOpen, setThemeDropdownOpen] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     const themeOptions: { mode: ThemeMode; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name'] }[] = [
         { mode: 'device', label: 'Device Default', icon: 'phone-android' },
@@ -54,6 +56,17 @@ export default function SettingsScreen() {
 
     const languageLabel = language === 'fil' ? 'Filipino' : 'English';
 
+    const onRefresh = async () => {
+        setRefreshing(true);
+        try {
+            await refreshProfile();
+        } catch (e) {
+            console.error('[SettingsScreen] refresh error:', e);
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
     return (
         <SafeAreaView style={settingsStyles.safeArea}>
             <View style={settingsStyles.container}>
@@ -69,7 +82,18 @@ export default function SettingsScreen() {
                     <View style={{ width: 44, height: 44 }} />
                 </View>
 
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 100 }}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                        />
+                    }
+                >
 
                     {/* Profile Section */}
                     <View style={settingsStyles.profileSection}>

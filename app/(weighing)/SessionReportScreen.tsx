@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -50,7 +50,7 @@ export default function SessionReportScreen() {
     const animalStyles = useAnimalStyles();
     const router = useRouter();
     const { hasPermission, profile } = useAuth();
-    const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
+    const [farmName, setFarmName] = useState<string>((profile as any)?.farm_name ?? (profile as any)?.farmName ?? '');
     const { sessionId } = useLocalSearchParams<{ sessionId?: string }>();
 
     const [session, setSession] = useState<SessionRow | null>(null);
@@ -60,6 +60,7 @@ export default function SessionReportScreen() {
     const [previousAvgGrams, setPreviousAvgGrams] = useState<number | null>(null);
     const [feedConsumedGrams, setFeedConsumedGrams] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     const load = useCallback(async () => {
         if (!sessionId) { setIsLoading(false); return; }
@@ -75,7 +76,7 @@ export default function SessionReportScreen() {
             setSession(currentSession);
 
             const [batchRes, rowsRes, prevRes] = await Promise.all([
-                supabase.from('batches').select('name, housings(name)').eq('id', currentSession.batch_id).single(),
+                supabase.from('batches').select('name, housings(name, farm_id, farms(name))').eq('id', currentSession.batch_id).single(),
                 supabase.from('weigh_sessions').select('net_weight_grams, status').eq('weighing_session_id', sessionId),
                 supabase.from('weighing_sessions')
                     .select('id, batch_id, housing_id, animal_type, farm_day, expected_quantity, completed_quantity, created_at, completed_at')
@@ -88,7 +89,11 @@ export default function SessionReportScreen() {
                     .maybeSingle(),
             ]);
 
-            if (batchRes.data) setBatch(batchRes.data as unknown as BatchInfo);
+            if (batchRes.data) {
+                setBatch(batchRes.data as unknown as BatchInfo);
+                const fetchedFarm = (batchRes.data as any)?.housings?.farms?.name;
+                if (fetchedFarm) setFarmName(fetchedFarm);
+            }
             setRows((rowsRes.data || []) as ChildRow[]);
 
             if (prevRes.data) {
@@ -120,7 +125,13 @@ export default function SessionReportScreen() {
 
     useEffect(() => { load(); }, [load]);
 
-    if (isLoading) {
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await load();
+        setRefreshing(false);
+    }, [load]);
+
+    if (isLoading && !refreshing) {
         return (
             <SafeAreaView style={[styles.safeArea, { alignItems: 'center', justifyContent: 'center' }]}>
                 <ActivityIndicator size="large" color={colors.primary} />
@@ -241,7 +252,18 @@ export default function SessionReportScreen() {
                 />
             </View>
 
-            <ScrollView contentContainerStyle={[animalStyles.scrollContent, { paddingTop: 8, paddingBottom: 60 }]} showsVerticalScrollIndicator={false}>
+            <ScrollView
+                contentContainerStyle={[animalStyles.scrollContent, { paddingTop: 8, paddingBottom: 60 }]}
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        tintColor={colors.primary}
+                        colors={[colors.primary]}
+                    />
+                }
+            >
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                     <Text style={[textStyles.h3, { color: colors.text }]}>{batch?.name ?? 'Batch'}</Text>
                     {session.farm_day !== null && (

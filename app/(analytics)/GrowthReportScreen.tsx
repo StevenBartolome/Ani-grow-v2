@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
@@ -26,6 +27,8 @@ interface HousingInfo {
     animal_type: string;
     status: string;
     current_count: number;
+    farm_id?: string;
+    farms?: { id?: string; name?: string } | null;
 }
 
 interface BatchInfo {
@@ -37,6 +40,10 @@ interface BatchInfo {
     age_at_arrival_days: number;
     status: string;
     housing_id: string;
+    housings?: {
+        farm_id?: string;
+        farms?: { id?: string; name?: string } | null;
+    } | null;
 }
 
 interface WeighSession {
@@ -46,6 +53,24 @@ interface WeighSession {
     animal_type: 'pig' | 'chicken';
     recorded_at: string;
     batch_id: string;
+    weighing_session_id?: string | null;
+}
+
+interface WeighingSessionEnvelope {
+    id: string;
+    farm_day: number | null;
+    weigh_mode: string;
+    expected_quantity: number;
+    completed_quantity: number;
+    status: string;
+    created_at: string;
+    completed_at: string | null;
+}
+
+function getOrdinal(n: number): string {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 export default function GrowthReportScreen() {
@@ -59,9 +84,19 @@ export default function GrowthReportScreen() {
     const hPad = width >= 900 ? Math.round(width * 0.12) : width >= 600 ? Math.round(width * 0.07) : 20;
 
     const { profile } = useAuth();
-    const { activeFarmIds } = useFarmFilter();
+    const { activeFarmIds, managedFarms, selectedFarmIds } = useFarmFilter();
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
-    const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
+    const currentFarm = managedFarms.find(f => (selectedFarmIds && selectedFarmIds.length > 0 ? selectedFarmIds.includes(f.id) : activeFarmIds.includes(f.id)))
+        || managedFarms.find(f => f.id === farmId);
+    const [farmName, setFarmName] = useState<string>(currentFarm?.name || (profile as any)?.farm_name || (profile as any)?.farmName || '');
+
+    useEffect(() => {
+        const found = managedFarms.find(f => (selectedFarmIds && selectedFarmIds.length > 0 ? selectedFarmIds.includes(f.id) : activeFarmIds.includes(f.id)))
+            || managedFarms.find(f => f.id === farmId);
+        if (found?.name) {
+            setFarmName(found.name);
+        }
+    }, [managedFarms, selectedFarmIds, activeFarmIds, farmId]);
 
     // Route search params — batchId (e.g. linked from a Weighing Session
     // Report) takes priority over the default "first housing, most recent
@@ -79,6 +114,9 @@ export default function GrowthReportScreen() {
     const [allBatches, setAllBatches] = useState<BatchInfo[]>([]);
     const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
     const [weighSessions, setWeighSessions] = useState<WeighSession[]>([]);
+    const [weighingSessionEnvelopes, setWeighingSessionEnvelopes] = useState<WeighingSessionEnvelope[]>([]);
+    const [selectedSessionOption, setSelectedSessionOption] = useState<string | null>(null);
+    const [sessionModalVisible, setSessionModalVisible] = useState(false);
     const [timeframe, setTimeframe] = useState<'Days' | 'Weeks'>('Days');
     const [selectedTab, setSelectedTab] = useState<'All' | 'Underweight' | 'Normal' | 'Overweight'>('All');
     
@@ -120,23 +158,32 @@ export default function GrowthReportScreen() {
         }
         setIsLoading(true);
         try {
-            const [housingsRes, batchesRes] = await Promise.all([
+            const [housingsRes, batchesRes, farmRes] = await Promise.all([
                 supabase
                     .from('housings')
-                    .select('id, name, animal_type, status, current_count')
+                    .select('id, name, animal_type, status, current_count, farm_id, farms(id, name)')
                     .eq('farm_id', farmId)
                     .eq('status', 'Active')
                     .order('name', { ascending: true }),
                 supabase
                     .from('batches')
-                    .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id)')
+                    .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id, farms(id, name))')
                     .eq('housings.farm_id', farmId)
                     .eq('status', 'active') // sold/completed batches shouldn't clutter this picker
-                    .order('arrival_date', { ascending: false })
+                    .order('arrival_date', { ascending: false }),
+                supabase
+                    .from('farms')
+                    .select('name')
+                    .eq('id', farmId)
+                    .maybeSingle()
             ]);
 
             if (housingsRes.error) throw housingsRes.error;
             if (batchesRes.error) throw batchesRes.error;
+
+            if (farmRes.data?.name) {
+                setFarmName(farmRes.data.name);
+            }
 
             const housingsData = (housingsRes.data || []) as HousingInfo[];
             const batchesData = (batchesRes.data || []) as BatchInfo[];
@@ -159,13 +206,23 @@ export default function GrowthReportScreen() {
                 setSelectedHousingId(requestedBatch.housing_id);
                 setSelectedBatchId(requestedBatch.id);
 
-                const { data: weighData, error: weighError } = await supabase
-                    .from('weigh_sessions')
-                    .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id')
-                    .eq('batch_id', requestedBatch.id)
-                    .order('recorded_at', { ascending: true });
-                if (weighError) throw weighError;
-                setWeighSessions((weighData || []) as WeighSession[]);
+                const [weighRes, sessionRes] = await Promise.all([
+                    supabase
+                        .from('weigh_sessions')
+                        .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id, weighing_session_id')
+                        .eq('batch_id', requestedBatch.id)
+                        .neq('status', 'invalid')
+                        .order('recorded_at', { ascending: true }),
+                    supabase
+                        .from('weighing_sessions')
+                        .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
+                        .eq('batch_id', requestedBatch.id)
+                        .order('created_at', { ascending: true }),
+                ]);
+                if (weighRes.error) throw weighRes.error;
+                setWeighSessions((weighRes.data || []) as WeighSession[]);
+                setWeighingSessionEnvelopes((sessionRes.data || []) as WeighingSessionEnvelope[]);
+                setSelectedSessionOption(null);
                 lastLoadedBatchIdRef.current = requestedBatch.id;
                 setIsLoading(false);
                 return;
@@ -182,25 +239,39 @@ export default function GrowthReportScreen() {
                     setSelectedBatchId(targetBatchId);
                     
                     // Fetch initial weigh sessions inside loading state
-                    const { data: weighData, error: weighError } = await supabase
-                        .from('weigh_sessions')
-                        .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id')
-                        .eq('batch_id', targetBatchId)
-                        .order('recorded_at', { ascending: true });
+                    const [weighRes, sessionRes] = await Promise.all([
+                        supabase
+                            .from('weigh_sessions')
+                            .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id, weighing_session_id')
+                            .eq('batch_id', targetBatchId)
+                            .neq('status', 'invalid')
+                            .order('recorded_at', { ascending: true }),
+                        supabase
+                            .from('weighing_sessions')
+                            .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
+                            .eq('batch_id', targetBatchId)
+                            .order('created_at', { ascending: true }),
+                    ]);
 
-                    if (weighError) throw weighError;
+                    if (weighRes.error) throw weighRes.error;
                     
-                    setWeighSessions((weighData || []) as WeighSession[]);
+                    setWeighSessions((weighRes.data || []) as WeighSession[]);
+                    setWeighingSessionEnvelopes((sessionRes.data || []) as WeighingSessionEnvelope[]);
+                    setSelectedSessionOption(null);
                     lastLoadedBatchIdRef.current = targetBatchId;
                 } else {
                     setSelectedBatchId(null);
                     setWeighSessions([]);
+                    setWeighingSessionEnvelopes([]);
+                    setSelectedSessionOption(null);
                     lastLoadedBatchIdRef.current = null;
                 }
             } else {
                 setSelectedHousingId(null);
                 setSelectedBatchId(null);
                 setWeighSessions([]);
+                setWeighingSessionEnvelopes([]);
+                setSelectedSessionOption(null);
                 lastLoadedBatchIdRef.current = null;
             }
         } catch (err) {
@@ -215,14 +286,24 @@ export default function GrowthReportScreen() {
         setIsWeighLoading(true);
         lastLoadedBatchIdRef.current = batchId;
         try {
-            const { data, error } = await supabase
-                .from('weigh_sessions')
-                .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id')
-                .eq('batch_id', batchId)
-                .order('recorded_at', { ascending: true });
+            const [weighRes, sessionRes] = await Promise.all([
+                supabase
+                    .from('weigh_sessions')
+                    .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id, weighing_session_id')
+                    .eq('batch_id', batchId)
+                    .neq('status', 'invalid')
+                    .order('recorded_at', { ascending: true }),
+                supabase
+                    .from('weighing_sessions')
+                    .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
+                    .eq('batch_id', batchId)
+                    .order('created_at', { ascending: true }),
+            ]);
 
-            if (error) throw error;
-            setWeighSessions((data || []) as WeighSession[]);
+            if (weighRes.error) throw weighRes.error;
+            setWeighSessions((weighRes.data || []) as WeighSession[]);
+            setWeighingSessionEnvelopes((sessionRes.data || []) as WeighingSessionEnvelope[]);
+            setSelectedSessionOption(null);
         } catch (err) {
             console.error('[GrowthReportScreen] error loading weigh sessions:', err);
         } finally {
@@ -261,11 +342,14 @@ export default function GrowthReportScreen() {
     // Load weigh sessions when selected batch changes
     useEffect(() => {
         if (selectedBatchId) {
+            setSelectedSessionOption(null);
             if (lastLoadedBatchIdRef.current !== selectedBatchId) {
                 fetchWeighSessions(selectedBatchId);
             }
         } else {
             setWeighSessions([]);
+            setWeighingSessionEnvelopes([]);
+            setSelectedSessionOption(null);
             lastLoadedBatchIdRef.current = null;
         }
     }, [selectedBatchId, fetchWeighSessions]);
@@ -297,11 +381,13 @@ export default function GrowthReportScreen() {
     }, [selectedBatch]);
 
     // ─── PDF Report Builder ──────────────────────────────────────────
-    // Full day-by-day breakdown (not limited to the chart's last-5-dates
-    // window) — a formal report shows the whole recorded history.
+    // Constructs a formal, print-friendly Word-style growth audit document
+    // with comprehensive biometric analysis, distribution matrix, progression ledger,
+    // operational recommendations, and official sign-off blocks.
     const buildGrowthReport = useCallback((): ReportDocument | null => {
         if (!selectedBatch || weighSessions.length === 0) return null;
 
+        // Group weights by calendar date
         const dateMap = new Map<string, { underweight: number; normal: number; overweight: number; weights: number[] }>();
         weighSessions.forEach(s => {
             const key = s.recorded_at.slice(0, 10);
@@ -312,56 +398,220 @@ export default function GrowthReportScreen() {
             else entry.normal += 1;
             entry.weights.push(s.net_weight_grams);
         });
+
         const sortedDates = Array.from(dateMap.keys()).sort();
-        const rows = sortedDates.map(d => {
+
+        // Calculate chronological progression with inter-session gains
+        let prevAvgKg = 0;
+        const chronologicalRows = sortedDates.map((d, idx) => {
             const entry = dateMap.get(d)!;
             const avgKg = entry.weights.reduce((a, b) => a + b, 0) / entry.weights.length / 1000;
+            const minKg = (Math.min(...entry.weights) / 1000).toFixed(2);
+            const maxKg = (Math.max(...entry.weights) / 1000).toFixed(2);
+
+            let gainStr = '— (Baseline)';
+            if (idx > 0 && prevAvgKg > 0) {
+                const gain = avgKg - prevAvgKg;
+                gainStr = (gain >= 0 ? '+' : '') + gain.toFixed(2) + ' kg';
+            }
+            prevAvgKg = avgKg;
+
             let dateLabel = d;
             try {
                 dateLabel = new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            } catch { /* keep raw key */ }
-            return [dateLabel, entry.weights.length, `${avgKg.toFixed(2)} kg`, entry.underweight, entry.normal, entry.overweight];
+            } catch { /* keep raw */ }
+
+            return [
+                dateLabel,
+                entry.weights.length,
+                `${avgKg.toFixed(2)} kg`,
+                `${minKg} - ${maxKg} kg`,
+                gainStr,
+                entry.underweight,
+                entry.normal,
+                entry.overweight,
+            ];
         });
 
-        const avgWeightKg = weighSessions.reduce((s, w) => s + w.net_weight_grams, 0) / weighSessions.length / 1000;
+        // Overall Statistical Computations
+        const weightsInKg = weighSessions.map(s => s.net_weight_grams / 1000);
+        const meanWeightKg = weightsInKg.reduce((a, b) => a + b, 0) / weightsInKg.length;
+        const minWeightKg = Math.min(...weightsInKg).toFixed(2);
+        const maxWeightKg = Math.max(...weightsInKg).toFixed(2);
+
+        // Uniformity Calculation: % of sampled herd within ±10% of mean weight
+        const lowerBound = meanWeightKg * 0.90;
+        const upperBound = meanWeightKg * 1.10;
+        const uniformAnimalsCount = weightsInKg.filter(w => w >= lowerBound && w <= upperBound).length;
+        const uniformityPct = ((uniformAnimalsCount / weightsInKg.length) * 100).toFixed(1);
+
+        // Percentage distributions
+        const underPct = totalWeighs > 0 ? ((underweightCount / totalWeighs) * 100).toFixed(1) : '0.0';
+        const normalPct = totalWeighs > 0 ? ((normalCount / totalWeighs) * 100).toFixed(1) : '0.0';
+        const overPct = totalWeighs > 0 ? ((overweightCount / totalWeighs) * 100).toFixed(1) : '0.0';
+
+        // Average Daily Gain (ADG) over monitored timeframe
+        let adgFormatted = 'Baseline Established';
+        if (sortedDates.length >= 2) {
+            const firstDateStr = sortedDates[0];
+            const lastDateStr = sortedDates[sortedDates.length - 1];
+            const firstEntry = dateMap.get(firstDateStr)!;
+            const lastEntry = dateMap.get(lastDateStr)!;
+            const firstAvg = firstEntry.weights.reduce((a, b) => a + b, 0) / firstEntry.weights.length / 1000;
+            const lastAvg = lastEntry.weights.reduce((a, b) => a + b, 0) / lastEntry.weights.length / 1000;
+            const daysElapsed = Math.max(1, Math.round((new Date(lastDateStr).getTime() - new Date(firstDateStr).getTime()) / (1000 * 60 * 60 * 24)));
+            const adg = (lastAvg - firstAvg) / daysElapsed;
+            adgFormatted = `${adg.toFixed(3)} kg/day (${daysElapsed} days)`;
+        }
+
         const arrivalLabel = selectedBatch.arrival_date
             ? new Date(selectedBatch.arrival_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
             : '—';
 
+        const officerName = (profile as any)?.first_name
+            ? `${(profile as any).first_name} ${(profile as any).last_name ?? ''}`.trim()
+            : (profile as any)?.displayName || 'Operations Officer';
+
+        const selectedHousingFarmName = (selectedHousing as any)?.farms?.name;
+        const selectedBatchFarmName = (selectedBatch as any)?.housings?.farms?.name;
+        const activeFarmObj = managedFarms.find(f => (selectedFarmIds && selectedFarmIds.length > 0 ? selectedFarmIds.includes(f.id) : activeFarmIds.includes(f.id)))
+            || managedFarms.find(f => f.id === farmId);
+        const activeFarmName = activeFarmObj?.name;
+
+        const selectedFarmDisplayName = selectedHousingFarmName
+            || selectedBatchFarmName
+            || activeFarmName
+            || farmName
+            || (profile as any)?.farm_name
+            || (profile as any)?.farmName
+            || (managedFarms.length > 0 ? managedFarms[0]?.name : '')
+            || 'Farm Operations';
+
+        const batchRefName = selectedBatch.name.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const dateStamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const documentReference = `ANIGROW-GRW-${batchRefName}-${dateStamp}`;
+
+        const summaryText = `This official livestock growth and biometric performance report documents the weighing records and weight progression for Batch "${selectedBatch.name}" (${animalType === 'pig' ? 'Swine Herd' : 'Poultry Flock'}), situated at ${selectedHousing?.name ?? 'Assigned Facility'} in ${selectedFarmDisplayName}. Current rearing age is Day ${currentDay !== null ? currentDay : 'N/A'}, with an active cohort population of ${selectedBatch.current_count} head. Across all recorded telemetry sessions, a cumulative sample of ${totalWeighs} weigh events has been logged, establishing a mean cohort live weight of ${meanWeightKg.toFixed(2)} kg. Biometric categorization demonstrates that ${normalPct}% (${normalCount} head) conform to optimal growth target standards, ${underPct}% (${underweightCount} head) are classified as underweight, and ${overPct}% (${overweightCount} head) fall into the overweight/advanced category. Overall herd uniformity is indexed at ${uniformityPct}%.`;
+
         return {
-            reportTitle: 'Growth Report',
-            farmName,
-            subtitle: `${selectedBatch.name} · ${selectedHousing?.name ?? 'No Housing'} · ${animalType === 'pig' ? 'Pigs' : 'Chickens'}`,
+            reportTitle: 'LIVESTOCK GROWTH PERFORMANCE & BIOMETRIC AUDIT REPORT',
+            farmName: selectedFarmDisplayName,
+            subtitle: `Official Biometric Cohort Evaluation · Batch "${selectedBatch.name}" · ${selectedHousing?.name ?? 'Assigned Housing'} · ${animalType === 'pig' ? 'Swine Production' : 'Poultry Production'}`,
+            documentRef: documentReference,
+            summaryText,
             meta: [
-                { label: 'Batch', value: selectedBatch.name },
-                { label: 'Housing', value: selectedHousing?.name ?? '—' },
-                { label: 'Animal Type', value: animalType === 'pig' ? 'Pig' : 'Chicken' },
-                { label: 'Current Age', value: currentDay !== null ? `Day ${currentDay}` : '—' },
-                { label: 'Head Count', value: String(selectedBatch.current_count) },
-                { label: 'Arrival Date', value: arrivalLabel },
+                { label: 'Farm / Facility', value: selectedFarmDisplayName },
+                { label: 'Batch Identifier', value: selectedBatch.name },
+                { label: 'Housing Facility / Pen', value: selectedHousing?.name ?? 'General Housing' },
+                { label: 'Livestock Classification', value: animalType === 'pig' ? 'Swine (Grower / Finisher)' : 'Poultry (Broiler)' },
+                { label: 'Placement Date', value: arrivalLabel },
+                { label: 'Placement Age', value: `${selectedBatch.age_at_arrival_days || 0} days` },
+                { label: 'Current Cohort Age', value: currentDay !== null ? `Day ${currentDay}` : '—' },
+                { label: 'Stocking Count', value: `${selectedBatch.estimated_count ?? selectedBatch.current_count} head` },
+                { label: 'Current Live Population', value: `${selectedBatch.current_count} head` },
+                { label: 'Cumulative Weigh Events', value: `${totalWeighs} recorded measurements` },
+                { label: 'Audit Period', value: sortedDates.length > 0 ? `${sortedDates[0]} to ${sortedDates[sortedDates.length - 1]}` : 'Single Session' },
+                { label: 'Batch Status', value: (selectedBatch.status || 'Active').toUpperCase() },
             ],
             sections: [
                 {
-                    heading: 'Summary',
+                    heading: 'Statistical Key Performance Indicators',
                     stats: [
-                        { label: 'Total Weighed', value: String(totalWeighs) },
-                        { label: 'Average Weight', value: `${avgWeightKg.toFixed(2)} kg` },
-                        { label: 'Underweight', value: String(underweightCount), accent: underweightCount > 0 ? 'warn' : undefined },
-                        { label: 'Normal', value: String(normalCount), accent: 'good' },
-                        { label: 'Overweight', value: String(overweightCount), accent: overweightCount > 0 ? 'bad' : undefined },
+                        { label: 'Mean Live Weight', value: `${meanWeightKg.toFixed(2)} kg`, accent: 'good' },
+                        { label: 'Weight Range (Min - Max)', value: `${minWeightKg} - ${maxWeightKg} kg` },
+                        { label: 'Flock Uniformity (±10%)', value: `${uniformityPct}%`, accent: Number(uniformityPct) >= 75 ? 'good' : 'warn' },
+                        { label: 'Average Daily Gain (ADG)', value: adgFormatted },
+                        { label: 'Target Adherence (Normal)', value: `${normalPct}% (${normalCount} head)`, accent: 'good' },
+                        { label: 'Underweight Frequency', value: `${underPct}% (${underweightCount} head)`, accent: Number(underPct) > 15 ? 'warn' : undefined },
                     ],
                 },
                 {
-                    heading: 'Day-by-Day Breakdown',
+                    heading: 'Biometric Classification & Cohort Uniformity Matrix',
                     table: {
-                        headers: ['Date', 'Weighed', 'Avg Weight', 'Under', 'Normal', 'Over'],
-                        rows,
-                        note: 'Each row reflects all recorded weigh-ins on that calendar date.',
+                        heading: 'Cohort Weight Classification Matrix',
+                        headers: ['Classification', 'Head Sampled', 'Proportion (%)', 'Clinical Benchmark Criteria', 'Management Status & Evaluation'],
+                        rows: [
+                            [
+                                'Underweight',
+                                underweightCount,
+                                `${underPct}%`,
+                                '< Lower Specification Limit (-10%)',
+                                Number(underPct) > 15
+                                    ? 'High runt frequency: Supplemental feeding & pen sorting recommended.'
+                                    : 'Acceptable: Minor runts within allowable variance.'
+                            ],
+                            [
+                                'Normal (Target Weight)',
+                                normalCount,
+                                `${normalPct}%`,
+                                'Optimal Genetic Growth Benchmark (±10%)',
+                                'Satisfactory: Conforms strictly to expected commercial growth trajectory.'
+                            ],
+                            [
+                                'Overweight / Advanced',
+                                overweightCount,
+                                `${overPct}%`,
+                                '> Upper Specification Limit (+10%)',
+                                Number(overPct) > 15
+                                    ? 'Notice: Fast-finishing cohort. Monitor energy-to-protein ratio.'
+                                    : 'Acceptable: Advanced cohort performing within expected limits.'
+                            ],
+                            [
+                                'Consolidated Sample Size',
+                                totalWeighs,
+                                '100.0%',
+                                'Aggregate Monitored Batch Sample',
+                                `Cohort Uniformity Index: ${uniformityPct}% (${Number(uniformityPct) >= 75 ? 'Optimal' : 'Needs Optimization'})`
+                            ]
+                        ],
+                        columnAlignments: ['left', 'center', 'center', 'left', 'left'],
+                        note: 'Evaluated in accordance with standard livestock breed weight-for-age production curves.',
                     },
                 },
+                {
+                    heading: 'Chronological Weigh-In Progression Ledger',
+                    table: {
+                        heading: 'Day-by-Day Telemetry Log',
+                        headers: ['Calendar Date', 'Head Weighed', 'Average Weight', 'Min - Max Range', 'Session Gain', 'Under', 'Normal', 'Over'],
+                        rows: chronologicalRows,
+                        columnAlignments: ['left', 'center', 'center', 'center', 'center', 'center', 'center', 'center'],
+                        note: 'Weights captured via calibrated smart telemetry scale. Session Gain indicates variance relative to preceding session.',
+                    },
+                },
+                {
+                    heading: 'Operational Insights & Nutritional Recommendations',
+                    paragraphs: [
+                        `Based on biometric evaluation of ${totalWeighs} recorded weighings for Batch "${selectedBatch.name}", the cohort demonstrates an overall health profile with a ${normalPct}% target weight conformity. The following clinical and management actions are recommended for implementation by the farm operational team:`
+                    ],
+                    bullets: [
+                        Number(underPct) > 15
+                            ? `Nutritional Segregation: With underweight incidence elevated at ${underPct}%, establish a dedicated recovery pen with high-density starter/grower ration to reduce feeder competition.`
+                            : `Feeder Flow Calibration: Maintain standard phase feeding schedule; verify automated feeder dispensing flow rates and clean water nipple pressure daily.`,
+                        Number(overPct) > 15
+                            ? `Finisher Ration Management: High overweight incidence (${overPct}%) indicates rapid fat deposition; evaluate dietary crude protein and fiber ratios before harvest.`
+                            : `Microclimate Optimization: Ensure ambient pen temperature and mechanical ventilation conform to target thermal comfort zones to sustain optimal Feed Conversion Ratio (FCR).`,
+                        `Biometric Telemetry Compliance: Continue regular weight sampling schedules at 7-day intervals to verify continued progression along the target growth curve.`,
+                        `Health & Biosecurity Cross-Reference: Correlate weight progression with the health ledger to ensure all mandatory deworming, vaccination, and vitamin regimens are up to date.`,
+                    ],
+                },
             ],
+            signatures: [
+                {
+                    title: 'Prepared By (Farm Operations):',
+                    name: officerName,
+                    role: 'Production Lead & Scale Telemetry Officer',
+                    date: `Date: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
+                },
+                {
+                    title: 'Reviewed & Certified By:',
+                    name: '___________________________',
+                    role: 'Farm Manager / Supervising Veterinarian',
+                    date: 'Date: ________________________',
+                },
+            ],
+            generatedByName: officerName,
         };
-    }, [selectedBatch, selectedHousing, weighSessions, animalType, currentDay, farmName, totalWeighs, underweightCount, normalCount, overweightCount]);
+    }, [selectedBatch, selectedHousing, weighSessions, animalType, currentDay, farmName, managedFarms, selectedFarmIds, activeFarmIds, farmId, totalWeighs, underweightCount, normalCount, overweightCount, profile]);
 
     const tabs = ['All', 'Underweight', 'Normal', 'Overweight'] as const;
 
@@ -383,10 +633,40 @@ export default function GrowthReportScreen() {
 
     const activeColor = getTabColor(selectedTab);
 
-    const latestWeighDayInfo = useMemo(() => {
-        if (weighSessions.length === 0) return null;
+    const sessionItems = useMemo(() => {
+        if (weighSessions.length === 0) return [];
 
-        // Group all weigh sessions by date (YYYY-MM-DD)
+        if (weighingSessionEnvelopes.length > 0) {
+            return weighingSessionEnvelopes.map((env, idx) => {
+                const num = idx + 1;
+                const ordinal = getOrdinal(num);
+                let dateLabel = env.created_at ? env.created_at.slice(0, 10) : '';
+                try {
+                    const d = new Date(env.created_at);
+                    if (!isNaN(d.getTime())) {
+                        dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    }
+                } catch (_) {}
+
+                const isLatest = idx === weighingSessionEnvelopes.length - 1;
+                const dayPart = env.farm_day !== null ? ` (Day ${env.farm_day})` : '';
+                const latestPart = isLatest ? ' · Latest' : '';
+                const label = `${ordinal} Session · ${dateLabel}${dayPart}${latestPart}`;
+
+                return {
+                    id: env.id,
+                    ordinal,
+                    index: num,
+                    dateLabel,
+                    farmDay: env.farm_day,
+                    label,
+                    isLatest,
+                    sessionIds: [env.id],
+                    dateKeys: [env.created_at ? env.created_at.slice(0, 10) : ''],
+                };
+            });
+        }
+
         const dateMap = new Map<string, typeof weighSessions>();
         weighSessions.forEach(s => {
             if (!s.recorded_at) return;
@@ -397,43 +677,349 @@ export default function GrowthReportScreen() {
             dateMap.get(dateKey)!.push(s);
         });
 
-        // Sort dates ascending to find the latest
         const sortedDates = Array.from(dateMap.keys()).sort();
-        if (sortedDates.length === 0) return null;
-        const latestDateKey = sortedDates[sortedDates.length - 1];
-        const sessionsToday = dateMap.get(latestDateKey) || [];
+        return sortedDates.map((dateKey, idx) => {
+            const num = idx + 1;
+            const ordinal = getOrdinal(num);
+            let dateLabel = dateKey;
+            try {
+                const d = new Date(dateKey);
+                if (!isNaN(d.getTime())) {
+                    dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                }
+            } catch (_) {}
 
-        // Calculate average weight for this day (in kg)
-        const totalWeightGrams = sessionsToday.reduce((sum, s) => sum + (s.net_weight_grams || 0), 0);
-        const avgWeightKg = sessionsToday.length > 0 ? (totalWeightGrams / sessionsToday.length) / 1000 : 0;
-
-        // Count normal, overweight, underweight for this day
-        const normalCountToday = sessionsToday.filter(s => s.status === 'normal').length;
-        const underweightCountToday = sessionsToday.filter(s => s.status === 'underweight').length;
-        const overweightCountToday = sessionsToday.filter(s => s.status === 'overweight').length;
-
-        // Format the date label, e.g., "May 25, 2026"
-        let dateLabel = latestDateKey;
-        try {
-            const dateObj = new Date(latestDateKey);
-            if (!isNaN(dateObj.getTime())) {
-                dateLabel = dateObj.toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric'
-                });
+            let farmDay: number | null = null;
+            if (selectedBatch?.arrival_date) {
+                try {
+                    const arr = new Date(selectedBatch.arrival_date);
+                    const cur = new Date(dateKey);
+                    arr.setHours(0, 0, 0, 0);
+                    cur.setHours(0, 0, 0, 0);
+                    const diffDays = Math.floor((cur.getTime() - arr.getTime()) / 86400000);
+                    farmDay = Math.max(0, diffDays) + (selectedBatch.age_at_arrival_days || 0);
+                } catch (_) {}
             }
-        } catch (_) {}
+
+            const isLatest = idx === sortedDates.length - 1;
+            const dayPart = farmDay !== null ? ` (Day ${farmDay})` : '';
+            const latestPart = isLatest ? ' · Latest' : '';
+            const label = `${ordinal} Session · ${dateLabel}${dayPart}${latestPart}`;
+
+            return {
+                id: dateKey,
+                ordinal,
+                index: num,
+                dateLabel,
+                farmDay,
+                label,
+                isLatest,
+                sessionIds: [] as string[],
+                dateKeys: [dateKey],
+            };
+        });
+    }, [weighSessions, weighingSessionEnvelopes, selectedBatch]);
+
+    const sessionOptions = useMemo(() => {
+        if (sessionItems.length === 0) return [];
+        return ['All Sessions', ...sessionItems.map(s => s.label)];
+    }, [sessionItems]);
+
+    // Default to the latest session (the last recorded session in chronological order)
+    const latestSession = useMemo(() => {
+        return sessionItems.length > 0 ? sessionItems[sessionItems.length - 1] : null;
+    }, [sessionItems]);
+
+    const activeSessionOption = useMemo(() => {
+        if (selectedSessionOption && sessionOptions.includes(selectedSessionOption)) {
+            return selectedSessionOption;
+        }
+        return latestSession ? latestSession.label : 'All Sessions';
+    }, [selectedSessionOption, sessionOptions, latestSession]);
+
+    const summaryInfo = useMemo(() => {
+        if (weighSessions.length === 0) return null;
+
+        let targetSessions: WeighSession[] = weighSessions;
+        let title = 'All Sessions Summary';
+        let subtitle = `Across ${sessionItems.length} recorded session${sessionItems.length === 1 ? '' : 's'}`;
+
+        if (activeSessionOption !== 'All Sessions') {
+            const matched = sessionItems.find(s => s.label === activeSessionOption);
+            if (matched) {
+                targetSessions = weighSessions.filter(s => {
+                    if (s.weighing_session_id && matched.sessionIds?.includes(s.weighing_session_id)) {
+                        return true;
+                    }
+                    const dk = s.recorded_at ? s.recorded_at.slice(0, 10) : '';
+                    return matched.dateKeys?.includes(dk);
+                });
+                title = `${matched.ordinal} Session Summary${matched.isLatest ? ' (Latest)' : ''}`;
+                subtitle = `Recorded on ${matched.dateLabel}${matched.farmDay !== null ? ` (Day ${matched.farmDay})` : ''}`;
+            }
+        }
+
+        const totalWeightGrams = targetSessions.reduce((sum, s) => sum + (s.net_weight_grams || 0), 0);
+        const avgWeightKg = targetSessions.length > 0 ? (totalWeightGrams / targetSessions.length) / 1000 : 0;
+        const normalCount = targetSessions.filter(s => s.status === 'normal').length;
+        const underweightCount = targetSessions.filter(s => s.status === 'underweight').length;
+        const overweightCount = targetSessions.filter(s => s.status === 'overweight').length;
 
         return {
-            dateLabel,
+            title,
+            subtitle,
             avgWeightKg,
-            normalCount: normalCountToday,
-            underweightCount: underweightCountToday,
-            overweightCount: overweightCountToday,
-            totalCount: sessionsToday.length
+            normalCount,
+            underweightCount,
+            overweightCount,
+            totalCount: targetSessions.length,
         };
-    }, [weighSessions]);
+    }, [weighSessions, sessionItems, activeSessionOption]);
+
+    // ─── Detailed Stats Per Session ──────────────────────────────────
+    const sessionStatsList = useMemo(() => {
+        if (sessionItems.length === 0 || weighSessions.length === 0) return [];
+
+        return sessionItems.map(item => {
+            const matchingSessions = weighSessions.filter(s => {
+                if (s.weighing_session_id && item.sessionIds?.includes(s.weighing_session_id)) {
+                    return true;
+                }
+                const dk = s.recorded_at ? s.recorded_at.slice(0, 10) : '';
+                return item.dateKeys?.includes(dk);
+            });
+
+            const totalCount = matchingSessions.length;
+            const totalWeightGrams = matchingSessions.reduce((sum, s) => sum + (s.net_weight_grams || 0), 0);
+            const avgWeightKg = totalCount > 0 ? (totalWeightGrams / totalCount) / 1000 : 0;
+            const normalCount = matchingSessions.filter(s => s.status === 'normal').length;
+            const underweightCount = matchingSessions.filter(s => s.status === 'underweight').length;
+            const overweightCount = matchingSessions.filter(s => s.status === 'overweight').length;
+            const normalPct = totalCount > 0 ? Math.round((normalCount / totalCount) * 100) : 0;
+            const underweightPct = totalCount > 0 ? Math.round((underweightCount / totalCount) * 100) : 0;
+            const overweightPct = totalCount > 0 ? Math.max(0, 100 - normalPct - underweightPct) : 0;
+
+            return {
+                ...item,
+                totalCount,
+                avgWeightKg,
+                normalCount,
+                underweightCount,
+                overweightCount,
+                normalPct,
+                underweightPct,
+                overweightPct,
+            };
+        });
+    }, [sessionItems, weighSessions]);
+
+    // ─── Current Growth Descriptive Explanation ──────────────────────
+    const growthExplanation = useMemo(() => {
+        if (weighSessions.length === 0 || sessionStatsList.length === 0) {
+            return null;
+        }
+
+        const first = sessionStatsList[0];
+        const latest = sessionStatsList[sessionStatsList.length - 1];
+        const prev = sessionStatsList.length > 1 ? sessionStatsList[sessionStatsList.length - 2] : null;
+
+        const totalGainKg = Math.max(0, latest.avgWeightKg - first.avgWeightKg);
+        const recentGainKg = prev ? latest.avgWeightKg - prev.avgWeightKg : 0;
+
+        // Days elapsed
+        let totalDays = 1;
+        if (first.farmDay !== null && latest.farmDay !== null && latest.farmDay > first.farmDay) {
+            totalDays = latest.farmDay - first.farmDay;
+        } else {
+            try {
+                const d1 = new Date(first.dateKeys[0]);
+                const d2 = new Date(latest.dateKeys[0]);
+                const diff = Math.round((d2.getTime() - d1.getTime()) / 86400000);
+                if (diff > 0) totalDays = diff;
+            } catch (_) {}
+        }
+
+        let recentDays = 1;
+        if (prev) {
+            if (prev.farmDay !== null && latest.farmDay !== null && latest.farmDay > prev.farmDay) {
+                recentDays = latest.farmDay - prev.farmDay;
+            } else {
+                try {
+                    const d1 = new Date(prev.dateKeys[0]);
+                    const d2 = new Date(latest.dateKeys[0]);
+                    const diff = Math.round((d2.getTime() - d1.getTime()) / 86400000);
+                    if (diff > 0) recentDays = diff;
+                } catch (_) {}
+            }
+        }
+
+        const overallAdgGrams = totalDays > 0 ? Math.round((totalGainKg * 1000) / totalDays) : 0;
+        const recentAdgGrams = prev && recentDays > 0 ? Math.round((recentGainKg * 1000) / recentDays) : null;
+
+        // Growth velocity status
+        let velocityStatus = 'Healthy Growth';
+        let velocityColor = colors.primary;
+        if (recentAdgGrams !== null && overallAdgGrams > 0) {
+            if (recentAdgGrams >= overallAdgGrams * 1.1) {
+                velocityStatus = 'Accelerating Gain';
+                velocityColor = colors.primary;
+            } else if (recentAdgGrams <= overallAdgGrams * 0.7) {
+                velocityStatus = 'Growth Slowing';
+                velocityColor = colors.warning;
+            } else {
+                velocityStatus = 'Steady On Track';
+                velocityColor = colors.primary;
+            }
+        }
+
+        // Tab context narrative
+        let tabContextText = '';
+        if (selectedTab === 'Normal') {
+            tabContextText = `${latest.normalCount} of ${latest.totalCount} animals (${latest.normalPct}%) are on target, demonstrating healthy skeletal and muscle development.`;
+        } else if (selectedTab === 'Underweight') {
+            if (latest.underweightCount === 0) {
+                tabContextText = 'No animals are classified as underweight in the latest session. Flock vigor is optimal.';
+            } else {
+                tabContextText = `${latest.underweightCount} animal${latest.underweightCount === 1 ? ' is' : 's are'} (${latest.underweightPct}%) tracking below target weight. Ensure unhindered feeder access and check for bullying.`;
+            }
+        } else if (selectedTab === 'Overweight') {
+            if (latest.overweightCount === 0) {
+                tabContextText = 'No animals exceed the standard threshold in the latest session. Growth is properly balanced.';
+            } else {
+                tabContextText = `${latest.overweightCount} animal${latest.overweightCount === 1 ? ' is' : 's are'} (${latest.overweightPct}%) exceeding the upper threshold, showing strong appetite and rapid flesh development.`;
+            }
+        } else {
+            tabContextText = `Average bird weight increased from ${first.avgWeightKg.toFixed(2)} kg (initial) to ${latest.avgWeightKg.toFixed(2)} kg (latest) across ${sessionStatsList.length} recorded session${sessionStatsList.length === 1 ? '' : 's'}.`;
+        }
+
+        let narrative = '';
+        if (sessionStatsList.length === 1) {
+            narrative = `Initial baseline recorded at ${first.avgWeightKg.toFixed(2)} kg across ${first.totalCount} weigh logs on ${first.dateLabel}. Average Daily Gain (ADG) and trajectory rates will calculate automatically once a subsequent session is logged.`;
+        } else if (prev) {
+            narrative = `Between ${prev.dateLabel} and ${latest.dateLabel} (${recentDays} days), the flock gained an average of +${recentGainKg.toFixed(2)} kg (+${Math.round(recentGainKg * 1000)} g), equating to an Average Daily Gain (ADG) of ${recentAdgGrams} g/day. Lifetime flock ADG is ${overallAdgGrams} g/day over ${totalDays} total days.`;
+        }
+
+        return {
+            firstSession: first,
+            latestSession: latest,
+            prevSession: prev,
+            totalGainKg,
+            recentGainKg,
+            totalDays,
+            recentDays,
+            overallAdgGrams,
+            recentAdgGrams,
+            velocityStatus,
+            velocityColor,
+            narrative,
+            tabContextText,
+        };
+    }, [weighSessions, sessionStatsList, selectedTab, colors]);
+
+    // ─── Status Comparison Descriptive & Delta Analysis ──────────────
+    const statusExplanation = useMemo(() => {
+        if (sessionStatsList.length === 0) return null;
+
+        const latest = sessionStatsList[sessionStatsList.length - 1];
+        const prev = sessionStatsList.length > 1 ? sessionStatsList[sessionStatsList.length - 2] : null;
+
+        // Uniformity is the percentage of birds in the 'Normal' bracket
+        const uniformityPct = latest.normalPct;
+        let uniformityRating = 'Excellent';
+        let uniformityBadgeColor = colors.primary;
+        let uniformityBadgeBg = colors.primary + '15';
+
+        if (uniformityPct >= 85) {
+            uniformityRating = 'Excellent Uniformity';
+            uniformityBadgeColor = colors.primary;
+            uniformityBadgeBg = colors.primary + '15';
+        } else if (uniformityPct >= 75) {
+            uniformityRating = 'Good Uniformity';
+            uniformityBadgeColor = colors.primary;
+            uniformityBadgeBg = colors.primary + '15';
+        } else if (uniformityPct >= 65) {
+            uniformityRating = 'Moderate Uniformity';
+            uniformityBadgeColor = colors.warning;
+            uniformityBadgeBg = colors.warning + '15';
+        } else {
+            uniformityRating = 'Low Uniformity';
+            uniformityBadgeColor = colors.error;
+            uniformityBadgeBg = colors.error + '15';
+        }
+
+        // Comparison deltas against previous session
+        let normalDiffPct = 0;
+        let underDiffPct = 0;
+        let overDiffPct = 0;
+        let underCountDiff = 0;
+        let normalCountDiff = 0;
+        let overCountDiff = 0;
+
+        if (prev) {
+            normalDiffPct = latest.normalPct - prev.normalPct;
+            underDiffPct = latest.underweightPct - prev.underweightPct;
+            overDiffPct = latest.overweightPct - prev.overweightPct;
+            underCountDiff = latest.underweightCount - prev.underweightCount;
+            normalCountDiff = latest.normalCount - prev.normalCount;
+            overCountDiff = latest.overweightCount - prev.overweightCount;
+        }
+
+        // Plain English explanations
+        let uniformityDescription = '';
+        if (uniformityPct >= 80) {
+            uniformityDescription = `High uniformity (${uniformityPct}%) confirms that the vast majority of animals are growing evenly within the ideal weight band. This indicates equal feeder and drinker access throughout the housing.`;
+        } else if (uniformityPct >= 70) {
+            uniformityDescription = `Moderate uniformity (${uniformityPct}%). Some size disparity is developing. Ensure all birds have equal, uncrowded access to feed pans and water lines.`;
+        } else {
+            uniformityDescription = `Low flock uniformity (${uniformityPct}%). Noticeable size dispersion detected. Consider grading and segregating smaller animals into a separate pen.`;
+        }
+
+        let underweightDescription = '';
+        if (latest.underweightCount === 0) {
+            underweightDescription = 'Zero underweight animals detected in the latest session.';
+        } else if (prev && underCountDiff < 0) {
+            underweightDescription = `Underweight proportion improved: decreased by ${Math.abs(underDiffPct)}% (${Math.abs(underCountDiff)} bird${Math.abs(underCountDiff) === 1 ? '' : 's'} caught up), now at ${latest.underweightPct}% (${latest.underweightCount} birds).`;
+        } else if (prev && underCountDiff > 0) {
+            underweightDescription = `Underweight proportion increased by +${underDiffPct}% (+${underCountDiff} bird${underCountDiff === 1 ? '' : 's'}), now at ${latest.underweightPct}% (${latest.underweightCount} birds). Inspect for feed competition or cooler pen zones.`;
+        } else {
+            underweightDescription = `Underweight rate is at ${latest.underweightPct}% (${latest.underweightCount} of ${latest.totalCount} birds), which is ${latest.underweightPct <= 10 ? 'within standard industry tolerance (<10%)' : 'elevated above the ideal 10% target'}.`;
+        }
+
+        let overweightDescription = '';
+        if (latest.overweightCount === 0) {
+            overweightDescription = 'No animals are classified as overweight. Energy density in feed is well-balanced.';
+        } else {
+            overweightDescription = `Overweight rate is at ${latest.overweightPct}% (${latest.overweightCount} of ${latest.totalCount} birds). These animals are converting feed rapidly without causing flock imbalance.`;
+        }
+
+        let recommendation = '';
+        if (latest.underweightPct > 15) {
+            recommendation = 'Recommendation: Lower drinker and feeder lines slightly and check ventilation to prevent crowding at warm spots.';
+        } else if (uniformityPct >= 80) {
+            recommendation = 'Recommendation: Maintain existing feeding frequency and micro-climate settings to sustain excellent flock uniformity through harvest.';
+        } else {
+            recommendation = 'Recommendation: Monitor weight spread in the next session to ensure smaller animals continue closing the gap.';
+        }
+
+        return {
+            latest,
+            prev,
+            uniformityPct,
+            uniformityRating,
+            uniformityBadgeColor,
+            uniformityBadgeBg,
+            normalDiffPct,
+            underDiffPct,
+            overDiffPct,
+            underCountDiff,
+            normalCountDiff,
+            overCountDiff,
+            uniformityDescription,
+            underweightDescription,
+            overweightDescription,
+            recommendation,
+        };
+    }, [sessionStatsList, colors]);
 
     // ─── Line Chart Data Processing ─────────────────────────────────
     const lineChartData = useMemo(() => {
@@ -969,8 +1555,8 @@ export default function GrowthReportScreen() {
                             </ScrollView>
                         </View>
 
-                        {/* Latest Day Summary Card */}
-                        {latestWeighDayInfo ? (
+                        {/* Session / Day Summary Card */}
+                        {summaryInfo ? (
                             <View style={{
                                 backgroundColor: colors.surface,
                                 borderWidth: 1,
@@ -984,13 +1570,13 @@ export default function GrowthReportScreen() {
                                 shadowRadius: 8,
                                 elevation: 2,
                             }}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                                    <View>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                                    <View style={{ flex: 1, marginRight: 8 }}>
                                         <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.text }}>
-                                            Latest Day Summary
+                                            {summaryInfo.title}
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
-                                            Recorded on {latestWeighDayInfo.dateLabel}
+                                            {summaryInfo.subtitle}
                                         </Text>
                                     </View>
                                     <View style={{
@@ -998,12 +1584,41 @@ export default function GrowthReportScreen() {
                                         paddingHorizontal: 10,
                                         paddingVertical: 4,
                                         borderRadius: 8,
+                                        alignSelf: 'flex-start',
                                     }}>
                                         <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.primary }}>
-                                            {latestWeighDayInfo.totalCount} total logs
+                                            {summaryInfo.totalCount} total logs
                                         </Text>
                                     </View>
                                 </View>
+
+                                {/* Session Dropdown Selector */}
+                                {sessionOptions.length > 1 && (
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        onPress={() => setSessionModalVisible(true)}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            backgroundColor: colors.bgLight,
+                                            borderWidth: 1,
+                                            borderColor: colors.stroke,
+                                            borderRadius: 10,
+                                            paddingVertical: 9,
+                                            paddingHorizontal: 12,
+                                            marginBottom: 16,
+                                        }}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 8 }}>
+                                            <MaterialIcons name="filter-list" size={16} color={colors.primary} />
+                                            <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 12, color: colors.text, flex: 1 }} numberOfLines={1}>
+                                                {activeSessionOption}
+                                            </Text>
+                                        </View>
+                                        <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                                    </TouchableOpacity>
+                                )}
 
                                 {/* Stats Info Row */}
                                 <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 16 }}>
@@ -1016,7 +1631,7 @@ export default function GrowthReportScreen() {
                                         </Text>
                                         <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 2 }}>
                                             <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 22, color: colors.text }}>
-                                                {latestWeighDayInfo.avgWeightKg.toFixed(2)}
+                                                {summaryInfo.avgWeightKg.toFixed(2)}
                                             </Text>
                                             <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 14, color: colors.textGrey, marginLeft: 4 }}>
                                                 kg
@@ -1043,7 +1658,7 @@ export default function GrowthReportScreen() {
                                             UNDERWEIGHT
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: '#F59E0B', marginTop: 4 }}>
-                                            {latestWeighDayInfo.underweightCount}
+                                            {summaryInfo.underweightCount}
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginTop: 2 }}>
                                             logs
@@ -1064,7 +1679,7 @@ export default function GrowthReportScreen() {
                                             NORMAL
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.primary, marginTop: 4 }}>
-                                            {latestWeighDayInfo.normalCount}
+                                            {summaryInfo.normalCount}
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginTop: 2 }}>
                                             logs
@@ -1085,7 +1700,7 @@ export default function GrowthReportScreen() {
                                             OVERWEIGHT
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: OVERWEIGHT_COLOR, marginTop: 4 }}>
-                                            {latestWeighDayInfo.overweightCount}
+                                            {summaryInfo.overweightCount}
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginTop: 2 }}>
                                             logs
@@ -1114,7 +1729,11 @@ export default function GrowthReportScreen() {
                         }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                 <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: activeColor + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                                    <MaterialIcons name="pets" size={20} color={activeColor} />
+                                    <Image
+                                        source={require('../../assets/icons/animals-filled.svg')}
+                                        style={{ width: 22, height: 22 }}
+                                        contentFit="contain"
+                                    />
                                 </View>
                                 <View>
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>Total Weigh Logs</Text>
@@ -1278,127 +1897,541 @@ export default function GrowthReportScreen() {
                             </View>
                         </View>
 
-                        {/* Comparison Chart: Current vs Previous Reading */}
-                        <>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, marginBottom: 0 }]}>Status Comparison</Text>
-                                <View style={{ backgroundColor: colors.secondary + '20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.secondary }}>Distribution Over Time</Text>
-                                </View>
-                            </View>
+                        {/* Current Growth Descriptive Explanation Card */}
+                        {growthExplanation && (
                             <View style={{
-                                borderRadius: 20,
                                 backgroundColor: colors.surface,
-                                paddingTop: 16,
-                                paddingBottom: 4,
-                                paddingRight: comparisonChartData.noData ? 0 : 16,
-                                elevation: 4,
-                                shadowColor: colors.shadow,
-                                shadowOffset: { width: 0, height: 4 },
-                                shadowOpacity: 0.1,
-                                shadowRadius: 12,
+                                borderRadius: 18,
                                 borderWidth: 1,
                                 borderColor: colors.stroke,
+                                padding: 16,
+                                shadowColor: colors.shadow,
+                                shadowOffset: { width: 0, height: 3 },
+                                shadowOpacity: 0.08,
+                                shadowRadius: 8,
+                                elevation: 2,
                                 marginBottom: 24,
                             }}>
-                                {comparisonChartData.noData ? (
-                                    <View style={{ height: 180, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
-                                        <MaterialIcons name="compare-arrows" size={40} color={colors.textGrey} />
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.text, marginTop: 12 }}>There's no current logs</Text>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey, marginTop: 4, textAlign: 'center' }}>
-                                            At least 2 recording sessions are needed to compare growth.
+                                {/* Header with Icon and Velocity Badge */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}>
+                                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
+                                            <MaterialIcons name="trending-up" size={18} color={colors.primary} />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.text }}>
+                                                Growth Performance Insights
+                                            </Text>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                                Weight Trajectory & Daily Gain Analysis
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <View style={{
+                                        backgroundColor: growthExplanation.velocityColor + '18',
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 4,
+                                        borderRadius: 8,
+                                        borderWidth: 1,
+                                        borderColor: growthExplanation.velocityColor + '30',
+                                    }}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: growthExplanation.velocityColor }}>
+                                            {growthExplanation.velocityStatus}
                                         </Text>
                                     </View>
-                                ) : (
-                                    <>
-                                        <LineChart
-                                            data={comparisonChartData}
-                                            width={width - (hPad * 2) - 18}
-                                            height={200}
-                                            yAxisLabel=""
-                                            yAxisSuffix=""
-                                            fromZero={true}
-                                            withDots={true}
-                                            withInnerLines={true}
-                                            withOuterLines={false}
-                                            withVerticalLines={false}
-                                            withHorizontalLines={true}
-                                            onDataPointClick={({ x, y, value, index }) => {
-                                                const label = comparisonChartData.labels?.[index] ?? `#${index + 1}`;
-                                                setCompTooltip(prev =>
-                                                    prev && prev.x === x && prev.y === y ? null : { x, y, value, label }
-                                                );
-                                            }}
-                                            decorator={() => {
-                                                if (!compTooltip) return null;
-                                                const { x, y, value, label } = compTooltip;
-                                                const tipW = 72;
-                                                const tipH = 36;
-                                                const offsetX = x + tipW + 8 > (width - hPad * 2 - 18) ? x - tipW - 6 : x - tipW / 2;
-                                                const offsetY = y - tipH - 10 < 0 ? y + 8 : y - tipH - 8;
-                                                return (
-                                                    <View style={{
-                                                        position: 'absolute',
-                                                        left: offsetX,
-                                                        top: offsetY,
-                                                        backgroundColor: colors.text,
-                                                        borderRadius: 8,
-                                                        paddingHorizontal: 10,
-                                                        paddingVertical: 5,
-                                                        width: tipW,
-                                                        alignItems: 'center',
-                                                        shadowColor: '#000',
-                                                        shadowOffset: { width: 0, height: 2 },
-                                                        shadowOpacity: 0.25,
-                                                        shadowRadius: 4,
-                                                        elevation: 6,
+                                </View>
+
+                                {/* 3 Metric Pills: Total Gain, Recent ADG, Latest Average */}
+                                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                                    <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Net Total Gain</Text>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text, marginTop: 2 }}>
+                                            +{growthExplanation.totalGainKg.toFixed(2)} kg
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey }}>
+                                            {growthExplanation.totalDays} days elapsed
+                                        </Text>
+                                    </View>
+
+                                    <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Recent ADG</Text>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.primary, marginTop: 2 }}>
+                                            {growthExplanation.recentAdgGrams !== null ? `${growthExplanation.recentAdgGrams} g/d` : `${growthExplanation.overallAdgGrams} g/d`}
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey }}>
+                                            {growthExplanation.recentAdgGrams !== null ? `Last ${growthExplanation.recentDays} days` : 'Flock Lifetime'}
+                                        </Text>
+                                    </View>
+
+                                    <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Latest Average</Text>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text, marginTop: 2 }}>
+                                            {growthExplanation.latestSession.avgWeightKg.toFixed(2)} kg
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey }}>
+                                            from {growthExplanation.firstSession.avgWeightKg.toFixed(2)} kg
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {/* Descriptive Narrative Box */}
+                                <View style={{ backgroundColor: colors.bgLight, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.text, lineHeight: 18 }}>
+                                        {growthExplanation.narrative}
+                                    </Text>
+                                    {growthExplanation.tabContextText ? (
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, lineHeight: 16, marginTop: 8 }}>
+                                            {growthExplanation.tabContextText}
+                                        </Text>
+                                    ) : null}
+                                </View>
+                            </View>
+                        )}
+
+                        {/* ─── Status Comparison Section ───────────────────────────── */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                            <View style={{ flex: 1, marginRight: 8 }}>
+                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, marginBottom: 0 }]}>Status Comparison</Text>
+                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
+                                    Flock Uniformity & Weight Classification
+                                </Text>
+                            </View>
+                            {statusExplanation && (
+                                <View style={{
+                                    backgroundColor: statusExplanation.uniformityBadgeBg,
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 5,
+                                    borderRadius: 10,
+                                    borderWidth: 1,
+                                    borderColor: statusExplanation.uniformityBadgeColor + '30',
+                                }}>
+                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 11, color: statusExplanation.uniformityBadgeColor }}>
+                                        {statusExplanation.uniformityPct}% Uniformity
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+
+                        {/* Flock Uniformity Breakdown Card */}
+                        {statusExplanation && (
+                            <View style={{
+                                backgroundColor: colors.surface,
+                                borderRadius: 18,
+                                borderWidth: 1,
+                                borderColor: colors.stroke,
+                                padding: 16,
+                                shadowColor: colors.shadow,
+                                shadowOffset: { width: 0, height: 3 },
+                                shadowOpacity: 0.08,
+                                shadowRadius: 8,
+                                elevation: 2,
+                                marginBottom: 16,
+                            }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text }}>
+                                        Flock Status Distribution
+                                    </Text>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                        {statusExplanation.latest.label}
+                                    </Text>
+                                </View>
+
+                                {/* Segmented Proportional Progress Bar */}
+                                <View style={{
+                                    height: 14,
+                                    borderRadius: 7,
+                                    backgroundColor: colors.bgLight,
+                                    flexDirection: 'row',
+                                    overflow: 'hidden',
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    marginBottom: 14,
+                                }}>
+                                    {statusExplanation.latest.normalPct > 0 && (
+                                        <View style={{
+                                            width: `${statusExplanation.latest.normalPct}%`,
+                                            backgroundColor: colors.primary,
+                                        }} />
+                                    )}
+                                    {statusExplanation.latest.underweightPct > 0 && (
+                                        <View style={{
+                                            width: `${statusExplanation.latest.underweightPct}%`,
+                                            backgroundColor: colors.secondary,
+                                        }} />
+                                    )}
+                                    {statusExplanation.latest.overweightPct > 0 && (
+                                        <View style={{
+                                            width: `${statusExplanation.latest.overweightPct}%`,
+                                            backgroundColor: OVERWEIGHT_COLOR,
+                                        }} />
+                                    )}
+                                </View>
+
+                                {/* 3 Category Breakdown Badges */}
+                                <View style={{ flexDirection: 'row', gap: 8, marginBottom: statusExplanation.prev ? 14 : 0 }}>
+                                    {/* Normal */}
+                                    <View style={{
+                                        flex: 1,
+                                        backgroundColor: colors.primary + '10',
+                                        borderRadius: 10,
+                                        padding: 10,
+                                        borderWidth: 1,
+                                        borderColor: colors.primary + '25',
+                                        alignItems: 'center',
+                                    }}>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10, color: colors.primary }}>
+                                            NORMAL
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.primary, marginTop: 2 }}>
+                                            {statusExplanation.latest.normalCount}
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>
+                                            {statusExplanation.latest.normalPct}% of flock
+                                        </Text>
+                                    </View>
+
+                                    {/* Underweight */}
+                                    <View style={{
+                                        flex: 1,
+                                        backgroundColor: colors.secondary + '10',
+                                        borderRadius: 10,
+                                        padding: 10,
+                                        borderWidth: 1,
+                                        borderColor: colors.secondary + '25',
+                                        alignItems: 'center',
+                                    }}>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10, color: colors.secondary }}>
+                                            UNDERWEIGHT
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.secondary, marginTop: 2 }}>
+                                            {statusExplanation.latest.underweightCount}
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>
+                                            {statusExplanation.latest.underweightPct}% of flock
+                                        </Text>
+                                    </View>
+
+                                    {/* Overweight */}
+                                    <View style={{
+                                        flex: 1,
+                                        backgroundColor: OVERWEIGHT_COLOR + '10',
+                                        borderRadius: 10,
+                                        padding: 10,
+                                        borderWidth: 1,
+                                        borderColor: OVERWEIGHT_COLOR + '25',
+                                        alignItems: 'center',
+                                    }}>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10, color: OVERWEIGHT_COLOR }}>
+                                            OVERWEIGHT
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: OVERWEIGHT_COLOR, marginTop: 2 }}>
+                                            {statusExplanation.latest.overweightCount}
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>
+                                            {statusExplanation.latest.overweightPct}% of flock
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {/* Session-to-Session Comparison Shift Table */}
+                                {statusExplanation.prev && (
+                                    <View style={{
+                                        backgroundColor: colors.bgLight,
+                                        borderRadius: 12,
+                                        padding: 12,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                    }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: colors.divider }}>
+                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 11, color: colors.text }}>
+                                                Session Shift Comparison
+                                            </Text>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>
+                                                {statusExplanation.prev.dateLabel} ➔ {statusExplanation.latest.dateLabel}
+                                            </Text>
+                                        </View>
+
+                                        {/* Normal Shift */}
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }} />
+                                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.text }}>Normal</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                                    {statusExplanation.prev.normalCount} ({statusExplanation.prev.normalPct}%) ➔ {statusExplanation.latest.normalCount} ({statusExplanation.latest.normalPct}%)
+                                                </Text>
+                                                <View style={{
+                                                    backgroundColor: statusExplanation.normalDiffPct >= 0 ? colors.primary + '18' : colors.warning + '18',
+                                                    paddingHorizontal: 6,
+                                                    paddingVertical: 2,
+                                                    borderRadius: 6,
+                                                }}>
+                                                    <Text style={{
+                                                        fontFamily: 'Poppins-SemiBold',
+                                                        fontSize: 10,
+                                                        color: statusExplanation.normalDiffPct >= 0 ? colors.primary : colors.warning,
                                                     }}>
-                                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.surface }}>{Math.round(value)} logs</Text>
-                                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.surface, opacity: 0.75 }}>{label}</Text>
-                                                    </View>
-                                                );
-                                            }}
-                                            chartConfig={{
-                                                backgroundColor: colors.surface,
-                                                backgroundGradientFrom: colors.surface,
-                                                backgroundGradientTo: colors.surface,
-                                                decimalPlaces: 0,
-                                                color: (opacity = 1) => colors.stroke,
-                                                labelColor: (opacity = 1) => colors.textGrey,
-                                                strokeWidth: 2,
-                                                fillShadowGradientFrom: colors.primary,
-                                                fillShadowGradientFromOpacity: 0.08,
-                                                fillShadowGradientTo: colors.primary,
-                                                fillShadowGradientToOpacity: 0.01,
-                                                style: { borderRadius: 16 },
-                                                propsForDots: {
-                                                    r: '4',
-                                                    strokeWidth: '2',
-                                                    stroke: colors.surface,
-                                                }
-                                            }}
-                                            bezier
-                                            style={{ borderRadius: 16 }}
-                                        />
-                                        {/* Comparison legend */}
-                                        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, paddingBottom: 10, paddingLeft: 16 }}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }} />
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Normal</Text>
-                                            </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.secondary }} />
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Underweight</Text>
-                                            </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#EF4444' }} />
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Overweight</Text>
+                                                        {statusExplanation.normalDiffPct >= 0 ? `+${statusExplanation.normalDiffPct}%` : `${statusExplanation.normalDiffPct}%`}
+                                                    </Text>
+                                                </View>
                                             </View>
                                         </View>
-                                    </>
+
+                                        {/* Underweight Shift */}
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.secondary }} />
+                                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.text }}>Underweight</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                                    {statusExplanation.prev.underweightCount} ({statusExplanation.prev.underweightPct}%) ➔ {statusExplanation.latest.underweightCount} ({statusExplanation.latest.underweightPct}%)
+                                                </Text>
+                                                <View style={{
+                                                    backgroundColor: statusExplanation.underDiffPct <= 0 ? colors.primary + '18' : colors.warning + '18',
+                                                    paddingHorizontal: 6,
+                                                    paddingVertical: 2,
+                                                    borderRadius: 6,
+                                                }}>
+                                                    <Text style={{
+                                                        fontFamily: 'Poppins-SemiBold',
+                                                        fontSize: 10,
+                                                        color: statusExplanation.underDiffPct <= 0 ? colors.primary : colors.warning,
+                                                    }}>
+                                                        {statusExplanation.underDiffPct > 0 ? `+${statusExplanation.underDiffPct}%` : `${statusExplanation.underDiffPct}%`}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                        </View>
+
+                                        {/* Overweight Shift */}
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: OVERWEIGHT_COLOR }} />
+                                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.text }}>Overweight</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                                    {statusExplanation.prev.overweightCount} ({statusExplanation.prev.overweightPct}%) ➔ {statusExplanation.latest.overweightCount} ({statusExplanation.latest.overweightPct}%)
+                                                </Text>
+                                                <View style={{
+                                                    backgroundColor: statusExplanation.overDiffPct === 0 ? colors.stroke : colors.primary + '18',
+                                                    paddingHorizontal: 6,
+                                                    paddingVertical: 2,
+                                                    borderRadius: 6,
+                                                }}>
+                                                    <Text style={{
+                                                        fontFamily: 'Poppins-SemiBold',
+                                                        fontSize: 10,
+                                                        color: statusExplanation.overDiffPct === 0 ? colors.textGrey : colors.primary,
+                                                    }}>
+                                                        {statusExplanation.overDiffPct > 0 ? `+${statusExplanation.overDiffPct}%` : `${statusExplanation.overDiffPct}%`}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                        </View>
+                                    </View>
                                 )}
                             </View>
-                        </>
+                        )}
+
+                        {/* Distribution Trend Chart Container */}
+                        <View style={{
+                            borderRadius: 20,
+                            backgroundColor: colors.surface,
+                            paddingTop: 16,
+                            paddingBottom: 4,
+                            paddingRight: comparisonChartData.noData ? 0 : 16,
+                            elevation: 4,
+                            shadowColor: colors.shadow,
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.1,
+                            shadowRadius: 12,
+                            borderWidth: 1,
+                            borderColor: colors.stroke,
+                            marginBottom: 16,
+                        }}>
+                            <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text }}>
+                                    Distribution Trend Over Time
+                                </Text>
+                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                    Head count per status category across recording dates
+                                </Text>
+                            </View>
+
+                            {comparisonChartData.noData ? (
+                                <View style={{ height: 180, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
+                                    <MaterialIcons name="compare-arrows" size={40} color={colors.textGrey} />
+                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.text, marginTop: 12 }}>There's no comparison logs yet</Text>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey, marginTop: 4, textAlign: 'center' }}>
+                                        At least 2 recording sessions are needed to compare historical shifts.
+                                    </Text>
+                                </View>
+                            ) : (
+                                <>
+                                    <LineChart
+                                        data={comparisonChartData}
+                                        width={width - (hPad * 2) - 18}
+                                        height={200}
+                                        yAxisLabel=""
+                                        yAxisSuffix=""
+                                        fromZero={true}
+                                        withDots={true}
+                                        withInnerLines={true}
+                                        withOuterLines={false}
+                                        withVerticalLines={false}
+                                        withHorizontalLines={true}
+                                        onDataPointClick={({ x, y, value, index }) => {
+                                            const label = comparisonChartData.labels?.[index] ?? `#${index + 1}`;
+                                            setCompTooltip(prev =>
+                                                prev && prev.x === x && prev.y === y ? null : { x, y, value, label }
+                                            );
+                                        }}
+                                        decorator={() => {
+                                            if (!compTooltip) return null;
+                                            const { x, y, value, label } = compTooltip;
+                                            const tipW = 72;
+                                            const tipH = 36;
+                                            const offsetX = x + tipW + 8 > (width - hPad * 2 - 18) ? x - tipW - 6 : x - tipW / 2;
+                                            const offsetY = y - tipH - 10 < 0 ? y + 8 : y - tipH - 8;
+                                            return (
+                                                <View style={{
+                                                    position: 'absolute',
+                                                    left: offsetX,
+                                                    top: offsetY,
+                                                    backgroundColor: colors.text,
+                                                    borderRadius: 8,
+                                                    paddingHorizontal: 10,
+                                                    paddingVertical: 5,
+                                                    width: tipW,
+                                                    alignItems: 'center',
+                                                    shadowColor: '#000',
+                                                    shadowOffset: { width: 0, height: 2 },
+                                                    shadowOpacity: 0.25,
+                                                    shadowRadius: 4,
+                                                    elevation: 6,
+                                                }}>
+                                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.surface }}>{Math.round(value)} logs</Text>
+                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.surface, opacity: 0.75 }}>{label}</Text>
+                                                </View>
+                                            );
+                                        }}
+                                        chartConfig={{
+                                            backgroundColor: colors.surface,
+                                            backgroundGradientFrom: colors.surface,
+                                            backgroundGradientTo: colors.surface,
+                                            decimalPlaces: 0,
+                                            color: (opacity = 1) => colors.stroke,
+                                            labelColor: (opacity = 1) => colors.textGrey,
+                                            strokeWidth: 2,
+                                            fillShadowGradientFrom: colors.primary,
+                                            fillShadowGradientFromOpacity: 0.08,
+                                            fillShadowGradientTo: colors.primary,
+                                            fillShadowGradientToOpacity: 0.01,
+                                            style: { borderRadius: 16 },
+                                            propsForDots: {
+                                                r: '4',
+                                                strokeWidth: '2',
+                                                stroke: colors.surface,
+                                            }
+                                        }}
+                                        bezier
+                                        style={{ borderRadius: 16 }}
+                                    />
+                                    {/* Comparison legend */}
+                                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, paddingBottom: 10, paddingLeft: 16 }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }} />
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Normal</Text>
+                                        </View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.secondary }} />
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Underweight</Text>
+                                        </View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: OVERWEIGHT_COLOR }} />
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Overweight</Text>
+                                        </View>
+                                    </View>
+                                </>
+                            )}
+                        </View>
+
+                        {/* Status Comparison Descriptive Narrative Card */}
+                        {statusExplanation && (
+                            <View style={{
+                                backgroundColor: colors.surface,
+                                borderRadius: 18,
+                                borderWidth: 1,
+                                borderColor: colors.stroke,
+                                padding: 16,
+                                shadowColor: colors.shadow,
+                                shadowOffset: { width: 0, height: 3 },
+                                shadowOpacity: 0.08,
+                                shadowRadius: 8,
+                                elevation: 2,
+                                marginBottom: 24,
+                            }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                    <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
+                                        <MaterialIcons name="insights" size={18} color={colors.primary} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.text }}>
+                                            Flock Status & Uniformity Analysis
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                            Size distribution and health evaluation
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                <View style={{ gap: 10, marginBottom: 12 }}>
+                                    {/* Uniformity assessment */}
+                                    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                                        <MaterialIcons name="check-circle" size={16} color={statusExplanation.uniformityBadgeColor} style={{ marginTop: 2 }} />
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.text, flex: 1, lineHeight: 18 }}>
+                                            {statusExplanation.uniformityDescription}
+                                        </Text>
+                                    </View>
+
+                                    {/* Underweight assessment */}
+                                    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                                        <MaterialIcons name="info-outline" size={16} color={colors.secondary} style={{ marginTop: 2 }} />
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.text, flex: 1, lineHeight: 18 }}>
+                                            {statusExplanation.underweightDescription}
+                                        </Text>
+                                    </View>
+
+                                    {/* Overweight assessment */}
+                                    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                                        <MaterialIcons name="info-outline" size={16} color={OVERWEIGHT_COLOR} style={{ marginTop: 2 }} />
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.text, flex: 1, lineHeight: 18 }}>
+                                            {statusExplanation.overweightDescription}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {/* Actionable recommendation */}
+                                <View style={{
+                                    flexDirection: 'row',
+                                    gap: 8,
+                                    alignItems: 'center',
+                                    backgroundColor: colors.primary + '10',
+                                    borderWidth: 1,
+                                    borderColor: colors.primary + '25',
+                                    borderRadius: 10,
+                                    padding: 10,
+                                }}>
+                                    <MaterialIcons name="lightbulb" size={16} color={colors.primary} />
+                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.primary, flex: 1, lineHeight: 16 }}>
+                                        {statusExplanation.recommendation}
+                                    </Text>
+                                </View>
+                            </View>
+                        )}
 
                         <AIInsightCard
                             title="AniBot Insight"
@@ -1445,6 +2478,23 @@ export default function GrowthReportScreen() {
                 icon="layers"
                 options={batchesOptions}
                 selectedValue={selectedBatchOptionStr}
+                requireConfirm={false}
+                enableSearch={false}
+            />
+
+            {/* Weighing Session Selection Modal */}
+            <SelectionModal
+                visible={sessionModalVisible}
+                onClose={() => setSessionModalVisible(false)}
+                onSelect={(val) => {
+                    setSelectedSessionOption(val);
+                    setSessionModalVisible(false);
+                }}
+                title="Select Weighing Session"
+                description="View summary for all sessions or pick a specific session."
+                icon="speed"
+                options={sessionOptions}
+                selectedValue={activeSessionOption}
                 requireConfirm={false}
                 enableSearch={false}
             />

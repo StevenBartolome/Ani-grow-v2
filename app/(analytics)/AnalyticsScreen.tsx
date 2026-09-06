@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ScrollView, TouchableOpacity, View } from 'react-native';
+import { RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -15,7 +15,7 @@ import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { Header } from '@/components/Header';
 
 export default function AnalyticsScreen() {
-    const { profile } = useAuth();
+    const { profile, refreshProfile } = useAuth();
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
@@ -24,6 +24,18 @@ export default function AnalyticsScreen() {
     const router = useRouter();
 
     const [animalFilter, setAnimalFilter] = useState<'Pigs' | 'Chickens'>('Pigs');
+    const [refreshing, setRefreshing] = useState(false);
+
+    const onRefresh = async () => {
+        setRefreshing(true);
+        try {
+            await refreshProfile();
+        } catch (e) {
+            console.error('[AnalyticsScreen] refresh error:', e);
+        } finally {
+            setRefreshing(false);
+        }
+    };
 
     const menuItems = [
         {
@@ -101,6 +113,14 @@ export default function AnalyticsScreen() {
                 <ScrollView
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={{ paddingBottom: 120 }}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                        />
+                    }
                 >
                     <View style={styles.menuContainer}>
                         {menuItems.map((item, index) => (

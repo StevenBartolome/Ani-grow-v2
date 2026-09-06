@@ -20,6 +20,7 @@ import {
     Modal,
     Platform,
     Pressable,
+    RefreshControl,
     ScrollView,
     TextInput,
     TouchableOpacity,
@@ -56,8 +57,11 @@ export default function FarmsScreen() {
         selectedFarmIds,
         switchToFarm,
         addManagedFarm,
+        refreshFarms,
         isLoaded,
     } = useFarmFilter();
+
+    const [refreshing, setRefreshing] = useState(false);
 
     // ── Add-farm modal state ──────────────────────────────────────────────────
     const [addModalOpen, setAddModalOpen]   = useState(false);
@@ -214,6 +218,17 @@ export default function FarmsScreen() {
         router.replace('/(dashboard)/HomeScreen' as any);
     };
 
+    const onRefresh = async () => {
+        setRefreshing(true);
+        try {
+            await refreshFarms();
+        } catch (e) {
+            console.error('[FarmsScreen] refresh error:', e);
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
     return (
         <SafeAreaView style={styles.safeArea}>
             <View style={styles.container}>
@@ -243,6 +258,14 @@ export default function FarmsScreen() {
                 <ScrollView
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100, paddingTop: 8 }}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                        />
+                    }
                 >
                     {/* Tip banner */}
                     <View style={{

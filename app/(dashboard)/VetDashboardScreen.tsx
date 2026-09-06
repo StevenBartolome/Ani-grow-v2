@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -271,11 +272,12 @@ export default function VetDashboardScreen() {
 
     // ── Stat Card ─────────────────────────────────────────────────────────────
     const StatCard = ({
-        label, value, icon, iconColor, iconBg, onPress, badge,
+        label, value, icon, customIcon, iconColor, iconBg, onPress, badge,
     }: {
         label: string;
         value: number;
-        icon: string;
+        icon?: string;
+        customIcon?: React.ReactNode;
         iconColor: string;
         iconBg: string;
         onPress?: () => void;
@@ -291,7 +293,9 @@ export default function VetDashboardScreen() {
             <View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                     <View style={[homeStyles.farmStateIconBox, { backgroundColor: iconBg }]}>
-                        <MaterialIcons name={icon as any} size={18} color={iconColor} />
+                        {customIcon ? customIcon : (
+                            <MaterialIcons name={icon as any} size={18} color={iconColor} />
+                        )}
                     </View>
                     {onPress && <MaterialIcons name="chevron-right" size={14} color={colors.textGrey} />}
                 </View>
@@ -528,7 +532,13 @@ export default function VetDashboardScreen() {
                                 <StatCard
                                     label="Total Animals"
                                     value={totalAnimals}
-                                    icon="pets"
+                                    customIcon={
+                                        <Image
+                                            source={require('../../assets/icons/animals-filled.svg')}
+                                            style={{ width: 18, height: 18 }}
+                                            contentFit="contain"
+                                        />
+                                    }
                                     iconColor={colors.primary}
                                     iconBg={colors.primary + '1A'}
                                     onPress={() => router.push('/(animals)/AnimalsScreen' as any)}

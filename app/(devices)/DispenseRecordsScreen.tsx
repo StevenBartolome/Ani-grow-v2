@@ -187,6 +187,19 @@ export default function DispenseRecordsScreen() {
 
     const activeFilterCount = (filterStatus !== 'all' ? 1 : 0) + (filterHousingId !== 'all' ? 1 : 0);
 
+    const activeFilterSummary = useMemo(() => {
+        const parts: string[] = [];
+        if (filterStatus !== 'all') {
+            parts.push(getStatusLabel(filterStatus));
+        }
+        if (filterHousingId !== 'all') {
+            const h = housingOptions.find(opt => opt.id === filterHousingId);
+            if (h) parts.push(h.name);
+        }
+        if (parts.length === 0) return 'All Records';
+        return parts.join(' · ');
+    }, [filterStatus, filterHousingId, housingOptions]);
+
     return (
         <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgLight }]}>
 
@@ -203,7 +216,7 @@ export default function DispenseRecordsScreen() {
                 </View>
                 <TouchableOpacity
                     activeOpacity={0.7}
-                    style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: showFilters ? colors.secondary + '15' : 'transparent' }}
+                    style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 999, backgroundColor: showFilters ? colors.secondary + '15' : 'transparent' }}
                     onPress={() => setShowFilters(v => !v)}
                 >
                     <MaterialIcons name="tune" size={22} color={activeFilterCount > 0 || showFilters ? colors.secondary : colors.textGrey} />
@@ -213,59 +226,131 @@ export default function DispenseRecordsScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* ── Filter Panel ─────────────────────────────────────────── */}
+            {/* ── Filter Panel (Collapsible, Wrapping, Pill Round Shaped) ── */}
             {showFilters && (
-                <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke, paddingTop: 12, paddingBottom: 12, gap: 8 }}>
+                <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, gap: 12 }}>
 
-                    {/* Status row */}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, flexDirection: 'row', gap: 8 }}>
-                        {(['all', 'success', 'error', 'pending'] as StatusFilter[]).map(s => {
-                            const active = filterStatus === s;
-                            const c = s === 'success' ? colors.primary : s === 'error' ? colors.error : s === 'pending' ? colors.warning : colors.textGrey;
-                            const icon: any = s === 'success' ? 'check-circle' : s === 'error' ? 'error' : s === 'pending' ? 'schedule' : 'restaurant';
-                            return (
-                                <TouchableOpacity key={s} onPress={() => setFilterStatus(s)} activeOpacity={0.75}
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: active ? c : colors.bgLight, borderWidth: 1, borderColor: active ? c : colors.stroke }}>
-                                    <MaterialIcons name={icon} size={13} color={active ? '#fff' : colors.textGrey} />
-                                    <Text style={[textStyles.label, { fontSize: 12, color: active ? '#fff' : colors.textGrey }]}>
-                                        {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-                                    </Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </ScrollView>
+                    {/* Summary bar + Reset button */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            backgroundColor: activeFilterCount > 0 ? colors.secondary + '18' : colors.cardFill,
+                            paddingHorizontal: 10,
+                            paddingVertical: 3,
+                            borderRadius: 999,
+                        }}>
+                            <Text style={{ fontFamily: activeFilterCount > 0 ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: activeFilterCount > 0 ? colors.secondary : colors.textGrey }}>
+                                {activeFilterSummary}
+                            </Text>
+                        </View>
 
-                    {/* Housing row */}
-                    {housingOptions.length > 1 && (
-                        <>
-                            <View style={{ height: 1, backgroundColor: colors.stroke, marginHorizontal: 16 }} />
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                        {activeFilterCount > 0 && (
+                            <TouchableOpacity
+                                onPress={() => { setFilterStatus('all'); setFilterHousingId('all'); }}
+                                activeOpacity={0.7}
+                                style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 3,
+                                    borderRadius: 999,
+                                    backgroundColor: colors.secondary + '12',
+                                }}
+                            >
+                                <MaterialIcons name="close" size={12} color={colors.secondary} />
+                                <Text style={{ fontFamily: 'Poppins-Medium', color: colors.secondary, fontSize: 11 }}>Reset</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+
+                    {/* Status row (wrapped pills) */}
+                    <View>
+                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.textGrey, letterSpacing: 0.6, marginBottom: 6, textTransform: 'uppercase' }}>
+                            Dispense Status
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                            {(['all', 'success', 'error', 'pending'] as StatusFilter[]).map(s => {
+                                const active = filterStatus === s;
+                                const c = s === 'success' ? colors.primary : s === 'error' ? colors.error : s === 'pending' ? colors.warning : colors.secondary;
+                                const icon: any = s === 'success' ? 'check-circle' : s === 'error' ? 'error' : s === 'pending' ? 'schedule' : 'grain';
+                                return (
+                                    <TouchableOpacity
+                                        key={s}
+                                        onPress={() => setFilterStatus(s)}
+                                        activeOpacity={0.75}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            gap: 5,
+                                            paddingHorizontal: 14,
+                                            paddingVertical: 6,
+                                            borderRadius: 999,
+                                            backgroundColor: active ? (s === 'all' ? colors.secondary + '18' : c + '18') : colors.surface,
+                                            borderWidth: 1.5,
+                                            borderColor: active ? (s === 'all' ? colors.secondary : c) : colors.stroke,
+                                        }}
+                                    >
+                                        <MaterialIcons name={icon} size={13} color={active ? (s === 'all' ? colors.secondary : c) : colors.textGrey} />
+                                        <Text style={{
+                                            fontFamily: active ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                                            fontSize: 11.5,
+                                            color: active ? (s === 'all' ? colors.secondary : c) : colors.textGrey,
+                                        }}>
+                                            {s === 'all' ? 'All Statuses' : s === 'error' ? 'Failed' : s.charAt(0).toUpperCase() + s.slice(1)}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    </View>
+
+                    {/* Housing row (wrapped pills) */}
+                    {housingOptions.length > 0 && (
+                        <View>
+                            <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.textGrey, letterSpacing: 0.6, marginBottom: 6, textTransform: 'uppercase' }}>
+                                Housing
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                                 {[{ id: 'all', name: 'All Housings' }, ...housingOptions].map(h => {
                                     const active = filterHousingId === h.id;
                                     return (
-                                        <TouchableOpacity key={h.id} onPress={() => setFilterHousingId(h.id)} activeOpacity={0.75}
-                                            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: active ? colors.info : colors.bgLight, borderWidth: 1, borderColor: active ? colors.info : colors.stroke }}>
-                                            <MaterialIcons name="home" size={13} color={active ? '#fff' : colors.textGrey} />
-                                            <Text style={[textStyles.label, { fontSize: 12, color: active ? '#fff' : colors.textGrey }]}>{h.name}</Text>
+                                        <TouchableOpacity
+                                            key={h.id}
+                                            onPress={() => setFilterHousingId(h.id)}
+                                            activeOpacity={0.75}
+                                            style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 5,
+                                                paddingHorizontal: 14,
+                                                paddingVertical: 6,
+                                                borderRadius: 999,
+                                                backgroundColor: active ? colors.info + '18' : colors.surface,
+                                                borderWidth: 1.5,
+                                                borderColor: active ? colors.info : colors.stroke,
+                                            }}
+                                        >
+                                            <MaterialIcons name="home" size={13} color={active ? colors.info : colors.textGrey} />
+                                            <Text style={{
+                                                fontFamily: active ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                                                fontSize: 11.5,
+                                                color: active ? colors.info : colors.textGrey,
+                                            }}>
+                                                {h.name}
+                                            </Text>
                                         </TouchableOpacity>
                                     );
                                 })}
-                            </ScrollView>
-                        </>
-                    )}
-
-                    {activeFilterCount > 0 && (
-                        <TouchableOpacity onPress={() => { setFilterStatus('all'); setFilterHousingId('all'); }} activeOpacity={0.7}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16 }}>
-                            <MaterialIcons name="close" size={13} color={colors.error} />
-                            <Text style={[textStyles.label, { color: colors.error, fontSize: 11 }]}>Clear all filters</Text>
-                        </TouchableOpacity>
+                            </View>
+                        </View>
                     )}
                 </View>
             )}
 
             {/* ── Content ──────────────────────────────────────────────── */}
-            <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} showsVerticalScrollIndicator={false}
+            <ScrollView contentContainerStyle={{ padding: 14, gap: 10, paddingBottom: 24 }} showsVerticalScrollIndicator={false}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.secondary} colors={[colors.secondary]} />}>
 
                 {loading ? (
@@ -276,25 +361,25 @@ export default function DispenseRecordsScreen() {
 
                 ) : records.length === 0 ? (
                     <View style={{ alignItems: 'center', marginTop: 60 }}>
-                        <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-                            <MaterialIcons name="set-meal" size={34} color={colors.textGrey} />
+                        <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                            <MaterialIcons name="grain" size={30} color={colors.textGrey} />
                         </View>
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 6 }]}>No Records Yet</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40 }]}>
+                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 17, marginBottom: 5 }]}>No Records Yet</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40, fontSize: 13 }]}>
                             Feed dispense events from your AniFeed devices will appear here.
                         </Text>
                     </View>
 
                 ) : groupedByDate.length === 0 ? (
                     <View style={{ alignItems: 'center', marginTop: 60 }}>
-                        <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-                            <MaterialIcons name="search-off" size={34} color={colors.textGrey} />
+                        <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                            <MaterialIcons name="search-off" size={30} color={colors.textGrey} />
                         </View>
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 6 }]}>No Matches</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40, marginBottom: 20 }]}>Try adjusting your filters.</Text>
+                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 17, marginBottom: 5 }]}>No Matches</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40, marginBottom: 16, fontSize: 13 }]}>Try adjusting your filters.</Text>
                         <TouchableOpacity onPress={() => { setFilterStatus('all'); setFilterHousingId('all'); }} activeOpacity={0.7}
-                            style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.secondary, borderRadius: 10 }}>
-                            <Text style={[textStyles.label, { color: '#fff', fontSize: 13 }]}>Clear Filters</Text>
+                            style={{ paddingHorizontal: 20, paddingVertical: 8, backgroundColor: colors.secondary, borderRadius: 999 }}>
+                            <Text style={[textStyles.label, { color: '#fff', fontSize: 12.5 }]}>Clear Filters</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -306,33 +391,39 @@ export default function DispenseRecordsScreen() {
                             : `${group.totalGrams}g`;
 
                         return (
-                            <View key={group.dateKey} style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, overflow: 'hidden' }}>
+                            <View key={group.dateKey} style={{ backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.stroke, overflow: 'hidden' }}>
 
                                 {/* ── Date group header ── */}
                                 <TouchableOpacity
                                     activeOpacity={0.75}
                                     onPress={() => setExpandedDates(prev => ({ ...prev, [group.dateKey]: !prev[group.dateKey] }))}
-                                    style={{ flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 }}
+                                    style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13, paddingVertical: 11, gap: 11 }}
                                 >
-                                    {/* Feed icon box */}
-                                    <View style={{ width: 46, height: 46, borderRadius: 12, backgroundColor: colors.secondary + '18', alignItems: 'center', justifyContent: 'center' }}>
-                                        <MaterialIcons name="set-meal" size={22} color={colors.secondary} />
+                                    {/* Feed Grain icon (NO fish icon!) */}
+                                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.secondary + '15', alignItems: 'center', justifyContent: 'center' }}>
+                                        <MaterialIcons name="grain" size={19} color={colors.secondary} />
                                     </View>
 
                                     {/* Date + count */}
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]}>{group.dateLabel}</Text>
-                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 1 }]}>
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13.5, color: colors.text }} numberOfLines={1}>
+                                            {group.dateLabel}
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', color: colors.textGrey, fontSize: 11, marginTop: 1 }}>
                                             {group.totalCount} event{group.totalCount !== 1 ? 's' : ''}
                                         </Text>
                                     </View>
 
                                     {/* Total grams + chevron */}
                                     <View style={{ alignItems: 'flex-end', marginRight: 4 }}>
-                                        <Text style={[textStyles.h2, { color: colors.secondary, fontSize: 22, lineHeight: 24 }]}>{gramLabel}</Text>
-                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]}>dispensed</Text>
+                                        <Text style={{ fontFamily: 'Poppins-Bold', color: colors.secondary, fontSize: 16 }}>
+                                            {gramLabel}
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', color: colors.textGrey, fontSize: 10 }}>
+                                            dispensed
+                                        </Text>
                                     </View>
-                                    <MaterialIcons name={isExpanded ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={22} color={colors.textGrey} />
+                                    <MaterialIcons name={isExpanded ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={20} color={colors.textGrey} />
                                 </TouchableOpacity>
 
                                 {/* ── Expanded records ── */}
@@ -345,30 +436,62 @@ export default function DispenseRecordsScreen() {
                                             const isLast = idx === group.records.length - 1;
 
                                             return (
-                                                <View key={record.id} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.stroke, gap: 10 }}>
-                                                    {/* Timeline dot */}
-                                                    <View style={{ alignItems: 'center', width: 20 }}>
-                                                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: sc }} />
-                                                        {!isLast && <View style={{ width: 2, flex: 1, backgroundColor: colors.stroke, marginTop: 3 }} />}
+                                                <View
+                                                    key={record.id}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        paddingHorizontal: 13,
+                                                        paddingVertical: 9,
+                                                        borderBottomWidth: isLast ? 0 : 1,
+                                                        borderBottomColor: colors.stroke + '40',
+                                                        gap: 10,
+                                                    }}
+                                                >
+                                                    {/* Time badge */}
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, width: 74 }}>
+                                                        <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
+                                                        <Text style={{ fontFamily: 'Poppins-Medium', color: colors.textGrey, fontSize: 11 }}>
+                                                            {formatTime(record.dispensed_at)}
+                                                        </Text>
                                                     </View>
 
-                                                    {/* Time */}
-                                                    <View style={{ width: 64 }}>
-                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12 }]}>{formatTime(record.dispensed_at)}</Text>
+                                                    {/* Housing + device info */}
+                                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                                            <MaterialIcons name="home" size={12} color={colors.textGrey} />
+                                                            <Text style={{ fontFamily: 'Poppins-Medium', color: colors.text, fontSize: 12.5, flexShrink: 1 }} numberOfLines={1}>
+                                                                {record.housingName}
+                                                            </Text>
+                                                        </View>
+                                                        <Text style={{ fontFamily: 'Poppins-Regular', color: colors.textGrey, fontSize: 10.5, marginTop: 1 }} numberOfLines={1}>
+                                                            {record.deviceName}
+                                                        </Text>
                                                     </View>
 
-                                                    {/* Housing */}
-                                                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                                        <MaterialIcons name="home" size={12} color={colors.textGrey} />
-                                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 13 }]} numberOfLines={1}>{record.housingName}</Text>
-                                                    </View>
-
-                                                    {/* Amount */}
-                                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>{record.grams_dispensed}g</Text>
-
-                                                    {/* Status icon */}
-                                                    <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: sc + '18', alignItems: 'center', justifyContent: 'center' }}>
-                                                        <MaterialIcons name={si} size={15} color={sc} />
+                                                    {/* Amount + status pill */}
+                                                    <View style={{ alignItems: 'flex-end', flexShrink: 0, gap: 2 }}>
+                                                        <Text style={{ fontFamily: 'Poppins-Bold', color: colors.text, fontSize: 13.5 }}>
+                                                            {record.grams_dispensed}g
+                                                        </Text>
+                                                        <View style={{
+                                                            flexDirection: 'row',
+                                                            alignItems: 'center',
+                                                            gap: 3,
+                                                            paddingHorizontal: 7,
+                                                            paddingVertical: 1.5,
+                                                            borderRadius: 999,
+                                                            backgroundColor: sc + '18',
+                                                        }}>
+                                                            <MaterialIcons name={si} size={10.5} color={sc} />
+                                                            <Text style={{
+                                                                fontFamily: 'Poppins-SemiBold',
+                                                                color: sc,
+                                                                fontSize: 9.5,
+                                                            }}>
+                                                                {sl}
+                                                            </Text>
+                                                        </View>
                                                     </View>
                                                 </View>
                                             );

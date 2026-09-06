@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect } from 'react';
-import { ScrollView, TouchableOpacity, View, TextInput } from 'react-native';
+import { RefreshControl, ScrollView, TouchableOpacity, View, TextInput } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
@@ -28,6 +28,7 @@ export default function EditProfileScreen() {
     const [isEditingUsername, setIsEditingUsername] = useState(false);
 
     const { profile, refreshProfile } = useAuth();
+    const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
         if (profile) {
@@ -46,6 +47,17 @@ export default function EditProfileScreen() {
             setPhoneNumber(profile.phoneNumber || (profile as any).phone || '');
         }
     }, [profile]);
+
+    const onRefresh = async () => {
+        setRefreshing(true);
+        try {
+            await refreshProfile();
+        } catch (e) {
+            console.error('[EditProfileScreen] refresh error:', e);
+        } finally {
+            setRefreshing(false);
+        }
+    };
 
     // Snackbar State
     const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -149,7 +161,18 @@ export default function EditProfileScreen() {
                 </View>
 
                 {/* Content */}
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 100 }}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                        />
+                    }
+                >
 
                     <View style={styles.profileAvatarContainer}>
                         <View>

@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback } from 'react';
-import { FlatList, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { FlatList, TouchableOpacity, View, ActivityIndicator, RefreshControl } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
@@ -56,13 +56,22 @@ export default function NotificationScreen() {
 
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const userId = (profile as any)?.uid || (profile as any)?.id;
 
-    const fetchNotifications = useCallback(async () => {
-        if (!userId) return;
-        setIsLoading(true);
+    const fetchNotifications = useCallback(async (isPullToRefresh = false) => {
+        if (!userId) {
+            setIsLoading(false);
+            setRefreshing(false);
+            return;
+        }
+        if (isPullToRefresh) {
+            setRefreshing(true);
+        } else {
+            setIsLoading(true);
+        }
         try {
             let query = supabase
                 .from('notifications')
@@ -94,10 +103,15 @@ export default function NotificationScreen() {
             console.error('[Notifications] fetch error:', err);
         } finally {
             setIsLoading(false);
+            setRefreshing(false);
         }
     }, [userId, farmId]);
 
     useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
+
+    const onRefresh = useCallback(async () => {
+        await fetchNotifications(true);
+    }, [fetchNotifications]);
 
     const markAsRead = async (id: string) => {
         setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
@@ -199,8 +213,14 @@ export default function NotificationScreen() {
                         renderItem={renderItem}
                         contentContainerStyle={notificationStyles.listContent}
                         showsVerticalScrollIndicator={false}
-                        onRefresh={fetchNotifications}
-                        refreshing={isLoading}
+                        refreshControl={
+                            <RefreshControl
+                                refreshing={refreshing}
+                                onRefresh={onRefresh}
+                                tintColor={colors.primary}
+                                colors={[colors.primary]}
+                            />
+                        }
                         ListEmptyComponent={
                             <View style={notificationStyles.emptyContainer}>
                                 <MaterialIcons name="notifications-off" size={48} color={colors.textGrey} />

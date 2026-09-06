@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -222,11 +223,19 @@ function PermissionCategoryRow({ category, permissions, onBatchChange, onToggle,
                     backgroundColor: activeCount > 0 ? colors.primary + '0D' : colors.bgLight,
                 }}
             >
-                <MaterialIcons
-                    name={category.icon as any}
-                    size={20}
-                    color={activeCount > 0 ? colors.primary : colors.textGrey}
-                />
+                {category.icon === 'pets' ? (
+                    <Image
+                        source={require('../../assets/icons/animals-filled.svg')}
+                        style={{ width: 20, height: 20 }}
+                        contentFit="contain"
+                    />
+                ) : (
+                    <MaterialIcons
+                        name={category.icon as any}
+                        size={20}
+                        color={activeCount > 0 ? colors.primary : colors.textGrey}
+                    />
+                )}
                 <Text style={{
                     flex: 1, fontFamily: 'Poppins-SemiBold', fontSize: 14,
                     color: activeCount > 0 ? colors.text : colors.textGrey,
@@ -465,7 +474,15 @@ export default function InviteCodesScreen() {
                             paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100,
                             backgroundColor: colors.bgLight, borderWidth: 1, borderColor: colors.stroke,
                         }}>
-                            <MaterialIcons name={cat.icon as any} size={11} color={colors.textGrey} />
+                            {cat.icon === 'pets' ? (
+                                <Image
+                                    source={require('../../assets/icons/animals-filled.svg')}
+                                    style={{ width: 11, height: 11 }}
+                                    contentFit="contain"
+                                />
+                            ) : (
+                                <MaterialIcons name={cat.icon as any} size={11} color={colors.textGrey} />
+                            )}
                             <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>
                                 {cat.shortLabel} {cat.activeCount}/{cat.permissions.length}
                             </Text>

@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, ScrollView, TouchableOpacity, View, Modal, KeyboardAvoidingView, Platform } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -51,6 +51,7 @@ export default function ManageHousingsScreen() {
 
     const [housings, setHousings] = useState<HousingItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     // ── Fetch ─────────────────────────────────────────────────────
     const fetchHousings = useCallback(async () => {
@@ -90,6 +91,12 @@ export default function ManageHousingsScreen() {
     }, [farmId]);
 
     useEffect(() => { fetchHousings(); }, [fetchHousings]);
+
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await fetchHousings();
+        setRefreshing(false);
+    }, [fetchHousings]);
 
     const filteredHousings = activeFilter === 'All'
         ? housings
@@ -287,7 +294,18 @@ export default function ManageHousingsScreen() {
                     <View style={{ width: 44, height: 44 }} />
                 </View>
 
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 100 }}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                        />
+                    }
+                >
                     <View style={styles.section}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, marginTop: -8 }}>
                             <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Registered Housings</Text>

@@ -29,6 +29,7 @@ import {
     ActivityIndicator,
     Modal,
     Pressable,
+    RefreshControl,
     ScrollView,
     TouchableOpacity,
     View,
@@ -101,6 +102,7 @@ export default function DeviceSettingsScreen() {
     const [device, setDevice]       = useState<DeviceDetail | null>(null);
     const [deviceName, setDeviceName] = useState('');
     const [loading, setLoading]     = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [saving, setSaving]       = useState(false);
 
     // Confirm modal
@@ -178,6 +180,12 @@ export default function DeviceSettingsScreen() {
     }, [deviceId]);
 
     useEffect(() => { fetchDevice(); }, [fetchDevice]);
+
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await fetchDevice();
+        setRefreshing(false);
+    }, [fetchDevice]);
 
     // ── Live WiFi network name ──────────────────────────────────────────────────
     // Fetched directly from the board over LAN (never stored/transmitted from the
@@ -417,7 +425,18 @@ export default function DeviceSettingsScreen() {
                     <View style={{ width: 44, height: 44 }} />
                 </View>
 
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 120 }}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                        />
+                    }
+                >
 
                     {/* ── Device type badge ─────────────────────────────── */}
                     <View style={{ paddingHorizontal: 20, marginBottom: 6 }}>

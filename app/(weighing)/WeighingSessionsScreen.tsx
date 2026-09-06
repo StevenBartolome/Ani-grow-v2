@@ -132,9 +132,16 @@ export default function WeighingSessionsScreen() {
     const router = useRouter();
 
     const { profile } = useAuth();
-    const { activeFarmIds } = useFarmFilter();
+    const { activeFarmIds, managedFarms } = useFarmFilter();
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
-    const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
+    const currentFarm = managedFarms.find(f => f.id === farmId);
+    const [farmName, setFarmName] = useState<string>(currentFarm?.name || (profile as any)?.farm_name || (profile as any)?.farmName || '');
+
+    useEffect(() => {
+        if (currentFarm?.name) {
+            setFarmName(currentFarm.name);
+        }
+    }, [currentFarm?.name]);
 
     const [animalType, setAnimalType] = useState<'pig' | 'chicken'>('pig');
     const [allHousings, setAllHousings] = useState<HousingInfo[]>([]);
@@ -179,14 +186,18 @@ export default function WeighingSessionsScreen() {
         if (!farmId) { setIsLoading(false); return; }
         setIsLoading(true);
         try {
-            const [housingsRes, batchesRes] = await Promise.all([
+            const [housingsRes, batchesRes, farmRes] = await Promise.all([
                 supabase.from('housings').select('id, name, animal_type, status, current_count')
                     .eq('farm_id', farmId).eq('status', 'Active').order('name', { ascending: true }),
                 supabase.from('batches').select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id)')
                     .eq('housings.farm_id', farmId).eq('status', 'active').order('arrival_date', { ascending: false }),
+                supabase.from('farms').select('name').eq('id', farmId).maybeSingle(),
             ]);
             if (housingsRes.error) throw housingsRes.error;
             if (batchesRes.error) throw batchesRes.error;
+            if (farmRes.data?.name) {
+                setFarmName(farmRes.data.name);
+            }
             setAllHousings((housingsRes.data || []) as HousingInfo[]);
             setAllBatches((batchesRes.data || []) as BatchInfo[]);
         } catch (err) {

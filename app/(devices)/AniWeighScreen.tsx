@@ -113,7 +113,7 @@ function calculateBatchAge(arrivalDateStr: string, ageAtArrivalDays: number, ani
 }
 
 export default function AniWeighScreen() {
-    const { systemConfig, profile } = useAuth();
+    const { systemConfig, profile, user } = useAuth();
     const { activeFarmIds } = useFarmFilter();
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const { colors } = useTheme();
@@ -149,7 +149,7 @@ export default function AniWeighScreen() {
     const [weightLogs, setWeightLogs] = useState<WeighLogEntry[]>([]);
     const [segregationStats, setSegregationStats] = useState<SegregationStats>({ total: 0, underweight: { count: 0, percentage: 0 }, normal: { count: 0, percentage: 0 }, overweight: { count: 0, percentage: 0 } });
     const [statsExpanded, setStatsExpanded] = useState(false);
-    const [farmHousings, setFarmHousings] = useState<{ id: string; name: string; animal_type: string }[]>([]);
+    const [farmHousings, setFarmHousings] = useState<{ id: string; name: string; animal_type: string; farm_id?: string }[]>([]);
 
     // Range settings modal
     const [rangeSettingsVisible, setRangeSettingsVisible] = useState(false);
@@ -246,6 +246,7 @@ export default function AniWeighScreen() {
     const [gateHousingModalVisible, setGateHousingModalVisible] = useState(false);
     const [gateBatchModalVisible, setGateBatchModalVisible] = useState(false);
     const [isBeginningSession, setIsBeginningSession] = useState(false);
+    const gatePrefilledRef = useRef(false);
     const [finishModalVisible, setFinishModalVisible] = useState(false);
     const [isFinishingSession, setIsFinishingSession] = useState(false);
 
@@ -313,7 +314,7 @@ export default function AniWeighScreen() {
                     .single(),
                 supabase
                     .from('housings')
-                    .select('id, name, animal_type')
+                    .select('id, name, animal_type, farm_id')
                     .eq('farm_id', farmId)
                     .eq('status', 'Active'),
                 todayStatsQuery,
@@ -484,7 +485,9 @@ export default function AniWeighScreen() {
     }, [gateHousingId]);
 
     const handleBeginWeighingSession = async () => {
-        if (!gateHousingId || !gateBatchId || !farmId) return;
+        const targetHousing = farmHousings.find(h => h.id === gateHousingId);
+        const effectiveFarmId = targetHousing?.farm_id || farmId || (profile as any)?.farm_id;
+        if (!gateHousingId || !gateBatchId || !effectiveFarmId) return;
         const batch = gateBatches.find(b => b.id === gateBatchId);
         if (!batch) return;
         setIsBeginningSession(true);
@@ -499,7 +502,7 @@ export default function AniWeighScreen() {
             const { data, error } = await supabase
                 .from('weighing_sessions')
                 .insert({
-                    farm_id: farmId,
+                    farm_id: effectiveFarmId,
                     housing_id: gateHousingId,
                     batch_id: gateBatchId,
                     device_id: deviceId,
@@ -509,7 +512,7 @@ export default function AniWeighScreen() {
                     expected_quantity: batch.current_count,
                     completed_quantity: 0,
                     status: 'in_progress',
-                    created_by: (profile as any)?.id ?? (profile as any)?.uid ?? null,
+                    created_by: user?.id ?? (profile as any)?.id ?? (profile as any)?.uid ?? null,
                 })
                 .select('id, batch_id, housing_id, animal_type, weigh_mode, expected_quantity, completed_quantity, farm_day')
                 .single();
@@ -555,6 +558,7 @@ export default function AniWeighScreen() {
             setGateHousingId(null);
             setGateBatchId(null);
             setGateWeighMode('individual');
+            gatePrefilledRef.current = false;
             router.push(`/(weighing)/SessionReportScreen?sessionId=${finishedId}` as any);
         } catch (err) {
             console.error('[AniWeighScreen] finish session error:', err);
@@ -567,18 +571,16 @@ export default function AniWeighScreen() {
     // Pre-fill the gate's House + Animal Type from this device's own
     // assigned housing — a scale physically lives in one house and rarely
     // moves, so re-picking that from scratch every run is pure friction.
-    // Batch is deliberately left blank (see handleFinishSession) since it's
-    // the one field that genuinely changes over time and is worth an
-    // explicit confirm every time. Still fully editable — just a head start.
+    // Run ONCE on load so user-selected animal type switches are never reverted.
     useEffect(() => {
-        if (activeSession) return;
-        if (gateHousingId) return;
-        if (!deviceInfo?.housingId) return;
+        if (activeSession || gatePrefilledRef.current) return;
+        if (!deviceInfo?.housingId || farmHousings.length === 0) return;
         const housing = farmHousings.find(h => h.id === deviceInfo.housingId);
         if (!housing) return;
+        gatePrefilledRef.current = true;
         setGateHousingId(housing.id);
         setGateAnimalType(housing.animal_type === 'chicken' ? 'chicken' : 'pig');
-    }, [activeSession, deviceInfo?.housingId, farmHousings, gateHousingId]);
+    }, [activeSession, deviceInfo?.housingId, farmHousings]);
 
     // Re-derive isConnected from the last known heartbeat every 15s, purely
     // from the passage of time — catches a device going stale/dark even
@@ -1206,10 +1208,28 @@ export default function AniWeighScreen() {
                                 return (
                                     <TouchableOpacity
                                         key={type}
-                                        onPress={() => { setGateAnimalType(type); setGateHousingId(null); if (type === 'pig') setGateWeighMode('individual'); }}
-                                        activeOpacity={0.8}
-                                        style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, backgroundColor: isSelected ? colors.primary : 'transparent' }}
+                                        onPress={() => {
+                                            if (gateAnimalType === type) return;
+                                            gatePrefilledRef.current = true;
+                                            setGateAnimalType(type);
+                                            setGateHousingId(null);
+                                            setGateBatchId(null);
+                                            setGateBatches([]);
+                                            if (type === 'pig') setGateWeighMode('individual');
+                                        }}
+                                        activeOpacity={0.7}
+                                        style={{
+                                            flex: 1,
+                                            flexDirection: 'row',
+                                            gap: 8,
+                                            paddingVertical: 10,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderRadius: 8,
+                                            backgroundColor: isSelected ? colors.primary : 'transparent',
+                                        }}
                                     >
+                                        <AnimalIcon type={type} size={18} color={isSelected ? colors.onPrimary : colors.textGrey} />
                                         <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.textGrey, fontSize: 14, fontWeight: '700' }]}>
                                             {type === 'pig' ? 'Pig' : 'Chicken'}
                                         </Text>
@@ -1278,12 +1298,22 @@ export default function AniWeighScreen() {
                             activeOpacity={0.85}
                             disabled={!gateHousingId || !gateBatchId || isBeginningSession}
                             onPress={handleBeginWeighingSession}
-                            style={{ height: 52, borderRadius: 26, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 12, opacity: (!gateHousingId || !gateBatchId || isBeginningSession) ? 0.5 : 1 }}
+                            style={{
+                                height: 52,
+                                borderRadius: 26,
+                                backgroundColor: colors.primary,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                marginTop: 12,
+                                opacity: (!gateHousingId || !gateBatchId || isBeginningSession) ? 0.5 : 1,
+                            }}
                         >
                             {isBeginningSession ? (
                                 <ActivityIndicator size="small" color={colors.onPrimary} />
                             ) : (
-                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 15 }]}>Begin Weighing</Text>
+                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 15 }]}>
+                                    Begin Weighing
+                                </Text>
                             )}
                         </TouchableOpacity>
                     </View>
@@ -1293,7 +1323,12 @@ export default function AniWeighScreen() {
                         onClose={() => setGateHousingModalVisible(false)}
                         onSelect={(val) => {
                             const matched = farmHousings.find(h => h.animal_type === gateAnimalType && h.name === val);
-                            if (matched) setGateHousingId(matched.id);
+                            if (matched) {
+                                if (matched.id !== gateHousingId) {
+                                    setGateBatchId(null);
+                                }
+                                setGateHousingId(matched.id);
+                            }
                             setGateHousingModalVisible(false);
                         }}
                         title="Select House"
@@ -1420,30 +1455,6 @@ export default function AniWeighScreen() {
                             <MaterialIcons name="chevron-right" size={20} color={colors.primary} />
                         </TouchableOpacity>
                     </View>
-
-                    {/* AI Weight Analysis */}
-                    <AIInsightCard
-                        title="AI Weight Analysis"
-                        context={{
-                            type: 'weight',
-                            animalType: animalType,
-                            housingName: housing,
-                            data: {
-                                todayTotal: segregationStats.total,
-                                underweight: segregationStats.underweight,
-                                normal: segregationStats.normal,
-                                overweight: segregationStats.overweight,
-                                recentWeights: weightLogs.slice(0, 5).map(l => ({
-                                    kg: (l.weight_g / 1000).toFixed(2),
-                                    status: l.status,
-                                    time: new Date(l.timestamp).toISOString(),
-                                })),
-                                thresholds: threshold
-                                    ? { underweightMaxKg: threshold.underweightMaxGrams / 1000, overweightMinKg: threshold.overweightMinGrams / 1000 }
-                                    : null,
-                            },
-                        }}
-                    />
 
                     {/* Live Scaling */}
                     <View style={aniweighStyles.liveSection}>
@@ -1759,6 +1770,30 @@ export default function AniWeighScreen() {
                             )}
                         </View>
                     )}
+
+                    {/* AI Weight Analysis */}
+                    <AIInsightCard
+                        title="AI Weight Analysis"
+                        context={{
+                            type: 'weight',
+                            animalType: animalType,
+                            housingName: housing,
+                            data: {
+                                todayTotal: segregationStats.total,
+                                underweight: segregationStats.underweight,
+                                normal: segregationStats.normal,
+                                overweight: segregationStats.overweight,
+                                recentWeights: weightLogs.slice(0, 5).map(l => ({
+                                    kg: (l.weight_g / 1000).toFixed(2),
+                                    status: l.status,
+                                    time: new Date(l.timestamp).toISOString(),
+                                })),
+                                thresholds: threshold
+                                    ? { underweightMaxKg: threshold.underweightMaxGrams / 1000, overweightMinKg: threshold.overweightMinGrams / 1000 }
+                                    : null,
+                            },
+                        }}
+                    />
 
                     {/* Recent Logs */}
                     <View style={aniweighStyles.logsSection}>

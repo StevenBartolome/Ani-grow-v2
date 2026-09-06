@@ -17,13 +17,14 @@ type NavItemDef = {
 };
 
 const DEFAULT_SIZE = 26;
+const HEALTH_SIZE = 30;
 const ANIMALS_SIZE = 38;
 
 const navItems: NavItemDef[] = [
     { name: 'Home',      iconFilled: require('../../assets/icons/home-filled.svg'),      iconStroke: require('../../assets/icons/home-stroke.svg'),      route: '/(dashboard)/HomeScreen',    size: DEFAULT_SIZE,  requiredPermission: null },
     { name: 'Devices',   iconFilled: require('../../assets/icons/devices-filled.svg'),   iconStroke: require('../../assets/icons/devices-stroke.svg'),   route: '/(devices)/DevicesScreen',   size: DEFAULT_SIZE,  requiredPermission: 'devices:view' },
     { name: 'Animals',   iconFilled: require('../../assets/icons/animals-filled.svg'),   iconStroke: require('../../assets/icons/animals-stroke.svg'),   route: '/(animals)/AnimalsScreen',   size: ANIMALS_SIZE,  requiredPermission: 'animals:view' },
-    { name: 'Health',    iconFilled: require('../../assets/icons/health-filled.svg'),    iconStroke: require('../../assets/icons/health-stroke.svg'),    route: '/(animals)/HealthRecordsScreen', size: DEFAULT_SIZE,  requiredPermission: 'health:view' },
+    { name: 'Health',    iconFilled: require('../../assets/icons/health-filled.svg'),    iconStroke: require('../../assets/icons/health-stroke.svg'),    route: '/(animals)/HealthRecordsScreen', size: HEALTH_SIZE,   requiredPermission: 'health:view' },
     { name: 'Analytics', iconFilled: require('../../assets/icons/analytics-filled.svg'), iconStroke: require('../../assets/icons/analytics-stroke.svg'), route: '/(analytics)/AnalyticsScreen', size: DEFAULT_SIZE, requiredPermission: 'reports:view' },
     { name: 'Guide',     iconFilled: require('../../assets/icons/guide-filled.svg'),     iconStroke: require('../../assets/icons/guide-stroke.svg'),     route: '/(guide)/GuideScreen',       size: DEFAULT_SIZE,  requiredPermission: 'ai_assistant:use' },
 ];

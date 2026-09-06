@@ -143,6 +143,18 @@ interface Batch {
     current_count: number;
 }
 
+interface VaccineItem {
+    id: string;
+    name: string;
+    vaccine_type?: string | null;
+    species: string;
+    dose_per_animal?: number | null;
+    unit: string;
+    withdrawal_days?: number;
+    stock_quantity?: number;
+    route?: string | null;
+}
+
 interface HealthRecord {
     id: string;
     record_type: RecordType;
@@ -202,6 +214,44 @@ const COMMON_VACCINES = [
     'Tetanus',
     'Leptospirosis',
 ];
+
+const CHICKEN_VACCINE_NAMES = new Set([
+    'Newcastle Disease - La Sota (Live)',
+    'Newcastle Disease - B1 (Live)',
+    'Newcastle Disease - Komarov (Killed)',
+    'Gumboro / Infectious Bursal Disease (IBD) - Live',
+    'Gumboro / Infectious Bursal Disease (IBD) - Killed',
+    "Marek's Disease",
+    'Infectious Bronchitis (IB) - H120',
+    'Infectious Bronchitis (IB) - Massachusetts',
+    'Avian Influenza H5N1 (Killed)',
+    'Avian Influenza H5N2 (Killed)',
+    'Fowl Pox',
+    'Fowl Cholera (Pasteurella multocida)',
+    'Infectious Laryngotracheitis (ILT)',
+    'Egg Drop Syndrome (EDS-76)',
+    'Avian Encephalomyelitis (AE)',
+    'Mycoplasma Gallisepticum (MG)',
+    'Infectious Coryza (IC)',
+]);
+
+const PIG_VACCINE_NAMES = new Set([
+    'Hog Cholera / Classical Swine Fever (CSF)',
+    'Foot and Mouth Disease (FMD)',
+    "Pseudorabies / Aujeszky's Disease",
+    'PRRS - Porcine Reproductive & Respiratory Syndrome',
+    'Swine Erysipelas',
+    'Porcine Parvovirus (PPV)',
+    'PCV2 - Porcine Circovirus Type 2',
+    'Mycoplasma hyopneumoniae',
+    'Actinobacillus pleuropneumoniae (APP)',
+    "Haemophilus parasuis / Glässer's Disease",
+    'Swine Influenza (SIV)',
+    'E. coli / Colibacillosis (Neonatal Diarrhea)',
+    'Streptococcus suis',
+    'Transmissible Gastroenteritis (TGE)',
+    'Bordetella bronchiseptica (Atrophic Rhinitis)',
+]);
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
@@ -442,18 +492,66 @@ function DatePickerField({
 // ─── VaccinePickerModal ───────────────────────────────────────────────────────
 
 function VaccinePickerModal({
-    visible, search, onSearch, onSelect, onClose, colors,
+    visible, search, onSearch, onSelect, onClose, colors, vaccineList = [], activeAnimalType,
 }: {
     visible: boolean; search: string; onSearch: (s: string) => void;
-    onSelect: (name: string) => void; onClose: () => void; colors: any;
+    onSelect: (vaccine: VaccineItem | string) => void; onClose: () => void; colors: any;
+    vaccineList?: VaccineItem[];
+    activeAnimalType?: string;
 }) {
-    const filtered = COMMON_VACCINES.filter(v => v.toLowerCase().includes(search.toLowerCase()));
+    const normAnimal = (activeAnimalType || '').toLowerCase().trim();
+    const isChicken = normAnimal === 'chicken' || normAnimal === 'poultry';
+    const isPig = normAnimal === 'pig' || normAnimal === 'swine';
+
+    const list: VaccineItem[] = (vaccineList && vaccineList.length > 0)
+        ? vaccineList
+        : COMMON_VACCINES.map(v => ({
+            id: '',
+            name: v,
+            species: CHICKEN_VACCINE_NAMES.has(v) ? 'chicken' : PIG_VACCINE_NAMES.has(v) ? 'pig' : 'both',
+            unit: 'dose',
+            stock_quantity: 0,
+            route: 'injection',
+            withdrawal_days: 0,
+        }));
+
+    // If selected housing/batch is for chickens or pigs, hide not-applicable vaccines, only show matching & both
+    const speciesFiltered = list.filter(v => {
+        const spec = (v.species || '').toLowerCase().trim();
+        // Always show vaccines marked 'both', 'all', or general
+        if (!spec || spec === 'both' || spec === 'all' || spec === 'general') return true;
+
+        if (isChicken) {
+            return spec === 'chicken' || spec === 'poultry';
+        }
+        if (isPig) {
+            return spec === 'pig' || spec === 'swine';
+        }
+        return true;
+    });
+
+    const filtered = speciesFiltered.filter(v => {
+        const query = search.toLowerCase();
+        return (
+            v.name.toLowerCase().includes(query) ||
+            (v.species && v.species.toLowerCase().includes(query)) ||
+            (v.vaccine_type && v.vaccine_type.toLowerCase().includes(query))
+        );
+    });
+
+    const isCustomNeeded = search.trim().length > 0 && !speciesFiltered.some(v => v.name.toLowerCase() === search.trim().toLowerCase());
+
     return (
         <Modal visible={visible} transparent animationType="fade">
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
                 <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', paddingBottom: 24 }}>
                     <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
-                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: 12 }}>Select Vaccine</Text>
+                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: (isChicken || isPig) ? 2 : 12 }}>Select Vaccine</Text>
+                    {(isChicken || isPig) && (
+                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey, textAlign: 'center', marginBottom: 12 }}>
+                            Showing vaccines for {isChicken ? 'Chickens' : 'Pigs'} & General
+                        </Text>
+                    )}
                     <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.primary, borderRadius: 14, marginHorizontal: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8, backgroundColor: colors.cardFill }}>
                         <MaterialIcons name="search" size={18} color={colors.primary} style={{ marginRight: 6 }} />
                         <TextInput
@@ -471,7 +569,7 @@ function VaccinePickerModal({
                         )}
                     </View>
                     <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                        {search.trim().length > 0 && !COMMON_VACCINES.includes(search.trim()) && (
+                        {isCustomNeeded && (
                             <TouchableOpacity
                                 onPress={() => onSelect(search.trim())}
                                 style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.stroke }}
@@ -480,16 +578,41 @@ function VaccinePickerModal({
                                 <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 14, color: colors.primary }}>Use "{search.trim()}"</Text>
                             </TouchableOpacity>
                         )}
-                        {filtered.map((vaccine, i) => (
-                            <TouchableOpacity
-                                key={i}
-                                onPress={() => onSelect(vaccine)}
-                                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: colors.stroke + '60' }}
-                            >
-                                <MaterialIcons name="vaccines" size={16} color="#27AE60" />
-                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text, flex: 1 }}>{vaccine}</Text>
-                            </TouchableOpacity>
-                        ))}
+                        {filtered.map((item, i) => {
+                            const specLabel = item.species === 'both' ? 'All Species' : item.species ? item.species.charAt(0).toUpperCase() + item.species.slice(1) : null;
+                            const specColor = item.species === 'chicken' ? '#F59E0B' : item.species === 'pig' ? '#F97316' : '#6C63FF';
+                            return (
+                                <TouchableOpacity
+                                    key={item.id || i}
+                                    onPress={() => onSelect(item)}
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: colors.stroke + '60' }}
+                                >
+                                    <MaterialIcons name="vaccines" size={16} color="#27AE60" />
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text }}>{item.name}</Text>
+                                        {(item.stock_quantity != null || specLabel) && (
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                                {specLabel && (
+                                                    <View style={{ backgroundColor: specColor + '18', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 }}>
+                                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: specColor }}>{specLabel}</Text>
+                                                    </View>
+                                                )}
+                                                {item.stock_quantity != null && item.stock_quantity > 0 && (
+                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                                        {item.stock_quantity} {item.unit || 'doses'} in stock
+                                                    </Text>
+                                                )}
+                                                {item.dose_per_animal != null && (
+                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                                        · {item.dose_per_animal} {item.unit || 'dose'}/animal
+                                                    </Text>
+                                                )}
+                                            </View>
+                                        )}
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
                         {filtered.length === 0 && search.length > 0 && (
                             <Text style={{ textAlign: 'center', color: colors.textGrey, fontFamily: 'Poppins-Regular', fontSize: 13, marginTop: 20 }}>No match — type above to use custom name</Text>
                         )}
@@ -576,10 +699,10 @@ const ANIMAL_IMAGES: Record<string, any> = {
 
 const affectedLabel = (type: RecordType) => {
     switch (type) {
-        case 'vaccination': return 'ANIMALS VACCINATED';
+        case 'vaccination': return 'ANIMALS VACCINATED *';
         case 'treatment': return 'ANIMALS TREATED';
         case 'deworming': return 'ANIMALS DEWORMED';
-        case 'mortality': return 'ANIMALS DECEASED';
+        case 'mortality': return 'ANIMALS DECEASED *';
         default: return 'ANIMALS AFFECTED';
     }
 };
@@ -614,6 +737,28 @@ export default function HealthRecordsScreen() {
     const [batches, setBatches] = useState<Batch[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [housingFarmId, setHousingFarmId] = useState<string>(''); // farm_id sourced from housing row
+    const [housingAnimalType, setHousingAnimalType] = useState<string>('');
+    const [dbVaccines, setDbVaccines] = useState<VaccineItem[]>([]);
+
+    const fetchVaccines = useCallback(async (targetFarm: string) => {
+        if (!targetFarm) return;
+        try {
+            const { data, error } = await supabase
+                .from('vaccines')
+                .select('id, name, vaccine_type, species, dose_per_animal, unit, withdrawal_days, stock_quantity, route')
+                .eq('farm_id', targetFarm)
+                .order('name', { ascending: true });
+            if (!error && data) {
+                setDbVaccines(data);
+            }
+        } catch (err) {
+            console.warn('[HealthRecords] fetchVaccines error:', err);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (farmId) fetchVaccines(farmId);
+    }, [farmId, fetchVaccines]);
 
     // ── Trash drawer ──────────────────────────────────────────────────────────
     const [trashVisible, setTrashVisible] = useState(false);
@@ -626,6 +771,26 @@ export default function HealthRecordsScreen() {
     // ── Filter ────────────────────────────────────────────────────────────────
     const [filterType, setFilterType] = useState<RecordType | 'all'>('all');
     const [filterBatchId, setFilterBatchId] = useState<string | 'all'>(paramBatchId || 'all');
+    const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+
+    const isBatchFiltered = filterBatchId !== 'all';
+    const isTypeFiltered = filterType !== 'all';
+    const isFiltered = isBatchFiltered || isTypeFiltered;
+
+    const activeFilterSummary = useMemo(() => {
+        const activeBatch = batches.find(b => b.id === filterBatchId);
+        const parts: string[] = [];
+        if (isTypeFiltered) {
+            parts.push(RECORD_TYPES[filterType as RecordType]?.label || String(filterType));
+        }
+        if (isBatchFiltered && activeBatch) {
+            parts.push(activeBatch.name);
+        }
+        if (parts.length === 0) {
+            return 'All Records';
+        }
+        return parts.join(' · ');
+    }, [isTypeFiltered, filterType, isBatchFiltered, filterBatchId, batches]);
 
     // ── Snackbar ──────────────────────────────────────────────────────────────
     const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -980,7 +1145,7 @@ export default function HealthRecordsScreen() {
             const [housingRes, batchRes, activeRes, trashRes] = await Promise.all([
                 supabase
                     .from('housings')
-                    .select('farm_id')
+                    .select('farm_id, animal_type')
                     .eq('id', housingId)
                     .single(),
                 supabase
@@ -1007,9 +1172,13 @@ export default function HealthRecordsScreen() {
             if (activeRes.error) throw activeRes.error;
             if (trashRes.error) throw trashRes.error;
 
-            // Store farm_id from housing — used for inserts (avoids stale/empty farmId from context)
+            // Store farm_id and animal_type from housing — used for inserts and species filtering
             if (housingRes.data?.farm_id) {
                 setHousingFarmId(housingRes.data.farm_id);
+                fetchVaccines(housingRes.data.farm_id);
+            }
+            if (housingRes.data?.animal_type) {
+                setHousingAnimalType(housingRes.data.animal_type);
             }
             setBatches(batchRes.data ?? []);
             setRecords(activeRes.data ?? []);
@@ -1020,7 +1189,7 @@ export default function HealthRecordsScreen() {
         } finally {
             setIsLoading(false);
         }
-    }, [housingId]);
+    }, [housingId, fetchVaccines]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -1079,6 +1248,56 @@ export default function HealthRecordsScreen() {
         }
         return [];
     }, [addType, addTitle, treatmentOptions, illnessOptions]);
+
+    // ── Form Validations (disable buttons if required fields not filled) ───────
+    const finalAddTitle = addTitle === 'Other' ? customTitle.trim() : addTitle.trim();
+    const isAddCountExceeded = !!(
+        RECORD_TYPES[addType].showAffected &&
+        addAffected &&
+        selectedAddBatch &&
+        parseInt(addAffected, 10) > selectedAddBatch.current_count
+    );
+    const isAddMortalityInvalid = addType === 'mortality' && (!addAffected || parseInt(addAffected, 10) <= 0);
+    const isAddVaccinationInvalid = addType === 'vaccination' && (!addAffected || parseInt(addAffected, 10) < 1);
+
+    const isAddFormValid = !!(
+        addBatchId &&
+        finalAddTitle &&
+        addDate &&
+        !isAddCountExceeded &&
+        !isAddMortalityInvalid &&
+        !isAddVaccinationInvalid
+    );
+
+    const finalEditTitle = editTitle === 'Other' ? editCustomTitle.trim() : editTitle.trim();
+    const selectedEditBatch = batches.find(b => b.id === editBatchId) ?? null;
+    const originalRecord = records.find(r => r.id === editRecordId) ?? null;
+    const wasOldMortality = originalRecord?.record_type === 'mortality';
+    const oldAffected = (wasOldMortality && originalRecord?.affected_count) ? originalRecord.affected_count : 0;
+    const isNewMortality = editType === 'mortality';
+    const availableEditCount = selectedEditBatch
+        ? selectedEditBatch.current_count + (wasOldMortality && editBatchId === originalRecord?.batch_id ? oldAffected : 0)
+        : 0;
+
+    const isEditCountExceeded = !!(
+        selectedEditBatch &&
+        editAffected && (
+            isNewMortality
+                ? parseInt(editAffected, 10) > availableEditCount
+                : (RECORD_TYPES[editType].showAffected && parseInt(editAffected, 10) > selectedEditBatch.current_count)
+        )
+    );
+    const isEditMortalityInvalid = isNewMortality && (!editAffected || parseInt(editAffected, 10) <= 0);
+    const isEditVaccinationInvalid = editType === 'vaccination' && (!editAffected || parseInt(editAffected, 10) < 1);
+
+    const isEditFormValid = !!(
+        editBatchId &&
+        finalEditTitle &&
+        editDate &&
+        !isEditCountExceeded &&
+        !isEditMortalityInvalid &&
+        !isEditVaccinationInvalid
+    );
 
     const syncCountsForBatchAndHousing = async (batchId: string | null, targetHousingId: string | null) => {
         if (!batchId || !targetHousingId) return;
@@ -1162,6 +1381,10 @@ export default function HealthRecordsScreen() {
         }
 
         const currentConfig = RECORD_TYPES[addType];
+        if (addType === 'vaccination' && (!addAffected || parseInt(addAffected, 10) < 1)) {
+            showSnackbar('Animals vaccinated must be at least 1.', 'error');
+            return;
+        }
         if (currentConfig.showAffected && addAffected && selectedAddBatch && parseInt(addAffected) > selectedAddBatch.current_count) {
             showSnackbar(`Animals affected (${addAffected}) exceeds available count (${selectedAddBatch.current_count}).`, 'error');
             return;
@@ -1204,15 +1427,19 @@ export default function HealthRecordsScreen() {
 
             // Sync to vaccination_records for web visibility (best-effort)
             if (addType === 'vaccination') {
+                const matchedVaccine = dbVaccines.find(v => v.name.toLowerCase() === finalTitle.toLowerCase());
                 supabase.from('vaccination_records').insert({
                     farm_id: resolvedFarmId,
                     batch_id: addBatchId || null,
                     housing_id: housingId,
+                    vaccine_id: matchedVaccine?.id || null,
                     vaccine_name: finalTitle,
                     administered_date: addDate,
                     animals_vaccinated: addAffected ? parseInt(addAffected, 10) : (selectedAddBatch ? selectedAddBatch.current_count : null),
-                    dose_per_animal: addDosage ? parseFloat(addDosage) : null,
-                    unit: 'ml',
+                    dose_per_animal: addDosage ? parseFloat(addDosage) : (matchedVaccine?.dose_per_animal ?? null),
+                    unit: matchedVaccine?.unit || 'dose',
+                    route: matchedVaccine?.route || 'injection',
+                    withdrawal_days: matchedVaccine?.withdrawal_days || 0,
                     notes: addNotes.trim() || null,
                 }).then(({ error: vErr }) => {
                     if (vErr) console.warn('[HealthRecords] vaccination_records sync failed:', vErr.message);
@@ -1423,6 +1650,10 @@ export default function HealthRecordsScreen() {
             ? selectedEditBatch.current_count + (wasOldMortality && editBatchId === originalRecord?.batch_id ? oldAffected : 0)
             : 0;
 
+        if (editType === 'vaccination' && (!editAffected || parseInt(editAffected, 10) < 1)) {
+            showSnackbar('Animals vaccinated must be at least 1.', 'error');
+            return;
+        }
         if (isNewMortality && editAffected && selectedEditBatch && parseInt(editAffected) > availableCount) {
             showSnackbar(`Mortality count (${editAffected}) exceeds available animals (${availableCount}).`, 'error');
             return;
@@ -1704,55 +1935,153 @@ export default function HealthRecordsScreen() {
                 </View>
             </View>
 
-            {/* ── Batch filter row ── */}
-            {batches.length > 1 && (
-                <View style={{ height: 40, marginBottom: 4 }}>
-                    <ScrollView
-                        horizontal showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={{ paddingHorizontal: 20, gap: 8, flexDirection: 'row', alignItems: 'center', height: 40 }}
-                    >
-                        {[{ id: 'all', name: 'All Batches', status: '' } as any, ...batches].map(b => {
-                            const sel = filterBatchId === b.id;
-                            return (
-                                <TouchableOpacity key={b.id} activeOpacity={0.75} onPress={() => setFilterBatchId(b.id)}
-                                    style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, borderWidth: 1.5, borderColor: sel ? colors.primary : colors.stroke, backgroundColor: sel ? colors.primary + '18' : colors.surface }}>
-                                    <Text style={{ fontFamily: sel ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 12, color: sel ? colors.primary : colors.textGrey }}>
-                                        {b.name}
-                                    </Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </ScrollView>
-                </View>
-            )}
-
-            {/* ── Type filter chips ── */}
-            <View style={{ height: 44, marginBottom: 8 }}>
-                <ScrollView
-                    horizontal showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ paddingHorizontal: 20, gap: 8, flexDirection: 'row', alignItems: 'center', height: 44 }}
+            {/* ── Collapsible Wrapping Filters (Pill Round Shaped) ── */}
+            <View style={{
+                marginHorizontal: 20,
+                marginBottom: 10,
+                backgroundColor: colors.surface,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: colors.stroke,
+                overflow: 'hidden',
+            }}>
+                {/* Header Toggle */}
+                <TouchableOpacity
+                    activeOpacity={0.75}
+                    onPress={() => setFiltersCollapsed(prev => !prev)}
+                    style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                    }}
                 >
-                    {ALL_FILTERS.map(type => {
-                        const isSel = filterType === type;
-                        const cfg = type === 'all' ? null : RECORD_TYPES[type];
-                        const activeColor = cfg?.color ?? colors.primary;
-                        return (
-                            <TouchableOpacity key={type} activeOpacity={0.75} onPress={() => setFilterType(type)}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}>
+                        <MaterialIcons name="tune" size={16} color={isFiltered ? colors.primary : colors.textGrey} />
+                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
+                            Filters
+                        </Text>
+                        <View style={{
+                            flexDirection: 'row', alignItems: 'center',
+                            backgroundColor: isFiltered ? colors.primary + '18' : colors.cardFill,
+                            paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999,
+                            flexShrink: 1,
+                        }}>
+                            <Text style={{ fontFamily: isFiltered ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: isFiltered ? colors.primary : colors.textGrey }} numberOfLines={1}>
+                                {activeFilterSummary}
+                            </Text>
+                        </View>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        {isFiltered && (
+                            <TouchableOpacity
+                                activeOpacity={0.7}
+                                onPress={() => {
+                                    setFilterType('all');
+                                    setFilterBatchId('all');
+                                }}
                                 style={{
-                                    flexDirection: 'row', alignItems: 'center',
-                                    paddingHorizontal: 13, paddingVertical: 6,
-                                    borderRadius: 18, borderWidth: 1.5,
-                                    borderColor: isSel ? activeColor : colors.stroke,
-                                    backgroundColor: isSel ? activeColor + '18' : colors.surface,
-                                }}>
-                                {cfg && <MaterialIcons name={cfg.icon as any} size={13} color={isSel ? activeColor : colors.textGrey} style={{ marginRight: 5 }} />}
-                                <Text style={{ fontFamily: isSel ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 12, color: isSel ? activeColor : colors.textGrey }}>
-                                    {type === 'all' ? 'All' : cfg!.label}
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 3,
+                                    borderRadius: 999,
+                                    backgroundColor: colors.primary + '12',
+                                }}
+                            >
+                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.primary }}>
+                                    Reset
                                 </Text>
                             </TouchableOpacity>
-                        );
-                    })}
-                </ScrollView>
+                        )}
+                        <MaterialIcons
+                            name={filtersCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
+                            size={20}
+                            color={colors.textGrey}
+                        />
+                    </View>
+                </TouchableOpacity>
+
+                {/* Body: wrapped multi-line chips (pill round shaped), no sliding */}
+                {!filtersCollapsed && (
+                    <View style={{ paddingHorizontal: 12, paddingBottom: 10, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.stroke + '40' }}>
+                        {/* Batch Filter Row */}
+                        {batches.length > 1 && (
+                            <View style={{ marginBottom: 10 }}>
+                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.textGrey, letterSpacing: 0.6, marginBottom: 6, textTransform: 'uppercase' }}>
+                                    Batch
+                                </Text>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                    {[{ id: 'all', name: 'All Batches', status: '' } as any, ...batches].map(b => {
+                                        const sel = filterBatchId === b.id;
+                                        return (
+                                            <TouchableOpacity
+                                                key={b.id}
+                                                activeOpacity={0.75}
+                                                onPress={() => setFilterBatchId(b.id)}
+                                                style={{
+                                                    paddingHorizontal: 14,
+                                                    paddingVertical: 6,
+                                                    borderRadius: 999,
+                                                    borderWidth: 1.5,
+                                                    borderColor: sel ? colors.primary : colors.stroke,
+                                                    backgroundColor: sel ? colors.primary + '18' : colors.surface,
+                                                }}
+                                            >
+                                                <Text style={{ fontFamily: sel ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11.5, color: sel ? colors.primary : colors.textGrey }}>
+                                                    {b.name}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </View>
+                        )}
+
+                        {/* Record Type Filter Row */}
+                        <View>
+                            <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.textGrey, letterSpacing: 0.6, marginBottom: 6, textTransform: 'uppercase' }}>
+                                Record Type
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                {ALL_FILTERS.map(type => {
+                                    const isSel = filterType === type;
+                                    const cfg = type === 'all' ? null : RECORD_TYPES[type];
+                                    const activeColor = cfg?.color ?? colors.primary;
+                                    return (
+                                        <TouchableOpacity
+                                            key={type}
+                                            activeOpacity={0.75}
+                                            onPress={() => setFilterType(type)}
+                                            style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                paddingHorizontal: 14,
+                                                paddingVertical: 6,
+                                                borderRadius: 999,
+                                                borderWidth: 1.5,
+                                                borderColor: isSel ? activeColor : colors.stroke,
+                                                backgroundColor: isSel ? activeColor + '18' : colors.surface,
+                                            }}
+                                        >
+                                            {cfg && (
+                                                <MaterialIcons
+                                                    name={cfg.icon as any}
+                                                    size={13}
+                                                    color={isSel ? activeColor : colors.textGrey}
+                                                    style={{ marginRight: 5 }}
+                                                />
+                                            )}
+                                            <Text style={{ fontFamily: isSel ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11.5, color: isSel ? activeColor : colors.textGrey }}>
+                                                {type === 'all' ? 'All Types' : cfg!.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        </View>
+                    </View>
+                )}
             </View>
 
             {/* ── Content ── */}
@@ -1829,7 +2158,15 @@ export default function HealthRecordsScreen() {
                                 // Compact metadata chip
                                 const Chip = ({ icon, label }: { icon: string; label: string }) => (
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.cardFill, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-                                        <MaterialIcons name={icon as any} size={10} color={colors.textGrey} />
+                                        {icon === 'pets' ? (
+                                            <Image
+                                                source={require('../../assets/icons/animals-filled.svg')}
+                                                style={{ width: 12, height: 12 }}
+                                                contentFit="contain"
+                                            />
+                                        ) : (
+                                            <MaterialIcons name={icon as any} size={10} color={colors.textGrey} />
+                                        )}
                                         <Text style={{ color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Regular' }}>{label}</Text>
                                     </View>
                                 );
@@ -2316,16 +2653,27 @@ export default function HealthRecordsScreen() {
                                         <View style={{ flex: 1 }}>
                                             {fieldLabel(affectedLabel(addType))}
                                             <TextInput
-                                                style={[inputStyle(!!addAffected), selectedAddBatch != null && addAffected !== '' && parseInt(addAffected) > selectedAddBatch.current_count ? { borderColor: colors.error, backgroundColor: colors.error + '0A' } : {}]}
-                                                placeholder={selectedAddBatch ? `Max ${selectedAddBatch.current_count}` : 'Count'}
+                                                style={[
+                                                    inputStyle(!!addAffected),
+                                                    (selectedAddBatch != null && addAffected !== '' && parseInt(addAffected, 10) > selectedAddBatch.current_count) ||
+                                                    (addType === 'vaccination' && addAffected !== '' && parseInt(addAffected, 10) < 1)
+                                                        ? { borderColor: colors.error, backgroundColor: colors.error + '0A' }
+                                                        : {},
+                                                ]}
+                                                placeholder={selectedAddBatch ? `Min 1, Max ${selectedAddBatch.current_count}` : 'Min 1'}
                                                 placeholderTextColor={colors.textGrey}
                                                 value={addAffected}
                                                 onChangeText={t => setAddAffected(t.replace(/[^0-9]/g, ''))}
                                                 keyboardType="numeric"
                                             />
-                                            {selectedAddBatch != null && addAffected !== '' && parseInt(addAffected) > selectedAddBatch.current_count && (
+                                            {selectedAddBatch != null && addAffected !== '' && parseInt(addAffected, 10) > selectedAddBatch.current_count && (
                                                 <Text style={{ color: colors.error, fontSize: 10, fontFamily: 'Poppins-Regular', marginTop: 3 }}>
                                                     {'Exceeds ' + selectedAddBatch.current_count + ' available'}
+                                                </Text>
+                                            )}
+                                            {addType === 'vaccination' && addAffected !== '' && parseInt(addAffected, 10) < 1 && (
+                                                <Text style={{ color: colors.error, fontSize: 10, fontFamily: 'Poppins-Regular', marginTop: 3 }}>
+                                                    Minimum 1 animal vaccinated
                                                 </Text>
                                             )}
                                         </View>
@@ -2388,12 +2736,19 @@ export default function HealthRecordsScreen() {
                                     <Text style={[textStyles.btnLabel, { color: colors.textGrey }]}>Cancel</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                    style={[styles.primaryButton, { flex: 2, backgroundColor: colors.primary }]}
+                                    style={[
+                                        styles.primaryButton,
+                                        {
+                                            flex: 2,
+                                            backgroundColor: (!isAddFormValid || isSaving) ? colors.stroke : colors.primary,
+                                            opacity: (!isAddFormValid || isSaving) ? 0.6 : 1,
+                                        },
+                                    ]}
                                     onPress={handleAdd}
                                     activeOpacity={0.85}
-                                    disabled={isSaving}
+                                    disabled={!isAddFormValid || isSaving}
                                 >
-                                    <Text style={[textStyles.btnLabel, { color: colors.onPrimary }]}>
+                                    <Text style={[textStyles.btnLabel, { color: (!isAddFormValid || isSaving) ? colors.textGrey : colors.onPrimary }]}>
                                         {isSaving ? 'Saving…' : 'Save Record'}
                                     </Text>
                                 </TouchableOpacity>
@@ -2603,13 +2958,23 @@ export default function HealthRecordsScreen() {
                                         <View style={{ flex: 1 }}>
                                             {fieldLabel(affectedLabel(editType))}
                                             <TextInput
-                                                style={[inputStyle(!!editAffected)]}
-                                                placeholder={batches.find(b => b.id === editBatchId) ? `Max ${batches.find(b => b.id === editBatchId)!.current_count}` : 'Count'}
+                                                style={[
+                                                    inputStyle(!!editAffected),
+                                                    (isEditCountExceeded || (editType === 'vaccination' && editAffected !== '' && parseInt(editAffected, 10) < 1))
+                                                        ? { borderColor: colors.error, backgroundColor: colors.error + '0A' }
+                                                        : {},
+                                                ]}
+                                                placeholder={batches.find(b => b.id === editBatchId) ? `Min 1, Max ${batches.find(b => b.id === editBatchId)!.current_count}` : 'Min 1'}
                                                 placeholderTextColor={colors.textGrey}
                                                 value={editAffected}
                                                 onChangeText={t => setEditAffected(t.replace(/[^0-9]/g, ''))}
                                                 keyboardType="numeric"
                                             />
+                                            {editType === 'vaccination' && editAffected !== '' && parseInt(editAffected, 10) < 1 && (
+                                                <Text style={{ color: colors.error, fontSize: 10, fontFamily: 'Poppins-Regular', marginTop: 3 }}>
+                                                    Minimum 1 animal vaccinated
+                                                </Text>
+                                            )}
                                         </View>
                                     )}
                                     {RECORD_TYPES[editType].showSeverity && (
@@ -2668,12 +3033,19 @@ export default function HealthRecordsScreen() {
                                     <Text style={[textStyles.btnLabel, { color: colors.textGrey }]}>Cancel</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                    style={[styles.primaryButton, { flex: 2, backgroundColor: colors.primary }]}
+                                    style={[
+                                        styles.primaryButton,
+                                        {
+                                            flex: 2,
+                                            backgroundColor: (!isEditFormValid || isUpdating) ? colors.stroke : colors.primary,
+                                            opacity: (!isEditFormValid || isUpdating) ? 0.6 : 1,
+                                        },
+                                    ]}
                                     onPress={handleUpdate}
                                     activeOpacity={0.85}
-                                    disabled={isUpdating}
+                                    disabled={!isEditFormValid || isUpdating}
                                 >
-                                    <Text style={[textStyles.btnLabel, { color: colors.onPrimary }]}>
+                                    <Text style={[textStyles.btnLabel, { color: (!isEditFormValid || isUpdating) ? colors.textGrey : colors.onPrimary }]}>
                                         {isUpdating ? 'Saving…' : 'Update Record'}
                                     </Text>
                                 </TouchableOpacity>
@@ -2903,7 +3275,19 @@ export default function HealthRecordsScreen() {
                 visible={vaccinePickerVisible}
                 search={vaccineSearch}
                 onSearch={setVaccineSearch}
-                onSelect={name => { setAddTitle(name); setVaccinePickerVisible(false); setVaccineSearch(''); }}
+                vaccineList={dbVaccines}
+                activeAnimalType={selectedAddBatch?.animal_type || housingAnimalType || activeBatch?.animal_type}
+                onSelect={selected => {
+                    const name = typeof selected === 'string' ? selected : selected.name;
+                    setAddTitle(name);
+                    if (typeof selected !== 'string') {
+                        if (selected.dose_per_animal != null && !addDosage) {
+                            setAddDosage(String(selected.dose_per_animal));
+                        }
+                    }
+                    setVaccinePickerVisible(false);
+                    setVaccineSearch('');
+                }}
                 onClose={() => { setVaccinePickerVisible(false); setVaccineSearch(''); }}
                 colors={colors}
             />
@@ -2985,7 +3369,19 @@ export default function HealthRecordsScreen() {
                 visible={editVaccinePickerVisible}
                 search={editVaccineSearch}
                 onSearch={setEditVaccineSearch}
-                onSelect={name => { setEditTitle(name); setEditVaccinePickerVisible(false); setEditVaccineSearch(''); }}
+                vaccineList={dbVaccines}
+                activeAnimalType={batches.find(b => b.id === editBatchId)?.animal_type || housingAnimalType || activeBatch?.animal_type}
+                onSelect={selected => {
+                    const name = typeof selected === 'string' ? selected : selected.name;
+                    setEditTitle(name);
+                    if (typeof selected !== 'string') {
+                        if (selected.dose_per_animal != null && !editDosage) {
+                            setEditDosage(String(selected.dose_per_animal));
+                        }
+                    }
+                    setEditVaccinePickerVisible(false);
+                    setEditVaccineSearch('');
+                }}
                 onClose={() => { setEditVaccinePickerVisible(false); setEditVaccineSearch(''); }}
                 colors={colors}
             />

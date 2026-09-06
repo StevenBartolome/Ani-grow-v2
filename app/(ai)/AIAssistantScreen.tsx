@@ -293,7 +293,15 @@ function NavButton({ link }: { link: NavLink }) {
             marginTop: 8, alignSelf: 'flex-start',
             backgroundColor: colors.cardFill,
         }}>
-            <MaterialIcons name={link.icon as any} size={15} color={colors.primary} />
+            {link.icon === 'pets' ? (
+                <Image
+                    source={require('../../assets/icons/animals-filled.svg')}
+                    style={{ width: 16, height: 16 }}
+                    contentFit="contain"
+                />
+            ) : (
+                <MaterialIcons name={link.icon as any} size={15} color={colors.primary} />
+            )}
             <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 13, color: colors.primary }}>{link.label}</Text>
             <MaterialIcons name="arrow-forward" size={13} color={colors.primary} />
         </TouchableOpacity>

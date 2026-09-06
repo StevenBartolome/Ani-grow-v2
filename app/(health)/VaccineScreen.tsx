@@ -8,6 +8,7 @@
  */
 
 import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
@@ -16,6 +17,7 @@ import {
     Modal,
     Platform,
     Pressable,
+    RefreshControl,
     ScrollView,
     TextInput,
     TouchableOpacity,
@@ -149,6 +151,7 @@ export default function VaccineScreen() {
     const [inventory, setInventory]   = useState<VaccineItem[]>([]);
     const [batches, setBatches]       = useState<BatchOption[]>([]);
     const [isLoading, setIsLoading]   = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     // ── Snackbar ──────────────────────────────────────────────────────────────
     const [snackVisible, setSnackVisible]   = useState(false);
@@ -471,6 +474,12 @@ export default function VaccineScreen() {
         setIsLoading(false);
     }, [loadRecords, loadSchedules, loadInventory, loadBatches]);
 
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await Promise.all([loadRecords(), loadSchedules(), loadInventory(), loadBatches()]);
+        setRefreshing(false);
+    }, [loadRecords, loadSchedules, loadInventory, loadBatches]);
+
     useFocusEffect(
         useCallback(() => {
             loadAll();
@@ -711,7 +720,13 @@ export default function VaccineScreen() {
     // ─────────────────────────────────────────────────────────────────────────
 
     const RecordsTab = () => (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}>
+        <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+            }
+        >
             {records.length === 0 ? (
                 <View style={styles.emptyState}>
                     <View style={[styles.emptyIcon, { backgroundColor: colors.primary + '15' }]}>
@@ -742,7 +757,11 @@ export default function VaccineScreen() {
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
                             {rec.animals_vaccinated != null && (
                                 <View style={[styles.chip, { backgroundColor: colors.primary + '12' }]}>
-                                    <MaterialIcons name="pets" size={12} color={colors.primary} />
+                                    <Image
+                                        source={require('../../assets/icons/animals-filled.svg')}
+                                        style={{ width: 14, height: 14 }}
+                                        contentFit="contain"
+                                    />
                                     <Text style={[textStyles.label, { color: colors.primary, fontSize: 11 }]}>{rec.animals_vaccinated} animals</Text>
                                 </View>
                             )}
@@ -775,7 +794,13 @@ export default function VaccineScreen() {
     );
 
     const ScheduleTab = () => (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}>
+        <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+            }
+        >
             {schedules.length === 0 ? (
                 <View style={styles.emptyState}>
                     <View style={[styles.emptyIcon, { backgroundColor: '#3B82F6' + '15' }]}>
@@ -842,7 +867,13 @@ export default function VaccineScreen() {
     );
 
     const InventoryTab = () => (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}>
+        <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+            }
+        >
             {lowStockCount > 0 && (
                 <View style={{
                     flexDirection: 'row', alignItems: 'center', gap: 10,
