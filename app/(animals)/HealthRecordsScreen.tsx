@@ -3,7 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     ActivityIndicator, Modal, Platform, RefreshControl, ScrollView,
-    TextInput, TouchableOpacity, View, Animated, PanResponder, Easing,
+    TextInput, TouchableOpacity, View, Animated, PanResponder, Easing, StyleSheet,
 } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -281,12 +281,13 @@ const MONTH_NAMES = [
 ];
 const DAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
-function CalendarPickerModal({
+function CalendarPickerOverlay({
     visible, value, onChange, onClose, colors, label,
 }: {
     visible: boolean; value: string; onChange: (d: string) => void;
     onClose: () => void; colors: any; label: string;
 }) {
+    if (!visible) return null;
     const today = new Date();
     const initDate = value ? new Date(value + 'T00:00:00') : today;
     const [viewYear, setViewYear] = useState(initDate.getFullYear());
@@ -298,7 +299,7 @@ function CalendarPickerModal({
             setViewYear(d.getFullYear());
             setViewMonth(d.getMonth());
         }
-    }, [visible]);
+    }, [visible, value]);
 
     const prevMonth = () => {
         if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
@@ -338,114 +339,112 @@ function CalendarPickerModal({
     };
 
     return (
-        <Modal visible={visible} transparent animationType="fade">
-            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-                <TouchableOpacity
-                    activeOpacity={1}
-                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                    onPress={onClose}
-                />
-                <View style={{
-                    backgroundColor: colors.surface,
-                    borderTopLeftRadius: 28, borderTopRightRadius: 28,
-                    paddingBottom: 32, paddingHorizontal: 20,
-                }}>
-                    {/* Handle */}
-                    <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 16 }} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', zIndex: 1000, elevation: 25 }]}>
+            <TouchableOpacity
+                activeOpacity={1}
+                style={StyleSheet.absoluteFill}
+                onPress={onClose}
+            />
+            <View style={{
+                backgroundColor: colors.surface,
+                borderTopLeftRadius: 28, borderTopRightRadius: 28,
+                paddingBottom: 32, paddingHorizontal: 20,
+                width: '100%', zIndex: 1001, elevation: 30,
+            }}>
+                {/* Handle */}
+                <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 16 }} />
 
-                    {/* Title */}
-                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: 20 }}>
-                        {label}
-                    </Text>
+                {/* Title */}
+                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: 20 }}>
+                    {label}
+                </Text>
 
-                    {/* Month / Year nav */}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                        <TouchableOpacity
-                            onPress={prevMonth}
-                            style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}
-                        >
-                            <MaterialIcons name="chevron-left" size={24} color={colors.text} />
-                        </TouchableOpacity>
-                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.text }}>
-                            {MONTH_NAMES[viewMonth]} {viewYear}
-                        </Text>
-                        <TouchableOpacity
-                            onPress={nextMonth}
-                            style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}
-                        >
-                            <MaterialIcons name="chevron-right" size={24} color={colors.text} />
-                        </TouchableOpacity>
-                    </View>
-
-                    {/* Day-of-week headers */}
-                    <View style={{ flexDirection: 'row', marginBottom: 8 }}>
-                        {DAY_NAMES.map(d => (
-                            <View key={d} style={{ flex: 1, alignItems: 'center' }}>
-                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.textGrey }}>{d}</Text>
-                            </View>
-                        ))}
-                    </View>
-
-                    {/* Calendar grid */}
-                    {Array.from({ length: cells.length / 7 }, (_, row) => (
-                        <View key={row} style={{ flexDirection: 'row', marginBottom: 4 }}>
-                            {cells.slice(row * 7, row * 7 + 7).map((day, col) => {
-                                const sel = day !== null && isSelected(day);
-                                const tod = day !== null && isToday(day);
-                                return (
-                                    <View key={col} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                                        {day !== null ? (
-                                            <TouchableOpacity
-                                                onPress={() => handleDayPress(day)}
-                                                activeOpacity={0.75}
-                                                style={{
-                                                    width: 38, height: 38, borderRadius: 19,
-                                                    alignItems: 'center', justifyContent: 'center',
-                                                    backgroundColor: sel ? colors.primary : tod ? colors.primary + '18' : 'transparent',
-                                                    borderWidth: tod && !sel ? 1.5 : 0,
-                                                    borderColor: colors.primary,
-                                                }}
-                                            >
-                                                <Text style={{
-                                                    fontFamily: sel ? 'Poppins-SemiBold' : 'Poppins-Regular',
-                                                    fontSize: 14,
-                                                    color: sel ? '#fff' : tod ? colors.primary : colors.text,
-                                                }}>
-                                                    {day}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        ) : <View style={{ width: 38, height: 38 }} />}
-                                    </View>
-                                );
-                            })}
-                        </View>
-                    ))}
-
-                    {/* Today shortcut */}
+                {/* Month / Year nav */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                     <TouchableOpacity
-                        onPress={() => {
-                            const mm = String(today.getMonth() + 1).padStart(2, '0');
-                            const dd = String(today.getDate()).padStart(2, '0');
-                            onChange(`${today.getFullYear()}-${mm}-${dd}`);
-                            onClose();
-                        }}
-                        style={{ marginTop: 12, paddingVertical: 13, borderRadius: 14, backgroundColor: colors.primary + '15', alignItems: 'center' }}
+                        onPress={prevMonth}
+                        style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}
                     >
-                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.primary }}>
-                            Today
-                        </Text>
+                        <MaterialIcons name="chevron-left" size={24} color={colors.text} />
+                    </TouchableOpacity>
+                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.text }}>
+                        {MONTH_NAMES[viewMonth]} {viewYear}
+                    </Text>
+                    <TouchableOpacity
+                        onPress={nextMonth}
+                        style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}
+                    >
+                        <MaterialIcons name="chevron-right" size={24} color={colors.text} />
                     </TouchableOpacity>
                 </View>
+
+                {/* Day-of-week headers */}
+                <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+                    {DAY_NAMES.map(d => (
+                        <View key={d} style={{ flex: 1, alignItems: 'center' }}>
+                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.textGrey }}>{d}</Text>
+                        </View>
+                    ))}
+                </View>
+
+                {/* Calendar grid */}
+                {Array.from({ length: cells.length / 7 }, (_, row) => (
+                    <View key={row} style={{ flexDirection: 'row', marginBottom: 4 }}>
+                        {cells.slice(row * 7, row * 7 + 7).map((day, col) => {
+                            const sel = day !== null && isSelected(day);
+                            const tod = day !== null && isToday(day);
+                            return (
+                                <View key={col} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                                    {day !== null ? (
+                                        <TouchableOpacity
+                                            onPress={() => handleDayPress(day)}
+                                            activeOpacity={0.75}
+                                            style={{
+                                                width: 38, height: 38, borderRadius: 19,
+                                                alignItems: 'center', justifyContent: 'center',
+                                                backgroundColor: sel ? colors.primary : tod ? colors.primary + '18' : 'transparent',
+                                                borderWidth: tod && !sel ? 1.5 : 0,
+                                                borderColor: colors.primary,
+                                            }}
+                                        >
+                                            <Text style={{
+                                                fontFamily: sel ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                                                fontSize: 14,
+                                                color: sel ? '#fff' : tod ? colors.primary : colors.text,
+                                            }}>
+                                                {day}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ) : <View style={{ width: 38, height: 38 }} />}
+                                </View>
+                            );
+                        })}
+                    </View>
+                ))}
+
+                {/* Today shortcut */}
+                <TouchableOpacity
+                    onPress={() => {
+                        const mm = String(today.getMonth() + 1).padStart(2, '0');
+                        const dd = String(today.getDate()).padStart(2, '0');
+                        onChange(`${today.getFullYear()}-${mm}-${dd}`);
+                        onClose();
+                    }}
+                    style={{ marginTop: 12, paddingVertical: 13, borderRadius: 14, backgroundColor: colors.primary + '15', alignItems: 'center' }}
+                >
+                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.primary }}>
+                        Today
+                    </Text>
+                </TouchableOpacity>
             </View>
-        </Modal>
+        </View>
     );
 }
 
 function DatePickerField({
-    label, value, onChange, required,
-}: { label: string; value: string; onChange: (d: string) => void; required?: boolean }) {
+    label, value, onPress, required,
+}: { label: string; value: string; onPress: () => void; required?: boolean }) {
     const { colors } = useTheme();
-    const [open, setOpen] = useState(false);
     const hasValue = !!value;
     const border = hasValue ? colors.primary : colors.stroke;
     const bg = hasValue ? colors.primary + '0A' : colors.cardFill;
@@ -461,7 +460,7 @@ function DatePickerField({
             </Text>
             <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={() => setOpen(true)}
+                onPress={onPress}
                 style={{
                     borderWidth: 1.5, borderColor: border, borderRadius: 14,
                     paddingHorizontal: 14, paddingVertical: 12,
@@ -477,19 +476,11 @@ function DatePickerField({
                 </View>
                 <MaterialIcons name="keyboard-arrow-down" size={20} color={colors.textGrey} />
             </TouchableOpacity>
-            <CalendarPickerModal
-                visible={open}
-                value={value}
-                onChange={onChange}
-                onClose={() => setOpen(false)}
-                colors={colors}
-                label={label}
-            />
         </View>
     );
 }
 
-// ─── VaccinePickerModal ───────────────────────────────────────────────────────
+// ─── VaccinePickerModal (In-Modal Overlay) ────────────────────────────────────
 
 function VaccinePickerModal({
     visible, search, onSearch, onSelect, onClose, colors, vaccineList = [], activeAnimalType,
@@ -499,6 +490,8 @@ function VaccinePickerModal({
     vaccineList?: VaccineItem[];
     activeAnimalType?: string;
 }) {
+    if (!visible) return null;
+
     const normAnimal = (activeAnimalType || '').toLowerCase().trim();
     const isChicken = normAnimal === 'chicken' || normAnimal === 'poultry';
     const isPig = normAnimal === 'pig' || normAnimal === 'swine';
@@ -518,15 +511,9 @@ function VaccinePickerModal({
     // If selected housing/batch is for chickens or pigs, hide not-applicable vaccines, only show matching & both
     const speciesFiltered = list.filter(v => {
         const spec = (v.species || '').toLowerCase().trim();
-        // Always show vaccines marked 'both', 'all', or general
         if (!spec || spec === 'both' || spec === 'all' || spec === 'general') return true;
-
-        if (isChicken) {
-            return spec === 'chicken' || spec === 'poultry';
-        }
-        if (isPig) {
-            return spec === 'pig' || spec === 'swine';
-        }
+        if (isChicken) return spec === 'chicken' || spec === 'poultry';
+        if (isPig) return spec === 'pig' || spec === 'swine';
         return true;
     });
 
@@ -542,89 +529,90 @@ function VaccinePickerModal({
     const isCustomNeeded = search.trim().length > 0 && !speciesFiltered.some(v => v.name.toLowerCase() === search.trim().toLowerCase());
 
     return (
-        <Modal visible={visible} transparent animationType="fade">
-            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-                <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', paddingBottom: 24 }}>
-                    <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
-                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: (isChicken || isPig) ? 2 : 12 }}>Select Vaccine</Text>
-                    {(isChicken || isPig) && (
-                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey, textAlign: 'center', marginBottom: 12 }}>
-                            Showing vaccines for {isChicken ? 'Chickens' : 'Pigs'} & General
-                        </Text>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', zIndex: 1000, elevation: 25 }]}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+            <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', paddingBottom: 24, width: '100%', zIndex: 1001, elevation: 30 }}>
+                <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
+                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: (isChicken || isPig) ? 2 : 12 }}>Select Vaccine</Text>
+                {(isChicken || isPig) && (
+                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey, textAlign: 'center', marginBottom: 12 }}>
+                        Showing vaccines for {isChicken ? 'Chickens' : 'Pigs'} & General
+                    </Text>
+                )}
+                <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.primary, borderRadius: 14, marginHorizontal: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8, backgroundColor: colors.cardFill }}>
+                    <MaterialIcons name="search" size={18} color={colors.primary} style={{ marginRight: 6 }} />
+                    <TextInput
+                        style={{ flex: 1, fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text }}
+                        placeholder="Search vaccine…"
+                        placeholderTextColor={colors.textGrey}
+                        value={search}
+                        onChangeText={onSearch}
+                        autoFocus
+                    />
+                    {search.length > 0 && (
+                        <TouchableOpacity onPress={() => onSearch('')}>
+                            <MaterialIcons name="close" size={16} color={colors.textGrey} />
+                        </TouchableOpacity>
                     )}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.primary, borderRadius: 14, marginHorizontal: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8, backgroundColor: colors.cardFill }}>
-                        <MaterialIcons name="search" size={18} color={colors.primary} style={{ marginRight: 6 }} />
-                        <TextInput
-                            style={{ flex: 1, fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text }}
-                            placeholder="Search vaccine…"
-                            placeholderTextColor={colors.textGrey}
-                            value={search}
-                            onChangeText={onSearch}
-                            autoFocus
-                        />
-                        {search.length > 0 && (
-                            <TouchableOpacity onPress={() => onSearch('')}>
-                                <MaterialIcons name="close" size={16} color={colors.textGrey} />
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                        {isCustomNeeded && (
-                            <TouchableOpacity
-                                onPress={() => onSelect(search.trim())}
-                                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.stroke }}
-                            >
-                                <MaterialIcons name="add-circle-outline" size={18} color={colors.primary} />
-                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 14, color: colors.primary }}>Use "{search.trim()}"</Text>
-                            </TouchableOpacity>
-                        )}
-                        {filtered.map((item, i) => {
-                            const specLabel = item.species === 'both' ? 'All Species' : item.species ? item.species.charAt(0).toUpperCase() + item.species.slice(1) : null;
-                            const specColor = item.species === 'chicken' ? '#F59E0B' : item.species === 'pig' ? '#F97316' : '#6C63FF';
-                            return (
-                                <TouchableOpacity
-                                    key={item.id || i}
-                                    onPress={() => onSelect(item)}
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: colors.stroke + '60' }}
-                                >
-                                    <MaterialIcons name="vaccines" size={16} color="#27AE60" />
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text }}>{item.name}</Text>
-                                        {(item.stock_quantity != null || specLabel) && (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                                                {specLabel && (
-                                                    <View style={{ backgroundColor: specColor + '18', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 }}>
-                                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: specColor }}>{specLabel}</Text>
-                                                    </View>
-                                                )}
-                                                {item.stock_quantity != null && item.stock_quantity > 0 && (
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
-                                                        {item.stock_quantity} {item.unit || 'doses'} in stock
-                                                    </Text>
-                                                )}
-                                                {item.dose_per_animal != null && (
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
-                                                        · {item.dose_per_animal} {item.unit || 'dose'}/animal
-                                                    </Text>
-                                                )}
-                                            </View>
-                                        )}
-                                    </View>
-                                </TouchableOpacity>
-                            );
-                        })}
-                        {filtered.length === 0 && search.length > 0 && (
-                            <Text style={{ textAlign: 'center', color: colors.textGrey, fontFamily: 'Poppins-Regular', fontSize: 13, marginTop: 20 }}>No match — type above to use custom name</Text>
-                        )}
-                    </ScrollView>
-                    <TouchableOpacity onPress={onClose} style={{ marginHorizontal: 20, marginTop: 12, paddingVertical: 13, borderRadius: 14, backgroundColor: colors.cardFill, alignItems: 'center' }}>
-                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.textGrey }}>Cancel</Text>
-                    </TouchableOpacity>
                 </View>
+                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                    {isCustomNeeded && (
+                        <TouchableOpacity
+                            onPress={() => onSelect(search.trim())}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.stroke }}
+                        >
+                            <MaterialIcons name="add-circle-outline" size={18} color={colors.primary} />
+                            <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 14, color: colors.primary }}>Use "{search.trim()}"</Text>
+                        </TouchableOpacity>
+                    )}
+                    {filtered.map((item, i) => {
+                        const specLabel = item.species === 'both' ? 'All Species' : item.species ? item.species.charAt(0).toUpperCase() + item.species.slice(1) : null;
+                        const specColor = item.species === 'chicken' ? '#F59E0B' : item.species === 'pig' ? '#F97316' : '#6C63FF';
+                        return (
+                            <TouchableOpacity
+                                key={item.id || i}
+                                onPress={() => onSelect(item)}
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: colors.stroke + '60' }}
+                            >
+                                <MaterialIcons name="vaccines" size={16} color="#27AE60" />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text }}>{item.name}</Text>
+                                    {(item.stock_quantity != null || specLabel) && (
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                            {specLabel && (
+                                                <View style={{ backgroundColor: specColor + '18', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 }}>
+                                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: specColor }}>{specLabel}</Text>
+                                                </View>
+                                            )}
+                                            {item.stock_quantity != null && item.stock_quantity > 0 && (
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                                    {item.stock_quantity} {item.unit || 'doses'} in stock
+                                                </Text>
+                                            )}
+                                            {item.dose_per_animal != null && (
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                                    · {item.dose_per_animal} {item.unit || 'dose'}/animal
+                                                </Text>
+                                            )}
+                                        </View>
+                                    )}
+                                </View>
+                            </TouchableOpacity>
+                        );
+                    })}
+                    {filtered.length === 0 && search.length > 0 && (
+                        <Text style={{ textAlign: 'center', color: colors.textGrey, fontFamily: 'Poppins-Regular', fontSize: 13, marginTop: 20 }}>No match — type above to use custom name</Text>
+                    )}
+                </ScrollView>
+                <TouchableOpacity onPress={onClose} style={{ marginHorizontal: 20, marginTop: 12, paddingVertical: 13, borderRadius: 14, backgroundColor: colors.cardFill, alignItems: 'center' }}>
+                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.textGrey }}>Cancel</Text>
+                </TouchableOpacity>
             </View>
-        </Modal>
+        </View>
     );
 }
+
+// ─── SuggestionPickerModal (In-Modal Overlay) ─────────────────────────────────
 
 function SuggestionPickerModal({
     visible, title, options, onSelect, onClose, colors
@@ -632,54 +620,364 @@ function SuggestionPickerModal({
     visible: boolean; title: string; options: string[];
     onSelect: (val: string) => void; onClose: () => void; colors: any;
 }) {
+    if (!visible) return null;
+
     const [search, setSearch] = useState('');
     const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
 
-    useEffect(() => {
-        if (!visible) setSearch('');
-    }, [visible]);
-
     return (
-        <Modal visible={visible} transparent animationType="fade">
-            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-                <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', paddingBottom: 24 }}>
-                    <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
-                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: 12 }}>{title}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.primary, borderRadius: 14, marginHorizontal: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8, backgroundColor: colors.cardFill }}>
-                        <MaterialIcons name="search" size={18} color={colors.primary} style={{ marginRight: 6 }} />
-                        <TextInput
-                            style={{ flex: 1, fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text }}
-                            placeholder="Search..."
-                            placeholderTextColor={colors.textGrey}
-                            value={search}
-                            onChangeText={setSearch}
-                        />
-                        {search.length > 0 && (
-                            <TouchableOpacity onPress={() => setSearch('')}>
-                                <MaterialIcons name="close" size={16} color={colors.textGrey} />
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                        {filtered.map((opt, i) => (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', zIndex: 1000, elevation: 25 }]}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+            <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', paddingBottom: 24, width: '100%', zIndex: 1001, elevation: 30 }}>
+                <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
+                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: 12 }}>{title}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.primary, borderRadius: 14, marginHorizontal: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8, backgroundColor: colors.cardFill }}>
+                    <MaterialIcons name="search" size={18} color={colors.primary} style={{ marginRight: 6 }} />
+                    <TextInput
+                        style={{ flex: 1, fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text }}
+                        placeholder="Search..."
+                        placeholderTextColor={colors.textGrey}
+                        value={search}
+                        onChangeText={setSearch}
+                    />
+                    {search.length > 0 && (
+                        <TouchableOpacity onPress={() => setSearch('')}>
+                            <MaterialIcons name="close" size={16} color={colors.textGrey} />
+                        </TouchableOpacity>
+                    )}
+                </View>
+                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                    {filtered.map((opt, i) => (
+                        <TouchableOpacity
+                            key={i}
+                            onPress={() => onSelect(opt)}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: colors.stroke + '60' }}
+                        >
+                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text, flex: 1 }}>{opt}</Text>
+                        </TouchableOpacity>
+                    ))}
+                    {filtered.length === 0 && (
+                        <Text style={{ textAlign: 'center', color: colors.textGrey, fontFamily: 'Poppins-Regular', fontSize: 13, marginTop: 20 }}>No matches found</Text>
+                    )}
+                </ScrollView>
+                <TouchableOpacity onPress={onClose} style={{ marginHorizontal: 20, marginTop: 12, paddingVertical: 13, borderRadius: 14, backgroundColor: colors.cardFill, alignItems: 'center' }}>
+                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.textGrey }}>Cancel</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+}
+
+// ─── Reusable In-Modal Picker Overlays ─────────────────────────────────────────
+
+function BatchPickerOverlay({
+    visible, batches, selectedId, onSelect, onClose, colors, textStyles,
+}: {
+    visible: boolean; batches: Batch[]; selectedId: string;
+    onSelect: (id: string) => void; onClose: () => void; colors: any; textStyles: any;
+}) {
+    if (!visible) return null;
+    return (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24, zIndex: 1000, elevation: 25 }]}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+            <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, width: '100%', maxWidth: 340, maxHeight: '80%', zIndex: 1001, elevation: 30 }}>
+                <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center', marginBottom: 16, fontSize: 16 }]}>Select Batch</Text>
+                {batches.length === 0 ? (
+                    <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingVertical: 16 }]}>No batches found for this housing.</Text>
+                ) : (
+                    <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                        {batches.map(b => (
                             <TouchableOpacity
-                                key={i}
-                                onPress={() => onSelect(opt)}
-                                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: colors.stroke + '60' }}
+                                key={b.id}
+                                style={{
+                                    flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10,
+                                    borderRadius: 12, backgroundColor: selectedId === b.id ? colors.primary + '15' : 'transparent', marginBottom: 4
+                                }}
+                                onPress={() => { onSelect(b.id); onClose(); }}
                             >
-                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.text, flex: 1 }}>{opt}</Text>
+                                <View style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                                    <MaterialIcons name="layers" size={18} color={colors.primary} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 14, fontFamily: selectedId === b.id ? 'Poppins-SemiBold' : 'Poppins-Regular' }]}>{b.name}</Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                                        {b.status} · {b.current_count} animals
+                                    </Text>
+                                </View>
+                                {selectedId === b.id && <MaterialIcons name="check" size={18} color={colors.primary} style={{ marginLeft: 'auto' }} />}
                             </TouchableOpacity>
                         ))}
-                        {filtered.length === 0 && (
-                            <Text style={{ textAlign: 'center', color: colors.textGrey, fontFamily: 'Poppins-Regular', fontSize: 13, marginTop: 20 }}>No matches found</Text>
-                        )}
                     </ScrollView>
-                    <TouchableOpacity onPress={onClose} style={{ marginHorizontal: 20, marginTop: 12, paddingVertical: 13, borderRadius: 14, backgroundColor: colors.cardFill, alignItems: 'center' }}>
-                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.textGrey }}>Cancel</Text>
+                )}
+            </View>
+        </View>
+    );
+}
+
+function TypePickerOverlay({
+    visible, selectedType, onSelect, onClose, colors, textStyles,
+}: {
+    visible: boolean; selectedType: RecordType;
+    onSelect: (type: RecordType) => void; onClose: () => void; colors: any; textStyles: any;
+}) {
+    if (!visible) return null;
+    return (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24, zIndex: 1000, elevation: 25 }]}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+            <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, width: '100%', maxWidth: 340, maxHeight: '80%', zIndex: 1001, elevation: 30 }}>
+                <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center', marginBottom: 16, fontSize: 16 }]}>Select Type</Text>
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                    {(Object.entries(RECORD_TYPES) as Array<[RecordType, typeof RECORD_TYPES[RecordType]]>).map(([key, cfg]) => (
+                        <TouchableOpacity
+                            key={key}
+                            style={{
+                                flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 10,
+                                borderRadius: 12, backgroundColor: selectedType === key ? cfg.color + '15' : 'transparent', marginBottom: 4
+                            }}
+                            onPress={() => { onSelect(key); onClose(); }}
+                        >
+                            <View style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: cfg.color + '20', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                                <MaterialIcons name={cfg.icon as any} size={18} color={cfg.color} />
+                            </View>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14, fontFamily: selectedType === key ? 'Poppins-SemiBold' : 'Poppins-Regular' }]}>{cfg.label}</Text>
+                            {selectedType === key && <MaterialIcons name="check" size={18} color={cfg.color} style={{ marginLeft: 'auto' }} />}
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
+            </View>
+        </View>
+    );
+}
+
+function SeverityPickerOverlay({
+    visible, selectedSeverity, onSelect, onClose, colors, textStyles,
+}: {
+    visible: boolean; selectedSeverity: Severity;
+    onSelect: (sev: Severity) => void; onClose: () => void; colors: any; textStyles: any;
+}) {
+    if (!visible) return null;
+    return (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24, zIndex: 1000, elevation: 25 }]}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+            <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, width: '100%', maxWidth: 300, zIndex: 1001, elevation: 30 }}>
+                <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center', marginBottom: 16, fontSize: 16 }]}>Select Severity</Text>
+                {(Object.entries(SEVERITY_CONFIG) as Array<[Severity, typeof SEVERITY_CONFIG[Severity]]>).map(([key, cfg]) => (
+                    <TouchableOpacity
+                        key={key}
+                        style={{
+                            flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10,
+                            borderRadius: 12, backgroundColor: selectedSeverity === key ? cfg.color + '15' : 'transparent', marginBottom: 4
+                        }}
+                        onPress={() => { onSelect(key); onClose(); }}
+                    >
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: cfg.color, marginRight: 12 }} />
+                        <View>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14, fontFamily: selectedSeverity === key ? 'Poppins-SemiBold' : 'Poppins-Regular' }]}>{cfg.label}</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>{cfg.description}</Text>
+                        </View>
+                        {selectedSeverity === key && <MaterialIcons name="check" size={18} color={cfg.color} style={{ marginLeft: 'auto' }} />}
+                    </TouchableOpacity>
+                ))}
+            </View>
+        </View>
+    );
+}
+
+interface ConfirmationOverlayProps {
+    visible: boolean;
+    type?: 'confirmation' | 'warning' | 'info';
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+    isLoading?: boolean;
+    colors: any;
+    textStyles: any;
+}
+
+function ConfirmationOverlay({
+    visible,
+    type = 'confirmation',
+    title,
+    message,
+    confirmText = 'Confirm',
+    cancelText = 'Cancel',
+    onConfirm,
+    onCancel,
+    isLoading = false,
+    colors,
+    textStyles,
+}: ConfirmationOverlayProps) {
+    if (!visible) return null;
+
+    let iconName: any = 'help-outline';
+    let iconColor = colors.primary;
+    let confirmBtnColor = colors.primary;
+
+    if (type === 'warning') {
+        iconName = 'warning';
+        iconColor = colors.error;
+        confirmBtnColor = colors.error;
+    }
+
+    return (
+        <View
+            style={[
+                StyleSheet.absoluteFillObject,
+                {
+                    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    padding: 24,
+                    zIndex: 99999,
+                    elevation: 100,
+                },
+            ]}
+        >
+            <TouchableOpacity
+                activeOpacity={1}
+                style={StyleSheet.absoluteFillObject}
+                onPress={isLoading ? undefined : onCancel}
+            />
+            <View
+                style={[
+                    {
+                        width: '100%',
+                        maxWidth: 340,
+                        borderRadius: 24,
+                        padding: 24,
+                        alignItems: 'center',
+                        backgroundColor: colors.surface,
+                        zIndex: 100000,
+                        elevation: 101,
+                    },
+                    Platform.select({
+                        web: {
+                            boxShadow: `0px 10px 25px ${colors.shadow || 'rgba(0,0,0,0.2)'}`,
+                        },
+                        default: {
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 10 },
+                            shadowOpacity: 0.25,
+                            shadowRadius: 20,
+                            elevation: 20,
+                        },
+                    }),
+                ]}
+            >
+                {/* Icon Container */}
+                <View
+                    style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: 32,
+                        backgroundColor: iconColor + '1A',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginBottom: 16,
+                    }}
+                >
+                    <MaterialIcons name={iconName} size={32} color={iconColor} />
+                </View>
+
+                {/* Title */}
+                <Text
+                    style={[
+                        textStyles.h2,
+                        {
+                            color: colors.text,
+                            textAlign: 'center',
+                            marginBottom: 8,
+                            fontSize: 18,
+                        },
+                    ]}
+                >
+                    {title}
+                </Text>
+
+                {/* Message */}
+                <Text
+                    style={[
+                        textStyles.body,
+                        {
+                            color: colors.textGrey,
+                            textAlign: 'center',
+                            marginBottom: 24,
+                            fontSize: 13,
+                            lineHeight: 18,
+                        },
+                    ]}
+                >
+                    {message}
+                </Text>
+
+                {/* Actions */}
+                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                    <TouchableOpacity
+                        style={{
+                            flex: 1,
+                            paddingVertical: 13,
+                            paddingHorizontal: 8,
+                            borderRadius: 100,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: colors.cardFill,
+                        }}
+                        onPress={onCancel}
+                        disabled={isLoading}
+                        activeOpacity={0.7}
+                    >
+                        <Text
+                            style={[
+                                textStyles.h3,
+                                {
+                                    color: colors.textGrey,
+                                    fontSize: 14,
+                                    textAlign: 'center',
+                                },
+                            ]}
+                        >
+                            {cancelText}
+                        </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={{
+                            flex: 1,
+                            paddingVertical: 13,
+                            paddingHorizontal: 8,
+                            borderRadius: 100,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: confirmBtnColor,
+                            opacity: isLoading ? 0.8 : 1,
+                        }}
+                        onPress={onConfirm}
+                        disabled={isLoading}
+                        activeOpacity={0.7}
+                    >
+                        {isLoading ? (
+                            <ActivityIndicator size="small" color={colors.onPrimary} />
+                        ) : (
+                            <Text
+                                style={[
+                                    textStyles.h3,
+                                    {
+                                        color: colors.onPrimary,
+                                        fontSize: 14,
+                                        textAlign: 'center',
+                                    },
+                                ]}
+                            >
+                                {confirmText}
+                            </Text>
+                        )}
                     </TouchableOpacity>
                 </View>
             </View>
-        </Modal>
+        </View>
     );
 }
 
@@ -767,6 +1065,8 @@ export default function HealthRecordsScreen() {
     const [permDeleteVisible, setPermDeleteVisible] = useState(false);
     const [isPermaDeleting, setIsPermaDeleting] = useState(false);
     const [isRestoring, setIsRestoring] = useState<string | null>(null);
+    const [restoreModalVisible, setRestoreModalVisible] = useState(false);
+    const [restoreTargetId, setRestoreTargetId] = useState<string | null>(null);
 
     // ── Filter ────────────────────────────────────────────────────────────────
     const [filterType, setFilterType] = useState<RecordType | 'all'>('all');
@@ -891,6 +1191,11 @@ export default function HealthRecordsScreen() {
     const [typePickerVisible, setTypePickerVisible] = useState(false);
     const [severityPickerVisible, setSeverityPickerVisible] = useState(false);
     const [batchPickerVisible, setBatchPickerVisible] = useState(false);
+    const [activeAddCalendar, setActiveAddCalendar] = useState<{
+        label: string;
+        value: string;
+        onChange: (d: string) => void;
+    } | null>(null);
 
     // ── Edit form ─────────────────────────────────────────────────────────────
     const [editVisible, setEditVisible] = useState(false);
@@ -920,48 +1225,40 @@ export default function HealthRecordsScreen() {
     const [editVitaminPickerVisible, setEditVitaminPickerVisible] = useState(false);
     const [editDewormingPickerVisible, setEditDewormingPickerVisible] = useState(false);
     const [editMedicationPickerVisible, setEditMedicationPickerVisible] = useState(false);
+    const [activeEditCalendar, setActiveEditCalendar] = useState<{
+        label: string;
+        value: string;
+        onChange: (d: string) => void;
+    } | null>(null);
 
-    // ── Add Modal Swipe Gesture ──
-    const panY = useRef(new Animated.Value(0)).current;
+    // ── Add Modal Swipe Gesture (Header only) ──
     const closeAddModalRef = useRef<() => void>(undefined);
-    const isScrollAtTopAdd = useRef(true);
 
     const panResponder = useRef(
         PanResponder.create({
-            onStartShouldSetPanResponder: () => false,
-            onMoveShouldSetPanResponder: (_, gestureState) => {
-                return gestureState.dy > 5 && isScrollAtTopAdd.current;
-            },
-            onPanResponderGrant: () => {
-                panY.setOffset(0);
-            },
+            onStartShouldSetPanResponder: () => true,
+            onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 0,
             onPanResponderMove: (_, gestureState) => {
                 if (gestureState.dy > 0) {
-                    panY.setValue(gestureState.dy);
-                } else {
-                    panY.setValue(gestureState.dy * 0.2);
+                    slideAdd.setValue(gestureState.dy);
                 }
             },
             onPanResponderRelease: (_, gestureState) => {
-                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
-                    // Close with ultra-fast linear timing to eliminate any pause
-                    Animated.timing(panY, {
+                if (gestureState.dy > 100 || gestureState.vy > 0.5) {
+                    Animated.timing(slideAdd, {
                         toValue: 600,
-                        duration: 150,
-                        easing: Easing.linear,
+                        duration: 180,
+                        easing: Easing.in(Easing.cubic),
                         useNativeDriver: Platform.OS !== 'web',
                     }).start(() => {
-                        slideAdd.setValue(600);
-                        panY.setValue(0);
                         closeAddModalRef.current?.();
                     });
                 } else {
-                    // Spring back
-                    Animated.spring(panY, {
+                    Animated.timing(slideAdd, {
                         toValue: 0,
+                        duration: 180,
+                        easing: Easing.out(Easing.cubic),
                         useNativeDriver: Platform.OS !== 'web',
-                        tension: 50,
-                        friction: 9,
                     }).start();
                 }
             },
@@ -970,10 +1267,13 @@ export default function HealthRecordsScreen() {
 
     useEffect(() => {
         if (addVisible) {
-            panY.setValue(0);
-            Animated.spring(slideAdd, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
-        } else {
             slideAdd.setValue(600);
+            Animated.timing(slideAdd, {
+                toValue: 0,
+                duration: 250,
+                easing: Easing.out(Easing.cubic),
+                useNativeDriver: Platform.OS !== 'web',
+            }).start();
         }
     }, [addVisible]);
 
@@ -1092,34 +1392,33 @@ export default function HealthRecordsScreen() {
     }, [trashVisible]);
 
     // ── Edit Modal Animation ──
-    const panYEdit = useRef(new Animated.Value(0)).current;
     const closeEditModalRef = useRef<() => void>(undefined);
-    const isScrollAtTopEdit = useRef(true);
 
     const panEditResponder = useRef(
         PanResponder.create({
-            onStartShouldSetPanResponder: () => false,
-            onMoveShouldSetPanResponder: (_, gs) => gs.dy > 5 && isScrollAtTopEdit.current,
-            onPanResponderGrant: () => { panYEdit.setOffset(0); },
+            onStartShouldSetPanResponder: () => true,
+            onMoveShouldSetPanResponder: (_, gs) => gs.dy > 0,
             onPanResponderMove: (_, gs) => {
-                panYEdit.setValue(gs.dy > 0 ? gs.dy : gs.dy * 0.2);
+                if (gs.dy > 0) {
+                    slideEdit.setValue(gs.dy);
+                }
             },
             onPanResponderRelease: (_, gs) => {
-                if (gs.dy > 120 || gs.vy > 0.5) {
-                    Animated.timing(panYEdit, {
-                        toValue: 600, duration: 150,
-                        easing: Easing.linear,
+                if (gs.dy > 100 || gs.vy > 0.5) {
+                    Animated.timing(slideEdit, {
+                        toValue: 600,
+                        duration: 180,
+                        easing: Easing.in(Easing.cubic),
                         useNativeDriver: Platform.OS !== 'web',
                     }).start(() => {
-                        slideEdit.setValue(600);
-                        panYEdit.setValue(0);
                         closeEditModalRef.current?.();
                     });
                 } else {
-                    Animated.spring(panYEdit, {
+                    Animated.timing(slideEdit, {
                         toValue: 0,
+                        duration: 180,
+                        easing: Easing.out(Easing.cubic),
                         useNativeDriver: Platform.OS !== 'web',
-                        tension: 50, friction: 9,
                     }).start();
                 }
             },
@@ -1128,10 +1427,13 @@ export default function HealthRecordsScreen() {
 
     useEffect(() => {
         if (editVisible) {
-            panYEdit.setValue(0);
-            Animated.spring(slideEdit, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
-        } else {
             slideEdit.setValue(600);
+            Animated.timing(slideEdit, {
+                toValue: 0,
+                duration: 250,
+                easing: Easing.out(Easing.cubic),
+                useNativeDriver: Platform.OS !== 'web',
+            }).start();
         }
     }, [editVisible]);
 
@@ -1278,6 +1580,36 @@ export default function HealthRecordsScreen() {
     const availableEditCount = selectedEditBatch
         ? selectedEditBatch.current_count + (wasOldMortality && editBatchId === originalRecord?.batch_id ? oldAffected : 0)
         : 0;
+
+    const editAnimalType = selectedEditBatch?.animal_type || 'all';
+
+    const editTreatmentOptions = useMemo(() => {
+        return TREATMENT_SUGGESTIONS.filter(item => item.animalType === editAnimalType || item.animalType === 'all');
+    }, [editAnimalType]);
+
+    const editIllnessOptions = useMemo(() => {
+        return ILLNESS_SUGGESTIONS.filter(item => item.animalType === editAnimalType || item.animalType === 'all');
+    }, [editAnimalType]);
+
+    const editVitaminOptions = useMemo(() => {
+        return VITAMIN_SUGGESTIONS.filter(item => item.animalType === editAnimalType || item.animalType === 'all');
+    }, [editAnimalType]);
+
+    const editDewormingOptions = useMemo(() => {
+        return DEWORMING_SUGGESTIONS.filter(item => item.animalType === editAnimalType || item.animalType === 'all');
+    }, [editAnimalType]);
+
+    const editSuggestedMeds = useMemo(() => {
+        if (editType === 'treatment') {
+            const found = editTreatmentOptions.find(item => item.name === editTitle);
+            return found ? found.commonMedications : [];
+        }
+        if (editType === 'illness') {
+            const found = editIllnessOptions.find(item => item.name === editTitle);
+            return found ? found.commonMedications : [];
+        }
+        return [];
+    }, [editType, editTitle, editTreatmentOptions, editIllnessOptions]);
 
     const isEditCountExceeded = !!(
         selectedEditBatch &&
@@ -1481,6 +1813,16 @@ export default function HealthRecordsScreen() {
         });
     };
 
+    const handleOpenAddModal = () => {
+        if (!addBatchId && batches.length > 0) {
+            const defaultBatch = batches.find(b => b.status === 'active') || batches[0];
+            if (defaultBatch) {
+                setAddBatchId(defaultBatch.id);
+            }
+        }
+        setAddVisible(true);
+    };
+
     closeDetailModalRef.current = () => {
         setDetailRecord(null);
     };
@@ -1497,6 +1839,10 @@ export default function HealthRecordsScreen() {
 
     closeTrashModalRef.current = () => {
         setTrashVisible(false);
+        setRestoreModalVisible(false);
+        setRestoreTargetId(null);
+        setPermDeleteVisible(false);
+        setPermanentDeleteId(null);
     };
 
     const handleCloseTrashModal = () => {
@@ -1553,6 +1899,8 @@ export default function HealthRecordsScreen() {
             }
 
             showSnackbar('Record restored successfully.');
+            setRestoreModalVisible(false);
+            setRestoreTargetId(null);
             await fetchData();
         } catch (err: any) {
             showSnackbar(err.message || 'Failed to restore.', 'error');
@@ -1708,23 +2056,6 @@ export default function HealthRecordsScreen() {
             setIsUpdating(false);
         }
     };
-
-    // Suggested meds for edit form
-    const editSuggestedMeds = useMemo(() => {
-        const editBatch = batches.find(b => b.id === editBatchId);
-        const aType = editBatch?.animal_type || 'all';
-        const tOpts = TREATMENT_SUGGESTIONS.filter(i => i.animalType === aType || i.animalType === 'all');
-        const iOpts = ILLNESS_SUGGESTIONS.filter(i => i.animalType === aType || i.animalType === 'all');
-        if (editType === 'treatment') {
-            const found = tOpts.find(i => i.name === editTitle);
-            return found ? found.commonMedications : [];
-        }
-        if (editType === 'illness') {
-            const found = iOpts.find(i => i.name === editTitle);
-            return found ? found.commonMedications : [];
-        }
-        return [];
-    }, [editType, editTitle, editBatchId, batches]);
 
     // ── Shared input style ────────────────────────────────────────────────────
     const inputStyle = (active?: boolean) => ({
@@ -1928,7 +2259,7 @@ export default function HealthRecordsScreen() {
                                 }
                             })
                         }}
-                        onPress={() => setAddVisible(true)}
+                        onPress={handleOpenAddModal}
                     >
                         <MaterialIcons name="add" size={24} color={colors.onPrimary} />
                     </TouchableOpacity>
@@ -2096,6 +2427,14 @@ export default function HealthRecordsScreen() {
                     <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 14, marginTop: 8, lineHeight: 22 }]}>
                         Tap <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>+</Text> to log a vaccination, treatment, or observation.
                     </Text>
+                    <TouchableOpacity
+                        style={[styles.primaryButton, { marginTop: 18, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+                        onPress={handleOpenAddModal}
+                        activeOpacity={0.85}
+                    >
+                        <MaterialIcons name="add" size={20} color={colors.onPrimary} />
+                        <Text style={[textStyles.btnLabel, { color: colors.onPrimary }]}>Add Record</Text>
+                    </TouchableOpacity>
                 </View>
             ) : (
                 <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 }]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
@@ -2407,17 +2746,14 @@ export default function HealthRecordsScreen() {
                         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
                         onPress={handleCloseAddModal}
                     />
-                    <Animated.View {...panResponder.panHandlers} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '92%', transform: [{ translateY: Animated.add(slideAdd, panY) }] }}>
+                    <Animated.View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '92%', transform: [{ translateY: slideAdd }] }}>
                         {/* Draggable Header */}
-                        <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
+                        <View {...panResponder.panHandlers} style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
                             <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, marginBottom: 10 }} />
                             <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, textAlign: 'center' }]}>Add Health Record</Text>
                         </View>
                         <ScrollView
-                            onScroll={(e) => {
-                                isScrollAtTopAdd.current = e.nativeEvent.contentOffset.y <= 0;
-                            }}
-                            scrollEventThrottle={16}
+                            keyboardShouldPersistTaps="handled"
                             contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 36 }}
                             showsVerticalScrollIndicator={false}
                         >
@@ -2703,15 +3039,41 @@ export default function HealthRecordsScreen() {
                             {RECORD_TYPES[addType].showFollowup ? (
                                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 14 }}>
                                     <View style={{ flex: 1 }}>
-                                        <DatePickerField label="DATE RECORDED" value={addDate} onChange={setAddDate} required />
+                                        <DatePickerField
+                                            label="DATE RECORDED"
+                                            value={addDate}
+                                            onPress={() => setActiveAddCalendar({
+                                                label: 'Date Recorded',
+                                                value: addDate,
+                                                onChange: setAddDate,
+                                            })}
+                                            required
+                                        />
                                     </View>
                                     <View style={{ flex: 1 }}>
-                                        <DatePickerField label="FOLLOW-UP DATE" value={addFollowup} onChange={setAddFollowup} />
+                                        <DatePickerField
+                                            label="FOLLOW-UP DATE"
+                                            value={addFollowup}
+                                            onPress={() => setActiveAddCalendar({
+                                                label: 'Follow-up Date',
+                                                value: addFollowup,
+                                                onChange: setAddFollowup,
+                                            })}
+                                        />
                                     </View>
                                 </View>
                             ) : (
                                 <View style={{ marginBottom: 14 }}>
-                                    <DatePickerField label="DATE RECORDED" value={addDate} onChange={setAddDate} required />
+                                    <DatePickerField
+                                        label="DATE RECORDED"
+                                        value={addDate}
+                                        onPress={() => setActiveAddCalendar({
+                                            label: 'Date Recorded',
+                                            value: addDate,
+                                            onChange: setAddDate,
+                                        })}
+                                        required
+                                    />
                                 </View>
                             )}
 
@@ -2755,6 +3117,103 @@ export default function HealthRecordsScreen() {
                             </View>
                         </ScrollView>
                     </Animated.View>
+
+                    {/* ── In-Modal Overlays (Rendered inside same modal to prevent stacking freeze on mobile) ── */}
+                    <BatchPickerOverlay
+                        visible={batchPickerVisible}
+                        batches={batches}
+                        selectedId={addBatchId}
+                        onSelect={(id) => setAddBatchId(id)}
+                        onClose={() => setBatchPickerVisible(false)}
+                        colors={colors}
+                        textStyles={textStyles}
+                    />
+                    <TypePickerOverlay
+                        visible={typePickerVisible}
+                        selectedType={addType}
+                        onSelect={(t) => { setAddType(t); setAddTitle(''); setCustomTitle(''); setAddMed(''); setCustomMed(''); }}
+                        onClose={() => setTypePickerVisible(false)}
+                        colors={colors}
+                        textStyles={textStyles}
+                    />
+                    <SeverityPickerOverlay
+                        visible={severityPickerVisible}
+                        selectedSeverity={addSeverity}
+                        onSelect={(s) => setAddSeverity(s)}
+                        onClose={() => setSeverityPickerVisible(false)}
+                        colors={colors}
+                        textStyles={textStyles}
+                    />
+                    <VaccinePickerModal
+                        visible={vaccinePickerVisible}
+                        search={vaccineSearch}
+                        onSearch={setVaccineSearch}
+                        vaccineList={dbVaccines}
+                        activeAnimalType={selectedAddBatch?.animal_type || housingAnimalType || activeBatch?.animal_type}
+                        onSelect={selected => {
+                            const name = typeof selected === 'string' ? selected : selected.name;
+                            setAddTitle(name);
+                            if (typeof selected !== 'string') {
+                                if (selected.dose_per_animal != null && !addDosage) {
+                                    setAddDosage(String(selected.dose_per_animal));
+                                }
+                            }
+                            setVaccinePickerVisible(false);
+                            setVaccineSearch('');
+                        }}
+                        onClose={() => { setVaccinePickerVisible(false); setVaccineSearch(''); }}
+                        colors={colors}
+                    />
+                    <SuggestionPickerModal
+                        visible={treatmentPickerVisible}
+                        title="Select Treatment"
+                        options={treatmentOptions.map(t => t.name).concat('Other')}
+                        onSelect={val => { setAddTitle(val); setCustomTitle(''); setAddMed(''); setCustomMed(''); setTreatmentPickerVisible(false); }}
+                        onClose={() => setTreatmentPickerVisible(false)}
+                        colors={colors}
+                    />
+                    <SuggestionPickerModal
+                        visible={illnessPickerVisible}
+                        title="Select Illness"
+                        options={illnessOptions.map(i => i.name).concat('Other')}
+                        onSelect={val => { setAddTitle(val); setCustomTitle(''); setAddMed(''); setCustomMed(''); setIllnessPickerVisible(false); }}
+                        onClose={() => setIllnessPickerVisible(false)}
+                        colors={colors}
+                    />
+                    <SuggestionPickerModal
+                        visible={vitaminPickerVisible}
+                        title="Select Vitamin"
+                        options={vitaminOptions.map(v => v.name).concat('Other')}
+                        onSelect={val => { setAddTitle(val); setCustomTitle(''); setVitaminPickerVisible(false); }}
+                        onClose={() => setVitaminPickerVisible(false)}
+                        colors={colors}
+                    />
+                    <SuggestionPickerModal
+                        visible={dewormingPickerVisible}
+                        title="Select Dewormer"
+                        options={dewormingOptions.map(d => d.name).concat('Other')}
+                        onSelect={val => { setAddTitle(val); setCustomTitle(''); setDewormingPickerVisible(false); }}
+                        onClose={() => setDewormingPickerVisible(false)}
+                        colors={colors}
+                    />
+                    <SuggestionPickerModal
+                        visible={medicationPickerVisible}
+                        title="Select Medication"
+                        options={suggestedMeds.concat('Other')}
+                        onSelect={val => { setAddMed(val); setCustomMed(''); setMedicationPickerVisible(false); }}
+                        onClose={() => setMedicationPickerVisible(false)}
+                        colors={colors}
+                    />
+                    {activeAddCalendar && (
+                        <CalendarPickerOverlay
+                            visible={true}
+                            label={activeAddCalendar.label}
+                            value={activeAddCalendar.value}
+                            onChange={activeAddCalendar.onChange}
+                            onClose={() => setActiveAddCalendar(null)}
+                            colors={colors}
+                        />
+                    )}
                 </View>
             </Modal>
 
@@ -2766,8 +3225,8 @@ export default function HealthRecordsScreen() {
                         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
                         onPress={handleCloseEditModal}
                     />
-                    <Animated.View {...panEditResponder.panHandlers} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '92%', transform: [{ translateY: Animated.add(slideEdit, panYEdit) }] }}>
-                        <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
+                    <Animated.View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '92%', transform: [{ translateY: slideEdit }] }}>
+                        <View {...panEditResponder.panHandlers} style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
                             <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, marginBottom: 10 }} />
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                                 <MaterialIcons name="edit" size={20} color={colors.primary} />
@@ -2775,8 +3234,7 @@ export default function HealthRecordsScreen() {
                             </View>
                         </View>
                         <ScrollView
-                            onScroll={(e) => { isScrollAtTopEdit.current = e.nativeEvent.contentOffset.y <= 0; }}
-                            scrollEventThrottle={16}
+                            keyboardShouldPersistTaps="handled"
                             contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 36 }}
                             showsVerticalScrollIndicator={false}
                         >
@@ -3000,15 +3458,41 @@ export default function HealthRecordsScreen() {
                             {RECORD_TYPES[editType].showFollowup ? (
                                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 14 }}>
                                     <View style={{ flex: 1 }}>
-                                        <DatePickerField label="DATE RECORDED" value={editDate} onChange={setEditDate} required />
+                                        <DatePickerField
+                                            label="DATE RECORDED"
+                                            value={editDate}
+                                            onPress={() => setActiveEditCalendar({
+                                                label: 'Date Recorded',
+                                                value: editDate,
+                                                onChange: setEditDate,
+                                            })}
+                                            required
+                                        />
                                     </View>
                                     <View style={{ flex: 1 }}>
-                                        <DatePickerField label="FOLLOW-UP DATE" value={editFollowup} onChange={setEditFollowup} />
+                                        <DatePickerField
+                                            label="FOLLOW-UP DATE"
+                                            value={editFollowup}
+                                            onPress={() => setActiveEditCalendar({
+                                                label: 'Follow-up Date',
+                                                value: editFollowup,
+                                                onChange: setEditFollowup,
+                                            })}
+                                        />
                                     </View>
                                 </View>
                             ) : (
                                 <View style={{ marginBottom: 14 }}>
-                                    <DatePickerField label="DATE RECORDED" value={editDate} onChange={setEditDate} required />
+                                    <DatePickerField
+                                        label="DATE RECORDED"
+                                        value={editDate}
+                                        onPress={() => setActiveEditCalendar({
+                                            label: 'Date Recorded',
+                                            value: editDate,
+                                            onChange: setEditDate,
+                                        })}
+                                        required
+                                    />
                                 </View>
                             )}
 
@@ -3052,79 +3536,104 @@ export default function HealthRecordsScreen() {
                             </View>
                         </ScrollView>
                     </Animated.View>
+
+                    {/* ── In-Modal Overlays for Edit ── */}
+                    <BatchPickerOverlay
+                        visible={editBatchPickerVisible}
+                        batches={batches}
+                        selectedId={editBatchId}
+                        onSelect={(id) => setEditBatchId(id)}
+                        onClose={() => setEditBatchPickerVisible(false)}
+                        colors={colors}
+                        textStyles={textStyles}
+                    />
+                    <TypePickerOverlay
+                        visible={editTypePickerVisible}
+                        selectedType={editType}
+                        onSelect={(t) => { setEditType(t); setEditTitle(''); setEditCustomTitle(''); setEditMed(''); setEditCustomMed(''); }}
+                        onClose={() => setEditTypePickerVisible(false)}
+                        colors={colors}
+                        textStyles={textStyles}
+                    />
+                    <SeverityPickerOverlay
+                        visible={editSeverityPickerVisible}
+                        selectedSeverity={editSeverity}
+                        onSelect={(s) => setEditSeverity(s)}
+                        onClose={() => setEditSeverityPickerVisible(false)}
+                        colors={colors}
+                        textStyles={textStyles}
+                    />
+                    <VaccinePickerModal
+                        visible={editVaccinePickerVisible}
+                        search={editVaccineSearch}
+                        onSearch={setEditVaccineSearch}
+                        vaccineList={dbVaccines}
+                        activeAnimalType={batches.find(b => b.id === editBatchId)?.animal_type || housingAnimalType || activeBatch?.animal_type}
+                        onSelect={selected => {
+                            const name = typeof selected === 'string' ? selected : selected.name;
+                            setEditTitle(name);
+                            if (typeof selected !== 'string') {
+                                if (selected.dose_per_animal != null && !editDosage) {
+                                    setEditDosage(String(selected.dose_per_animal));
+                                }
+                            }
+                            setEditVaccinePickerVisible(false);
+                            setEditVaccineSearch('');
+                        }}
+                        onClose={() => { setEditVaccinePickerVisible(false); setEditVaccineSearch(''); }}
+                        colors={colors}
+                    />
+                    <SuggestionPickerModal
+                        visible={editTreatmentPickerVisible}
+                        title="Select Treatment"
+                        options={editTreatmentOptions.map(t => t.name).concat('Other')}
+                        onSelect={val => { setEditTitle(val); setEditCustomTitle(''); setEditMed(''); setEditCustomMed(''); setEditTreatmentPickerVisible(false); }}
+                        onClose={() => setEditTreatmentPickerVisible(false)}
+                        colors={colors}
+                    />
+                    <SuggestionPickerModal
+                        visible={editIllnessPickerVisible}
+                        title="Select Illness"
+                        options={editIllnessOptions.map(i => i.name).concat('Other')}
+                        onSelect={val => { setEditTitle(val); setEditCustomTitle(''); setEditMed(''); setEditCustomMed(''); setEditIllnessPickerVisible(false); }}
+                        onClose={() => setEditIllnessPickerVisible(false)}
+                        colors={colors}
+                    />
+                    <SuggestionPickerModal
+                        visible={editVitaminPickerVisible}
+                        title="Select Vitamin"
+                        options={editVitaminOptions.map(v => v.name).concat('Other')}
+                        onSelect={val => { setEditTitle(val); setEditCustomTitle(''); setEditVitaminPickerVisible(false); }}
+                        onClose={() => setEditVitaminPickerVisible(false)}
+                        colors={colors}
+                    />
+                    <SuggestionPickerModal
+                        visible={editDewormingPickerVisible}
+                        title="Select Dewormer"
+                        options={editDewormingOptions.map(d => d.name).concat('Other')}
+                        onSelect={val => { setEditTitle(val); setEditCustomTitle(''); setEditDewormingPickerVisible(false); }}
+                        onClose={() => setEditDewormingPickerVisible(false)}
+                        colors={colors}
+                    />
+                    <SuggestionPickerModal
+                        visible={editMedicationPickerVisible}
+                        title="Select Medication"
+                        options={editSuggestedMeds.concat('Other')}
+                        onSelect={val => { setEditMed(val); setCustomMed(''); setEditMedicationPickerVisible(false); }}
+                        onClose={() => setEditMedicationPickerVisible(false)}
+                        colors={colors}
+                    />
+                    {activeEditCalendar && (
+                        <CalendarPickerOverlay
+                            visible={true}
+                            label={activeEditCalendar.label}
+                            value={activeEditCalendar.value}
+                            onChange={activeEditCalendar.onChange}
+                            onClose={() => setActiveEditCalendar(null)}
+                            colors={colors}
+                        />
+                    )}
                 </View>
-            </Modal>
-
-            {/* ── Type picker ── */}
-            <Modal visible={typePickerVisible} transparent animationType="fade">
-                <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 32 }} activeOpacity={1} onPress={() => setTypePickerVisible(false)}>
-                    <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, width: '100%', maxWidth: 320 }}>
-                        <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center', marginBottom: 16, fontSize: 16 }]}>Select Type</Text>
-                        {(Object.entries(RECORD_TYPES) as Array<[RecordType, typeof RECORD_TYPES[RecordType]]>).map(([key, cfg]) => (
-                            <TouchableOpacity key={key}
-                                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 10, borderRadius: 12, backgroundColor: addType === key ? cfg.color + '15' : 'transparent', marginBottom: 2 }}
-                                onPress={() => { setAddType(key); setTypePickerVisible(false); }}
-                            >
-                                <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: cfg.color + '20', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                                    <MaterialIcons name={cfg.icon as any} size={17} color={cfg.color} />
-                                </View>
-                                <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>{cfg.label}</Text>
-                                {addType === key && <MaterialIcons name="check" size={18} color={cfg.color} style={{ marginLeft: 'auto' }} />}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </TouchableOpacity>
-            </Modal>
-
-            {/* ── Severity picker ── */}
-            <Modal visible={severityPickerVisible} transparent animationType="fade">
-                <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 32 }} activeOpacity={1} onPress={() => setSeverityPickerVisible(false)}>
-                    <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, width: '100%', maxWidth: 280 }}>
-                        <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center', marginBottom: 16, fontSize: 16 }]}>Select Severity</Text>
-                        {(Object.entries(SEVERITY_CONFIG) as Array<[Severity, typeof SEVERITY_CONFIG[Severity]]>).map(([key, cfg]) => (
-                            <TouchableOpacity key={key}
-                                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10, borderRadius: 12, backgroundColor: addSeverity === key ? cfg.color + '15' : 'transparent', marginBottom: 2 }}
-                                onPress={() => { setAddSeverity(key); setSeverityPickerVisible(false); }}
-                            >
-                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: cfg.color, marginRight: 12 }} />
-                                <View>
-                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>{cfg.label}</Text>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>{cfg.description}</Text>
-                                </View>
-                                {addSeverity === key && <MaterialIcons name="check" size={18} color={cfg.color} style={{ marginLeft: 'auto' }} />}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </TouchableOpacity>
-            </Modal>
-
-            {/* ── Batch picker ── */}
-            <Modal visible={batchPickerVisible} transparent animationType="fade">
-                <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 32 }} activeOpacity={1} onPress={() => setBatchPickerVisible(false)}>
-                    <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, width: '100%', maxWidth: 320 }}>
-                        <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center', marginBottom: 16, fontSize: 16 }]}>Select Batch</Text>
-                        {batches.length === 0 && (
-                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center' }]}>No batches found for this housing.</Text>
-                        )}
-                        {batches.map(b => (
-                            <TouchableOpacity key={b.id}
-                                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 10, borderRadius: 12, backgroundColor: addBatchId === b.id ? colors.primary + '15' : 'transparent', marginBottom: 2 }}
-                                onPress={() => { setAddBatchId(b.id); setBatchPickerVisible(false); }}
-                            >
-                                <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                                    <MaterialIcons name="layers" size={17} color={colors.primary} />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>{b.name}</Text>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
-                                        {b.status} · {b.current_count} animals
-                                    </Text>
-                                </View>
-                                {addBatchId === b.id && <MaterialIcons name="check" size={18} color={colors.primary} style={{ marginLeft: 'auto' }} />}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </TouchableOpacity>
             </Modal>
 
             {/* ── Move to trash confirm ── */}
@@ -3137,18 +3646,6 @@ export default function HealthRecordsScreen() {
                 cancelText="Cancel"
                 onConfirm={handleDelete}
                 onCancel={() => { setDeleteModalVisible(false); setDeleteId(null); }}
-            />
-
-            {/* ── Permanent delete confirm ── */}
-            <ActionModal
-                visible={permDeleteVisible}
-                type="warning"
-                title="Delete Forever?"
-                message="This record will be permanently removed and cannot be recovered."
-                confirmText={isPermaDeleting ? 'Deleting…' : 'Delete Forever'}
-                cancelText="Cancel"
-                onConfirm={handlePermanentDelete}
-                onCancel={() => { setPermDeleteVisible(false); setPermanentDeleteId(null); }}
             />
 
             {/* ════════════ RECENTLY DELETED DRAWER ════════════ */}
@@ -3241,7 +3738,10 @@ export default function HealthRecordsScreen() {
                                                 <TouchableOpacity
                                                     activeOpacity={0.8}
                                                     style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.primary + '18', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 }}
-                                                    onPress={() => handleRestore(record.id)}
+                                                    onPress={() => {
+                                                        setRestoreTargetId(record.id);
+                                                        setRestoreModalVisible(true);
+                                                    }}
                                                     disabled={isRestoring === record.id}
                                                 >
                                                     <MaterialIcons name="restore" size={14} color={colors.primary} />
@@ -3265,131 +3765,51 @@ export default function HealthRecordsScreen() {
                             )}
                         </ScrollView>
                     </Animated.View>
+
+                    {/* Confirmation Overlays - rendered inside modal to ensure they appear on top in mobile */}
+                    <ConfirmationOverlay
+                        visible={restoreModalVisible}
+                        type="confirmation"
+                        title="Restore Record?"
+                        message="This record will be restored back to your active health records."
+                        confirmText={isRestoring ? 'Restoring…' : 'Restore'}
+                        cancelText="Cancel"
+                        isLoading={!!isRestoring}
+                        onConfirm={() => {
+                            if (restoreTargetId) handleRestore(restoreTargetId);
+                        }}
+                        onCancel={() => {
+                            if (!isRestoring) {
+                                setRestoreModalVisible(false);
+                                setRestoreTargetId(null);
+                            }
+                        }}
+                        colors={colors}
+                        textStyles={textStyles}
+                    />
+
+                    <ConfirmationOverlay
+                        visible={permDeleteVisible}
+                        type="warning"
+                        title="Delete Forever?"
+                        message="This record will be permanently removed and cannot be recovered."
+                        confirmText={isPermaDeleting ? 'Deleting…' : 'Delete Forever'}
+                        cancelText="Cancel"
+                        isLoading={isPermaDeleting}
+                        onConfirm={handlePermanentDelete}
+                        onCancel={() => {
+                            if (!isPermaDeleting) {
+                                setPermDeleteVisible(false);
+                                setPermanentDeleteId(null);
+                            }
+                        }}
+                        colors={colors}
+                        textStyles={textStyles}
+                    />
                 </View>
             </Modal>
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
-
-            {/* ── ADD: Vaccine Picker ── */}
-            <VaccinePickerModal
-                visible={vaccinePickerVisible}
-                search={vaccineSearch}
-                onSearch={setVaccineSearch}
-                vaccineList={dbVaccines}
-                activeAnimalType={selectedAddBatch?.animal_type || housingAnimalType || activeBatch?.animal_type}
-                onSelect={selected => {
-                    const name = typeof selected === 'string' ? selected : selected.name;
-                    setAddTitle(name);
-                    if (typeof selected !== 'string') {
-                        if (selected.dose_per_animal != null && !addDosage) {
-                            setAddDosage(String(selected.dose_per_animal));
-                        }
-                    }
-                    setVaccinePickerVisible(false);
-                    setVaccineSearch('');
-                }}
-                onClose={() => { setVaccinePickerVisible(false); setVaccineSearch(''); }}
-                colors={colors}
-            />
-
-            {/* ── ADD: Suggestion Pickers ── */}
-            <SuggestionPickerModal visible={treatmentPickerVisible} title="Select Treatment" options={treatmentOptions.map(t => t.name).concat('Other')} onSelect={val => { setAddTitle(val); setCustomTitle(''); setAddMed(''); setCustomMed(''); setTreatmentPickerVisible(false); }} onClose={() => setTreatmentPickerVisible(false)} colors={colors} />
-            <SuggestionPickerModal visible={illnessPickerVisible} title="Select Illness" options={illnessOptions.map(i => i.name).concat('Other')} onSelect={val => { setAddTitle(val); setCustomTitle(''); setAddMed(''); setCustomMed(''); setIllnessPickerVisible(false); }} onClose={() => setIllnessPickerVisible(false)} colors={colors} />
-            <SuggestionPickerModal visible={vitaminPickerVisible} title="Select Vitamin" options={vitaminOptions.map(v => v.name).concat('Other')} onSelect={val => { setAddTitle(val); setCustomTitle(''); setVitaminPickerVisible(false); }} onClose={() => setVitaminPickerVisible(false)} colors={colors} />
-            <SuggestionPickerModal visible={dewormingPickerVisible} title="Select Dewormer" options={dewormingOptions.map(d => d.name).concat('Other')} onSelect={val => { setAddTitle(val); setCustomTitle(''); setDewormingPickerVisible(false); }} onClose={() => setDewormingPickerVisible(false)} colors={colors} />
-            <SuggestionPickerModal visible={medicationPickerVisible} title="Select Medication" options={suggestedMeds.concat('Other')} onSelect={val => { setAddMed(val); setCustomMed(''); setMedicationPickerVisible(false); }} onClose={() => setMedicationPickerVisible(false)} colors={colors} />
-
-            {/* ── EDIT: Type / Severity / Batch pickers ── */}
-            <Modal visible={editTypePickerVisible} transparent animationType="fade">
-                <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 32 }} activeOpacity={1} onPress={() => setEditTypePickerVisible(false)}>
-                    <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, width: '100%', maxWidth: 320 }}>
-                        <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center', marginBottom: 16, fontSize: 16 }]}>Select Type</Text>
-                        {(Object.entries(RECORD_TYPES) as Array<[RecordType, typeof RECORD_TYPES[RecordType]]>).map(([key, cfg]) => (
-                            <TouchableOpacity key={key}
-                                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 10, borderRadius: 12, backgroundColor: editType === key ? cfg.color + '15' : 'transparent', marginBottom: 2 }}
-                                onPress={() => { setEditType(key); setEditTitle(''); setEditCustomTitle(''); setEditMed(''); setEditCustomMed(''); setEditTypePickerVisible(false); }}
-                            >
-                                <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: cfg.color + '20', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                                    <MaterialIcons name={cfg.icon as any} size={17} color={cfg.color} />
-                                </View>
-                                <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>{cfg.label}</Text>
-                                {editType === key && <MaterialIcons name="check" size={18} color={cfg.color} style={{ marginLeft: 'auto' }} />}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </TouchableOpacity>
-            </Modal>
-
-            <Modal visible={editSeverityPickerVisible} transparent animationType="fade">
-                <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 32 }} activeOpacity={1} onPress={() => setEditSeverityPickerVisible(false)}>
-                    <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, width: '100%', maxWidth: 280 }}>
-                        <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center', marginBottom: 16, fontSize: 16 }]}>Select Severity</Text>
-                        {(Object.entries(SEVERITY_CONFIG) as Array<[Severity, typeof SEVERITY_CONFIG[Severity]]>).map(([key, cfg]) => (
-                            <TouchableOpacity key={key}
-                                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10, borderRadius: 12, backgroundColor: editSeverity === key ? cfg.color + '15' : 'transparent', marginBottom: 2 }}
-                                onPress={() => { setEditSeverity(key); setEditSeverityPickerVisible(false); }}
-                            >
-                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: cfg.color, marginRight: 12 }} />
-                                <View>
-                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>{cfg.label}</Text>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>{cfg.description}</Text>
-                                </View>
-                                {editSeverity === key && <MaterialIcons name="check" size={18} color={cfg.color} style={{ marginLeft: 'auto' }} />}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </TouchableOpacity>
-            </Modal>
-
-            <Modal visible={editBatchPickerVisible} transparent animationType="fade">
-                <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 32 }} activeOpacity={1} onPress={() => setEditBatchPickerVisible(false)}>
-                    <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, width: '100%', maxWidth: 320 }}>
-                        <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center', marginBottom: 16, fontSize: 16 }]}>Select Batch</Text>
-                        {batches.map(b => (
-                            <TouchableOpacity key={b.id}
-                                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 10, borderRadius: 12, backgroundColor: editBatchId === b.id ? colors.primary + '15' : 'transparent', marginBottom: 2 }}
-                                onPress={() => { setEditBatchId(b.id); setEditBatchPickerVisible(false); }}
-                            >
-                                <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                                    <MaterialIcons name="layers" size={17} color={colors.primary} />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>{b.name}</Text>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>{b.status} · {b.current_count} animals</Text>
-                                </View>
-                                {editBatchId === b.id && <MaterialIcons name="check" size={18} color={colors.primary} style={{ marginLeft: 'auto' }} />}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </TouchableOpacity>
-            </Modal>
-
-            {/* ── EDIT: Vaccine / Suggestion Pickers ── */}
-            <VaccinePickerModal
-                visible={editVaccinePickerVisible}
-                search={editVaccineSearch}
-                onSearch={setEditVaccineSearch}
-                vaccineList={dbVaccines}
-                activeAnimalType={batches.find(b => b.id === editBatchId)?.animal_type || housingAnimalType || activeBatch?.animal_type}
-                onSelect={selected => {
-                    const name = typeof selected === 'string' ? selected : selected.name;
-                    setEditTitle(name);
-                    if (typeof selected !== 'string') {
-                        if (selected.dose_per_animal != null && !editDosage) {
-                            setEditDosage(String(selected.dose_per_animal));
-                        }
-                    }
-                    setEditVaccinePickerVisible(false);
-                    setEditVaccineSearch('');
-                }}
-                onClose={() => { setEditVaccinePickerVisible(false); setEditVaccineSearch(''); }}
-                colors={colors}
-            />
-            <SuggestionPickerModal visible={editTreatmentPickerVisible} title="Select Treatment" options={TREATMENT_SUGGESTIONS.map(t => t.name).concat('Other')} onSelect={val => { setEditTitle(val); setEditCustomTitle(''); setEditMed(''); setEditCustomMed(''); setEditTreatmentPickerVisible(false); }} onClose={() => setEditTreatmentPickerVisible(false)} colors={colors} />
-            <SuggestionPickerModal visible={editIllnessPickerVisible} title="Select Illness" options={ILLNESS_SUGGESTIONS.map(i => i.name).concat('Other')} onSelect={val => { setEditTitle(val); setEditCustomTitle(''); setEditMed(''); setEditCustomMed(''); setEditIllnessPickerVisible(false); }} onClose={() => setEditIllnessPickerVisible(false)} colors={colors} />
-            <SuggestionPickerModal visible={editVitaminPickerVisible} title="Select Vitamin" options={VITAMIN_SUGGESTIONS.map(v => v.name).concat('Other')} onSelect={val => { setEditTitle(val); setEditCustomTitle(''); setEditVitaminPickerVisible(false); }} onClose={() => setEditVitaminPickerVisible(false)} colors={colors} />
-            <SuggestionPickerModal visible={editDewormingPickerVisible} title="Select Dewormer" options={DEWORMING_SUGGESTIONS.map(d => d.name).concat('Other')} onSelect={val => { setEditTitle(val); setEditCustomTitle(''); setEditDewormingPickerVisible(false); }} onClose={() => setEditDewormingPickerVisible(false)} colors={colors} />
-            <SuggestionPickerModal visible={editMedicationPickerVisible} title="Select Medication" options={editSuggestedMeds.concat('Other')} onSelect={val => { setEditMed(val); setEditCustomMed(''); setEditMedicationPickerVisible(false); }} onClose={() => setEditMedicationPickerVisible(false)} colors={colors} />
         </SafeAreaView>
     );
 }

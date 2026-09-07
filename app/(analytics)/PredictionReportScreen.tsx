@@ -676,16 +676,18 @@ export default function PredictionReportScreen() {
         <SafeAreaView style={styles.safeArea}>
             {/* Header */}
             <View style={animalStyles.headerTopRow}>
-                <View style={{ width: 44, height: 44 }}>
+                <View style={{ width: 44, height: 44, justifyContent: 'center' }}>
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flex: 1, textAlign: 'center', marginHorizontal: 8 }]}>
                     Prediction &amp; Forecast
                 </Text>
-                <PrintReportButton
-                    buildReport={buildPredictionReport}
-                    emptyMessage="Select a batch first."
-                />
+                <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                    <PrintReportButton
+                        buildReport={buildPredictionReport}
+                        emptyMessage="Select a batch first."
+                    />
+                </View>
             </View>
 
             <ScrollView
@@ -696,8 +698,8 @@ export default function PredictionReportScreen() {
                 }
             >
                 {/* Intro Text & Confidence Badge */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 4 }}>
-                    <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginRight: 12, marginTop: 0, marginBottom: 0 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 4, gap: 12 }}>
+                    <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginTop: 0, marginBottom: 0 }]}>
                         AI-driven growth trajectory projections based on your actual farm data.
                     </Text>
                     <View style={{
@@ -710,6 +712,7 @@ export default function PredictionReportScreen() {
                         paddingHorizontal: 10,
                         paddingVertical: 6,
                         borderRadius: 20,
+                        flexShrink: 0,
                     }}>
                         <MaterialIcons name="psychology" size={16} color={colors.prediction ?? '#8B5CF6'} />
                         <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 12, color: colors.prediction ?? '#8B5CF6' }}>
@@ -765,7 +768,7 @@ export default function PredictionReportScreen() {
                             ]}
                             onPress={() => setHousingModalVisible(true)}
                         >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]}>
                                 {selectedHousingStr}
                             </Text>
                             <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
@@ -792,7 +795,7 @@ export default function PredictionReportScreen() {
                             ]}
                             onPress={() => setBatchModalVisible(true)}
                         >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]}>
                                 {selectedBatchStr}
                             </Text>
                             <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
@@ -1121,7 +1124,7 @@ export default function PredictionReportScreen() {
                                                     <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.surface }}>
                                                         {value.toFixed(2)} kg
                                                     </Text>
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 8, color: colors.surface, opacity: 0.8 }} numberOfLines={1}>
+                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 8, color: colors.surface, opacity: 0.8, textAlign: 'center' }}>
                                                         {label}
                                                     </Text>
                                                     <Text style={{

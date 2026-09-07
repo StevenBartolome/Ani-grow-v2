@@ -586,7 +586,7 @@ export default function HealthReportScreen() {
                 r.title || '—',
                 dosageInfo,
                 r.severity ? r.severity.toUpperCase() : 'LOW',
-                r.notes ? (r.notes.length > 50 ? r.notes.slice(0, 48) + '...' : r.notes) : '—',
+                r.notes || '—',
             ];
         });
 
@@ -668,16 +668,18 @@ export default function HealthReportScreen() {
         <SafeAreaView style={styles.safeArea}>
             {/* Header */}
             <View style={animalStyles.headerTopRow}>
-                <View style={{ width: 44, height: 44 }}>
+                <View style={{ width: 44, height: 44, justifyContent: 'center' }}>
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flex: 1, textAlign: 'center', marginHorizontal: 8 }]}>
                     {animalType === 'pig' ? 'Pigs' : 'Chickens'} Health Report
                 </Text>
-                <PrintReportButton
-                    buildReport={buildHealthReport}
-                    emptyMessage="Select a batch first."
-                />
+                <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                    <PrintReportButton
+                        buildReport={buildHealthReport}
+                        emptyMessage="Select a batch first."
+                    />
+                </View>
             </View>
 
             <ScrollView
@@ -688,11 +690,11 @@ export default function HealthReportScreen() {
                 }
             >
                 {/* Intro Text & Value Badge */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, marginTop: 4 }}>
-                    <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginRight: 16, marginTop: 0, marginBottom: 0 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, marginTop: 4, gap: 12 }}>
+                    <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginTop: 0, marginBottom: 0 }]}>
                         Monitor vaccine coverages, active illnesses, routine deworming care, and dynamic mortality statistics.
                     </Text>
-                    <View style={[styles.dayBadge, { marginBottom: 0, backgroundColor: colors.surface, paddingHorizontal: 12 }]}>
+                    <View style={[styles.dayBadge, { marginBottom: 0, backgroundColor: colors.surface, paddingHorizontal: 12, flexShrink: 0 }]}>
                         <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, letterSpacing: 1.2, opacity: 0.8 }]}>
                             MORTALITY
                         </Text>
@@ -750,7 +752,7 @@ export default function HealthReportScreen() {
                             ]}
                             onPress={() => setHousingModalVisible(true)}
                         >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]}>
                                 {selectedHousingOptionStr}
                             </Text>
                             <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
@@ -778,7 +780,7 @@ export default function HealthReportScreen() {
                             ]}
                             onPress={() => setBatchModalVisible(true)}
                         >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]}>
                                 {selectedBatchOptionStr}
                             </Text>
                             <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />

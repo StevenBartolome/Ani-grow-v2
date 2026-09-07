@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, Modal, TextInput } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, Modal, TextInput, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -879,25 +879,74 @@ export default function ManageFeedsScreen() {
             </View>
 
             {/* Add / Edit Modal */}
-            <Modal visible={editModalVisible} transparent animationType="fade">
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center' }}>
-                        <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
-                            <MaterialIcons name={editingFeedId ? 'edit' : 'grain'} size={32} color={colors.primary} />
-                        </View>
-                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
-                            {editingFeedId ? 'Edit Feed' : 'Add Feed'}
-                        </Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
-                            Enter the details for this feed option.
-                        </Text>
-
-                        <ScrollView 
-                            style={{ width: '100%', maxHeight: 420, marginBottom: 16 }}
-                            contentContainerStyle={{ paddingHorizontal: 2, paddingTop: 10 }}
-                            showsVerticalScrollIndicator={false}
-                            keyboardShouldPersistTaps="handled"
+            <Modal
+                visible={editModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                    Keyboard.dismiss();
+                    setEditModalVisible(false);
+                }}
+            >
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={() => Keyboard.dismiss()}
+                        style={{
+                            flex: 1,
+                            backgroundColor: 'rgba(0,0,0,0.4)',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            padding: 20,
+                        }}
+                    >
+                        <TouchableOpacity
+                            activeOpacity={1}
+                            onPress={() => {}}
+                            style={{
+                                backgroundColor: colors.surface,
+                                width: '100%',
+                                maxWidth: 360,
+                                maxHeight: '90%',
+                                padding: 24,
+                                borderRadius: 24,
+                                alignItems: 'center',
+                                overflow: 'hidden',
+                                position: 'relative',
+                            }}
                         >
+                            {/* Close icon button */}
+                            <TouchableOpacity
+                                style={{ position: 'absolute', top: 16, right: 16, padding: 6, zIndex: 10 }}
+                                onPress={() => {
+                                    Keyboard.dismiss();
+                                    setEditModalVisible(false);
+                                }}
+                                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                activeOpacity={0.7}
+                            >
+                                <MaterialIcons name="close" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+
+                            <View style={{ backgroundColor: colors.primary + '1A', padding: 14, borderRadius: 22, marginBottom: 12 }}>
+                                <MaterialIcons name={editingFeedId ? 'edit' : 'grain'} size={30} color={colors.primary} />
+                            </View>
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 6, fontSize: 20 }]}>
+                                {editingFeedId ? 'Edit Feed' : 'Add Feed'}
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 16 }]}>
+                                Enter the details for this feed option.
+                            </Text>
+
+                            <ScrollView 
+                                style={{ width: '100%', flexShrink: 1, maxHeight: 380, marginBottom: 16 }}
+                                contentContainerStyle={{ paddingHorizontal: 2, paddingTop: 10, paddingBottom: 6 }}
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                            >
                             {/* Animal Type Selector (At Top) */}
                             <TouchableOpacity
                                 activeOpacity={0.8}
@@ -1306,7 +1355,14 @@ export default function ManageFeedsScreen() {
                         </ScrollView>
 
                         <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
-                            <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditModalVisible(false)} activeOpacity={0.7}>
+                            <TouchableOpacity
+                                style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }}
+                                onPress={() => {
+                                    Keyboard.dismiss();
+                                    setEditModalVisible(false);
+                                }}
+                                activeOpacity={0.7}
+                            >
                                 <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
@@ -1317,16 +1373,20 @@ export default function ManageFeedsScreen() {
                                     borderRadius: 30,
                                     alignItems: 'center'
                                 }}
-                                onPress={handleSaveClick}
+                                onPress={() => {
+                                    Keyboard.dismiss();
+                                    handleSaveClick();
+                                }}
                                 disabled={isSaveDisabled}
                                 activeOpacity={isSaveDisabled ? 1 : 0.7}
                             >
                                 <Text style={[textStyles.h3, { color: isSaveDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Save</Text>
                             </TouchableOpacity>
                         </View>
-                    </View>
-                </View>
-            </Modal>
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </KeyboardAvoidingView>
+        </Modal>
 
             <SelectionModal
                 visible={feedTypeModalVisible}

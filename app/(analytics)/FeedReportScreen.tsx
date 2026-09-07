@@ -545,7 +545,7 @@ export default function FeedReportScreen() {
                 <View style={{ width: 44, height: 44, justifyContent: 'center' }}>
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flex: 1, textAlign: 'center', marginHorizontal: 8 }]} numberOfLines={1}>
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flex: 1, textAlign: 'center', marginHorizontal: 8 }]}>
                     {animalType === 'pig' ? 'Pigs' : 'Chickens'} Feed Report
                 </Text>
                 <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
@@ -637,11 +637,11 @@ export default function FeedReportScreen() {
                         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                             <MaterialIcons name="home" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
                             <View style={{ flex: 1 }}>
-                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]} numberOfLines={1}>
+                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]}>
                                     {selectedHousingOptionStr}
                                 </Text>
                                 {activeBatch && (
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 1 }} numberOfLines={1}>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 1 }}>
                                         {activeBatch.name} · {headCount} heads {batchAgeDays !== null ? `· Day ${batchAgeDays}` : ''}
                                     </Text>
                                 )}
@@ -686,12 +686,12 @@ export default function FeedReportScreen() {
                                 <View style={{ flex: 1, backgroundColor: colors.surface, borderRadius: 16, padding: 13, borderWidth: 1, borderColor: colors.stroke }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                                         <MaterialIcons name="inventory-2" size={16} color={colors.primary} />
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }} numberOfLines={1}>Total Consumed</Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>Total Consumed</Text>
                                     </View>
-                                    <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 19, color: colors.text }} numberOfLines={1}>
+                                    <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 19, color: colors.text }}>
                                         {totalConsumption.toFixed(1)} <Text style={{ fontSize: 12, fontFamily: 'Poppins-Regular', color: colors.textGrey }}>kg</Text>
                                     </Text>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey, marginTop: 2 }} numberOfLines={1}>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey, marginTop: 2 }}>
                                         {totalDispenses} automated dispenses
                                     </Text>
                                 </View>
@@ -700,12 +700,12 @@ export default function FeedReportScreen() {
                                 <View style={{ flex: 1, backgroundColor: colors.surface, borderRadius: 16, padding: 13, borderWidth: 1, borderColor: colors.stroke }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                                         <MaterialIcons name="speed" size={16} color={colors.secondary} />
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }} numberOfLines={1}>Avg Daily / Head</Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>Avg Daily / Head</Text>
                                     </View>
-                                    <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 19, color: colors.text }} numberOfLines={1}>
+                                    <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 19, color: colors.text }}>
                                         {feedAnalysis?.dailyIntakePerHeadGrams ?? 0} <Text style={{ fontSize: 12, fontFamily: 'Poppins-Regular', color: colors.textGrey }}>g/day</Text>
                                     </Text>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey, marginTop: 2 }} numberOfLines={1}>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey, marginTop: 2 }}>
                                         Standard: ~{feedAnalysis?.targetIntakeGrams ?? 0} g
                                     </Text>
                                 </View>
@@ -716,12 +716,12 @@ export default function FeedReportScreen() {
                                 <View style={{ flex: 1, backgroundColor: colors.surface, borderRadius: 16, padding: 13, borderWidth: 1, borderColor: colors.stroke }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                                         <MaterialIcons name="check-circle" size={16} color={feedAnalysis?.appetiteColor || colors.primary} />
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }} numberOfLines={1}>Appetite Status</Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>Appetite Status</Text>
                                     </View>
-                                    <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 15, color: feedAnalysis?.appetiteColor || colors.primary, marginTop: 2 }} numberOfLines={1}>
+                                    <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 15, color: feedAnalysis?.appetiteColor || colors.primary, marginTop: 2 }}>
                                         {feedAnalysis?.appetiteStatus || 'Normal'}
                                     </Text>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey, marginTop: 2 }} numberOfLines={1}>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey, marginTop: 2 }}>
                                         {feedAnalysis?.trajectoryStatus || 'Steady Intake'}
                                     </Text>
                                 </View>
@@ -730,12 +730,12 @@ export default function FeedReportScreen() {
                                 <View style={{ flex: 1, backgroundColor: colors.surface, borderRadius: 16, padding: 13, borderWidth: 1, borderColor: colors.stroke }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                                         <MaterialIcons name="schedule" size={16} color={colors.warning} />
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }} numberOfLines={1}>Feed Runway</Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>Feed Runway</Text>
                                     </View>
-                                    <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 18, color: colors.text }} numberOfLines={1}>
+                                    <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 18, color: colors.text }}>
                                         ~{feedAnalysis?.estimatedRunwayDays ?? 30} <Text style={{ fontSize: 12, fontFamily: 'Poppins-Regular', color: colors.textGrey }}>days left</Text>
                                     </Text>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey, marginTop: 2 }} numberOfLines={1}>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey, marginTop: 2 }}>
                                         {Math.round(feedAnalysis?.totalRemainingStock ?? 0)} kg remaining
                                     </Text>
                                 </View>
@@ -879,122 +879,119 @@ export default function FeedReportScreen() {
                                 {/* Header with Icon and Velocity Badge */}
                                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
-                                        <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary + '18', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                            <MaterialIcons name="restaurant" size={20} color={colors.primary} />
-                                        </View>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14.5, color: colors.text }} numberOfLines={1}>
+                                                                    <View style={{ flex: 1 }}>
+                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14.5, color: colors.text }}>
                                                 Feed Intake & Appetite
                                             </Text>
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }} numberOfLines={1}>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
                                                 Nutritional Trajectory & Growth
                                             </Text>
                                         </View>
                                     </View>
                                     <View style={{
-                                        backgroundColor: feedAnalysis.appetiteColor + '18',
-                                        paddingHorizontal: 10,
-                                        paddingVertical: 4,
-                                        borderRadius: 999,
-                                        borderWidth: 1,
-                                        borderColor: feedAnalysis.appetiteColor + '30',
-                                        flexShrink: 0,
-                                    }}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10.5, color: feedAnalysis.appetiteColor }}>
-                                            {feedAnalysis.appetiteBadgeText}
-                                        </Text>
-                                    </View>
-                                </View>
+                                         backgroundColor: feedAnalysis.appetiteColor + '18',
+                                         paddingHorizontal: 10,
+                                         paddingVertical: 4,
+                                         borderRadius: 999,
+                                         borderWidth: 1,
+                                         borderColor: feedAnalysis.appetiteColor + '30',
+                                         flexShrink: 0,
+                                     }}>
+                                         <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10.5, color: feedAnalysis.appetiteColor }}>
+                                             {feedAnalysis.appetiteBadgeText}
+                                         </Text>
+                                     </View>
+                                 </View>
 
-                                {/* Quick Metric Pills (2x2 grid for generous width and zero truncation) */}
-                                <View style={{ gap: 8, marginBottom: 14 }}>
-                                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                                        <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey }}>Daily Intake / Head</Text>
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13.5, color: colors.text, marginTop: 2 }}>
-                                                {feedAnalysis.dailyIntakePerHeadGrams} g/day
-                                            </Text>
-                                        </View>
-                                        <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey }}>Feeding Stage</Text>
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text, marginTop: 2 }} numberOfLines={1}>
-                                                {feedAnalysis.stageName}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                                        <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey }}>Appetite Trend</Text>
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: feedAnalysis.appetiteColor, marginTop: 2 }} numberOfLines={1}>
-                                                {feedAnalysis.trajectoryStatus}
-                                            </Text>
-                                        </View>
-                                        <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey }}>Target Standard</Text>
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text, marginTop: 2 }} numberOfLines={1}>
-                                                ~{feedAnalysis.targetIntakeGrams} g/head
-                                            </Text>
-                                        </View>
-                                    </View>
-                                </View>
+                                 {/* Quick Metric Pills (2x2 grid for generous width and zero truncation) */}
+                                 <View style={{ gap: 8, marginBottom: 14 }}>
+                                     <View style={{ flexDirection: 'row', gap: 8 }}>
+                                         <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
+                                             <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey }}>Daily Intake / Head</Text>
+                                             <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13.5, color: colors.text, marginTop: 2 }}>
+                                                 {feedAnalysis.dailyIntakePerHeadGrams} g/day
+                                             </Text>
+                                         </View>
+                                         <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
+                                             <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey }}>Feeding Stage</Text>
+                                             <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text, marginTop: 2 }}>
+                                                 {feedAnalysis.stageName}
+                                             </Text>
+                                         </View>
+                                     </View>
+                                     <View style={{ flexDirection: 'row', gap: 8 }}>
+                                         <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
+                                             <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey }}>Appetite Trend</Text>
+                                             <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: feedAnalysis.appetiteColor, marginTop: 2 }}>
+                                                 {feedAnalysis.trajectoryStatus}
+                                             </Text>
+                                         </View>
+                                         <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
+                                             <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.textGrey }}>Target Standard</Text>
+                                             <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text, marginTop: 2 }}>
+                                                 ~{feedAnalysis.targetIntakeGrams} g/head
+                                             </Text>
+                                         </View>
+                                     </View>
+                                 </View>
 
-                                <View style={{ height: 1, backgroundColor: colors.divider, marginBottom: 14 }} />
+                                 <View style={{ height: 1, backgroundColor: colors.divider, marginBottom: 14 }} />
 
-                                {/* Detailed Narrative Explanation */}
-                                <View style={{ gap: 10 }}>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
-                                        In <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{selectedHousing?.name}</Text>, the active flock of <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{headCount} {animalType === 'pig' ? 'pigs' : 'chickens'}</Text> {activeBatch ? `(${activeBatch.name}${batchAgeDays !== null ? `, Day ${batchAgeDays}` : ''})` : ''} consumed a total of <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{totalConsumption.toFixed(1)} kg</Text> of feed across {totalDispenses} automated dispenses over {timeframe.toLowerCase()}. Daily feed intake averages <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{feedAnalysis.dailyIntakePerHeadGrams} g/head/day</Text> ({feedAnalysis.avgDailyKg.toFixed(1)} kg/day house consumption).
-                                    </Text>
+                                 {/* Detailed Narrative Explanation */}
+                                 <View style={{ gap: 10 }}>
+                                     <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
+                                         In <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{selectedHousing?.name}</Text>, the active flock of <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{headCount} {animalType === 'pig' ? 'pigs' : 'chickens'}</Text> {activeBatch ? `(${activeBatch.name}${batchAgeDays !== null ? `, Day ${batchAgeDays}` : ''})` : ''} consumed a total of <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{totalConsumption.toFixed(1)} kg</Text> of feed across {totalDispenses} automated dispenses over {timeframe.toLowerCase()}. Daily feed intake averages <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{feedAnalysis.dailyIntakePerHeadGrams} g/head/day</Text> ({feedAnalysis.avgDailyKg.toFixed(1)} kg/day house consumption).
+                                     </Text>
 
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>Growth Alignment: </Text>
-                                        {feedAnalysis.stageDesc} The primary diet currently being dispensed is <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{feedAnalysis.topFeedName}</Text> ({feedAnalysis.topFeedCategory}), representing <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{feedAnalysis.topPct}%</Text> of total intake.
-                                    </Text>
+                                     <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
+                                         <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>Growth Alignment: </Text>
+                                         {feedAnalysis.stageDesc} The primary diet currently being dispensed is <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{feedAnalysis.topFeedName}</Text> ({feedAnalysis.topFeedCategory}), representing <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{feedAnalysis.topPct}%</Text> of total intake.
+                                     </Text>
 
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>Appetite Assessment: </Text>
-                                        Intake is running at <Text style={{ fontFamily: 'Poppins-SemiBold', color: feedAnalysis.appetiteColor }}>{Math.round(feedAnalysis.benchmarkRatio * 100)}% of the target standard</Text> (~{feedAnalysis.targetIntakeGrams} g/day). {feedAnalysis.benchmarkRatio >= 0.9 && feedAnalysis.benchmarkRatio <= 1.15 ? 'Feeding rhythm is stable and healthy across morning, midday, and evening automated dispenses.' : feedAnalysis.benchmarkRatio > 1.15 ? 'Appetite is vigorous, indicating high metabolic rate and accelerated growth rate.' : 'Intake is slightly below target; verify water supply, pen temperature, and feeder hopper clearance.'}
-                                    </Text>
+                                     <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
+                                         <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>Appetite Assessment: </Text>
+                                         Intake is running at <Text style={{ fontFamily: 'Poppins-SemiBold', color: feedAnalysis.appetiteColor }}>{Math.round(feedAnalysis.benchmarkRatio * 100)}% of the target standard</Text> (~{feedAnalysis.targetIntakeGrams} g/day). {feedAnalysis.benchmarkRatio >= 0.9 && feedAnalysis.benchmarkRatio <= 1.15 ? 'Feeding rhythm is stable and healthy across morning, midday, and evening automated dispenses.' : feedAnalysis.benchmarkRatio > 1.15 ? 'Appetite is vigorous, indicating high metabolic rate and accelerated growth rate.' : 'Intake is slightly below target; verify water supply, pen temperature, and feeder hopper clearance.'}
+                                     </Text>
 
-                                    {/* Actionable Recommendations */}
-                                    <View style={{ backgroundColor: colors.bgLight, borderRadius: 12, padding: 12, marginTop: 4, borderWidth: 1, borderColor: colors.stroke }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                                            <MaterialIcons name="lightbulb" size={16} color={colors.warning} />
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
-                                                Farm Management Guidance
-                                            </Text>
-                                        </View>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11.5, color: colors.textGrey, lineHeight: 17 }}>
-                                            • Ensure constant access to cool drinking water ({animalType === 'chicken' ? 'broilers require 1.8–2.0x water to feed ratio' : 'swine require 2.0–2.5x water to feed ratio'}).{'\n'}
-                                            • Feeder hopper inventory has approximately <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>~{feedAnalysis.estimatedRunwayDays} days of feed remaining</Text> at current daily consumption rates.{'\n'}
-                                            • Clean feeder trays regularly to avoid dust accumulation and optimize feed conversion ratio (FCR).
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-                        )}
+                                     {/* Actionable Recommendations */}
+                                     <View style={{ backgroundColor: colors.bgLight, borderRadius: 12, padding: 12, marginTop: 4, borderWidth: 1, borderColor: colors.stroke }}>
+                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                                             <MaterialIcons name="lightbulb" size={16} color={colors.warning} />
+                                             <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
+                                                 Farm Management Guidance
+                                             </Text>
+                                         </View>
+                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11.5, color: colors.textGrey, lineHeight: 17 }}>
+                                             • Ensure constant access to cool drinking water ({animalType === 'chicken' ? 'broilers require 1.8–2.0x water to feed ratio' : 'swine require 2.0–2.5x water to feed ratio'}).{'\n'}
+                                             • Feeder hopper inventory has approximately <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>~{feedAnalysis.estimatedRunwayDays} days of feed remaining</Text> at current daily consumption rates.{'\n'}
+                                             • Clean feeder trays regularly to avoid dust accumulation and optimize feed conversion ratio (FCR).
+                                         </Text>
+                                     </View>
+                                 </View>
+                             </View>
+                         )}
 
-                        {/* ─── Category & Feed Ration Breakdown Card ─── */}
-                        <View style={{
-                            backgroundColor: colors.surface,
-                            borderRadius: 18,
-                            borderWidth: 1,
-                            borderColor: colors.stroke,
-                            marginBottom: 20,
-                            padding: 16,
-                            shadowColor: colors.shadow,
-                            shadowOffset: { width: 0, height: 3 },
-                            shadowOpacity: 0.08,
-                            shadowRadius: 8,
-                            elevation: 2,
-                        }}>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                                <View style={{ flex: 1, marginRight: 8 }}>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 16 }]} numberOfLines={1}>Feed Rations Used</Text>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }} numberOfLines={1}>
-                                        Detailed share and stock availability by feed type
-                                    </Text>
-                                </View>
+                         {/* ─── Category & Feed Ration Breakdown Card ─── */}
+                         <View style={{
+                             backgroundColor: colors.surface,
+                             borderRadius: 18,
+                             borderWidth: 1,
+                             borderColor: colors.stroke,
+                             marginBottom: 20,
+                             padding: 16,
+                             shadowColor: colors.shadow,
+                             shadowOffset: { width: 0, height: 3 },
+                             shadowOpacity: 0.08,
+                             shadowRadius: 8,
+                             elevation: 2,
+                         }}>
+                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                                 <View style={{ flex: 1, marginRight: 8 }}>
+                                     <Text style={[textStyles.h3, { color: colors.text, fontSize: 16 }]}>Feed Rations Used</Text>
+                                     <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                         Detailed share and stock availability by feed type
+                                     </Text>
+                                 </View>
                                 <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: colors.primary + '15', flexShrink: 0 }}>
                                     <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.primary }}>
                                         {reportData.length} active {reportData.length === 1 ? 'ration' : 'rations'}

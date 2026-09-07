@@ -1383,16 +1383,18 @@ export default function GrowthReportScreen() {
         <SafeAreaView style={styles.safeArea}>
             {/* Header */}
             <View style={animalStyles.headerTopRow}>
-                <View style={{ width: 44, height: 44 }}>
+                <View style={{ width: 44, height: 44, justifyContent: 'center' }}>
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flex: 1, textAlign: 'center', marginHorizontal: 8 }]}>
                     {animalType === 'pig' ? 'Pigs' : 'Chickens'} Growth
                 </Text>
-                <PrintReportButton
-                    buildReport={buildGrowthReport}
-                    emptyMessage="Select a batch with recorded weigh-ins first."
-                />
+                <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                    <PrintReportButton
+                        buildReport={buildGrowthReport}
+                        emptyMessage="Select a batch with recorded weigh-ins first."
+                    />
+                </View>
             </View>
 
             <ScrollView 
@@ -1403,12 +1405,12 @@ export default function GrowthReportScreen() {
                 }
             >
                 {/* Intro Text & Day Badge */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, marginTop: 4 }}>
-                    <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginRight: 16, marginTop: 0, marginBottom: 0 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, marginTop: 4, gap: 12 }}>
+                    <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginTop: 0, marginBottom: 0 }]}>
                         Here are the growth statistics and analytics for your {animalType === 'pig' ? 'pigs' : 'chickens'}.
                     </Text>
                     {currentDay !== null && (
-                        <View style={[styles.dayBadge, { marginBottom: 0, backgroundColor: colors.surface, paddingHorizontal: 12 }]}>
+                        <View style={[styles.dayBadge, { marginBottom: 0, backgroundColor: colors.surface, paddingHorizontal: 12, flexShrink: 0 }]}>
                             <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, letterSpacing: 1.2, opacity: 0.8 }]}>
                                 DAY
                             </Text>
@@ -1467,7 +1469,7 @@ export default function GrowthReportScreen() {
                             ]}
                             onPress={() => setHousingModalVisible(true)}
                         >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]}>
                                 {selectedHousingOptionStr}
                             </Text>
                             <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
@@ -1495,7 +1497,7 @@ export default function GrowthReportScreen() {
                             ]}
                             onPress={() => setBatchModalVisible(true)}
                         >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]}>
                                 {selectedBatchOptionStr}
                             </Text>
                             <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
@@ -1612,7 +1614,7 @@ export default function GrowthReportScreen() {
                                     >
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 8 }}>
                                             <MaterialIcons name="filter-list" size={16} color={colors.primary} />
-                                            <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 12, color: colors.text, flex: 1 }} numberOfLines={1}>
+                                            <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 12, color: colors.text, flex: 1 }}>
                                                 {activeSessionOption}
                                             </Text>
                                         </View>
@@ -1654,7 +1656,7 @@ export default function GrowthReportScreen() {
                                         padding: 10,
                                         alignItems: 'center',
                                     }}>
-                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 9, color: '#F59E0B', opacity: 0.8 }} numberOfLines={1}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 9, color: '#F59E0B', opacity: 0.8, textAlign: 'center' }}>
                                             UNDERWEIGHT
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: '#F59E0B', marginTop: 4 }}>
@@ -1675,7 +1677,7 @@ export default function GrowthReportScreen() {
                                         padding: 10,
                                         alignItems: 'center',
                                     }}>
-                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 9, color: colors.primary, opacity: 0.8 }} numberOfLines={1}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 9, color: colors.primary, opacity: 0.8, textAlign: 'center' }}>
                                             NORMAL
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.primary, marginTop: 4 }}>
@@ -1696,7 +1698,7 @@ export default function GrowthReportScreen() {
                                         padding: 10,
                                         alignItems: 'center',
                                     }}>
-                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 9, color: OVERWEIGHT_COLOR, opacity: 0.8 }} numberOfLines={1}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 9, color: OVERWEIGHT_COLOR, opacity: 0.8, textAlign: 'center' }}>
                                             OVERWEIGHT
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: OVERWEIGHT_COLOR, marginTop: 4 }}>
@@ -2152,12 +2154,12 @@ export default function GrowthReportScreen() {
                                         </View>
 
                                         {/* Normal Shift */}
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingVertical: 4 }}>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                                                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }} />
                                                 <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.text }}>Normal</Text>
                                             </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                 <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
                                                     {statusExplanation.prev.normalCount} ({statusExplanation.prev.normalPct}%) ➔ {statusExplanation.latest.normalCount} ({statusExplanation.latest.normalPct}%)
                                                 </Text>
@@ -2179,12 +2181,12 @@ export default function GrowthReportScreen() {
                                         </View>
 
                                         {/* Underweight Shift */}
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingVertical: 4 }}>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                                                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.secondary }} />
                                                 <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.text }}>Underweight</Text>
                                             </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                 <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
                                                     {statusExplanation.prev.underweightCount} ({statusExplanation.prev.underweightPct}%) ➔ {statusExplanation.latest.underweightCount} ({statusExplanation.latest.underweightPct}%)
                                                 </Text>
@@ -2206,12 +2208,12 @@ export default function GrowthReportScreen() {
                                         </View>
 
                                         {/* Overweight Shift */}
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingVertical: 4 }}>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                                                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: OVERWEIGHT_COLOR }} />
                                                 <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.text }}>Overweight</Text>
                                             </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                 <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
                                                     {statusExplanation.prev.overweightCount} ({statusExplanation.prev.overweightPct}%) ➔ {statusExplanation.latest.overweightCount} ({statusExplanation.latest.overweightPct}%)
                                                 </Text>

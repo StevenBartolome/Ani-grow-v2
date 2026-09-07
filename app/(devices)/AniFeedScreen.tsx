@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Modal, RefreshControl, ScrollView, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, RefreshControl, ScrollView, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
@@ -29,6 +29,7 @@ interface DeviceInfo {
     housingId: string | null;
     housingName: string;
     animalType: 'Pig' | 'Chicken';
+    farmId?: string | null;
 }
 
 interface FeedScheduleInfo {
@@ -209,7 +210,7 @@ export default function AniFeedScreen() {
             const [deviceResult, scheduleResult, logsResult, housingsResult, feedsResult] = await Promise.all([
                 supabase
                     .from('devices')
-                    .select('id, name, unique_code, status, last_seen, housing_id, housings(name, animal_type)')
+                    .select('id, name, unique_code, status, last_seen, housing_id, farm_id, housings(name, animal_type)')
                     .eq('id', deviceId as string)
                     .single(),
                 supabase
@@ -246,6 +247,7 @@ export default function AniFeedScreen() {
                     housingId: d.housing_id ?? null,
                     housingName: d.housings?.name ?? 'Unassigned',
                     animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
+                    farmId: d.farm_id ?? null,
                 };
 
                 if (!info.housingId) {
@@ -473,11 +475,17 @@ export default function AniFeedScreen() {
                 activeBatchId = activeBatch?.id ?? null;
             }
 
+            const targetFarmId = deviceInfo?.farmId || farmId;
+            if (!targetFarmId) {
+                showSnackbar('Unable to determine farm assignment for this device.', 'error');
+                return;
+            }
+
             const { error: insertError } = await supabase
                 .from('dispense_records')
                 .insert({
                     device_id: deviceId as string,
-                    farm_id: farmId,
+                    farm_id: targetFarmId,
                     feed_id: schedule.feedId,
                     housing_id: deviceInfo?.housingId ?? null,
                     batch_id: activeBatchId,
@@ -1104,232 +1112,323 @@ export default function AniFeedScreen() {
             />
 
             {/* Manual Dispense modal */}
-            <Modal visible={manualDispenseVisible} transparent animationType="fade" onRequestClose={() => !isManualDispensing && setManualDispenseVisible(false)}>
-                <View style={[anifeedStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
-                    <View style={[anifeedStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center' }]}>
-                        {/* Icon */}
-                        <View style={[anifeedStyles.iconContainer, { backgroundColor: colors.primary + '1A' }]}>
-                            <MaterialIcons name="food-bank" size={32} color={colors.primary} />
-                        </View>
-
-                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 6, fontSize: 20 }]}>Manual Dispense</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20, fontSize: 13 }]}>
-                            Logged instantly with the current time. Adjust the amount if needed.
-                        </Text>
-
-                        {/* Grams input */}
-                        <View style={{ width: '100%', marginBottom: 8 }}>
-                            <FloatingLabelInput
-                                label="Amount (grams)"
-                                icon="line-weight"
-                                value={manualGrams}
-                                keyboardType="numeric"
-                                onChangeText={t => setManualGrams(t.replace(/[^0-9]/g, ''))}
-                            />
-                        </View>
-
-                        {/* Feed stock hint */}
-                        {schedule?.feedStockKg !== undefined && schedule.feedStockKg !== null && (
-                            <Text style={[textStyles.body, { color: schedule.feedStockKg < 10 ? colors.error : colors.textGrey, fontSize: 12, marginBottom: 16, textAlign: 'center' }]}>
-                                Feed stock remaining: {schedule.feedStockKg} kg
-                            </Text>
-                        )}
-
-                        {/* Buttons */}
-                        <View style={{ flexDirection: 'row', gap: 10, width: '100%', marginTop: 8 }}>
+            <Modal
+                visible={manualDispenseVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                    if (!isManualDispensing) {
+                        Keyboard.dismiss();
+                        setManualDispenseVisible(false);
+                    }
+                }}
+            >
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={() => Keyboard.dismiss()}
+                        style={[anifeedStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}
+                    >
+                        <TouchableOpacity
+                            activeOpacity={1}
+                            onPress={() => {}}
+                            style={[anifeedStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center', position: 'relative' }]}
+                        >
+                            {/* Close button */}
                             <TouchableOpacity
-                                onPress={() => setManualDispenseVisible(false)}
-                                disabled={isManualDispensing}
-                                style={{
-                                    flex: 1,
-                                    paddingVertical: 13,
-                                    borderRadius: 14,
-                                    alignItems: 'center',
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    backgroundColor: colors.cardFill,
-                                    opacity: isManualDispensing ? 0.5 : 1,
+                                style={{ position: 'absolute', top: 16, right: 16, padding: 6, zIndex: 10 }}
+                                onPress={() => {
+                                    if (!isManualDispensing) {
+                                        Keyboard.dismiss();
+                                        setManualDispenseVisible(false);
+                                    }
                                 }}
+                                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                                 activeOpacity={0.7}
                             >
-                                <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 14 }]}>Cancel</Text>
+                                <MaterialIcons name="close" size={22} color={colors.textGrey} />
                             </TouchableOpacity>
 
-                            <TouchableOpacity
-                                onPress={handleConfirmManualDispense}
-                                disabled={isManualDispensing}
-                                style={{
-                                    flex: 1,
-                                    paddingVertical: 13,
-                                    borderRadius: 14,
-                                    alignItems: 'center',
-                                    flexDirection: 'row',
-                                    justifyContent: 'center',
-                                    gap: 6,
-                                    backgroundColor: colors.primary,
-                                    opacity: isManualDispensing ? 0.7 : 1,
-                                }}
-                                activeOpacity={0.8}
-                            >
-                                {isManualDispensing ? (
-                                    <ActivityIndicator size="small" color={colors.onPrimary} />
-                                ) : (
-                                    <MaterialIcons name="check" size={16} color={colors.onPrimary} />
-                                )}
-                                <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 14 }]}>
-                                    {isManualDispensing ? 'Logging...' : 'Dispense'}
+                            {/* Icon */}
+                            <View style={[anifeedStyles.iconContainer, { backgroundColor: colors.primary + '1A' }]}>
+                                <MaterialIcons name="food-bank" size={32} color={colors.primary} />
+                            </View>
+
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 6, fontSize: 20 }]}>Manual Dispense</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20, fontSize: 13 }]}>
+                                Logged instantly with the current time. Adjust the amount if needed.
+                            </Text>
+
+                            {/* Grams input */}
+                            <View style={{ width: '100%', marginBottom: 8 }}>
+                                <FloatingLabelInput
+                                    label="Amount (grams)"
+                                    icon="line-weight"
+                                    value={manualGrams}
+                                    keyboardType="numeric"
+                                    onChangeText={t => setManualGrams(t.replace(/[^0-9]/g, ''))}
+                                />
+                            </View>
+
+                            {/* Feed stock hint */}
+                            {schedule?.feedStockKg !== undefined && schedule.feedStockKg !== null && (
+                                <Text style={[textStyles.body, { color: schedule.feedStockKg < 10 ? colors.error : colors.textGrey, fontSize: 12, marginBottom: 16, textAlign: 'center' }]}>
+                                    Feed stock remaining: {schedule.feedStockKg} kg
                                 </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
+                            )}
+
+                            {/* Buttons */}
+                            <View style={{ flexDirection: 'row', gap: 10, width: '100%', marginTop: 8 }}>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        Keyboard.dismiss();
+                                        setManualDispenseVisible(false);
+                                    }}
+                                    disabled={isManualDispensing}
+                                    style={{
+                                        flex: 1,
+                                        paddingVertical: 13,
+                                        borderRadius: 14,
+                                        alignItems: 'center',
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        backgroundColor: colors.cardFill,
+                                        opacity: isManualDispensing ? 0.5 : 1,
+                                    }}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        Keyboard.dismiss();
+                                        handleConfirmManualDispense();
+                                    }}
+                                    disabled={isManualDispensing}
+                                    style={{
+                                        flex: 1,
+                                        paddingVertical: 13,
+                                        borderRadius: 14,
+                                        alignItems: 'center',
+                                        flexDirection: 'row',
+                                        justifyContent: 'center',
+                                        gap: 6,
+                                        backgroundColor: colors.primary,
+                                        opacity: isManualDispensing ? 0.7 : 1,
+                                    }}
+                                    activeOpacity={0.8}
+                                >
+                                    {isManualDispensing ? (
+                                        <ActivityIndicator size="small" color={colors.onPrimary} />
+                                    ) : (
+                                        <MaterialIcons name="check" size={16} color={colors.onPrimary} />
+                                    )}
+                                    <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 14 }]}>
+                                        {isManualDispensing ? 'Logging...' : 'Dispense'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </TouchableOpacity>
+                    </TouchableOpacity>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* Schedule modal */}
-            <Modal visible={scheduleModalVisible} transparent animationType="fade">
-                <View style={[anifeedStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
-                    <View style={[anifeedStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center' }]}>
-                        <View style={[anifeedStyles.iconContainer, { backgroundColor: colors.primary + '1A' }]}>
-                            <MaterialIcons name="edit-calendar" size={32} color={colors.primary} />
-                        </View>
-                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Edit Schedule</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20 }]}>
-                            Set how many times per day to dispense and how much feed per dispense.
-                        </Text>
-
-                        <View style={{ width: '100%', marginBottom: 12 }}>
-                            <FloatingLabelInput
-                                label="Times per day"
-                                icon="repeat"
-                                value={tempTimesPerDay}
-                                onChangeText={t => {
-                                    const cleaned = t.replace(/[^0-9]/g, '');
-                                    setTempTimesPerDay(cleaned);
-                                    if (cleaned) {
-                                        const count = parseInt(cleaned, 10);
-                                        if (!isNaN(count) && count >= 0 && count <= 12) {
-                                            setTempTimes(prev => {
-                                                const updated = [...prev];
-                                                if (count > updated.length) {
-                                                    while (updated.length < count) {
-                                                        updated.push('12:00 PM');
-                                                    }
-                                                } else if (count < updated.length) {
-                                                    updated.length = count;
-                                                }
-                                                return updated;
-                                            });
-                                        }
-                                    } else {
-                                        setTempTimes([]);
-                                    }
+            <Modal
+                visible={scheduleModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                    Keyboard.dismiss();
+                    setScheduleModalVisible(false);
+                }}
+            >
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={() => Keyboard.dismiss()}
+                        style={[anifeedStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}
+                    >
+                        <TouchableOpacity
+                            activeOpacity={1}
+                            onPress={() => {}}
+                            style={[anifeedStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 360, maxHeight: '90%', padding: 24, borderRadius: 24, alignItems: 'center', position: 'relative' }]}
+                        >
+                            {/* Close button */}
+                            <TouchableOpacity
+                                style={{ position: 'absolute', top: 16, right: 16, padding: 6, zIndex: 10 }}
+                                onPress={() => {
+                                    Keyboard.dismiss();
+                                    setScheduleModalVisible(false);
                                 }}
-                                keyboardType="numeric"
-                                backgroundColor={colors.surface}
-                            />
-                        </View>
+                                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                activeOpacity={0.7}
+                            >
+                                <MaterialIcons name="close" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
 
-                         {tempTimes.length > 0 && (
-                            <View style={{ width: '100%', marginBottom: 16 }}>
-                                <Text style={[textStyles.label, { color: colors.textGrey, alignSelf: 'flex-start', marginBottom: 8, fontSize: 12 }]}>Dispense Times (12h format)</Text>
-                                <ScrollView style={{ maxHeight: 150, width: '100%', borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingHorizontal: 12, backgroundColor: colors.bgLight }} nestedScrollEnabled={true}>
-                                    {tempTimes.map((time, idx) => (
-                                        <View key={idx} style={anifeedStyles.dispenseTimeRow}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                <MaterialIcons name="access-time" size={16} color={colors.textGrey} style={{ marginRight: 6 }} />
-                                                <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Time #{idx + 1}</Text>
-                                            </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                <TextInput
-                                                    style={{
-                                                        backgroundColor: colors.surface,
-                                                        borderColor: colors.stroke,
-                                                        borderWidth: 1,
-                                                        borderRadius: 8,
-                                                        paddingHorizontal: 8,
-                                                        paddingVertical: 6,
-                                                        color: colors.text,
-                                                        fontSize: 13,
-                                                        width: 105,
-                                                        textAlign: 'center',
-                                                    }}
-                                                    value={time}
-                                                    placeholder="12:00 PM"
-                                                    placeholderTextColor={colors.textGrey}
-                                                    maxLength={8}
-                                                    onChangeText={(text) => {
-                                                        const updated = [...tempTimes];
-                                                        updated[idx] = text;
-                                                        setTempTimes(updated);
-                                                    }}
-                                                />
-                                                <TouchableOpacity
-                                                    style={{
-                                                        backgroundColor: colors.primary + '1A',
-                                                        borderColor: colors.primary,
-                                                        borderWidth: 1,
-                                                        borderRadius: 8,
-                                                        width: 36,
-                                                        height: 36,
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                    }}
-                                                    activeOpacity={0.7}
-                                                    onPress={() => {
-                                                        setActiveTimeIdx(idx);
-                                                        const cleaned = time.trim().toUpperCase();
-                                                        const match = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
-                                                        if (match) {
-                                                            setSelectedHour(parseInt(match[1], 10));
-                                                            setSelectedMinute(parseInt(match[2], 10));
-                                                            setSelectedAmPm(match[3] as 'AM' | 'PM');
-                                                        } else {
-                                                            setSelectedHour(12);
-                                                            setSelectedMinute(0);
-                                                            setSelectedAmPm('AM');
-                                                        }
-                                                        setTimePickerVisible(true);
-                                                    }}
-                                                >
-                                                    <MaterialIcons name="access-time" size={18} color={colors.primary} />
-                                                </TouchableOpacity>
-                                            </View>
-                                        </View>
-                                    ))}
-                                </ScrollView>
+                            <View style={[anifeedStyles.iconContainer, { backgroundColor: colors.primary + '1A', marginBottom: 12 }]}>
+                                <MaterialIcons name="edit-calendar" size={32} color={colors.primary} />
                             </View>
-                        )}
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 6, fontSize: 20 }]}>Edit Schedule</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 16 }]}>
+                                Set how many times per day to dispense and how much feed per dispense.
+                            </Text>
 
-                        <View style={{ width: '100%', marginBottom: 16 }}>
-                            <FloatingLabelInput
-                                label="Grams per dispense"
-                                icon="line-weight"
-                                value={tempGrams}
-                                onChangeText={t => setTempGrams(t.replace(/[^0-9]/g, ''))}
-                                keyboardType="numeric"
-                                backgroundColor={colors.surface}
-                            />
-                        </View>
+                            <ScrollView
+                                style={{ width: '100%', flexShrink: 1, maxHeight: 360, marginBottom: 16 }}
+                                contentContainerStyle={{ paddingHorizontal: 2, paddingBottom: 4 }}
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                            >
+                                <View style={{ width: '100%', marginBottom: 12 }}>
+                                    <FloatingLabelInput
+                                        label="Times per day"
+                                        icon="repeat"
+                                        value={tempTimesPerDay}
+                                        onChangeText={t => {
+                                            const cleaned = t.replace(/[^0-9]/g, '');
+                                            setTempTimesPerDay(cleaned);
+                                            if (cleaned) {
+                                                const count = parseInt(cleaned, 10);
+                                                if (!isNaN(count) && count >= 0 && count <= 12) {
+                                                    setTempTimes(prev => {
+                                                        const updated = [...prev];
+                                                        if (count > updated.length) {
+                                                            while (updated.length < count) {
+                                                                updated.push('12:00 PM');
+                                                            }
+                                                        } else if (count < updated.length) {
+                                                            updated.length = count;
+                                                        }
+                                                        return updated;
+                                                    });
+                                                }
+                                            } else {
+                                                setTempTimes([]);
+                                            }
+                                        }}
+                                        keyboardType="numeric"
+                                        backgroundColor={colors.surface}
+                                    />
+                                </View>
 
-                        <View style={[anifeedStyles.actionContainer, { width: '100%' }]}>
-                            <TouchableOpacity
-                                style={[anifeedStyles.btn, { backgroundColor: colors.cardFill }]}
-                                onPress={() => setScheduleModalVisible(false)}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[anifeedStyles.btn, { backgroundColor: colors.primary, opacity: (tempTimesPerDay && tempGrams && tempTimes.length > 0) ? 1 : 0.5 }]}
-                                onPress={handleSaveSchedule}
-                                activeOpacity={0.7}
-                                disabled={!(tempTimesPerDay && tempGrams && tempTimes.length > 0)}
-                            >
-                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Save</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
+                                {tempTimes.length > 0 && (
+                                    <View style={{ width: '100%', marginBottom: 16 }}>
+                                        <Text style={[textStyles.label, { color: colors.textGrey, alignSelf: 'flex-start', marginBottom: 8, fontSize: 12 }]}>Dispense Times (12h format)</Text>
+                                        <ScrollView style={{ maxHeight: 150, width: '100%', borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingHorizontal: 12, backgroundColor: colors.bgLight }} nestedScrollEnabled={true}>
+                                            {tempTimes.map((time, idx) => (
+                                                <View key={idx} style={anifeedStyles.dispenseTimeRow}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                                        <MaterialIcons name="access-time" size={16} color={colors.textGrey} style={{ marginRight: 6 }} />
+                                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Time #{idx + 1}</Text>
+                                                    </View>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                        <TextInput
+                                                            style={{
+                                                                backgroundColor: colors.surface,
+                                                                borderColor: colors.stroke,
+                                                                borderWidth: 1,
+                                                                borderRadius: 8,
+                                                                paddingHorizontal: 8,
+                                                                paddingVertical: 6,
+                                                                color: colors.text,
+                                                                fontSize: 13,
+                                                                width: 105,
+                                                                textAlign: 'center',
+                                                            }}
+                                                            value={time}
+                                                            placeholder="12:00 PM"
+                                                            placeholderTextColor={colors.textGrey}
+                                                            maxLength={8}
+                                                            onChangeText={(text) => {
+                                                                const updated = [...tempTimes];
+                                                                updated[idx] = text;
+                                                                setTempTimes(updated);
+                                                            }}
+                                                        />
+                                                        <TouchableOpacity
+                                                            style={{
+                                                                backgroundColor: colors.primary + '1A',
+                                                                borderColor: colors.primary,
+                                                                borderWidth: 1,
+                                                                borderRadius: 8,
+                                                                width: 36,
+                                                                height: 36,
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                            }}
+                                                            activeOpacity={0.7}
+                                                            onPress={() => {
+                                                                setActiveTimeIdx(idx);
+                                                                const cleaned = time.trim().toUpperCase();
+                                                                const match = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+                                                                if (match) {
+                                                                    setSelectedHour(parseInt(match[1], 10));
+                                                                    setSelectedMinute(parseInt(match[2], 10));
+                                                                    setSelectedAmPm(match[3] as 'AM' | 'PM');
+                                                                } else {
+                                                                    setSelectedHour(12);
+                                                                    setSelectedMinute(0);
+                                                                    setSelectedAmPm('AM');
+                                                                }
+                                                                setTimePickerVisible(true);
+                                                            }}
+                                                        >
+                                                            <MaterialIcons name="access-time" size={18} color={colors.primary} />
+                                                        </TouchableOpacity>
+                                                    </View>
+                                                </View>
+                                            ))}
+                                        </ScrollView>
+                                    </View>
+                                )}
+
+                                <View style={{ width: '100%', marginBottom: 16 }}>
+                                    <FloatingLabelInput
+                                        label="Grams per dispense"
+                                        icon="line-weight"
+                                        value={tempGrams}
+                                        onChangeText={t => setTempGrams(t.replace(/[^0-9]/g, ''))}
+                                        keyboardType="numeric"
+                                        backgroundColor={colors.surface}
+                                    />
+                                </View>
+                            </ScrollView>
+
+                            <View style={[anifeedStyles.actionContainer, { width: '100%' }]}>
+                                <TouchableOpacity
+                                    style={[anifeedStyles.btn, { backgroundColor: colors.cardFill }]}
+                                    onPress={() => {
+                                        Keyboard.dismiss();
+                                        setScheduleModalVisible(false);
+                                    }}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[anifeedStyles.btn, { backgroundColor: colors.primary, opacity: (tempTimesPerDay && tempGrams && tempTimes.length > 0) ? 1 : 0.5 }]}
+                                    onPress={() => {
+                                        Keyboard.dismiss();
+                                        handleSaveSchedule();
+                                    }}
+                                    activeOpacity={0.7}
+                                    disabled={!(tempTimesPerDay && tempGrams && tempTimes.length > 0)}
+                                >
+                                    <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Save</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </TouchableOpacity>
+                    </TouchableOpacity>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* Custom Time Picker Modal */}
