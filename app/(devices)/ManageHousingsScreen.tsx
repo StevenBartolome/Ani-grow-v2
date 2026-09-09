@@ -18,6 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
 import { getQueuedActions, isNetworkError, queueAction } from '@/lib/offlineQueue';
+import { checkHousingConnectedData } from '@/lib/dataProtection';
 
 interface HousingItem {
     id: string;
@@ -50,6 +51,7 @@ export default function ManageHousingsScreen() {
     const filters: FilterType[] = ['All', 'Chickens', 'Pigs'];
 
     const [housings, setHousings] = useState<HousingItem[]>([]);
+    const [deletableHousingIds, setDeletableHousingIds] = useState<Set<string>>(new Set());
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
@@ -82,7 +84,53 @@ export default function ManageHousingsScreen() {
                     _pendingSync: true,
                 }));
 
-            setHousings([...(data ?? []), ...pendingHousings]);
+            const allHousings = [...(data ?? []), ...pendingHousings];
+            setHousings(allHousings);
+
+            // Determine which housings are deletable with a single parallel batch query
+            const realHousings = data ?? [];
+            const housingIds = realHousings.map(h => h.id);
+            const deletableSet = new Set<string>();
+
+            if (housingIds.length > 0) {
+                const [
+                    batchesRes,
+                    devicesRes,
+                    healthRes,
+                    dispenseRes,
+                    feedSchedRes,
+                    weighingRes,
+                    weighRes,
+                ] = await Promise.all([
+                    supabase.from('batches').select('housing_id').in('housing_id', housingIds),
+                    supabase.from('devices').select('housing_id').in('housing_id', housingIds),
+                    supabase.from('health_records').select('housing_id').in('housing_id', housingIds).is('deleted_at', null),
+                    supabase.from('dispense_records').select('housing_id').in('housing_id', housingIds),
+                    supabase.from('feed_schedules').select('housing_id').in('housing_id', housingIds),
+                    supabase.from('weighing_sessions').select('housing_id').in('housing_id', housingIds),
+                    supabase.from('weigh_sessions').select('housing_id').in('housing_id', housingIds),
+                ]);
+
+                const busyHousingIds = new Set<string>();
+                [
+                    ...(batchesRes.data ?? []),
+                    ...(devicesRes.data ?? []),
+                    ...(healthRes.data ?? []),
+                    ...(dispenseRes.data ?? []),
+                    ...(feedSchedRes.data ?? []),
+                    ...(weighingRes.data ?? []),
+                    ...(weighRes.data ?? []),
+                ].forEach((r: any) => {
+                    if (r.housing_id) busyHousingIds.add(r.housing_id);
+                });
+
+                realHousings.forEach(h => {
+                    if (!busyHousingIds.has(h.id)) {
+                        deletableSet.add(h.id);
+                    }
+                });
+            }
+            setDeletableHousingIds(deletableSet);
         } catch (err: any) {
             showSnackbar(err.message || 'Failed to load housings.', 'error');
         } finally {
@@ -154,14 +202,13 @@ export default function ManageHousingsScreen() {
 
     const confirmDelete = (id: string) => {
         const h = housings.find(x => x.id === id);
-        if (h) {
-            setHousingToDelete(id);
-            setConfirmAction('delete');
-            setConfirmModalType('warning');
-            setConfirmModalTitle('Delete Housing?');
-            setConfirmModalMessage(`Are you sure you want to delete "${h.name}"? All related batches will also be removed.`);
-            setConfirmModalVisible(true);
-        }
+        if (!h) return;
+        setHousingToDelete(id);
+        setConfirmAction('delete');
+        setConfirmModalType('warning');
+        setConfirmModalTitle('Delete Housing?');
+        setConfirmModalMessage(`Are you sure you want to delete "${h.name}"? This empty housing has no connected records and will be permanently removed.`);
+        setConfirmModalVisible(true);
     };
 
     const validateCapacity = (val: string, type: 'Chickens' | 'Pigs') => {
@@ -375,9 +422,11 @@ export default function ManageHousingsScreen() {
                                                 <TouchableOpacity onPress={() => openEditModal(housing.id)}>
                                                     <MaterialIcons name="edit" size={22} color={colors.textGrey} />
                                                 </TouchableOpacity>
-                                                <TouchableOpacity onPress={() => confirmDelete(housing.id)}>
-                                                    <MaterialIcons name="delete-outline" size={22} color={colors.error} />
-                                                </TouchableOpacity>
+                                                {deletableHousingIds.has(housing.id) && (
+                                                    <TouchableOpacity onPress={() => confirmDelete(housing.id)}>
+                                                        <MaterialIcons name="delete-outline" size={22} color={colors.error} />
+                                                    </TouchableOpacity>
+                                                )}
                                             </View>
                                         )}
                                     </View>
@@ -540,9 +589,9 @@ export default function ManageHousingsScreen() {
                 type={confirmModalType}
                 title={confirmModalTitle}
                 message={confirmModalMessage}
-                confirmText={confirmAction === 'delete' ? 'Delete' : 'Confirm'}
+                confirmText={confirmAction === 'delete' ? 'Delete' : confirmAction === 'save' ? 'Confirm' : 'Got it'}
                 cancelText="Cancel"
-                onConfirm={executeAction}
+                onConfirm={confirmAction ? executeAction : () => setConfirmModalVisible(false)}
                 onCancel={() => setConfirmModalVisible(false)}
                 isLoading={isSaving}
             />

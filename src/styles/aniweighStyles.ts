@@ -23,12 +23,12 @@ export const useAniWeighStyles = () => {
             alignItems: 'center',
             justifyContent: 'space-between',
             paddingHorizontal: hPad,
-            paddingTop: 16,
-            paddingBottom: 16,
+            paddingTop: 8,
+            paddingBottom: 8,
         },
         headerActions: {
             flexDirection: 'row',
-            gap: 12,
+            gap: 8,
         },
         actionButton: {
             width: 44,
@@ -43,8 +43,8 @@ export const useAniWeighStyles = () => {
         },
         // ─── Shared Date Picker / Title ──────────────────────────
         titleSection: {
-            marginTop: 16,
-            marginBottom: 24,
+            marginTop: 6,
+            marginBottom: 14,
         },
         connectionBadge: {
             flexDirection: 'row',

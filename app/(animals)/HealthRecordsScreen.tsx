@@ -21,6 +21,7 @@ import { useAnimalStyles } from '@/styles/animalStyles';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
+import { createNotification } from '@/lib/notify';
 import {
     ILLNESS_SUGGESTIONS, TREATMENT_SUGGESTIONS, VITAMIN_SUGGESTIONS, DEWORMING_SUGGESTIONS
 } from '@/constants/healthSuggestions';
@@ -1776,6 +1777,17 @@ export default function HealthRecordsScreen() {
                 }).then(({ error: vErr }) => {
                     if (vErr) console.warn('[HealthRecords] vaccination_records sync failed:', vErr.message);
                 });
+
+                if (resolvedFarmId) {
+                    createNotification({
+                        farmId: resolvedFarmId,
+                        category: 'health_alert',
+                        type: 'info',
+                        title: `New Vaccination: ${finalTitle}`,
+                        message: addNotes.trim() || (addAffected ? `${addAffected} animal(s) vaccinated.` : `Administered on ${addDate}.`),
+                        actionUrl: `/(animals)/HealthRecordsScreen?housingId=${housingId || ''}`,
+                    });
+                }
             }
 
             showSnackbar('Health record added successfully.');
@@ -2109,6 +2121,64 @@ export default function HealthRecordsScreen() {
                             />
                         }
                     >
+                        {/* ── Vaccine Schedules Banner ── */}
+                        <View style={{ paddingHorizontal: 20, marginBottom: 18 }}>
+                            <View style={{
+                                backgroundColor: colors.surface,
+                                borderRadius: 20,
+                                borderWidth: 1,
+                                borderColor: colors.stroke,
+                                padding: 16,
+                                ...Platform.select({
+                                    web: { boxShadow: '0px 2px 8px rgba(0,0,0,0.04)' },
+                                    default: { elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 }
+                                })
+                            }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                    <View style={{
+                                        width: 44,
+                                        height: 44,
+                                        borderRadius: 14,
+                                        backgroundColor: '#EF444415',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                    }}>
+                                        <MaterialIcons name="vaccines" size={24} color="#EF4444" />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 16 }]}>
+                                            Vaccine Schedules
+                                        </Text>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2 }]}>
+                                            Plan, track & schedule upcoming vaccinations
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                <View style={{ marginTop: 14 }}>
+                                    <TouchableOpacity
+                                        onPress={() => router.push('/(health)/VaccineScreen' as any)}
+                                        style={{
+                                            width: '100%',
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 6,
+                                            paddingVertical: 12,
+                                            borderRadius: 14,
+                                            backgroundColor: colors.primary,
+                                        }}
+                                        activeOpacity={0.85}
+                                    >
+                                        <MaterialIcons name="vaccines" size={18} color="#FFF" />
+                                        <Text style={[textStyles.label, { color: '#FFF', fontSize: 13 }]}>
+                                            Manage Vaccines
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </View>
+
                         <View style={[styles.sectionTitleRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                             <View>
                                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Housings</Text>
@@ -2201,24 +2271,42 @@ export default function HealthRecordsScreen() {
         <SafeAreaView style={styles.safeArea}>
 
             {/* ── Header ── */}
-            <View style={styles.headerTopRow}>
+            <View style={[styles.headerTopRow, { gap: 8 }]}>
                 <BackButton fallbackRoute="/(animals)/AnimalsScreen" />
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]} numberOfLines={1}>
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]} numberOfLines={1}>
                         Health Records
                     </Text>
                     {activeBatch && (
-                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]} numberOfLines={1}>
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>
                             {activeBatch.name} · {activeBatch.animal_type}
                         </Text>
                     )}
                 </View>
-                <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                    {/* Vaccine Schedules button */}
+                    <TouchableOpacity
+                        activeOpacity={0.8}
+                        style={{
+                            width: 38, height: 38, borderRadius: 19,
+                            backgroundColor: colors.surface,
+                            borderWidth: 1, borderColor: colors.stroke,
+                            alignItems: 'center', justifyContent: 'center',
+                        }}
+                        onPress={() => router.push('/(health)/VaccineScreen' as any)}
+                    >
+                        <MaterialIcons
+                            name="vaccines"
+                            size={18}
+                            color="#EF4444"
+                        />
+                    </TouchableOpacity>
+
                     {/* Trash button with badge */}
                     <TouchableOpacity
                         activeOpacity={0.8}
                         style={{
-                            width: 44, height: 44, borderRadius: 22,
+                            width: 38, height: 38, borderRadius: 19,
                             backgroundColor: colors.surface,
                             borderWidth: 1, borderColor: colors.stroke,
                             alignItems: 'center', justifyContent: 'center',
@@ -2227,14 +2315,14 @@ export default function HealthRecordsScreen() {
                     >
                         <MaterialIcons
                             name="delete-outline"
-                            size={22}
+                            size={20}
                             color={trashedRecords.length > 0 ? colors.error : colors.textGrey}
                         />
                         {/* Dot only when there are unseen new items */}
                         {trashedRecords.length > 0 && !trashSeen && (
                             <View style={{
-                                position: 'absolute', top: 6, right: 6,
-                                width: 8, height: 8, borderRadius: 4,
+                                position: 'absolute', top: 5, right: 5,
+                                width: 7, height: 7, borderRadius: 3.5,
                                 backgroundColor: colors.error,
                                 borderWidth: 1.5, borderColor: colors.surface,
                             }} />
@@ -2244,7 +2332,7 @@ export default function HealthRecordsScreen() {
                     <TouchableOpacity
                         activeOpacity={0.85}
                         style={{
-                            width: 44, height: 44, borderRadius: 22,
+                            width: 38, height: 38, borderRadius: 19,
                             backgroundColor: colors.primary,
                             alignItems: 'center', justifyContent: 'center',
                             ...Platform.select({
@@ -2261,7 +2349,7 @@ export default function HealthRecordsScreen() {
                         }}
                         onPress={handleOpenAddModal}
                     >
-                        <MaterialIcons name="add" size={24} color={colors.onPrimary} />
+                        <MaterialIcons name="add" size={22} color={colors.onPrimary} />
                     </TouchableOpacity>
                 </View>
             </View>
@@ -2440,6 +2528,7 @@ export default function HealthRecordsScreen() {
                 <ScrollView contentContainerStyle={[styles.scrollContent, { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 }]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
                     <AIInsightCard
                         title="AI Health Summary"
+                        variant="blue"
                         context={{
                             type: 'health',
                             data: {

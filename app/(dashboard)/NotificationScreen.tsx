@@ -1,4 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import React, { useState, useEffect, useCallback } from 'react';
 import { FlatList, TouchableOpacity, View, ActivityIndicator, RefreshControl } from 'react-native';
 import { Text } from '@/components/Text';
@@ -19,6 +21,7 @@ interface AppNotification {
     time: string;
     type: 'alert' | 'info' | 'warning' | 'success';
     category: string | null;
+    actionUrl?: string | null;
     created_at: string;
     isRead: boolean;
 }
@@ -48,6 +51,7 @@ function mapType(type: string): AppNotification['type'] {
 }
 
 export default function NotificationScreen() {
+    const router = useRouter();
     const notificationStyles = useNotificationStyles();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
@@ -75,10 +79,13 @@ export default function NotificationScreen() {
         try {
             let query = supabase
                 .from('notifications')
-                .select('id, title, message, type, category, is_read, created_at')
+                .select('id, title, message, type, category, action_url, is_read, created_at')
                 .order('created_at', { ascending: false });
 
-            if (farmId) {
+            if (activeFarmIds.length > 0) {
+                const farmConditions = activeFarmIds.map(fId => `farm_id.eq.${fId}`).join(',');
+                query = query.or(`user_id.eq.${userId},${farmConditions}`);
+            } else if (farmId) {
                 query = query.or(`user_id.eq.${userId},farm_id.eq.${farmId}`);
             } else {
                 query = query.eq('user_id', userId);
@@ -95,6 +102,7 @@ export default function NotificationScreen() {
                     time: formatTime(n.created_at),
                     type: mapType(n.type),
                     category: n.category,
+                    actionUrl: n.action_url,
                     created_at: n.created_at,
                     isRead: n.is_read,
                 }))
@@ -105,9 +113,28 @@ export default function NotificationScreen() {
             setIsLoading(false);
             setRefreshing(false);
         }
-    }, [userId, farmId]);
+    }, [userId, farmId, activeFarmIds]);
 
-    useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
+    useFocusEffect(
+        useCallback(() => {
+            fetchNotifications();
+        }, [fetchNotifications])
+    );
+
+    // Dynamic Realtime Postgres changes listener
+    useEffect(() => {
+        const channelName = `notif-screen-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+        const channel = supabase
+            .channel(channelName)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+                fetchNotifications();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [fetchNotifications]);
 
     const onRefresh = useCallback(async () => {
         await fetchNotifications(true);
@@ -130,8 +157,14 @@ export default function NotificationScreen() {
         await query;
     };
 
-    const getIconDetails = (type: AppNotification['type']) => {
-        switch (type) {
+    const getIconDetails = (item: AppNotification) => {
+        if (item.category === 'health_alert') {
+            const isVaccine = /vaccin/i.test(item.title) || /vaccin/i.test(item.message);
+            const iconName = isVaccine ? 'vaccines' : 'medical-services';
+            const color = item.type === 'alert' ? colors.error : item.type === 'warning' ? colors.warning : '#27AE60';
+            return { name: iconName, color, bgColor: color + '1A' };
+        }
+        switch (item.type) {
             case 'alert':   return { name: 'error',          color: colors.error,   bgColor: colors.error   + '1A' };
             case 'warning': return { name: 'warning-amber',  color: colors.warning, bgColor: colors.warning + '1A' };
             case 'success': return { name: 'check-circle',   color: colors.success, bgColor: colors.success + '1A' };
@@ -142,7 +175,7 @@ export default function NotificationScreen() {
     const unreadCount = notifications.filter(n => !n.isRead).length;
 
     const renderItem = ({ item }: { item: AppNotification }) => {
-        const { name, color, bgColor } = getIconDetails(item.type);
+        const { name, color, bgColor } = getIconDetails(item);
         return (
             <TouchableOpacity
                 style={[
@@ -153,7 +186,12 @@ export default function NotificationScreen() {
                     }
                 ]}
                 activeOpacity={0.7}
-                onPress={() => markAsRead(item.id)}
+                onPress={() => {
+                    markAsRead(item.id);
+                    if (item.actionUrl) {
+                        router.push(item.actionUrl as any);
+                    }
+                }}
             >
                 <View style={[notificationStyles.iconBox, { backgroundColor: bgColor }]}>
                     <MaterialIcons name={name as any} size={24} color={color} />

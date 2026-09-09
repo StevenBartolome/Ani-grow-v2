@@ -6,6 +6,7 @@ import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAniWeighStyles } from '@/styles/aniweighStyles';
@@ -216,7 +217,7 @@ export default function SegregationRecordsScreen() {
                     </View>
                 ) : stats.length === 0 ? (
                     <View style={{ alignItems: 'center', marginTop: 40, paddingHorizontal: 20 }}>
-                        <MaterialIcons name="monitor-weight" size={48} color={colors.textGrey} />
+                        <AniWeighIcon size={48} />
                         <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginTop: 16 }]}>No Records Found</Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginTop: 8 }]}>
                             This device hasn't recorded any weigh events yet. When livestock step on the scale, their historical breakdown will appear here.

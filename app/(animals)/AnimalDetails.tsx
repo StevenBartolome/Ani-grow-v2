@@ -17,6 +17,7 @@ import { useAnimalStyles } from '@/styles/animalStyles';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
+import { checkBatchConnectedData } from '@/lib/dataProtection';
 
 interface Housing {
     id: string;
@@ -55,8 +56,11 @@ export default function AnimalDetailsScreen() {
     const [batches, setBatches] = useState<Batch[]>([]);
     const [batchMortalityMap, setBatchMortalityMap] = useState<Record<string, number>>({});
     const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+    const [deletableBatchIds, setDeletableBatchIds] = useState<Set<string>>(new Set());
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+
+    const canDeleteSelectedBatch = selectedBatchId ? deletableBatchIds.has(selectedBatchId) : false;
 
     const selectedBatch = batches.find(b => b.id === selectedBatchId) ?? null;
     const isPig = housing?.animal_type === 'pig';
@@ -93,6 +97,53 @@ export default function AnimalDetailsScreen() {
                 }
             });
             setBatchMortalityMap(mMap);
+
+            // Precompute deletable batches in parallel with housing data
+            const batchIds = batchList.map(b => b.id);
+            const deletableSet = new Set<string>();
+
+            if (batchIds.length > 0) {
+                const [
+                    weighingRes,
+                    weighRes,
+                    healthRes,
+                    dispenseRes,
+                    vaccRecRes,
+                    vaccSchedRes,
+                    feedSchedRes,
+                ] = await Promise.all([
+                    supabase.from('weighing_sessions').select('batch_id').in('batch_id', batchIds),
+                    supabase.from('weigh_sessions').select('batch_id').in('batch_id', batchIds),
+                    supabase.from('health_records').select('batch_id').in('batch_id', batchIds).is('deleted_at', null),
+                    supabase.from('dispense_records').select('batch_id').in('batch_id', batchIds),
+                    supabase.from('vaccination_records').select('batch_id').in('batch_id', batchIds),
+                    supabase.from('vaccine_schedules').select('batch_id').in('batch_id', batchIds),
+                    supabase.from('feed_schedules').select('batch_id').in('batch_id', batchIds),
+                ]);
+
+                const busyBatchIds = new Set<string>();
+                [
+                    ...(weighingRes.data ?? []),
+                    ...(weighRes.data ?? []),
+                    ...(healthRes.data ?? []),
+                    ...(dispenseRes.data ?? []),
+                    ...(vaccRecRes.data ?? []),
+                    ...(vaccSchedRes.data ?? []),
+                    ...(feedSchedRes.data ?? []),
+                ].forEach((r: any) => {
+                    if (r.batch_id) busyBatchIds.add(r.batch_id);
+                });
+
+                batchList.forEach(b => {
+                    const hasMortality = (mMap[b.id] || 0) > 0;
+                    const hasSold = (b.sold_count || 0) > 0;
+                    const hasConnected = busyBatchIds.has(b.id);
+                    if (!hasMortality && !hasSold && !hasConnected) {
+                        deletableSet.add(b.id);
+                    }
+                });
+            }
+            setDeletableBatchIds(deletableSet);
 
             // Self-healing check for housing count
             const expectedHousingCount = batchList
@@ -143,7 +194,7 @@ export default function AnimalDetailsScreen() {
     const [confirmModalType, setConfirmModalType] = useState<ActionModalType>('confirmation');
     const [confirmModalTitle, setConfirmModalTitle] = useState('');
     const [confirmModalMessage, setConfirmModalMessage] = useState('');
-    const [confirmActionType, setConfirmActionType] = useState<'addHeads' | 'deceased' | 'newBatch' | 'editBatch' | 'completeBatch' | 'archiveBatch' | 'sellDeduct' | null>(null);
+    const [confirmActionType, setConfirmActionType] = useState<'addHeads' | 'deceased' | 'newBatch' | 'editBatch' | 'completeBatch' | 'archiveBatch' | 'sellDeduct' | 'deleteBatch' | null>(null);
 
     // ── Sell / Deduct Modal ──────────────────────────────────────
     const [sellDeductVisible, setSellDeductVisible] = useState(false);
@@ -412,6 +463,18 @@ export default function AnimalDetailsScreen() {
         setConfirmModalVisible(true);
     };
 
+    const handleDeleteBatchClick = () => {
+        if (!selectedBatch) return;
+        setEditBatchVisible(false);
+        setConfirmActionType('deleteBatch');
+        setConfirmModalType('warning');
+        setConfirmModalTitle('Delete Batch Permanently?');
+        setConfirmModalMessage(
+            `Are you sure you want to permanently delete batch "${selectedBatch.name}"? This action cannot be undone.`
+        );
+        setConfirmModalVisible(true);
+    };
+
     const isSellDeductDisabled = !sellDeductQuantity || !!sellDeductError || parseInt(sellDeductQuantity, 10) <= 0;
 
     const handleSellDeductClick = () => {
@@ -657,6 +720,29 @@ export default function AnimalDetailsScreen() {
                 if (hErr) throw hErr;
 
                 showSnackbar(`Batch "${selectedBatch?.name}" archived.`);
+
+            } else if (confirmActionType === 'deleteBatch' && selectedBatchId) {
+                const deletedBatchWasActive = selectedBatch?.status === 'active';
+
+                const { error: bErr } = await supabase
+                    .from('batches')
+                    .delete()
+                    .eq('id', selectedBatchId);
+                if (bErr) throw bErr;
+
+                // If active batch was deleted, recalculate housing count
+                if (deletedBatchWasActive) {
+                    const otherBatchesCount = batches
+                        .filter(b => b.id !== selectedBatchId && b.status === 'active')
+                        .reduce((sum: number, b: any) => sum + (b.current_count ?? 0), 0);
+                    const { error: hErr } = await supabase
+                        .from('housings')
+                        .update({ current_count: otherBatchesCount, updated_at: new Date().toISOString() })
+                        .eq('id', housingId);
+                    if (hErr) console.error('Failed to sync housing count after batch deletion:', hErr.message);
+                }
+
+                showSnackbar(`Batch "${selectedBatch?.name}" was permanently deleted.`);
             }
             await fetchData();
         } catch (err: any) {
@@ -698,12 +784,14 @@ export default function AnimalDetailsScreen() {
     if (isLoading) {
         return (
             <SafeAreaView style={styles.safeArea}>
-                <View style={[styles.headerTopRow]}>
+                <View style={styles.headerTopRow}>
                     <View style={{ width: 44, height: 44 }}><BackButton fallbackRoute="/(animals)/AnimalsScreen" /></View>
                     <View style={{ flex: 1 }} />
                     <View style={{ width: 44 }} />
                 </View>
-                <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 48 }} />
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
             </SafeAreaView>
         );
     }
@@ -779,39 +867,87 @@ export default function AnimalDetailsScreen() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 }}>
                         <TouchableOpacity
                             activeOpacity={0.8}
-                            style={[styles.dropdownContainer, { flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, paddingVertical: 14, marginBottom: 0 }]}
+                            style={[
+                                styles.dropdownContainer,
+                                {
+                                    flex: 1,
+                                    height: 52,
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    borderRadius: 16,
+                                    elevation: 1,
+                                    shadowColor: colors.shadow,
+                                    shadowOffset: { width: 0, height: 2 },
+                                    shadowOpacity: 0.5,
+                                    shadowRadius: 4,
+                                    paddingVertical: 0,
+                                    paddingHorizontal: 14,
+                                    marginBottom: 0,
+                                    justifyContent: 'center',
+                                }
+                            ]}
                             onPress={() => setBatchModalVisible(true)}
                         >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                                <MaterialIcons name="layers" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
-                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 16, flex: 1 }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 4, overflow: 'hidden' }}>
+                                <MaterialIcons name="layers" size={20} color={colors.textGrey} style={{ marginRight: 10 }} />
+                                <Text
+                                    numberOfLines={1}
+                                    ellipsizeMode="tail"
+                                    style={[textStyles.h3, { color: colors.text, fontSize: 15, flex: 1 }]}
+                                >
                                     {selectedBatchLabel || 'Select a batch'}
                                 </Text>
                             </View>
                             <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
                         </TouchableOpacity>
                         {selectedBatch && (
-                            <TouchableOpacity
-                                activeOpacity={0.8}
-                                style={{
-                                    width: 52,
-                                    height: 52,
-                                    borderRadius: 16,
-                                    backgroundColor: colors.surface,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    elevation: 1,
-                                    shadowColor: colors.shadow,
-                                    shadowOffset: { width: 0, height: 2 },
-                                    shadowOpacity: 0.5,
-                                    shadowRadius: 4,
-                                }}
-                                onPress={openEditBatchModal}
-                            >
-                                <MaterialIcons name="edit" size={22} color={colors.primary} />
-                            </TouchableOpacity>
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={{
+                                        width: 52,
+                                        height: 52,
+                                        borderRadius: 16,
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        elevation: 1,
+                                        shadowColor: colors.shadow,
+                                        shadowOffset: { width: 0, height: 2 },
+                                        shadowOpacity: 0.5,
+                                        shadowRadius: 4,
+                                    }}
+                                    onPress={openEditBatchModal}
+                                >
+                                    <MaterialIcons name="edit" size={22} color={colors.primary} />
+                                </TouchableOpacity>
+                                {canDeleteSelectedBatch && (
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            width: 52,
+                                            height: 52,
+                                            borderRadius: 16,
+                                            backgroundColor: colors.surface,
+                                            borderWidth: 1,
+                                            borderColor: colors.stroke,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            elevation: 1,
+                                            shadowColor: colors.shadow,
+                                            shadowOffset: { width: 0, height: 2 },
+                                            shadowOpacity: 0.5,
+                                            shadowRadius: 4,
+                                        }}
+                                        onPress={handleDeleteBatchClick}
+                                    >
+                                        <MaterialIcons name="delete-outline" size={22} color={colors.error} />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
                         )}
                     </View>
                 )}
@@ -927,7 +1063,23 @@ export default function AnimalDetailsScreen() {
                             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
                                 <TouchableOpacity
                                     activeOpacity={0.8}
-                                    style={{ flex: 1, borderWidth: 1.5, borderColor: '#27AE60', backgroundColor: '#27AE6010', borderRadius: 12, paddingVertical: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        borderRadius: 16,
+                                        paddingVertical: 14,
+                                        paddingHorizontal: 12,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexDirection: 'row',
+                                        elevation: 1,
+                                        shadowColor: colors.shadow,
+                                        shadowOffset: { width: 0, height: 2 },
+                                        shadowOpacity: 0.3,
+                                        shadowRadius: 4,
+                                    }}
                                     onPress={() => {
                                         const avail = selectedBatch.current_count ?? 0;
                                         setSellDeductQuantity(String(avail > 0 ? avail : ''));
@@ -939,12 +1091,28 @@ export default function AnimalDetailsScreen() {
                                     }}
                                 >
                                     <MaterialIcons name="storefront" size={18} color="#27AE60" style={{ marginRight: 6 }} />
-                                    <Text style={[textStyles.h3, { color: '#27AE60', fontSize: 13 }]}>Sell / Deduct</Text>
+                                    <Text style={[textStyles.h3, { color: '#27AE60', fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}>Sell / Deduct</Text>
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
                                     activeOpacity={0.8}
-                                    style={{ flex: 1, borderWidth: 1.5, borderColor: '#27AE60', backgroundColor: '#27AE6010', borderRadius: 12, paddingVertical: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        borderRadius: 16,
+                                        paddingVertical: 14,
+                                        paddingHorizontal: 12,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexDirection: 'row',
+                                        elevation: 1,
+                                        shadowColor: colors.shadow,
+                                        shadowOffset: { width: 0, height: 2 },
+                                        shadowOpacity: 0.3,
+                                        shadowRadius: 4,
+                                    }}
                                     onPress={() => {
                                         setConfirmActionType('completeBatch');
                                         setConfirmModalType('confirmation');
@@ -953,8 +1121,8 @@ export default function AnimalDetailsScreen() {
                                         setConfirmModalVisible(true);
                                     }}
                                 >
-                                    <MaterialIcons name="check-circle-outline" size={18} color="#27AE60" style={{ marginRight: 6 }} />
-                                    <Text style={[textStyles.h3, { color: '#27AE60', fontSize: 13 }]}>Complete Batch</Text>
+                                    <MaterialIcons name="check-circle-outline" size={18} color={colors.primary} style={{ marginRight: 6 }} />
+                                    <Text style={[textStyles.h3, { color: colors.primary, fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}>Complete</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
@@ -1568,7 +1736,7 @@ export default function AnimalDetailsScreen() {
                                 <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
                                     <View style={{ flex: 1 }}>
                                         <FloatingLabelInput
-                                            label={`Quantity to Sell/Deduct (Max: ${selectedBatch?.current_count ?? 0})`}
+                                            label={`Quantity (Max: ${selectedBatch?.current_count ?? 0})`}
                                             icon={isPig ? 'pig' : 'chicken'}
                                             value={sellDeductQuantity}
                                             onChangeText={t => {
@@ -1748,16 +1916,18 @@ export default function AnimalDetailsScreen() {
                 title={confirmModalTitle}
                 message={confirmModalMessage}
                 confirmText={
+                    confirmModalType === 'info' ? 'Got it' :
                     confirmActionType === 'deceased' ? 'Record' :
                     confirmActionType === 'newBatch' ? 'Create' :
                     confirmActionType === 'editBatch' ? 'Update' :
                     confirmActionType === 'completeBatch' ? 'Complete' :
                     confirmActionType === 'archiveBatch' ? 'Archive' :
                     confirmActionType === 'sellDeduct' ? 'Deduct' :
+                    confirmActionType === 'deleteBatch' ? 'Delete' :
                     'Add'
                 }
                 cancelText="Cancel"
-                onConfirm={handleConfirmAction}
+                onConfirm={confirmActionType ? handleConfirmAction : () => setConfirmModalVisible(false)}
                 onCancel={() => setConfirmModalVisible(false)}
                 isLoading={isSaving}
             />

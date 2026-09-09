@@ -6,6 +6,7 @@ import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTextStyles } from '@/constants/textStyles';
@@ -362,7 +363,7 @@ export default function DispenseRecordsScreen() {
                 ) : records.length === 0 ? (
                     <View style={{ alignItems: 'center', marginTop: 60 }}>
                         <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
-                            <MaterialIcons name="grain" size={30} color={colors.textGrey} />
+                            <AniFeedIcon size={30} />
                         </View>
                         <Text style={[textStyles.h2, { color: colors.text, fontSize: 17, marginBottom: 5 }]}>No Records Yet</Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40, fontSize: 13 }]}>
@@ -399,9 +400,9 @@ export default function DispenseRecordsScreen() {
                                     onPress={() => setExpandedDates(prev => ({ ...prev, [group.dateKey]: !prev[group.dateKey] }))}
                                     style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13, paddingVertical: 11, gap: 11 }}
                                 >
-                                    {/* Feed Grain icon (NO fish icon!) */}
+                                    {/* Feed icon */}
                                     <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.secondary + '15', alignItems: 'center', justifyContent: 'center' }}>
-                                        <MaterialIcons name="grain" size={19} color={colors.secondary} />
+                                        <AniFeedIcon size={19} />
                                     </View>
 
                                     {/* Date + count */}

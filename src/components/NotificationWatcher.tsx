@@ -17,6 +17,7 @@ import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
 import { createNotification } from '@/lib/notify';
 import { getDeviceDisplayStatus, DeviceDisplayStatus } from '@/lib/deviceStatus';
+import { checkAndTriggerWeighingReminders } from '@/lib/weighingReminders';
 
 const DEVICE_POLL_INTERVAL_MS = 30_000;
 const LOW_STOCK_THRESHOLD_KG = 5;
@@ -136,14 +137,56 @@ export function NotificationWatcher() {
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'health_records' }, (payload) => {
                 const row = payload.new as any;
                 if (!farmIdsRef.current.includes(row.farm_id)) return;
-                if (row.record_type !== 'mortality') return;
-                const type = row.severity === 'high' ? 'error' : row.severity === 'medium' ? 'warning' : 'info';
+                if (row.record_type === 'mortality') {
+                    const type = row.severity === 'high' ? 'error' : row.severity === 'medium' ? 'warning' : 'info';
+                    createNotification({
+                        farmId: row.farm_id,
+                        category: 'health_alert',
+                        type,
+                        title: 'Mortality Recorded',
+                        message: row.title || `${row.affected_count ?? 1} animal(s) deceased.`,
+                    });
+                } else if (row.record_type === 'vaccination') {
+                    createNotification({
+                        farmId: row.farm_id,
+                        category: 'health_alert',
+                        type: 'info',
+                        title: `New Vaccination: ${row.title || 'Vaccine Record'}`,
+                        message: row.notes || (row.medication ? `Medication: ${row.medication}` : 'A new vaccination record was logged.'),
+                        actionUrl: `/(animals)/HealthRecordsScreen?housingId=${row.housing_id || ''}`,
+                    });
+                }
+            })
+            .subscribe();
+
+        const vaccineScheduleChannel = supabase
+            .channel('notif-watch-vaccine-schedules')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'vaccination_schedules' }, (payload) => {
+                const row = payload.new as any;
+                if (!farmIdsRef.current.includes(row.farm_id)) return;
                 createNotification({
                     farmId: row.farm_id,
                     category: 'health_alert',
-                    type,
-                    title: 'Mortality Recorded',
-                    message: row.title || `${row.affected_count ?? 1} animal(s) deceased.`,
+                    type: 'info',
+                    title: `Vaccine Scheduled: ${row.vaccine_name || 'Vaccination'}`,
+                    message: `Scheduled for ${row.scheduled_date || 'upcoming date'}${row.notes ? ` — ${row.notes}` : '.'}`,
+                    actionUrl: '/(health)/VaccineScreen',
+                });
+            })
+            .subscribe();
+
+        const vaccineRecordChannel = supabase
+            .channel('notif-watch-vaccine-records')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'vaccination_records' }, (payload) => {
+                const row = payload.new as any;
+                if (!farmIdsRef.current.includes(row.farm_id)) return;
+                createNotification({
+                    farmId: row.farm_id,
+                    category: 'health_alert',
+                    type: 'success',
+                    title: `Vaccination Administered: ${row.vaccine_name || 'Vaccine'}`,
+                    message: row.animals_vaccinated ? `${row.animals_vaccinated} animal(s) vaccinated.` : `Administered on ${row.administered_date}.`,
+                    actionUrl: '/(health)/VaccineScreen',
                 });
             })
             .subscribe();
@@ -152,7 +195,59 @@ export function NotificationWatcher() {
             supabase.removeChannel(weighChannel);
             supabase.removeChannel(feedChannel);
             supabase.removeChannel(healthChannel);
+            supabase.removeChannel(vaccineScheduleChannel);
+            supabase.removeChannel(vaccineRecordChannel);
         };
+    }, []);
+
+    // ── Vaccination due / overdue — checked once per calendar day ─────
+    const checkVaccinations = useCallback(async () => {
+        if (farmIdsRef.current.length === 0) return;
+        const today = todayDateString();
+        const dayKey = `vaccination_alert_checked_${today}`;
+        if (await alreadyAlerted(dayKey)) return;
+
+        const { data, error } = await supabase
+            .from('vaccination_schedules')
+            .select('id, vaccine_name, farm_id, scheduled_date, status, housings(name)')
+            .in('farm_id', farmIdsRef.current)
+            .neq('status', 'completed')
+            .neq('status', 'cancelled');
+        if (error || !data) return;
+
+        for (const sch of data as any[]) {
+            const days = daysUntil(sch.scheduled_date);
+            const housingLabel = sch.housings?.name ? ` in ${sch.housings.name}` : '';
+            if (days < 0) {
+                const key = `vaccine_overdue_${sch.id}_${today}`;
+                if (!(await alreadyAlerted(key))) {
+                    await createNotification({
+                        farmId: sch.farm_id,
+                        category: 'health_alert',
+                        type: 'error',
+                        title: 'Vaccination Overdue',
+                        message: `"${sch.vaccine_name}"${housingLabel} was scheduled for ${sch.scheduled_date}.`,
+                        actionUrl: '/(health)/VaccineScreen',
+                    });
+                    await markAlerted(key);
+                }
+            } else if (days === 0) {
+                const key = `vaccine_due_today_${sch.id}_${today}`;
+                if (!(await alreadyAlerted(key))) {
+                    await createNotification({
+                        farmId: sch.farm_id,
+                        category: 'health_alert',
+                        type: 'warning',
+                        title: 'Vaccination Due Today',
+                        message: `"${sch.vaccine_name}"${housingLabel} is scheduled for today.`,
+                        actionUrl: '/(health)/VaccineScreen',
+                    });
+                    await markAlerted(key);
+                }
+            }
+        }
+
+        await markAlerted(dayKey);
     }, []);
 
     // ── Feed expiry / low stock — checked once per calendar day ────────
@@ -218,20 +313,26 @@ export function NotificationWatcher() {
 
     // Runs whenever activeFarmIds changes — including the very first time it
     // populates after this component mounts before farm data has loaded
-    // (checkFeeds itself no-ops on an empty list, so this fires safely on
+    // (checkFeeds & checkVaccinations & checkAndTriggerWeighingReminders no-op on an empty list, so this fires safely on
     // every render of that dependency without double-checking same-day work).
     useEffect(() => {
         checkFeeds();
-    }, [activeFarmIds, checkFeeds]);
+        checkVaccinations();
+        checkAndTriggerWeighingReminders(activeFarmIds);
+    }, [activeFarmIds, checkFeeds, checkVaccinations]);
 
     // Also re-check whenever the app comes back to the foreground, in case a
-    // feed crossed a threshold (expired, ran low) while the app was backgrounded.
+    // feed or vaccination crossed a threshold while the app was backgrounded.
     useEffect(() => {
         const sub = AppState.addEventListener('change', (state) => {
-            if (state === 'active') checkFeeds();
+            if (state === 'active') {
+                checkFeeds();
+                checkVaccinations();
+                checkAndTriggerWeighingReminders(farmIdsRef.current);
+            }
         });
         return () => sub.remove();
-    }, [checkFeeds]);
+    }, [checkFeeds, checkVaccinations]);
 
     return null;
 }

@@ -137,6 +137,14 @@ export interface RoadmapAdjustmentContext {
   actualAvgWeight: number | null;
   headCount?: number;
   currentActions: { action: string; dayTag: string }[];
+  actionHistory?: {
+    action?: string;
+    action_text?: string;
+    status: 'completed' | 'skipped' | 'rejected' | string;
+    reason_notes?: string;
+    is_ai_suggestion?: boolean;
+    farm_day?: number;
+  }[];
 }
 
 export interface RoadmapAdjustmentResult {
@@ -149,7 +157,7 @@ export interface RoadmapAdjustmentResult {
 
 /**
  * Evaluates whether batch weight aligns with the current phase target and generates
- * targeted roadmap adjustments if performance is deviating.
+ * targeted roadmap adjustments if performance is deviating, taking into account past action history.
  */
 export async function getRoadmapAdjustment(
   ctx: RoadmapAdjustmentContext
@@ -164,7 +172,11 @@ export async function getRoadmapAdjustment(
     actualAvgWeight,
     targetWeightRaw,
     currentActions,
+    actionHistory = [],
   } = ctx;
+
+  const skippedActions = actionHistory.filter(a => a.status === 'skipped' || a.status === 'rejected');
+  const completedActions = actionHistory.filter(a => a.status === 'completed');
 
   if (actualAvgWeight === null || actualAvgWeight === undefined) {
     return {
@@ -191,10 +203,14 @@ export async function getRoadmapAdjustment(
   const displayActual = unit === 'g' ? `${Math.round(actualAvgWeight * 1000)}g` : `${actualAvgWeight.toFixed(2)} kg`;
 
   if (status === 'on_track') {
+    let notePrefix = '';
+    if (completedActions.length > 0) {
+      notePrefix = `Completed ${completedActions.length} planned protocol ${completedActions.length === 1 ? 'task' : 'tasks'}. `;
+    }
     return {
       status: 'on_track',
       headline: 'Cohort Growth On Track',
-      reason: `Average weight is ${displayActual}, within the target benchmark of ${targetWeightRaw} for ${phaseName}.`,
+      reason: `${notePrefix}Average weight is ${displayActual}, within the target benchmark of ${targetWeightRaw} for ${phaseName}.`,
       aiRecommendation: `Batch "${batchName}" is progressing with optimal growth velocity at ${displayActual}. Maintain standard SOP feeding protocol and continue routine health checks.`,
       adjustedActions: currentActions,
     };
@@ -215,8 +231,14 @@ export async function getRoadmapAdjustment(
   const gapText = unit === 'g' ? `${Math.round(gap * 1000)}g below target` : `${gap} kg below minimum target (${minTarget} kg)`;
 
   // Generate customized action adjustments
-  const reason = `Batch weight is ${displayActual} (${gapText}) on Day ${currentDay}. AI has generated a customized roadmap intervention to recover target ADG.`;
-  
+  let reason = `Batch weight is ${displayActual} (${gapText}) on Day ${currentDay}. AI has generated a customized roadmap intervention to recover target ADG.`;
+  if (skippedActions.length > 0) {
+    const lastSkip = skippedActions[skippedActions.length - 1];
+    if (lastSkip && lastSkip.reason_notes) {
+      reason += ` (Note: Previous action skipped because "${lastSkip.reason_notes}").`;
+    }
+  }
+
   let aiRecommendation = '';
   let adjustedActions = [...currentActions];
 
@@ -263,7 +285,12 @@ export async function getRoadmapAdjustment(
         targetWeight: targetWeightRaw,
         actualAvgWeight,
         deficit: gap,
-        actions: currentActions.map(a => a.action),
+        actions: currentActions.map((a: { action: string; dayTag: string }) => a.action),
+        actionHistory: actionHistory.map(h => ({
+          action: h.action || h.action_text || '',
+          status: h.status,
+          reason: h.reason_notes || '',
+        })),
       },
     });
 

@@ -11,6 +11,9 @@ import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useDevicesStyles } from '@/styles/devicesStyles';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
+import { DeviceIcon } from '@/components/DeviceIcon';
 import { supabase } from '@/lib/supabase';
 
 type DeviceType = 'AniFeed' | 'AniWeigh' | null;
@@ -237,7 +240,7 @@ export default function AddDeviceScreen() {
                                 onPress={() => setSelectedType('AniFeed')}
                             >
                                 <View style={[styles.iconBox, { backgroundColor: colors.secondary + '1A' }]}>
-                                    <MaterialIcons name="grain" size={32} color={colors.secondary} />
+                                    <AniFeedIcon size={32} />
                                 </View>
                                 <View style={styles.optionTextContainer}>
                                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 4 }]}>AniFeed</Text>
@@ -258,7 +261,7 @@ export default function AddDeviceScreen() {
                                 onPress={() => setSelectedType('AniWeigh')}
                             >
                                 <View style={[styles.iconBox, { backgroundColor: colors.smartScale + '1A' }]}>
-                                    <MaterialIcons name="monitor-weight" size={32} color={colors.smartScale} />
+                                    <AniWeighIcon size={32} />
                                 </View>
                                 <View style={styles.optionTextContainer}>
                                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 4 }]}>AniWeigh</Text>
@@ -280,10 +283,9 @@ export default function AddDeviceScreen() {
                             backgroundColor: selectedType === 'AniWeigh' ? colors.smartScale + '1A' : colors.secondary + '1A',
                             paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, marginBottom: 20,
                         }}>
-                            <MaterialIcons
-                                name={selectedType === 'AniWeigh' ? 'monitor-weight' : 'grain'}
+                            <DeviceIcon
+                                type={selectedType}
                                 size={16}
-                                color={selectedType === 'AniWeigh' ? colors.smartScale : colors.secondary}
                             />
                             <Text style={[textStyles.label, { color: selectedType === 'AniWeigh' ? colors.smartScale : colors.secondary, fontSize: 13 }]}>
                                 {selectedType ?? 'Device'}

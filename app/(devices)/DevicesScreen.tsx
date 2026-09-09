@@ -14,6 +14,7 @@ import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { Header } from '@/components/Header';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { DeviceIcon } from '@/components/DeviceIcon';
 import ActionModal from '@/components/ActionModal';
 import { supabase } from '@/lib/supabase';
 import { getDeviceDisplayStatus } from '@/lib/deviceStatus';
@@ -62,10 +63,9 @@ const DeviceCard = ({ device, onPress, onConnectPress }: { device: RegisteredDev
                     backgroundColor: isOnline ? accentColor + '1A' : colors.bgLight,
                     alignItems: 'center', justifyContent: 'center',
                 }}>
-                    <MaterialIcons
-                        name={isWeigh ? 'monitor-weight' : 'grain'}
+                    <DeviceIcon
+                        type={device.type}
                         size={24}
-                        color={isOnline ? accentColor : colors.textGrey}
                     />
                 </View>
 

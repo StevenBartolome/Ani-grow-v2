@@ -1480,8 +1480,11 @@ export default function HealthReportScreen() {
                         {/* Fast, Dynamic, Instant AI Analysis Recommendations */}
                         <AIInsightCard
                             title="AniBot Health Analysis"
+                            category="health_report"
+                            farmId={farmId}
+                            subKey={selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType}
                             staticContent={getHealthAnalysis()}
-                            variant="green"
+                            variant="blue"
                         />
                     </>
                 )}

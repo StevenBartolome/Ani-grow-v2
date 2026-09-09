@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LineChart } from 'react-native-chart-kit';
 
 import { BackButton } from '@/components/BackButton';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
@@ -845,7 +846,7 @@ export default function PredictionReportScreen() {
                             }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                                     <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.textGrey }}>Avg Weight</Text>
-                                    <MaterialIcons name="monitor-weight" size={16} color={activeColor} />
+                                    <AniWeighIcon size={16} />
                                 </View>
                                 <Text style={[textStyles.h1, { fontSize: 22, color: activeColor }]}>
                                     {latestAvgWeightKg !== null ? `${latestAvgWeightKg.toFixed(2)} kg` : '—'}
@@ -1455,6 +1456,9 @@ export default function PredictionReportScreen() {
                         {/* AI Insight */}
                         <AIInsightCard
                             title="AniBot Prediction"
+                            category="prediction_report"
+                            farmId={farmId}
+                            subKey={selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType}
                             staticContent={getInsightText()}
                             variant="purple"
                         />

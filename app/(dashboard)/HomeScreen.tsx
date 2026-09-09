@@ -20,6 +20,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { useHomeStyles } from '@/styles/homeStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { Header } from '@/components/Header';
 import { supabase } from '@/lib/supabase';
 import { categoryPriority } from '@/lib/notify';
@@ -581,7 +583,7 @@ export default function HomeScreen() {
                             alignItems: 'center',
                             justifyContent: 'center',
                         }}>
-                            <MaterialIcons name="grain" size={20} color={colors.secondary} />
+                            <AniFeedIcon size={20} />
                         </View>
                         <MaterialIcons name="chevron-right" size={18} color={colors.textGrey} />
                     </View>
@@ -655,7 +657,7 @@ export default function HomeScreen() {
                             alignItems: 'center',
                             justifyContent: 'center',
                         }}>
-                            <MaterialIcons name="monitor-weight" size={20} color="#6C63FF" />
+                            <AniWeighIcon size={20} />
                         </View>
                         <MaterialIcons name="chevron-right" size={18} color={colors.textGrey} />
                     </View>
@@ -711,7 +713,6 @@ export default function HomeScreen() {
         { label: 'Feeds', icon: 'grain', route: '/(devices)/ManageFeedsScreen', color: colors.secondary, permission: 'anifeed:dispense' },
         { label: 'Devices', icon: 'devices', route: '/(devices)/DevicesScreen', color: '#6C63FF', permission: 'devices:view' },
         { label: 'Animals', icon: null, route: '/(animals)/AnimalsScreen', color: colors.primary, permission: 'animals:view' },
-        { label: 'Vaccines', icon: 'vaccines', route: '/(health)/VaccineScreen', color: '#EF4444', permission: 'vaccine:manage' },
         { label: 'Housings', icon: 'home-work', route: '/(devices)/ManageHousingsScreen', color: '#F97316', permission: 'housing:manage' },
     ];
 
@@ -1169,7 +1170,7 @@ export default function HomeScreen() {
                                                 justifyContent: 'center',
                                                 marginBottom: 10,
                                             }}>
-                                                <MaterialIcons name="grain" size={20} color={colors.secondary} />
+                                                <AniFeedIcon size={20} />
                                             </View>
                                             <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Medium' }]}>
                                                 Feed Dispensed
@@ -1213,7 +1214,7 @@ export default function HomeScreen() {
                                                 justifyContent: 'center',
                                                 marginBottom: 10,
                                             }}>
-                                                <MaterialIcons name="monitor-weight" size={20} color="#6C63FF" />
+                                                <AniWeighIcon size={20} />
                                             </View>
                                             <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Medium' }]}>
                                                 Weigh Sessions

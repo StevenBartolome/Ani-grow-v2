@@ -25,6 +25,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { Audio } from '@/lib/nativeAudio';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -299,6 +301,10 @@ function NavButton({ link }: { link: NavLink }) {
                     style={{ width: 16, height: 16 }}
                     contentFit="contain"
                 />
+            ) : link.icon === 'monitor-weight' ? (
+                <AniWeighIcon size={16} />
+            ) : link.icon === 'grain' ? (
+                <AniFeedIcon size={16} />
             ) : (
                 <MaterialIcons name={link.icon as any} size={15} color={colors.primary} />
             )}

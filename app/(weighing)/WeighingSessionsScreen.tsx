@@ -6,6 +6,7 @@ import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { CalendarPickerModal } from '@/components/CalendarPickerModal';
 import { SelectionModal } from '@/components/SelectionModal';
 import { PrintReportButton } from '@/components/PrintReportButton';
@@ -868,7 +869,7 @@ export default function WeighingSessionsScreen() {
                                         style={styles.menuCard}
                                     >
                                         <View style={styles.menuIconContainer}>
-                                            <MaterialIcons name="scale" size={22} color={colors.primary} />
+                                            <AniWeighIcon size={22} />
                                         </View>
                                         <View style={styles.menuContent}>
                                             <Text style={[textStyles.h3, styles.menuTitle]}>

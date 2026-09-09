@@ -2,11 +2,16 @@ import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     ActivityIndicator,
+    Alert,
+    Keyboard,
     LayoutAnimation,
+    Modal,
     Platform,
     RefreshControl,
     ScrollView,
+    TextInput,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     UIManager,
     View,
     useWindowDimensions,
@@ -32,6 +37,11 @@ import {
     getEffectiveRoadmap,
     saveAIAdjustedPhase,
     sortActionsByDay,
+    getBatchActionLogs,
+    recordRoadmapAction,
+    deleteRoadmapActionLog,
+    getActionLogKey,
+    type RoadmapActionLog,
 } from '@/lib/roadmapService';
 import {
     getLatestBatchWeight,
@@ -107,6 +117,15 @@ const mapIconName = (icon: string): React.ComponentProps<typeof MaterialIcons>['
     }
 };
 
+const SKIP_REASON_OPTIONS = [
+    'Feed / Meds out of stock',
+    'Weather or temperature constraints',
+    'Veterinarian advised against',
+    'Animal showed adverse symptoms',
+    'Already completed previously',
+    'Labor / Equipment shortage',
+];
+
 export default function GuideScreen() {
     const textStyles = useTextStyles();
     const { colors, isDark } = useTheme();
@@ -145,6 +164,17 @@ export default function GuideScreen() {
     // Roadmap Tab Filter & Collapsed Phase States
     const [roadmapPhaseFilter, setRoadmapPhaseFilter] = useState<string>('all');
     const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
+
+    // ─── Roadmap Action Logs & Skip Modal States ──────────────────────────────
+    const [actionLogs, setActionLogs] = useState<Record<string, RoadmapActionLog>>({});
+    const [skipModalVisible, setSkipModalVisible] = useState(false);
+    const [selectedActionForSkip, setSelectedActionForSkip] = useState<{
+        actionItem: SOPAction;
+        phaseId: string;
+        farmDay: number;
+    } | null>(null);
+    const [skipReason, setSkipReason] = useState('');
+    const [isSubmittingReason, setIsSubmittingReason] = useState(false);
 
     // ─── Fetch Active Batches with Demo Fallback ────────────────────────────────
     const fetchBatches = useCallback(async () => {
@@ -202,6 +232,24 @@ export default function GuideScreen() {
         return allBatchesForType.find(b => b.id === selectedBatchId) ?? allBatchesForType[0] ?? null;
     }, [allBatchesForType, selectedBatchId]);
 
+    // ─── Fetch Action Logs for Selected Batch ──────────────────────────────────
+    const fetchActionLogs = useCallback(async () => {
+        if (!farmId || !selectedBatch?.id) {
+            setActionLogs({});
+            return;
+        }
+        try {
+            const logsMap = await getBatchActionLogs(farmId, selectedBatch.id);
+            setActionLogs(logsMap);
+        } catch (err) {
+            console.error('[GuideScreen] fetchActionLogs error:', err);
+        }
+    }, [farmId, selectedBatch?.id]);
+
+    useEffect(() => {
+        fetchActionLogs();
+    }, [fetchActionLogs]);
+
     // ─── Fetch Database-Backed Roadmap & Batch Weight ────────────────────────────
     const fetchRoadmapAndWeight = useCallback(async () => {
         if (!farmId) {
@@ -230,9 +278,9 @@ export default function GuideScreen() {
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
-        await Promise.all([fetchBatches(), fetchRoadmapAndWeight()]);
+        await Promise.all([fetchBatches(), fetchRoadmapAndWeight(), fetchActionLogs()]);
         setRefreshing(false);
-    }, [fetchBatches, fetchRoadmapAndWeight]);
+    }, [fetchBatches, fetchRoadmapAndWeight, fetchActionLogs]);
 
     // ─── Compute Age and Phase ──────────────────────────────────────────────────
     const currentDay = useMemo(() => {
@@ -310,6 +358,114 @@ export default function GuideScreen() {
         return !isPast;
     };
 
+    // ─── Roadmap Action Handlers (Done, Skip / Reject with Note, Undo) ────────
+    const handleCompleteAction = async (actionItem: SOPAction, phaseId: string, dayNumber?: number) => {
+        if (!farmId || !selectedBatch) return;
+        const taskDay = dayNumber ?? currentDay;
+        const key = getActionLogKey(phaseId, actionItem.action, taskDay);
+        const existing = actionLogs[key];
+
+        // If already completed, toggle off / undo
+        if (existing && existing.status === 'completed') {
+            handleUndoAction(actionItem, phaseId, taskDay);
+            return;
+        }
+
+        const isAI = typeof actionItem.action === 'string' && actionItem.action.startsWith('[AI Adjustment]');
+
+        // Optimistic update
+        const tempLog: RoadmapActionLog = {
+            id: existing?.id || 'temp-' + Date.now(),
+            farm_id: farmId,
+            batch_id: selectedBatch.id,
+            animal_type: animalFilter,
+            phase_id: phaseId,
+            action_text: actionItem.action,
+            day_tag: actionItem.dayTag,
+            farm_day: taskDay,
+            status: 'completed',
+            is_ai_suggestion: isAI,
+            recorded_by: (profile as any)?.id || null,
+            recorded_at: new Date().toISOString(),
+        };
+
+        setActionLogs(prev => ({ ...prev, [key]: tempLog }));
+
+        const saved = await recordRoadmapAction(tempLog);
+        if (saved) {
+            setActionLogs(prev => ({ ...prev, [key]: saved }));
+        }
+    };
+
+    const handleOpenSkipModal = (actionItem: SOPAction, phaseId: string, dayNumber?: number) => {
+        const taskDay = dayNumber ?? currentDay;
+        const key = getActionLogKey(phaseId, actionItem.action, taskDay);
+        const existing = actionLogs[key];
+        setSelectedActionForSkip({
+            actionItem,
+            phaseId,
+            farmDay: taskDay,
+        });
+        setSkipReason(existing?.reason_notes || '');
+        setSkipModalVisible(true);
+    };
+
+    const handleSubmitSkipReason = async () => {
+        if (!selectedActionForSkip || !farmId || !selectedBatch) return;
+        if (!skipReason.trim()) {
+            Alert.alert('Reason Required', 'Please provide a note or select a reason why this action was skipped or rejected.');
+            return;
+        }
+
+        setIsSubmittingReason(true);
+        const { actionItem, phaseId, farmDay } = selectedActionForSkip;
+        const isAI = typeof actionItem.action === 'string' && actionItem.action.startsWith('[AI Adjustment]');
+        const key = getActionLogKey(phaseId, actionItem.action, farmDay);
+
+        const tempLog: RoadmapActionLog = {
+            farm_id: farmId,
+            batch_id: selectedBatch.id,
+            animal_type: animalFilter,
+            phase_id: phaseId,
+            action_text: actionItem.action,
+            day_tag: actionItem.dayTag,
+            farm_day: farmDay,
+            status: 'rejected',
+            reason_notes: skipReason.trim(),
+            is_ai_suggestion: isAI,
+            recorded_by: (profile as any)?.id || null,
+            recorded_at: new Date().toISOString(),
+        };
+
+        setActionLogs(prev => ({ ...prev, [key]: tempLog }));
+        setSkipModalVisible(false);
+        setIsSubmittingReason(false);
+
+        const saved = await recordRoadmapAction(tempLog);
+        if (saved) {
+            setActionLogs(prev => ({ ...prev, [key]: saved }));
+        }
+    };
+
+    const handleUndoAction = async (actionItem: SOPAction, phaseId: string, dayNumber?: number) => {
+        if (!farmId || !selectedBatch) return;
+        const taskDay = dayNumber ?? currentDay;
+        const key = getActionLogKey(phaseId, actionItem.action, taskDay);
+        const existing = actionLogs[key];
+        if (!existing) return;
+
+        // Optimistic removal
+        setActionLogs(prev => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+
+        if (existing.id && !existing.id.startsWith('temp-')) {
+            await deleteRoadmapActionLog(existing.id, farmId);
+        }
+    };
+
     // ─── Trigger AI Dynamic Adjustment for a Phase ─────────────────────────────
     const handleTriggerAIAdjustment = async (phase: GuidePhaseItem) => {
         if (!farmId || !selectedBatch) return;
@@ -329,6 +485,7 @@ export default function GuideScreen() {
                 actualAvgWeight: weightSummary.latestAvgWeightKg,
                 headCount: selectedBatch.current_count,
                 currentActions: phase.fullGuideActions,
+                actionHistory: Object.values(actionLogs),
             });
 
             const updatedItem = await saveAIAdjustedPhase({
@@ -745,75 +902,247 @@ export default function GuideScreen() {
                                                 {/* Full Action Procedures (Sorted Chronologically) */}
                                                 <View style={{ gap: 8, marginTop: 4 }}>
                                                     <Text style={{ fontSize: 10.5, fontFamily: 'Poppins-Bold', color: colors.textGrey, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                                                        Standard Operating Procedures (SOP)
+                                                        Standard Operating Procedures (SOP) & Actions
                                                     </Text>
 
-                                                    <View style={{ gap: 6 }}>
+                                                    <View style={{ gap: 8 }}>
                                                         {sortActionsByDay(phase.fullGuideActions).map((actionItem, aIdx) => {
                                                             const isAIItem = typeof actionItem.action === 'string' && actionItem.action.startsWith('[AI Adjustment]');
                                                             const isTodayItem = isCurrentStage && isDayMatching(actionItem.dayTag, currentDay);
+                                                            const taskDay = isTodayItem ? currentDay : (phase.dayStart || 1);
+                                                            const logKey = getActionLogKey(phase.id, actionItem.action, taskDay);
+                                                            const actionLog = actionLogs[logKey];
+                                                            const isCompleted = actionLog?.status === 'completed';
+                                                            const isRejected = actionLog?.status === 'rejected';
 
                                                             return (
                                                                 <View
                                                                     key={aIdx}
                                                                     style={{
-                                                                        flexDirection: 'row',
-                                                                        alignItems: 'flex-start',
-                                                                        justifyContent: 'space-between',
-                                                                        gap: 8,
-                                                                        padding: 10,
-                                                                        borderRadius: 10,
-                                                                        backgroundColor: isAIItem
-                                                                            ? (isDark ? 'rgba(16, 185, 129, 0.12)' : '#ECFDF5')
-                                                                            : isTodayItem
-                                                                                ? (isDark ? 'rgba(16, 185, 129, 0.08)' : '#F0FDF4')
-                                                                                : (isDark ? 'rgba(255,255,255,0.015)' : '#FFFFFF'),
+                                                                        borderRadius: 12,
+                                                                        backgroundColor: isCompleted
+                                                                            ? (isDark ? 'rgba(16, 185, 129, 0.12)' : '#F0FDF4')
+                                                                            : isRejected
+                                                                                ? (isDark ? 'rgba(245, 158, 11, 0.1)' : '#FFFBEB')
+                                                                                : isAIItem
+                                                                                    ? (isDark ? 'rgba(16, 185, 129, 0.08)' : '#ECFDF5')
+                                                                                    : (isDark ? 'rgba(255,255,255,0.02)' : '#FFFFFF'),
                                                                         borderWidth: 1,
-                                                                        borderColor: isAIItem
-                                                                            ? 'rgba(16, 185, 129, 0.45)'
-                                                                            : isTodayItem
-                                                                                ? 'rgba(16, 185, 129, 0.35)'
-                                                                                : colors.stroke,
+                                                                        borderColor: isCompleted
+                                                                            ? 'rgba(16, 185, 129, 0.5)'
+                                                                            : isRejected
+                                                                                ? 'rgba(245, 158, 11, 0.5)'
+                                                                                : isAIItem
+                                                                                    ? 'rgba(16, 185, 129, 0.4)'
+                                                                                    : isTodayItem
+                                                                                        ? 'rgba(16, 185, 129, 0.3)'
+                                                                                        : colors.stroke,
+                                                                        borderLeftWidth: (isCompleted || isRejected) ? 4 : 1,
+                                                                        borderLeftColor: isCompleted ? '#10B981' : isRejected ? '#F59E0B' : undefined,
+                                                                        padding: 12,
+                                                                        gap: 10,
                                                                     }}
                                                                 >
-                                                                    <View style={{ flex: 1 }}>
-                                                                        <Text style={{
-                                                                            fontSize: 12,
-                                                                            color: isAIItem ? '#10B981' : colors.text,
-                                                                            fontFamily: isAIItem || isTodayItem ? 'Poppins-SemiBold' : 'Poppins-Regular',
-                                                                            lineHeight: 17,
-                                                                        }}>
-                                                                            {actionItem.action}
-                                                                        </Text>
-                                                                    </View>
-
-                                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                                                                        {isTodayItem && (
-                                                                            <View style={{
-                                                                                backgroundColor: 'rgba(16, 185, 129, 0.18)',
-                                                                                borderWidth: 1,
-                                                                                borderColor: 'rgba(16, 185, 129, 0.3)',
-                                                                                paddingHorizontal: 5,
-                                                                                paddingVertical: 1,
-                                                                                borderRadius: 4,
+                                                                    {/* Top Row: Task Description & Day Badge */}
+                                                                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                                                                        <View style={{ flex: 1 }}>
+                                                                            <Text style={{
+                                                                                fontSize: 12.5,
+                                                                                color: isCompleted ? (isDark ? '#34D399' : '#065F46') : isRejected ? (isDark ? '#FBBF24' : '#92400E') : isAIItem ? '#10B981' : colors.text,
+                                                                                fontFamily: isAIItem || isTodayItem || isCompleted ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                                                                                lineHeight: 18,
                                                                             }}>
-                                                                                <Text style={{ fontSize: 9, fontFamily: 'Poppins-Bold', color: '#10B981' }}>
-                                                                                    TODAY
-                                                                                </Text>
-                                                                            </View>
-                                                                        )}
-                                                                        <View style={{
-                                                                            backgroundColor: isAIItem || isTodayItem ? 'rgba(16, 185, 129, 0.15)' : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
-                                                                            borderWidth: 1,
-                                                                            borderColor: isAIItem || isTodayItem ? 'rgba(16, 185, 129, 0.35)' : colors.stroke,
-                                                                            paddingHorizontal: 6,
-                                                                            paddingVertical: 2,
-                                                                            borderRadius: 6,
-                                                                        }}>
-                                                                            <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayItem ? '#10B981' : colors.textGrey }}>
-                                                                                {actionItem.dayTag}
+                                                                                {actionItem.action}
                                                                             </Text>
                                                                         </View>
+
+                                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                                                            {isTodayItem && (
+                                                                                <View style={{
+                                                                                    backgroundColor: 'rgba(16, 185, 129, 0.18)',
+                                                                                    borderWidth: 1,
+                                                                                    borderColor: 'rgba(16, 185, 129, 0.3)',
+                                                                                    paddingHorizontal: 6,
+                                                                                    paddingVertical: 1.5,
+                                                                                    borderRadius: 4,
+                                                                                }}>
+                                                                                    <Text style={{ fontSize: 9, fontFamily: 'Poppins-Bold', color: '#10B981' }}>
+                                                                                        TODAY
+                                                                                    </Text>
+                                                                                </View>
+                                                                            )}
+                                                                            <View style={{
+                                                                                backgroundColor: isAIItem || isTodayItem ? 'rgba(16, 185, 129, 0.15)' : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
+                                                                                borderWidth: 1,
+                                                                                borderColor: isAIItem || isTodayItem ? 'rgba(16, 185, 129, 0.35)' : colors.stroke,
+                                                                                paddingHorizontal: 7,
+                                                                                paddingVertical: 2,
+                                                                                borderRadius: 6,
+                                                                            }}>
+                                                                                <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayItem ? '#10B981' : colors.textGrey }}>
+                                                                                    {actionItem.dayTag}
+                                                                                </Text>
+                                                                            </View>
+                                                                        </View>
+                                                                    </View>
+
+                                                                    {/* Skipped Note Reason display */}
+                                                                    {isRejected && actionLog?.reason_notes && (
+                                                                        <View style={{
+                                                                            backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.08)',
+                                                                            borderRadius: 8,
+                                                                            paddingHorizontal: 10,
+                                                                            paddingVertical: 6,
+                                                                            flexDirection: 'row',
+                                                                            alignItems: 'center',
+                                                                            gap: 6,
+                                                                        }}>
+                                                                            <MaterialIcons name="comment" size={13} color="#F59E0B" />
+                                                                            <Text style={{ fontSize: 11, color: isDark ? '#FCD34D' : '#B45309', fontFamily: 'Poppins-Medium', flex: 1 }} numberOfLines={2}>
+                                                                                Note: "{actionLog.reason_notes}"
+                                                                            </Text>
+                                                                        </View>
+                                                                    )}
+
+                                                                    {/* Bottom Action Buttons Row */}
+                                                                    <View style={{
+                                                                        flexDirection: 'row',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'space-between',
+                                                                        paddingTop: 6,
+                                                                        borderTopWidth: 1,
+                                                                        borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                                                                    }}>
+                                                                        {isCompleted ? (
+                                                                            <>
+                                                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                                                    <MaterialIcons name="check-circle" size={15} color="#10B981" />
+                                                                                    <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#10B981' }}>
+                                                                                        Action Completed
+                                                                                    </Text>
+                                                                                </View>
+
+                                                                                <TouchableOpacity
+                                                                                    activeOpacity={0.7}
+                                                                                    onPress={() => handleUndoAction(actionItem, phase.id, taskDay)}
+                                                                                    style={{
+                                                                                        flexDirection: 'row',
+                                                                                        alignItems: 'center',
+                                                                                        gap: 4,
+                                                                                        backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : colors.bgLight,
+                                                                                        borderWidth: 1,
+                                                                                        borderColor: colors.stroke,
+                                                                                        paddingHorizontal: 10,
+                                                                                        paddingVertical: 5,
+                                                                                        borderRadius: 8,
+                                                                                    }}
+                                                                                >
+                                                                                    <MaterialIcons name="undo" size={13} color={colors.textGrey} />
+                                                                                    <Text style={{ fontSize: 11, fontFamily: 'Poppins-Medium', color: colors.textGrey }}>
+                                                                                        Undo
+                                                                                    </Text>
+                                                                                </TouchableOpacity>
+                                                                            </>
+                                                                        ) : isRejected ? (
+                                                                            <>
+                                                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                                                    <MaterialIcons name="cancel" size={15} color="#F59E0B" />
+                                                                                    <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#F59E0B' }}>
+                                                                                        Skipped / Rejected
+                                                                                    </Text>
+                                                                                </View>
+
+                                                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                                                    <TouchableOpacity
+                                                                                        activeOpacity={0.7}
+                                                                                        onPress={() => handleOpenSkipModal(actionItem, phase.id, taskDay)}
+                                                                                        style={{
+                                                                                            flexDirection: 'row',
+                                                                                            alignItems: 'center',
+                                                                                            gap: 4,
+                                                                                            backgroundColor: '#F59E0B',
+                                                                                            paddingHorizontal: 10,
+                                                                                            paddingVertical: 5,
+                                                                                            borderRadius: 8,
+                                                                                        }}
+                                                                                    >
+                                                                                        <MaterialIcons name="edit" size={12} color="#FFFFFF" />
+                                                                                        <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                                                                                            Edit Note
+                                                                                        </Text>
+                                                                                    </TouchableOpacity>
+
+                                                                                    <TouchableOpacity
+                                                                                        activeOpacity={0.7}
+                                                                                        onPress={() => handleUndoAction(actionItem, phase.id, taskDay)}
+                                                                                        style={{
+                                                                                            flexDirection: 'row',
+                                                                                            alignItems: 'center',
+                                                                                            gap: 3,
+                                                                                            paddingHorizontal: 8,
+                                                                                            paddingVertical: 5,
+                                                                                            borderRadius: 8,
+                                                                                            borderWidth: 1,
+                                                                                            borderColor: colors.stroke,
+                                                                                            backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : colors.bgLight,
+                                                                                        }}
+                                                                                    >
+                                                                                        <MaterialIcons name="refresh" size={13} color={colors.textGrey} />
+                                                                                        <Text style={{ fontSize: 11, fontFamily: 'Poppins-Medium', color: colors.textGrey }}>
+                                                                                            Reset
+                                                                                        </Text>
+                                                                                    </TouchableOpacity>
+                                                                                </View>
+                                                                            </>
+                                                                        ) : (
+                                                                            <>
+                                                                                <Text style={{ fontSize: 11, fontFamily: 'Poppins-Regular', color: colors.textGrey }}>
+                                                                                    Record procedure:
+                                                                                </Text>
+
+                                                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                                                    <TouchableOpacity
+                                                                                        activeOpacity={0.7}
+                                                                                        onPress={() => handleOpenSkipModal(actionItem, phase.id, taskDay)}
+                                                                                        style={{
+                                                                                            flexDirection: 'row',
+                                                                                            alignItems: 'center',
+                                                                                            gap: 4,
+                                                                                            paddingHorizontal: 12,
+                                                                                            paddingVertical: 6,
+                                                                                            borderRadius: 8,
+                                                                                            borderWidth: 1,
+                                                                                            borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : '#FCA5A5',
+                                                                                            backgroundColor: isDark ? 'rgba(239, 68, 68, 0.1)' : '#FEF2F2',
+                                                                                        }}
+                                                                                    >
+                                                                                        <MaterialIcons name="close" size={14} color="#EF4444" />
+                                                                                        <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-SemiBold', color: '#EF4444' }}>
+                                                                                            Skip
+                                                                                        </Text>
+                                                                                    </TouchableOpacity>
+
+                                                                                    <TouchableOpacity
+                                                                                        activeOpacity={0.8}
+                                                                                        onPress={() => handleCompleteAction(actionItem, phase.id, taskDay)}
+                                                                                        style={{
+                                                                                            flexDirection: 'row',
+                                                                                            alignItems: 'center',
+                                                                                            gap: 4,
+                                                                                            paddingHorizontal: 14,
+                                                                                            paddingVertical: 6,
+                                                                                            borderRadius: 8,
+                                                                                            backgroundColor: '#10B981',
+                                                                                        }}
+                                                                                    >
+                                                                                        <MaterialIcons name="check" size={14} color="#FFFFFF" />
+                                                                                        <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                                                                                            Done
+                                                                                        </Text>
+                                                                                    </TouchableOpacity>
+                                                                                </View>
+                                                                            </>
+                                                                        )}
                                                                     </View>
                                                                 </View>
                                                             );
@@ -843,7 +1172,7 @@ export default function GuideScreen() {
                         </View>
 
                         {/* 2. Animal Tab Filter (AniGrow standard pills) */}
-                        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
+                        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
                             {(['pig', 'chicken'] as const).map((filter) => {
                                 const isSelected = animalFilter === filter;
                                 return (
@@ -871,6 +1200,7 @@ export default function GuideScreen() {
                                 );
                             })}
                         </View>
+
 
                         {/* 3. Batch Filter Dropdown */}
                         {isBatchLoading ? (
@@ -1024,53 +1354,224 @@ export default function GuideScreen() {
                                 {todayTasksForCurrentPhase.map((actionItem, idx) => {
                                     const isAIItem = typeof actionItem.action === 'string' && actionItem.action.startsWith('[AI Adjustment]');
                                     const isTodayMatched = isDayMatching(actionItem.dayTag, currentDay);
+                                    const logKey = getActionLogKey(naturalPhase.id, actionItem.action, currentDay);
+                                    const actionLog = actionLogs[logKey];
+                                    const isCompleted = actionLog?.status === 'completed';
+                                    const isRejected = actionLog?.status === 'rejected';
 
                                     return (
                                         <View
                                             key={idx}
                                             style={{
-                                                flexDirection: 'row',
-                                                alignItems: 'flex-start',
-                                                justifyContent: 'space-between',
-                                                gap: 8,
-                                                padding: 10,
-                                                borderRadius: 10,
-                                                backgroundColor: isAIItem
-                                                    ? (isDark ? 'rgba(16, 185, 129, 0.12)' : '#ECFDF5')
-                                                    : isTodayMatched
-                                                        ? (isDark ? 'rgba(16, 185, 129, 0.08)' : '#F0FDF4')
-                                                        : (isDark ? 'rgba(255,255,255,0.02)' : '#FAFAFA'),
+                                                borderRadius: 12,
+                                                backgroundColor: isCompleted
+                                                    ? (isDark ? 'rgba(16, 185, 129, 0.12)' : '#F0FDF4')
+                                                    : isRejected
+                                                        ? (isDark ? 'rgba(245, 158, 11, 0.1)' : '#FFFBEB')
+                                                        : isAIItem
+                                                            ? (isDark ? 'rgba(16, 185, 129, 0.08)' : '#ECFDF5')
+                                                            : (isDark ? 'rgba(255,255,255,0.02)' : '#FAFAFA'),
                                                 borderWidth: 1,
-                                                borderColor: isAIItem
-                                                    ? 'rgba(16, 185, 129, 0.45)'
-                                                    : isTodayMatched
-                                                        ? 'rgba(16, 185, 129, 0.35)'
-                                                        : colors.stroke,
+                                                borderColor: isCompleted
+                                                    ? 'rgba(16, 185, 129, 0.5)'
+                                                    : isRejected
+                                                        ? 'rgba(245, 158, 11, 0.5)'
+                                                        : isAIItem
+                                                            ? 'rgba(16, 185, 129, 0.45)'
+                                                            : isTodayMatched
+                                                                ? 'rgba(16, 185, 129, 0.35)'
+                                                                : colors.stroke,
+                                                borderLeftWidth: (isCompleted || isRejected) ? 4 : 1,
+                                                borderLeftColor: isCompleted ? '#10B981' : isRejected ? '#F59E0B' : undefined,
+                                                padding: 12,
+                                                gap: 10,
                                             }}
                                         >
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={{
-                                                    fontSize: 12,
-                                                    color: isAIItem ? '#10B981' : colors.text,
-                                                    fontFamily: isAIItem || isTodayMatched ? 'Poppins-SemiBold' : 'Poppins-Regular',
-                                                    lineHeight: 17,
+                                            {/* Top Row: Task Description & Day Badge */}
+                                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={{
+                                                        fontSize: 12.5,
+                                                        color: isCompleted ? (isDark ? '#34D399' : '#065F46') : isRejected ? (isDark ? '#FBBF24' : '#92400E') : isAIItem ? '#10B981' : colors.text,
+                                                        fontFamily: isAIItem || isTodayMatched || isCompleted ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                                                        lineHeight: 18,
+                                                    }}>
+                                                        {actionItem.action}
+                                                    </Text>
+                                                </View>
+
+                                                <View style={{
+                                                    backgroundColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.15)' : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
+                                                    borderWidth: 1,
+                                                    borderColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.35)' : colors.stroke,
+                                                    paddingHorizontal: 7,
+                                                    paddingVertical: 2,
+                                                    borderRadius: 6,
+                                                    flexShrink: 0,
                                                 }}>
-                                                    {actionItem.action}
-                                                </Text>
+                                                    <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayMatched ? '#10B981' : colors.textGrey }}>
+                                                        {actionItem.dayTag}
+                                                    </Text>
+                                                </View>
                                             </View>
 
+                                            {/* Skipped Note Reason display */}
+                                            {isRejected && actionLog?.reason_notes && (
+                                                <View style={{
+                                                    backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.08)',
+                                                    borderRadius: 8,
+                                                    paddingHorizontal: 10,
+                                                    paddingVertical: 6,
+                                                    flexDirection: 'row',
+                                                    alignItems: 'center',
+                                                    gap: 6,
+                                                }}>
+                                                    <MaterialIcons name="comment" size={13} color="#F59E0B" />
+                                                    <Text style={{ fontSize: 11, color: isDark ? '#FCD34D' : '#B45309', fontFamily: 'Poppins-Medium', flex: 1 }} numberOfLines={2}>
+                                                        Note: "{actionLog.reason_notes}"
+                                                    </Text>
+                                                </View>
+                                            )}
+
+                                            {/* Bottom Action Buttons Row */}
                                             <View style={{
-                                                backgroundColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.15)' : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
-                                                borderWidth: 1,
-                                                borderColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.35)' : colors.stroke,
-                                                paddingHorizontal: 6,
-                                                paddingVertical: 2,
-                                                borderRadius: 6,
-                                                flexShrink: 0,
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                paddingTop: 6,
+                                                borderTopWidth: 1,
+                                                borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
                                             }}>
-                                                <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayMatched ? '#10B981' : colors.textGrey }}>
-                                                    {actionItem.dayTag}
-                                                </Text>
+                                                {isCompleted ? (
+                                                    <>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                            <MaterialIcons name="check-circle" size={15} color="#10B981" />
+                                                            <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#10B981' }}>
+                                                                Action Completed
+                                                            </Text>
+                                                        </View>
+
+                                                        <TouchableOpacity
+                                                            activeOpacity={0.7}
+                                                            onPress={() => handleUndoAction(actionItem, naturalPhase.id, currentDay)}
+                                                            style={{
+                                                                flexDirection: 'row',
+                                                                alignItems: 'center',
+                                                                gap: 4,
+                                                                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : colors.bgLight,
+                                                                borderWidth: 1,
+                                                                borderColor: colors.stroke,
+                                                                paddingHorizontal: 10,
+                                                                paddingVertical: 5,
+                                                                borderRadius: 8,
+                                                            }}
+                                                        >
+                                                            <MaterialIcons name="undo" size={13} color={colors.textGrey} />
+                                                            <Text style={{ fontSize: 11, fontFamily: 'Poppins-Medium', color: colors.textGrey }}>
+                                                                Undo
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    </>
+                                                ) : isRejected ? (
+                                                    <>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                            <MaterialIcons name="cancel" size={15} color="#F59E0B" />
+                                                            <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#F59E0B' }}>
+                                                                Skipped / Rejected
+                                                            </Text>
+                                                        </View>
+
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                            <TouchableOpacity
+                                                                activeOpacity={0.7}
+                                                                onPress={() => handleOpenSkipModal(actionItem, naturalPhase.id, currentDay)}
+                                                                style={{
+                                                                    flexDirection: 'row',
+                                                                    alignItems: 'center',
+                                                                    gap: 4,
+                                                                    backgroundColor: '#F59E0B',
+                                                                    paddingHorizontal: 10,
+                                                                    paddingVertical: 5,
+                                                                    borderRadius: 8,
+                                                                }}
+                                                            >
+                                                                <MaterialIcons name="edit" size={12} color="#FFFFFF" />
+                                                                <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                                                                    Edit Note
+                                                                </Text>
+                                                            </TouchableOpacity>
+
+                                                            <TouchableOpacity
+                                                                activeOpacity={0.7}
+                                                                onPress={() => handleUndoAction(actionItem, naturalPhase.id, currentDay)}
+                                                                style={{
+                                                                    flexDirection: 'row',
+                                                                    alignItems: 'center',
+                                                                    gap: 3,
+                                                                    paddingHorizontal: 8,
+                                                                    paddingVertical: 5,
+                                                                    borderRadius: 8,
+                                                                    borderWidth: 1,
+                                                                    borderColor: colors.stroke,
+                                                                    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : colors.bgLight,
+                                                                }}
+                                                            >
+                                                                <MaterialIcons name="refresh" size={13} color={colors.textGrey} />
+                                                                <Text style={{ fontSize: 11, fontFamily: 'Poppins-Medium', color: colors.textGrey }}>
+                                                                    Reset
+                                                                </Text>
+                                                            </TouchableOpacity>
+                                                        </View>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Text style={{ fontSize: 11, fontFamily: 'Poppins-Regular', color: colors.textGrey }}>
+                                                            Record procedure:
+                                                        </Text>
+
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                            <TouchableOpacity
+                                                                activeOpacity={0.7}
+                                                                onPress={() => handleOpenSkipModal(actionItem, naturalPhase.id, currentDay)}
+                                                                style={{
+                                                                    flexDirection: 'row',
+                                                                    alignItems: 'center',
+                                                                    gap: 4,
+                                                                    paddingHorizontal: 12,
+                                                                    paddingVertical: 6,
+                                                                    borderRadius: 8,
+                                                                    borderWidth: 1,
+                                                                    borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : '#FCA5A5',
+                                                                    backgroundColor: isDark ? 'rgba(239, 68, 68, 0.1)' : '#FEF2F2',
+                                                                }}
+                                                            >
+                                                                <MaterialIcons name="close" size={14} color="#EF4444" />
+                                                                <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-SemiBold', color: '#EF4444' }}>
+                                                                    Skip
+                                                                </Text>
+                                                            </TouchableOpacity>
+
+                                                            <TouchableOpacity
+                                                                activeOpacity={0.8}
+                                                                onPress={() => handleCompleteAction(actionItem, naturalPhase.id, currentDay)}
+                                                                style={{
+                                                                    flexDirection: 'row',
+                                                                    alignItems: 'center',
+                                                                    gap: 4,
+                                                                    paddingHorizontal: 14,
+                                                                    paddingVertical: 6,
+                                                                    borderRadius: 8,
+                                                                    backgroundColor: '#10B981',
+                                                                }}
+                                                            >
+                                                                <MaterialIcons name="check" size={14} color="#FFFFFF" />
+                                                                <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                                                                    Done
+                                                                </Text>
+                                                            </TouchableOpacity>
+                                                        </View>
+                                                    </>
+                                                )}
                                             </View>
                                         </View>
                                     );
@@ -1232,6 +1733,214 @@ export default function GuideScreen() {
                 requireConfirm={false}
                 enableSearch={false}
             />
+
+            {/* Skip / Reject Reason Modal (Required note for AI adaptive feedback) */}
+            <Modal
+                visible={skipModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setSkipModalVisible(false)}
+            >
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                    <View style={{
+                        flex: 1,
+                        backgroundColor: 'rgba(0,0,0,0.65)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        paddingHorizontal: 20,
+                    }}>
+                        <View style={{
+                            width: '100%',
+                            maxWidth: 460,
+                            backgroundColor: colors.surface,
+                            borderRadius: 20,
+                            padding: 20,
+                            borderWidth: 1,
+                            borderColor: colors.stroke,
+                            gap: 14,
+                        }}>
+                            {/* Modal Header */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                                    <View style={{
+                                        width: 36,
+                                        height: 36,
+                                        borderRadius: 18,
+                                        backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                    }}>
+                                        <MaterialIcons name="assignment-late" size={20} color="#EF4444" />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[textStyles.h3, { fontSize: 15, fontFamily: 'Poppins-Bold', color: colors.text }]}>
+                                            Action Not Performed
+                                        </Text>
+                                        <Text style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>
+                                            Required: State why this suggestion was skipped
+                                        </Text>
+                                    </View>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={() => setSkipModalVisible(false)}
+                                    style={{ padding: 4 }}
+                                >
+                                    <MaterialIcons name="close" size={20} color={colors.textGrey} />
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Action text preview */}
+                            {selectedActionForSkip && (
+                                <View style={{
+                                    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : colors.bgLight,
+                                    padding: 10,
+                                    borderRadius: 10,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                }}>
+                                    <Text style={{ fontSize: 10.5, color: colors.textGrey, fontFamily: 'Poppins-Bold', marginBottom: 2 }}>
+                                        SUGGESTED TASK ({selectedActionForSkip.actionItem.dayTag})
+                                    </Text>
+                                    <Text style={{ fontSize: 12.5, color: colors.text, fontFamily: 'Poppins-SemiBold', lineHeight: 17 }}>
+                                        {selectedActionForSkip.actionItem.action}
+                                    </Text>
+                                </View>
+                            )}
+
+                            {/* Quick reason pills */}
+                            <View>
+                                <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: colors.textGrey, marginBottom: 6 }}>
+                                    QUICK SELECT REASON:
+                                </Text>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                    {SKIP_REASON_OPTIONS.map((opt, oIdx) => {
+                                        const isSelected = skipReason === opt;
+                                        return (
+                                            <TouchableOpacity
+                                                key={oIdx}
+                                                activeOpacity={0.7}
+                                                onPress={() => setSkipReason(opt)}
+                                                style={{
+                                                    paddingHorizontal: 10,
+                                                    paddingVertical: 5,
+                                                    borderRadius: 14,
+                                                    backgroundColor: isSelected
+                                                        ? colors.primary
+                                                        : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
+                                                    borderWidth: 1,
+                                                    borderColor: isSelected ? colors.primary : colors.stroke,
+                                                }}
+                                            >
+                                                <Text style={{
+                                                    fontSize: 11,
+                                                    fontFamily: isSelected ? 'Poppins-Bold' : 'Poppins-Medium',
+                                                    color: isSelected ? colors.onPrimary : colors.text,
+                                                }}>
+                                                    {opt}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </View>
+
+                            {/* Custom Reason Text Input */}
+                            <View>
+                                <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: colors.textGrey, marginBottom: 4 }}>
+                                    EXPLANATION / NOTES *
+                                </Text>
+                                <TextInput
+                                    value={skipReason}
+                                    onChangeText={setSkipReason}
+                                    placeholder="Explain why this action was not done or rejected..."
+                                    placeholderTextColor={colors.textGrey}
+                                    multiline
+                                    numberOfLines={3}
+                                    style={{
+                                        backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : colors.bgLight,
+                                        borderRadius: 10,
+                                        borderWidth: 1,
+                                        borderColor: skipReason.trim() ? colors.primary : colors.stroke,
+                                        padding: 10,
+                                        fontSize: 12.5,
+                                        color: colors.text,
+                                        fontFamily: 'Poppins-Regular',
+                                        minHeight: 65,
+                                        textAlignVertical: 'top',
+                                    }}
+                                />
+                            </View>
+
+                            {/* AniBot AI Learning Note */}
+                            <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 6,
+                                backgroundColor: isDark ? 'rgba(16, 185, 129, 0.1)' : '#ECFDF5',
+                                padding: 8,
+                                borderRadius: 8,
+                            }}>
+                                <MaterialIcons name="auto-awesome" size={14} color="#10B981" />
+                                <Text style={{ fontSize: 10.5, color: '#10B981', fontFamily: 'Poppins-Medium', flex: 1, lineHeight: 14 }}>
+                                    AniBot will factor this reason into future batch health & growth SOP adjustments.
+                                </Text>
+                            </View>
+
+                            {/* Modal Buttons */}
+                            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    onPress={() => setSkipModalVisible(false)}
+                                    style={{
+                                        flex: 1,
+                                        paddingVertical: 10,
+                                        borderRadius: 10,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                    }}
+                                >
+                                    <Text style={{ fontSize: 13, fontFamily: 'Poppins-SemiBold', color: colors.textGrey }}>
+                                        Cancel
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    onPress={handleSubmitSkipReason}
+                                    disabled={!skipReason.trim() || isSubmittingReason}
+                                    style={{
+                                        flex: 1.5,
+                                        paddingVertical: 10,
+                                        borderRadius: 10,
+                                        backgroundColor: skipReason.trim() ? '#F59E0B' : (isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'),
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexDirection: 'row',
+                                        gap: 6,
+                                    }}
+                                >
+                                    {isSubmittingReason ? (
+                                        <ActivityIndicator size="small" color="#FFFFFF" />
+                                    ) : (
+                                        <>
+                                            <MaterialIcons name="save" size={15} color={skipReason.trim() ? '#FFFFFF' : colors.textGrey} />
+                                            <Text style={{
+                                                fontSize: 13,
+                                                fontFamily: 'Poppins-Bold',
+                                                color: skipReason.trim() ? '#FFFFFF' : colors.textGrey,
+                                            }}>
+                                                Save Reason & Skip
+                                            </Text>
+                                        </>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
         </SafeAreaView>
     );
 }

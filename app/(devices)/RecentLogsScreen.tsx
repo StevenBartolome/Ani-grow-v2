@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTextStyles } from '@/constants/textStyles';
@@ -441,7 +442,7 @@ export default function RecentLogsScreen() {
                 ) : logs.length === 0 ? (
                     <View style={{ alignItems: 'center', marginTop: 60 }}>
                         <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
-                            <MaterialIcons name="monitor-weight" size={30} color={colors.textGrey} />
+                            <AniWeighIcon size={30} />
                         </View>
                         <Text style={[textStyles.h2, { color: colors.text, fontSize: 17, marginBottom: 5 }]}>No Logs Yet</Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40, fontSize: 13 }]}>
@@ -546,7 +547,7 @@ export default function RecentLogsScreen() {
                                             </View>
                                             <Text style={{ color: colors.textGrey, fontSize: 8 }}>•</Text>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flex: 1 }}>
-                                                <MaterialIcons name="monitor-weight" size={11} color={colors.textGrey} />
+                                                <AniWeighIcon size={11} />
                                                 <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }} numberOfLines={1}>
                                                     {log.deviceName}
                                                 </Text>

@@ -347,3 +347,150 @@ export async function saveAIAdjustedPhase(params: {
     return null;
   }
 }
+
+// ─── Task Action Logging & AI Tracking ────────────────────────────────────────
+
+export interface RoadmapActionLog {
+  id?: string;
+  farm_id: string;
+  batch_id: string | null;
+  animal_type: 'pig' | 'chicken';
+  phase_id: string;
+  action_text: string;
+  day_tag?: string;
+  farm_day?: number;
+  status: 'completed' | 'skipped' | 'rejected';
+  is_ai_suggestion: boolean;
+  reason_notes?: string;
+  recorded_by?: string;
+  recorded_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * Creates a unique lookup key for a task action item
+ */
+export function getActionLogKey(phaseId: string, actionText: string, farmDay?: number): string {
+  const normalizedText = actionText.trim().toLowerCase();
+  return farmDay != null
+    ? `${phaseId}_${normalizedText}_d${farmDay}`
+    : `${phaseId}_${normalizedText}`;
+}
+
+/**
+ * Fetches all action logs for a farm (and optional batch), returning a dictionary
+ * indexed by action log keys for instant O(1) lookup.
+ */
+export async function getBatchActionLogs(
+  farmId: string,
+  batchId?: string | null
+): Promise<Record<string, RoadmapActionLog>> {
+  if (!farmId) return {};
+
+  try {
+    let query = supabase
+      .from('roadmap_action_logs')
+      .select('*')
+      .eq('farm_id', farmId);
+
+    if (batchId && !batchId.startsWith('demo-')) {
+      query = query.eq('batch_id', batchId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.warn('[roadmapService] getBatchActionLogs query error:', error.message);
+      return {};
+    }
+
+    const map: Record<string, RoadmapActionLog> = {};
+    (data || []).forEach((row: RoadmapActionLog) => {
+      const key = getActionLogKey(row.phase_id, row.action_text, row.farm_day);
+      map[key] = row;
+      // Also map without day for general lookup
+      const generalKey = getActionLogKey(row.phase_id, row.action_text);
+      if (!map[generalKey]) {
+        map[generalKey] = row;
+      }
+    });
+
+    return map;
+  } catch (err: any) {
+    console.warn('[roadmapService] getBatchActionLogs exception:', err?.message);
+    return {};
+  }
+}
+
+/**
+ * Record (upsert) task action status (completed, skipped, or rejected with reasons)
+ */
+export async function recordRoadmapAction(
+  log: RoadmapActionLog
+): Promise<RoadmapActionLog | null> {
+  if (!log.farm_id || !log.phase_id || !log.action_text || !log.status) return null;
+
+  const payload = {
+    farm_id: log.farm_id,
+    batch_id: log.batch_id && !log.batch_id.startsWith('demo-') ? log.batch_id : null,
+    animal_type: log.animal_type,
+    phase_id: log.phase_id,
+    action_text: log.action_text,
+    day_tag: log.day_tag || '',
+    farm_day: log.farm_day ?? null,
+    status: log.status,
+    is_ai_suggestion: log.is_ai_suggestion || log.action_text.startsWith('[AI Adjustment]'),
+    reason_notes: log.reason_notes || '',
+    recorded_by: log.recorded_by || null,
+    recorded_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from('roadmap_action_logs')
+      .upsert(payload, {
+        onConflict: 'farm_id,batch_id,phase_id,action_text,farm_day',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('[roadmapService] recordRoadmapAction error:', error.message);
+      return null;
+    }
+
+    return data as RoadmapActionLog;
+  } catch (err: any) {
+    console.warn('[roadmapService] recordRoadmapAction exception:', err?.message);
+    return null;
+  }
+}
+
+/**
+ * Remove a task action log (e.g. undoing completion or skip)
+ */
+export async function deleteRoadmapActionLog(
+  logId: string,
+  farmId: string
+): Promise<boolean> {
+  if (!logId || !farmId) return false;
+  try {
+    const { error } = await supabase
+      .from('roadmap_action_logs')
+      .delete()
+      .eq('id', logId)
+      .eq('farm_id', farmId);
+
+    if (error) {
+      console.warn('[roadmapService] deleteRoadmapActionLog error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    console.warn('[roadmapService] deleteRoadmapActionLog exception:', err?.message);
+    return false;
+  }
+}
+
+

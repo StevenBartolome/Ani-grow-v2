@@ -176,9 +176,9 @@ export function SelectionModal({
                             keyboardShouldPersistTaps="handled"
                         >
                         <View style={{ gap: 8, paddingRight: 4, paddingBottom: 4 }}>
-                            {finalOptions.length > 0 ? finalOptions.map((option) => (
+                            {finalOptions.length > 0 ? finalOptions.map((option, index) => (
                                 <TouchableOpacity
-                                    key={option}
+                                    key={`${option}-${index}`}
                                     style={{
                                         paddingVertical: 12,
                                         paddingHorizontal: 16,

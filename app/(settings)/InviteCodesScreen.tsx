@@ -16,6 +16,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { Text } from '@/components/Text';
 import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
@@ -284,7 +286,13 @@ function PermissionCategoryRow({ category, permissions, onBatchChange, onToggle,
                                     backgroundColor: active ? colors.primary + '06' : 'transparent',
                                 }}
                             >
-                                <MaterialIcons name={p.icon as any} size={17} color={active ? colors.primary : colors.textGrey} />
+                                {p.key === 'aniweigh:control' ? (
+                                    <AniWeighIcon size={17} />
+                                ) : p.key === 'anifeed:dispense' ? (
+                                    <AniFeedIcon size={17} />
+                                ) : (
+                                    <MaterialIcons name={p.icon as any} size={17} color={active ? colors.primary : colors.textGrey} />
+                                )}
                                 <Text style={{
                                     flex: 1, fontFamily: 'Poppins-Medium', fontSize: 13,
                                     color: active ? colors.text : colors.textGrey,

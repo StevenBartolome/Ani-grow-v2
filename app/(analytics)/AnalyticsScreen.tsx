@@ -10,7 +10,6 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
-import { useDevicesStyles } from '@/styles/devicesStyles';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { Header } from '@/components/Header';
 
@@ -20,10 +19,8 @@ export default function AnalyticsScreen() {
     const textStyles = useTextStyles();
     const farmName = (profile as any)?.farm_name ?? (profile as any)?.farmName ?? '';
     const styles = useAnalyticsStyles();
-    const deviceStyles = useDevicesStyles();
     const router = useRouter();
 
-    const [animalFilter, setAnimalFilter] = useState<'Pigs' | 'Chickens'>('Pigs');
     const [refreshing, setRefreshing] = useState(false);
 
     const onRefresh = async () => {
@@ -48,7 +45,7 @@ export default function AnalyticsScreen() {
             title: 'Growth Report',
             description: 'Analyze average daily gains and overall weight trends across your livestock.',
             icon: 'trending-up' as React.ComponentProps<typeof MaterialIcons>['name'],
-            route: '/(analytics)/GrowthReportScreen', // Placeholder routes
+            route: '/(analytics)/GrowthReportScreen',
         },
         {
             title: 'Feed Consumption Report',
@@ -75,38 +72,16 @@ export default function AnalyticsScreen() {
             <View style={styles.container}>
                 <Header />
 
-                <View style={{ paddingBottom: 16 }}>
+                <View style={{ paddingBottom: 8 }}>
                     <View style={styles.headerContainer}>
                         <View style={styles.headerTextContainer}>
                             <Text style={[textStyles.h1, { color: colors.text, fontSize: 32 }]}>
                                 Analytics
                             </Text>
-                            <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16, marginBottom: 16 }]}>
+                            <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16, marginBottom: 8 }]}>
                                 Data-driven farm insights
                             </Text>
                         </View>
-                    </View>
-
-                    {/* Animal Tab Filter (Pigs / Chickens) */}
-                    <View style={[deviceStyles.filterContainer, { marginBottom: 8 }]}>
-                        {['Pigs', 'Chickens'].map((filter) => (
-                            <TouchableOpacity
-                                key={filter}
-                                activeOpacity={0.7}
-                                onPress={() => setAnimalFilter(filter as 'Pigs' | 'Chickens')}
-                                style={[
-                                    deviceStyles.filterChip,
-                                    animalFilter === filter && deviceStyles.filterChipActive
-                                ]}
-                            >
-                                <Text style={[
-                                    deviceStyles.filterChipText,
-                                    animalFilter === filter && deviceStyles.filterChipTextActive
-                                ]}>
-                                    {filter}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
                     </View>
                 </View>
 
@@ -128,7 +103,7 @@ export default function AnalyticsScreen() {
                                 key={index}
                                 activeOpacity={0.8}
                                 style={styles.menuCard}
-                                onPress={() => router.push(`${item.route}?type=${animalFilter}` as any)}
+                                onPress={() => router.push(item.route as any)}
                             >
                                 <View style={styles.menuIconContainer}>
                                     <MaterialIcons name={item.icon} size={24} color={colors.primary} />

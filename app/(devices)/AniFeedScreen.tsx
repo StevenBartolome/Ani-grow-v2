@@ -17,6 +17,7 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAniFeedStyles } from '@/styles/anifeedStyles';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { supabase } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -178,6 +179,9 @@ export default function AniFeedScreen() {
     const [manualDispenseVisible, setManualDispenseVisible] = useState(false);
     const [manualGrams, setManualGrams] = useState('');
     const [isManualDispensing, setIsManualDispensing] = useState(false);
+
+    // Feed Details Modal
+    const [feedDetailsModalVisible, setFeedDetailsModalVisible] = useState(false);
 
     // Edit field modal (Housing, Brand, AnimalType)
     const [editModalVisible, setEditModalVisible] = useState(false);
@@ -777,7 +781,7 @@ export default function AniFeedScreen() {
                     <View style={anifeedStyles.titleSection}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.secondary + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 8 }}>
-                                <MaterialIcons name="grain" size={12} color={colors.secondary} />
+                                <AniFeedIcon size={12} />
                                 <Text style={[textStyles.label, { color: colors.secondary, fontSize: 10, marginLeft: 4 }]}>AniFeed</Text>
                             </View>
                             <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 13 }]}>{getFormattedDate()}</Text>
@@ -812,17 +816,18 @@ export default function AniFeedScreen() {
                     {(() => {
                         const canManual = !!deviceInfo?.housingId && deviceInfo?.housingName !== 'Unassigned' && !isManualDispensing;
                         return (
-                            <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8 }}>
+                            <View style={{ width: '100%', marginBottom: 16 }}>
                                 <TouchableOpacity
                                     activeOpacity={canManual ? 0.8 : 1}
                                     disabled={!canManual}
                                     onPress={handleOpenManualDispense}
                                     style={{
+                                        width: '100%',
                                         flexDirection: 'row',
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         gap: 6,
-                                        paddingVertical: 13,
+                                        paddingVertical: 14,
                                         borderRadius: 16,
                                         backgroundColor: canManual ? colors.primary : colors.cardFill,
                                         borderWidth: canManual ? 0 : 1,
@@ -871,11 +876,10 @@ export default function AniFeedScreen() {
                                 <View style={anifeedStyles.liveScaleInnerCircle}>
                                     {feedLevelPercent !== null ? (
                                         <>
-                                            <MaterialIcons name="grain" size={24} color={progressColor} />
-                                            <Text style={[textStyles.h1, { color: progressColor, fontSize: 28, marginTop: 2 }]}>
+                                            <Text style={[textStyles.h1, { color: progressColor, fontSize: 32, fontWeight: '700' }]}>
                                                 {feedLevelPercent}%
                                             </Text>
-                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, textAlign: 'center' }]}>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10, textAlign: 'center', marginTop: 2 }]}>
                                                 today's target
                                             </Text>
                                         </>
@@ -893,20 +897,35 @@ export default function AniFeedScreen() {
                             <View style={anifeedStyles.liveStatsContainer}>
                                 <View style={anifeedStyles.liveStatItem}>
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Today</Text>
-                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 13, marginTop: 4 }]} numberOfLines={2}>
+                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 13, marginTop: 4, textAlign: 'center' }]} numberOfLines={2}>
                                         {liveTodayGrams !== null ? `${liveTodayGrams}g` : '—'}
                                         {dailyCapacity > 0 ? `\n/ ${dailyCapacity}g` : ''}
                                     </Text>
                                 </View>
-                                <View style={[anifeedStyles.liveStatDivider, { backgroundColor: colors.stroke }]} />
-                                <TouchableOpacity style={anifeedStyles.liveStatItem} onPress={() => openEditModal('Brand')}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <View style={anifeedStyles.liveStatDivider} />
+                                <TouchableOpacity style={anifeedStyles.liveStatItem} onPress={() => setFeedDetailsModalVisible(true)} activeOpacity={0.7}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
                                         <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Feed</Text>
-                                        <MaterialIcons name="edit" size={12} color={colors.primary} style={{ marginLeft: 4 }} />
+                                        <MaterialIcons name="info-outline" size={13} color={colors.primary} style={{ marginLeft: 4 }} />
                                     </View>
-                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 13, marginTop: 4, textAlign: 'center' }]}>{brand}</Text>
+                                    <Text
+                                        style={[
+                                            textStyles.h2,
+                                            {
+                                                color: colors.text,
+                                                fontSize: 13,
+                                                textAlign: 'center',
+                                                flexWrap: 'wrap',
+                                                width: '100%',
+                                            }
+                                        ]}
+                                        numberOfLines={2}
+                                        ellipsizeMode="tail"
+                                    >
+                                        {brand}
+                                    </Text>
                                     {schedule?.feedStockKg !== undefined && schedule?.feedStockKg !== null && (
-                                        <Text style={[textStyles.body, { color: schedule.feedStockKg < 10 ? colors.error : colors.textGrey, fontSize: 11, marginTop: 2, textAlign: 'center', fontWeight: schedule.feedStockKg < 10 ? '700' : 'normal' }]}>
+                                        <Text style={[textStyles.body, { color: schedule.feedStockKg < 10 ? colors.error : colors.textGrey, fontSize: 11, marginTop: 3, textAlign: 'center', fontWeight: schedule.feedStockKg < 10 ? '700' : 'normal' }]}>
                                             {schedule.feedStockKg} kg left
                                         </Text>
                                     )}
@@ -1002,7 +1021,10 @@ export default function AniFeedScreen() {
                     {/* AI Feed Recommendations */}
                     <AIInsightCard
                         title="AI Feed Recommendations"
-                        forceFresh={true}
+                        variant="orange"
+                        category="feed_device"
+                        farmId={farmId}
+                        subKey={deviceId || ''}
                         context={{
                             type: 'feed',
                             animalType: deviceInfo?.animalType ?? 'livestock',
@@ -1606,6 +1628,80 @@ export default function AniFeedScreen() {
                     enableSearch={editTarget !== 'AnimalType'}
                 />
             )}
+
+            {/* Feed Details Modal */}
+            <Modal visible={feedDetailsModalVisible} transparent animationType="fade">
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, borderRadius: 24, padding: 24, borderWidth: 1, borderColor: colors.stroke }}>
+                        <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                            <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                                <MaterialIcons name="inventory-2" size={26} color={colors.primary} />
+                            </View>
+                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, textAlign: 'center' }]}>
+                                Feed Details
+                            </Text>
+                        </View>
+
+                        <View style={{ backgroundColor: colors.cardFill, borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: colors.stroke, gap: 12 }}>
+                            <View>
+                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginBottom: 2 }]}>FULL FEED NAME</Text>
+                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>
+                                    {brand || 'No feed selected'}
+                                </Text>
+                            </View>
+
+                            <View style={{ height: 1, backgroundColor: colors.stroke }} />
+
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginBottom: 2 }]}>ANIMAL TYPE</Text>
+                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}>
+                                        {animalType}
+                                    </Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginBottom: 2 }]}>CURRENT STOCK</Text>
+                                    <Text style={[textStyles.body, { color: (schedule?.feedStockKg ?? 0) < 10 ? colors.error : colors.text, fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}>
+                                        {schedule?.feedStockKg !== null && schedule?.feedStockKg !== undefined ? `${schedule.feedStockKg} kg` : '—'}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {schedule?.feedExpiryDate && (
+                                <>
+                                    <View style={{ height: 1, backgroundColor: colors.stroke }} />
+                                    <View>
+                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginBottom: 2 }]}>EXPIRY DATE</Text>
+                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 13 }]}>
+                                            {schedule.feedExpiryDate}
+                                        </Text>
+                                    </View>
+                                </>
+                            )}
+                        </View>
+
+                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                            <TouchableOpacity
+                                style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 13, borderRadius: 30, alignItems: 'center' }}
+                                onPress={() => setFeedDetailsModalVisible(false)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Close</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={{ flex: 1, backgroundColor: colors.primary, paddingVertical: 13, borderRadius: 30, alignItems: 'center' }}
+                                onPress={() => {
+                                    setFeedDetailsModalVisible(false);
+                                    openEditModal('Brand');
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Change Feed</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             <Snackbar
                 visible={snackbarVisible}

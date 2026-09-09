@@ -70,6 +70,18 @@ export const Header: React.FC = () => {
 
     useEffect(() => {
         fetchHeaderData();
+
+        const channelName = `header-notif-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+        const channel = supabase
+            .channel(channelName)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+                fetchHeaderData();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, [fetchHeaderData]);
 
     return (

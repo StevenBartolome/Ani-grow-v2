@@ -24,7 +24,6 @@ import { supabase } from '@/lib/supabase';
 if (Platform.OS !== 'web') {
     Notifications.setNotificationHandler({
         handleNotification: async () => ({
-            shouldShowAlert: true,
             shouldShowBanner: true,
             shouldShowList: true,
             shouldPlaySound: true,
@@ -59,11 +58,9 @@ export function categoryPriority(category: string | null | undefined): number {
     return NOTIFICATION_CATEGORY_PRIORITY[category] ?? 0;
 }
 
-/** Sorts by category severity first, then most-recent-first within the same category. */
-export function sortByPriority<T extends { category?: string | null; created_at: string }>(items: T[]): T[] {
+/** Sorts notifications chronologically: newest-first (most recent first). */
+export function sortByPriority<T extends { created_at: string }>(items: T[]): T[] {
     return [...items].sort((a, b) => {
-        const pDiff = categoryPriority(b.category) - categoryPriority(a.category);
-        if (pDiff !== 0) return pDiff;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
 }

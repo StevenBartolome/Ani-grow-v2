@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 
 export const useVaccineStyles = () => {
@@ -47,12 +47,16 @@ export const useVaccineStyles = () => {
         },
         card: {
             backgroundColor: colors.surface,
-            borderRadius: 16,
+            borderRadius: 18,
             padding: 16,
             marginHorizontal: 20,
-            marginBottom: 10,
+            marginBottom: 12,
             borderWidth: 1,
             borderColor: colors.stroke,
+            ...Platform.select({
+                web: { boxShadow: '0px 2px 8px rgba(0,0,0,0.04)' },
+                default: { elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6 }
+            })
         },
         cardRow: {
             flexDirection: 'row',
@@ -60,9 +64,9 @@ export const useVaccineStyles = () => {
             gap: 12,
         },
         iconBox: {
-            width: 40,
-            height: 40,
-            borderRadius: 12,
+            width: 44,
+            height: 44,
+            borderRadius: 14,
             alignItems: 'center',
             justifyContent: 'center',
         },
@@ -125,13 +129,13 @@ export const useVaccineStyles = () => {
             bottom: 24,
             width: 56,
             height: 56,
-            borderRadius: 18,
+            borderRadius: 28,
             alignItems: 'center',
             justifyContent: 'center',
             elevation: 6,
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.18,
+            shadowOpacity: 0.22,
             shadowRadius: 8,
         },
         selectRow: {

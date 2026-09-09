@@ -10,7 +10,7 @@ import { BackButton } from '@/components/BackButton';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
-import { AnimalIcon } from '@/components/AnimalIcon';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
 import { ReportDocument } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -590,8 +590,6 @@ export default function FeedReportScreen() {
                                 activeOpacity={0.8}
                                 style={{
                                     flex: 1,
-                                    flexDirection: 'row',
-                                    gap: 8,
                                     paddingVertical: 10,
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -599,7 +597,6 @@ export default function FeedReportScreen() {
                                     backgroundColor: isSelected ? colors.primary : 'transparent',
                                 }}
                             >
-                                <AnimalIcon type={type} size={18} color={isSelected ? colors.onPrimary : colors.textGrey} />
                                 <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.textGrey, fontSize: 14, fontWeight: '700' }]}>
                                     {type === 'pig' ? 'Pigs' : 'Chickens'}
                                 </Text>
@@ -669,7 +666,7 @@ export default function FeedReportScreen() {
                     /* Empty Feed Logs State */
                     <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
                         <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-                            <MaterialIcons name="grain" size={32} color={colors.textGrey} />
+                            <AniFeedIcon size={32} />
                         </View>
                         <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center' }]}>No Feed Logs</Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
@@ -1058,8 +1055,11 @@ export default function FeedReportScreen() {
                         {/* AI Insight Card */}
                         <AIInsightCard
                             title="AniBot Feeding Advice"
+                            category="feed_report"
+                            farmId={farmId}
+                            subKey={selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType}
                             staticContent={getBotAnalysis()}
-                            variant="green"
+                            variant="orange"
                         />
                     </>
                 )}

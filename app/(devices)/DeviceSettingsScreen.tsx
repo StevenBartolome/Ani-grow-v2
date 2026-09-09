@@ -40,6 +40,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ActionModal, { ActionModalType } from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
+import { DeviceIcon } from '@/components/DeviceIcon';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
@@ -446,9 +447,9 @@ export default function DeviceSettingsScreen() {
                                 borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4,
                                 flexDirection: 'row', alignItems: 'center', gap: 5,
                             }}>
-                                <MaterialIcons
-                                    name={device?.type === 'anifeed' ? 'grain' : 'monitor-weight'}
-                                    size={14} color={typeColor}
+                                <DeviceIcon
+                                    type={device?.type ?? (isFeedType ? 'AniFeed' : 'AniWeigh')}
+                                    size={14}
                                 />
                                 <Text style={[textStyles.label, { color: typeColor, fontSize: 12 }]}>
                                     {typeLabel}

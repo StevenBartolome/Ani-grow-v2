@@ -2437,6 +2437,9 @@ export default function GrowthReportScreen() {
 
                         <AIInsightCard
                             title="AniBot Insight"
+                            category="growth_report"
+                            farmId={farmId}
+                            subKey={selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType}
                             staticContent={getGrowthAnalysis()}
                             variant="green"
                         />

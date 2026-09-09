@@ -6,14 +6,21 @@ import { Text } from '@/components/Text';
 
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
+import { useFarmFilter } from '@/context/FarmFilterContext';
 import { getInsight, AIInsightContext } from '@/lib/ai';
+import { getSavedFarmInsight, saveFarmInsight } from '@/lib/farmAiInsightService';
 
 interface AIInsightCardProps {
   context?: AIInsightContext;
   title?: string;
   staticContent?: string;
-  variant?: 'green' | 'purple' | 'orange';
+  variant?: 'green' | 'purple' | 'orange' | 'blue';
   forceFresh?: boolean;
+  category?: 'health_report' | 'growth_report' | 'feed_report' | 'prediction_report' | 'weigh_device' | 'feed_device' | 'health_records' | 'session_report' | string;
+  farmId?: string;
+  subKey?: string;
+  onRefresh?: () => void;
 }
 
 function splitIntoSentences(text: string): string[] {
@@ -199,26 +206,67 @@ export function AIInsightCard({
   staticContent,
   variant = 'green',
   forceFresh = false,
+  category,
+  farmId,
+  subKey,
+  onRefresh,
 }: AIInsightCardProps) {
   const { colors } = useTheme();
   const textStyles = useTextStyles();
+  const { activeFarmIds } = useFarmFilter();
+  const { profile } = useAuth();
 
-  const [insight, setInsight]   = useState<string | null>(staticContent || null);
-  const [loading, setLoading]   = useState(!staticContent && !!context);
+  const effectiveFarmId = farmId || (activeFarmIds && activeFarmIds.length > 0 ? activeFarmIds[0] : ((profile as any)?.farm_id ?? ''));
+  const effectiveCategory = category || (context?.type ? `${context.type}_insight` : 'general');
+  const effectiveSubKey = subKey || '';
+
+  const [insight, setInsight]   = useState<string | null>(null);
+  const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Incremented on every new fetch so stale in-flight responses are ignored.
   const fetchIdRef = useRef(0);
 
-  const doFetch = useCallback(async (ctx: AIInsightContext, bypassCache: boolean) => {
+  const doFetch = useCallback(async (bypassCache: boolean) => {
     const fetchId = ++fetchIdRef.current;
     setLoading(true);
     setError(null);
     try {
-      const result = await getInsight(ctx, bypassCache);
+      // 1. If not bypassing cache, check if today's insight is already saved in Supabase
+      if (!bypassCache && effectiveFarmId && effectiveCategory) {
+        const saved = await getSavedFarmInsight(effectiveFarmId, effectiveCategory, effectiveSubKey);
+        if (saved && saved.content) {
+          if (fetchIdRef.current === fetchId) {
+            setInsight(saved.content);
+            setLoading(false);
+          }
+          return;
+        }
+      }
+
+      // 2. Generate / retrieve fresh insight
+      let result = '';
+      if (staticContent) {
+        result = staticContent;
+      } else if (context) {
+        result = await getInsight(context, bypassCache);
+      }
+
       if (fetchIdRef.current === fetchId) {
         setInsight(result);
+      }
+
+      // 3. Save / Upsert to Supabase for today's date
+      if (result && effectiveFarmId && effectiveCategory) {
+        const parsed = parseInsight(result);
+        await saveFarmInsight(effectiveFarmId, effectiveCategory, result, {
+          subKey: effectiveSubKey,
+          title,
+          headline: parsed.headline,
+          items: parsed.items,
+          contextData: context?.data,
+        });
       }
     } catch (e: any) {
       if (fetchIdRef.current === fetchId) {
@@ -229,39 +277,26 @@ export function AIInsightCard({
         setLoading(false);
       }
     }
-  }, []);
+  }, [effectiveFarmId, effectiveCategory, effectiveSubKey, staticContent, JSON.stringify(context), title]);
 
-  // Manual refresh — always for the current context.
-  const fetch = useCallback((bypassCache = false) => {
-    if (!context || staticContent) return;
-    doFetch(context, bypassCache);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(context), staticContent, doFetch]);
-
-  // Auto-fetch whenever context changes; reset visible state immediately so
-  // stale insight never shows while the new one is loading.
+  // Auto-fetch whenever context, staticContent, or farmId changes
   useEffect(() => {
-    if (staticContent) {
-      setInsight(staticContent);
-      setLoading(false);
-      return;
-    }
-    if (!context) return;
-
     setInsight(null);
     setLoading(true);
     setIsExpanded(false);
 
-    doFetch(context, forceFresh);
+    doFetch(forceFresh);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(context), staticContent, forceFresh]);
+  }, [effectiveFarmId, effectiveCategory, effectiveSubKey, staticContent, JSON.stringify(context), forceFresh]);
 
   // Gradient by variant
   const gradientColors =
-    variant === 'purple'
+    variant === 'blue'
+      ? (['#1D4ED8', '#3B82F6'] as [string, string])
+      : variant === 'purple'
       ? ([colors.prediction || '#8E24AA', '#BA68C8'] as [string, string])
       : variant === 'orange'
-      ? ([colors.warning || '#F39C12', '#F39C12'] as [string, string])
+      ? (['#D97706', '#F59E0B'] as [string, string])
       : ([colors.primary, '#43A047'] as [string, string]);
 
   const { headline, items } = insight ? parseInsight(insight) : { headline: '', items: [] };
@@ -337,17 +372,18 @@ export function AIInsightCard({
           </View>
         </View>
 
-        {/* Refresh */}
-        {!staticContent && (
-          <TouchableOpacity
-            onPress={() => fetch(true)}
-            disabled={loading}
-            activeOpacity={0.7}
-            style={{ padding: 4, opacity: loading ? 0.4 : 1, marginLeft: 8 }}
-          >
-            <MaterialIcons name="refresh" size={18} color="#FFF" />
-          </TouchableOpacity>
-        )}
+        {/* Refresh button */}
+        <TouchableOpacity
+          onPress={() => {
+            if (onRefresh) onRefresh();
+            doFetch(true);
+          }}
+          disabled={loading}
+          activeOpacity={0.7}
+          style={{ padding: 4, opacity: loading ? 0.4 : 1, marginLeft: 8 }}
+        >
+          <MaterialIcons name="refresh" size={18} color="#FFF" />
+        </TouchableOpacity>
       </View>
 
       {/* ── Body ───────────────────────────────────────────────────────────── */}
