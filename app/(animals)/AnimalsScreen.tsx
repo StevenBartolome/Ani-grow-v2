@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ActivityIndicator, ScrollView, TouchableOpacity, View, RefreshControl } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -33,6 +33,7 @@ const ANIMAL_IMAGES: Record<string, any> = {
 };
 
 export default function AnimalsScreen() {
+    const insets = useSafeAreaInsets();
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useAnimalStyles();
@@ -89,7 +90,7 @@ export default function AnimalsScreen() {
     const fetchHousings = useCallback(async (isRefresh = false) => {
         if (!farmId) { setIsLoading(false); return; }
         if (isRefresh) setRefreshing(true);
-        else setIsLoading(true);
+        else if (housings.length === 0) setIsLoading(true);
         try {
             // Fetch housings + their active batch (if any) in one query
             const { data, error } = await supabase
@@ -138,7 +139,7 @@ export default function AnimalsScreen() {
             if (isRefresh) setRefreshing(false);
             else setIsLoading(false);
         }
-    }, [farmId]);
+    }, [farmId, housings.length]);
 
     useFocusEffect(
         useCallback(() => {
@@ -186,7 +187,7 @@ export default function AnimalsScreen() {
     const chickenColor = (colors as any).chicken ?? '#F1C40F';
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top }]}>
             <View style={styles.container}>
                 {/* Header */}
                 <Header />
@@ -245,7 +246,7 @@ export default function AnimalsScreen() {
                     </View>
 
                     <View style={styles.gridContainer}>
-                        {isLoading ? (
+                        {isLoading && housings.length === 0 ? (
                             <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 32, width: '100%' }} />
                         ) : housings.length === 0 ? (
                             <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', paddingVertical: 48, paddingHorizontal: 24, marginTop: 24 }}>
@@ -338,7 +339,7 @@ export default function AnimalsScreen() {
             </View>
 
             <FloatingNavBar />
-        </SafeAreaView>
+        </View>
     );
 }
 

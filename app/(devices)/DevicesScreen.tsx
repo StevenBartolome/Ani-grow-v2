@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState, useCallback } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -126,6 +126,7 @@ const DeviceCard = ({ device, onPress, onConnectPress }: { device: RegisteredDev
 };
 
 export default function DevicesScreen() {
+    const insets = useSafeAreaInsets();
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useDevicesStyles();
@@ -199,7 +200,7 @@ export default function DevicesScreen() {
     const fetchDevices = useCallback(async (isRefresh = false) => {
         if (!farmId) { setLoading(false); return; }
         if (isRefresh) setRefreshing(true);
-        else setLoading(true);
+        else if (devices.length === 0) setLoading(true);
         try {
             const { data, error } = await supabase
                 .from('devices')
@@ -225,7 +226,7 @@ export default function DevicesScreen() {
             if (isRefresh) setRefreshing(false);
             else setLoading(false);
         }
-    }, [farmId]);
+    }, [farmId, devices.length]);
 
     useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
@@ -241,7 +242,7 @@ export default function DevicesScreen() {
         : liveDevices.filter(d => d.type === activeFilter);
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top }]}>
             <View style={styles.container}>
                 {/* Top Nav / Logo Row */}
                 <Header />
@@ -277,7 +278,7 @@ export default function DevicesScreen() {
                     showsVerticalScrollIndicator={false}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchDevices(true)} colors={[colors.primary]} tintColor={colors.primary} />}
                 >
-                    {loading ? (
+                    {loading && devices.length === 0 ? (
                         <View style={{ alignItems: 'center', paddingVertical: 60 }}>
                             <ActivityIndicator size="large" color={colors.primary} />
                             <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading devices...</Text>
@@ -357,7 +358,7 @@ export default function DevicesScreen() {
                 onConfirm={handleDisconnectConfirm}
                 onCancel={() => { setDisconnectModalVisible(false); setDisconnectTarget(null); }}
             />
-        </SafeAreaView>
+        </View>
     );
 }
 

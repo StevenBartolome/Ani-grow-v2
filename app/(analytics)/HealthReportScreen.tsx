@@ -265,6 +265,31 @@ export default function HealthReportScreen() {
         }
     }, [selectedBatchId, fetchHealthRecords]);
 
+    // ─── Realtime: Live update health data when new health logs land ───
+    useEffect(() => {
+        if (!selectedBatchId) return;
+
+        const channel = supabase
+            .channel(`realtime-health-report-${selectedBatchId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'health_records',
+                    filter: `batch_id=eq.${selectedBatchId}`,
+                },
+                () => {
+                    fetchHealthRecords(selectedBatchId);
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [selectedBatchId, fetchHealthRecords]);
+
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
         await fetchReportMetadata();
@@ -1482,8 +1507,27 @@ export default function HealthReportScreen() {
                             title="AniBot Health Analysis"
                             category="health_report"
                             farmId={farmId}
-                            subKey={selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType}
+                            subKey={selectedBatchId ? `${selectedBatchId}_${animalType}` : (selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType)}
                             staticContent={getHealthAnalysis()}
+                            context={{
+                                type: 'health',
+                                animalType,
+                                housingName: selectedHousing?.name,
+                                data: {
+                                    batchId: selectedBatchId,
+                                    housingId: selectedHousingId,
+                                    batchName: selectedBatch?.name,
+                                    totalDeceased,
+                                    mortalityRate,
+                                    activeIllnesses,
+                                    vaccinationCount,
+                                    treatmentCount,
+                                    illnessCount,
+                                    routineCareCount,
+                                    totalEvents: healthRecords.length,
+                                    latestEventTimestamp: healthRecords[0]?.record_date || (healthRecords[0] as any)?.created_at,
+                                }
+                            }}
                             variant="blue"
                         />
                     </>

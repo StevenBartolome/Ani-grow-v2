@@ -1,10 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
@@ -14,6 +13,7 @@ import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { Header } from '@/components/Header';
 
 export default function AnalyticsScreen() {
+    const insets = useSafeAreaInsets();
     const { profile, refreshProfile } = useAuth();
     const { colors } = useTheme();
     const textStyles = useTextStyles();
@@ -68,7 +68,7 @@ export default function AnalyticsScreen() {
     ];
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top }]}>
             <View style={styles.container}>
                 <Header />
 
@@ -123,6 +123,6 @@ export default function AnalyticsScreen() {
                 </ScrollView>
             </View>
             <FloatingNavBar />
-        </SafeAreaView>
+        </View>
     );
 }

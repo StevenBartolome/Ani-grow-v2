@@ -78,7 +78,6 @@ export const FloatingNavBar = () => {
                                 source={isActive ? item.iconFilled : item.iconStroke}
                                 style={{ width: item.size, height: item.size }}
                                 contentFit="contain"
-                                transition={200}
                             />
                         </TouchableOpacity>
                     );

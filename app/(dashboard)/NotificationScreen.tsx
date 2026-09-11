@@ -11,6 +11,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { useNotificationStyles } from '@/styles/notificationStyles';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { supabase } from '@/lib/supabase';
 import { sortByPriority } from '@/lib/notify';
 
@@ -33,21 +35,87 @@ const CATEGORY_LABEL: Record<string, string> = {
     health_alert: 'Health',
 };
 
-function formatTime(ts: string): string {
-    const diff = Date.now() - new Date(ts).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'Just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    if (hours < 48) return 'Yesterday';
-    return new Date(ts).toLocaleDateString();
+function formatNotificationDate(ts: string): string {
+    if (!ts) return '';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    const months = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'June', 'July', 'Aug.', 'Sept.', 'Oct.', 'Nov.', 'Dec.'];
+    const month = months[d.getMonth()];
+    const day = d.getDate();
+    const year = d.getFullYear();
+    return `${month} ${day}, ${year}`;
 }
 
 function mapType(type: string): AppNotification['type'] {
     if (type === 'error') return 'alert';
     if (type === 'warning' || type === 'success' || type === 'info') return type;
     return 'info';
+}
+
+function resolveNotificationRoute(
+    actionUrl: string | null | undefined,
+    category: string | null | undefined,
+    title: string,
+    message: string
+): string | null {
+    let url = (actionUrl || '').trim();
+
+    if (url) {
+        // Normalize legacy paths that omit route group parentheses
+        if (url.startsWith('/AnimalDetails')) url = url.replace('/AnimalDetails', '/(animals)/AnimalDetails');
+        if (url.startsWith('/AnimalsScreen')) url = url.replace('/AnimalsScreen', '/(animals)/AnimalsScreen');
+        if (url.startsWith('/HealthRecordsScreen')) url = url.replace('/HealthRecordsScreen', '/(animals)/HealthRecordsScreen');
+        if (url.startsWith('/MortalityRecordsScreen')) url = url.replace('/MortalityRecordsScreen', '/(animals)/MortalityRecordsScreen');
+        if (url.startsWith('/DevicesScreen')) url = url.replace('/DevicesScreen', '/(devices)/DevicesScreen');
+        if (url.startsWith('/DeviceSettingsScreen')) url = url.replace('/DeviceSettingsScreen', '/(devices)/DeviceSettingsScreen');
+        if (url.startsWith('/AniWeighScreen')) url = url.replace('/AniWeighScreen', '/(devices)/AniWeighScreen');
+        if (url.startsWith('/AniFeedScreen')) url = url.replace('/AniFeedScreen', '/(devices)/AniFeedScreen');
+        if (url.startsWith('/RecentLogsScreen')) url = url.replace('/RecentLogsScreen', '/(devices)/RecentLogsScreen');
+        if (url.startsWith('/DispenseRecordsScreen')) url = url.replace('/DispenseRecordsScreen', '/(devices)/DispenseRecordsScreen');
+        if (url.startsWith('/ManageFeedsScreen')) url = url.replace('/ManageFeedsScreen', '/(devices)/ManageFeedsScreen');
+        if (url.startsWith('/ManageHousingsScreen')) url = url.replace('/ManageHousingsScreen', '/(devices)/ManageHousingsScreen');
+        if (url.startsWith('/VaccineScreen')) url = url.replace('/VaccineScreen', '/(health)/VaccineScreen');
+        if (url.startsWith('/(vaccine)/VaccineScreen')) url = url.replace('/(vaccine)/VaccineScreen', '/(health)/VaccineScreen');
+        if (url.startsWith('/AnalyticsScreen')) url = url.replace('/AnalyticsScreen', '/(analytics)/AnalyticsScreen');
+        if (url.startsWith('/GrowthReportScreen')) url = url.replace('/GrowthReportScreen', '/(analytics)/GrowthReportScreen');
+        if (url.startsWith('/FeedReportScreen')) url = url.replace('/FeedReportScreen', '/(analytics)/FeedReportScreen');
+        if (url.startsWith('/HealthReportScreen')) url = url.replace('/HealthReportScreen', '/(analytics)/HealthReportScreen');
+        if (url.startsWith('/PredictionReportScreen')) url = url.replace('/PredictionReportScreen', '/(analytics)/PredictionReportScreen');
+        if (url.startsWith('/HomeScreen')) url = url.replace('/HomeScreen', '/(dashboard)/HomeScreen');
+        if (url.startsWith('/NotificationScreen')) url = url.replace('/NotificationScreen', '/(dashboard)/NotificationScreen');
+        if (url.startsWith('/GuideScreen')) url = url.replace('/GuideScreen', '/(guide)/GuideScreen');
+        if (url.startsWith('/FarmsScreen')) url = url.replace('/FarmsScreen', '/(settings)/FarmsScreen');
+        if (url.startsWith('/InviteCodesScreen')) url = url.replace('/InviteCodesScreen', '/(settings)/InviteCodesScreen');
+        return url;
+    }
+
+    // Smart fallback routing when no actionUrl is set
+    const text = `${title} ${message}`.toLowerCase();
+    if (category === 'weight_alert' || text.includes('weigh') || text.includes('weight')) {
+        return '/(devices)/RecentLogsScreen';
+    }
+    if (category === 'feed_alert' || text.includes('feed') || text.includes('dispense')) {
+        if (text.includes('dispense')) return '/(devices)/DispenseRecordsScreen';
+        return '/(devices)/ManageFeedsScreen';
+    }
+    if (category === 'health_alert' || text.includes('vaccin') || text.includes('mortality') || text.includes('health') || text.includes('deceased')) {
+        if (text.includes('vaccin')) return '/(health)/VaccineScreen';
+        return '/(animals)/HealthRecordsScreen';
+    }
+    if (category === 'device_alert' || text.includes('device') || text.includes('offline') || text.includes('online')) {
+        return '/(devices)/DevicesScreen';
+    }
+    if (category === 'farm_registered' || text.includes('farm')) {
+        return '/(settings)/FarmsScreen';
+    }
+    if (category === 'invite' || text.includes('invite') || text.includes('code')) {
+        return '/(settings)/InviteCodesScreen';
+    }
+    if (category === 'ai_suggestion' || text.includes('insight') || text.includes('ai')) {
+        return '/(ai)/AIAssistantScreen';
+    }
+
+    return null;
 }
 
 export default function NotificationScreen() {
@@ -99,7 +167,7 @@ export default function NotificationScreen() {
                     id: n.id,
                     title: n.title,
                     message: n.message,
-                    time: formatTime(n.created_at),
+                    time: formatNotificationDate(n.created_at),
                     type: mapType(n.type),
                     category: n.category,
                     actionUrl: n.action_url,
@@ -158,64 +226,127 @@ export default function NotificationScreen() {
     };
 
     const getIconDetails = (item: AppNotification) => {
-        if (item.category === 'health_alert') {
-            const isVaccine = /vaccin/i.test(item.title) || /vaccin/i.test(item.message);
-            const iconName = isVaccine ? 'vaccines' : 'medical-services';
-            const color = item.type === 'alert' ? colors.error : item.type === 'warning' ? colors.warning : '#27AE60';
-            return { name: iconName, color, bgColor: color + '1A' };
+        const text = `${item.title} ${item.message}`.toLowerCase();
+
+        // 1. Weight alerts (use exact same colors & icons like in the logs: overweight=error, underweight=warning, normal=primary)
+        if (item.category === 'weight_alert' || text.includes('weight') || text.includes('weigh')) {
+            if (text.includes('reminder') || text.includes('scheduled')) {
+                return { customComponent: 'aniweigh', color: colors.primary, bgColor: colors.primary + '18' };
+            }
+            if (text.includes('underweight') || text.includes('low weight')) {
+                return { name: 'arrow-downward', color: colors.warning, bgColor: colors.warning + '18' };
+            }
+            if (text.includes('overweight') || text.includes('high weight')) {
+                return { name: 'arrow-upward', color: colors.error, bgColor: colors.error + '18' };
+            }
+            if (text.includes('normal') || text.includes('good')) {
+                return { name: 'check', color: colors.primary, bgColor: colors.primary + '18' };
+            }
+            return { customComponent: 'aniweigh', color: colors.primary, bgColor: colors.primary + '18' };
         }
+
+        // 2. Health & Vaccines
+        if (item.category === 'health_alert' || text.includes('health') || text.includes('vaccin') || text.includes('mortality') || text.includes('deceased')) {
+            if (text.includes('vaccin')) {
+                return { name: 'vaccines', color: '#27AE60', bgColor: '#27AE6018' };
+            }
+            if (text.includes('mortality') || text.includes('deceased')) {
+                return { name: 'warning', color: colors.error, bgColor: colors.error + '18' };
+            }
+            return { name: 'medical-services', color: '#27AE60', bgColor: '#27AE6018' };
+        }
+
+        // 3. Feeds & Dispense (use AniFeed icon for feeding reminders and feeds)
+        if (item.category === 'feed_alert' || text.includes('feed') || text.includes('dispense')) {
+            if (text.includes('expired') || text.includes('failed') || text.includes('error')) {
+                return { name: 'error-outline', color: colors.error, bgColor: colors.error + '18' };
+            }
+            if (text.includes('low') || text.includes('expiring')) {
+                return { customComponent: 'anifeed', color: colors.warning, bgColor: colors.warning + '18' };
+            }
+            return { customComponent: 'anifeed', color: colors.secondary, bgColor: colors.secondary + '18' };
+        }
+
+        // 4. Devices
+        if (item.category === 'device_alert' || text.includes('device') || text.includes('online') || text.includes('offline')) {
+            if (item.type === 'alert' || text.includes('offline')) {
+                return { name: 'phonelink-erase', color: colors.error, bgColor: colors.error + '18' };
+            }
+            if (item.type === 'success' || text.includes('online')) {
+                return { name: 'devices', color: '#10B981', bgColor: '#10B98118' };
+            }
+            return { name: 'devices', color: colors.primary, bgColor: colors.primary + '18' };
+        }
+
         switch (item.type) {
-            case 'alert':   return { name: 'error',          color: colors.error,   bgColor: colors.error   + '1A' };
-            case 'warning': return { name: 'warning-amber',  color: colors.warning, bgColor: colors.warning + '1A' };
-            case 'success': return { name: 'check-circle',   color: colors.success, bgColor: colors.success + '1A' };
-            default:        return { name: 'info',           color: colors.info,    bgColor: colors.info    + '1A' };
+            case 'alert':   return { name: 'error',         color: colors.error,   bgColor: colors.error   + '18' };
+            case 'warning': return { name: 'warning-amber', color: colors.warning, bgColor: colors.warning + '18' };
+            case 'success': return { name: 'check-circle',  color: '#10B981',      bgColor: '#10B98118' };
+            default:        return { name: 'info',          color: colors.primary, bgColor: colors.primary + '18' };
         }
     };
 
     const unreadCount = notifications.filter(n => !n.isRead).length;
 
-    const renderItem = ({ item }: { item: AppNotification }) => {
-        const { name, color, bgColor } = getIconDetails(item);
+    const handlePressItem = (item: AppNotification) => {
+        markAsRead(item.id);
+        const route = resolveNotificationRoute(item.actionUrl, item.category, item.title, item.message);
+        if (route) {
+            try {
+                router.push(route as any);
+            } catch (err) {
+                console.warn('[NotificationScreen] Routing failed:', err);
+            }
+        }
+    };
+
+    const renderItem = ({ item, index }: { item: AppNotification; index: number }) => {
+        const iconInfo = getIconDetails(item);
+        const isFirst = index === 0;
+        const isLast = index === notifications.length - 1;
+
         return (
             <TouchableOpacity
                 style={[
-                    notificationStyles.notificationCard,
+                    notificationStyles.notificationItem,
                     {
-                        backgroundColor: item.isRead ? colors.surface : colors.primary + '0A',
-                        borderColor: item.isRead ? colors.stroke : colors.primary + '30',
-                    }
+                        backgroundColor: item.isRead ? colors.surface : colors.primary + '08',
+                        borderTopLeftRadius: isFirst ? 16 : 0,
+                        borderTopRightRadius: isFirst ? 16 : 0,
+                        borderBottomLeftRadius: isLast ? 16 : 0,
+                        borderBottomRightRadius: isLast ? 16 : 0,
+                        borderTopWidth: isFirst ? 1 : 0,
+                        borderBottomWidth: isLast ? 1 : 0,
+                        borderLeftWidth: 1,
+                        borderRightWidth: 1,
+                        borderColor: colors.stroke,
+                    },
                 ]}
                 activeOpacity={0.7}
-                onPress={() => {
-                    markAsRead(item.id);
-                    if (item.actionUrl) {
-                        router.push(item.actionUrl as any);
-                    }
-                }}
+                onPress={() => handlePressItem(item)}
             >
-                <View style={[notificationStyles.iconBox, { backgroundColor: bgColor }]}>
-                    <MaterialIcons name={name as any} size={24} color={color} />
+                <View style={[notificationStyles.iconBox, { backgroundColor: iconInfo.bgColor }]}>
+                    {iconInfo.customComponent === 'aniweigh' ? (
+                        <AniWeighIcon size={19} />
+                    ) : iconInfo.customComponent === 'anifeed' ? (
+                        <AniFeedIcon size={19} />
+                    ) : (
+                        <MaterialIcons name={iconInfo.name as any} size={20} color={iconInfo.color} />
+                    )}
                 </View>
                 <View style={notificationStyles.contentContainer}>
                     <View style={notificationStyles.titleRow}>
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 16, flex: 1, marginRight: 8 }]} numberOfLines={1}>
+                        <Text style={[textStyles.body, { color: colors.text, fontSize: 13.5, fontFamily: item.isRead ? 'Poppins-Medium' : 'Poppins-SemiBold', flex: 1, marginRight: 8 }]} numberOfLines={1}>
                             {item.title}
                         </Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12 }]}>{item.time}</Text>
+                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Regular' }]}>{item.time}</Text>
                             {!item.isRead && (
-                                <View style={[notificationStyles.unreadDot, { backgroundColor: colors.primary }]} />
+                                <View style={notificationStyles.unreadDot} />
                             )}
                         </View>
                     </View>
-                    {item.category && CATEGORY_LABEL[item.category] && (
-                        <View style={{ alignSelf: 'flex-start', backgroundColor: color + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, marginBottom: 4 }}>
-                            <Text style={[textStyles.label, { color, fontSize: 9, letterSpacing: 0.5 }]}>
-                                {CATEGORY_LABEL[item.category].toUpperCase()}
-                            </Text>
-                        </View>
-                    )}
-                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 14, lineHeight: 20 }]} numberOfLines={2}>
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12.5, lineHeight: 18, marginTop: 1, fontFamily: 'Poppins-Regular' }]} numberOfLines={2}>
                         {item.message}
                     </Text>
                 </View>
@@ -249,6 +380,11 @@ export default function NotificationScreen() {
                         data={notifications}
                         keyExtractor={item => item.id}
                         renderItem={renderItem}
+                        ItemSeparatorComponent={() => (
+                            <View style={{ backgroundColor: colors.surface, borderLeftWidth: 1, borderRightWidth: 1, borderColor: colors.stroke }}>
+                                <View style={notificationStyles.divider} />
+                            </View>
+                        )}
                         contentContainerStyle={notificationStyles.listContent}
                         showsVerticalScrollIndicator={false}
                         refreshControl={

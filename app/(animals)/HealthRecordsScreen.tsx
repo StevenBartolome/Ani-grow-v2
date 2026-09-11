@@ -6,13 +6,14 @@ import {
     TextInput, TouchableOpacity, View, Animated, PanResponder, Easing, StyleSheet,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { Header } from '@/components/Header';
 
 import { BackButton } from '@/components/BackButton';
 import { AIInsightCard } from '@/components/AIInsightCard';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import ActionModal from '@/components/ActionModal';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
@@ -1009,6 +1010,7 @@ const affectedLabel = (type: RecordType) => {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function HealthRecordsScreen() {
+    const insets = useSafeAreaInsets();
     const { housingId, batchId: paramBatchId } = useLocalSearchParams<{ housingId: string; batchId: string }>();
     const router = useRouter();
     const { colors } = useTheme();
@@ -1136,6 +1138,44 @@ export default function HealthRecordsScreen() {
     const [dewormingPickerVisible, setDewormingPickerVisible] = useState(false);
     const [medicationPickerVisible, setMedicationPickerVisible] = useState(false);
 
+    // ── Form Draft Checkpointing ──────────────────────────────────
+    const {
+        clearDraft,
+    } = useFormDraft(
+        `health_record_${housingId || 'default'}`,
+        {
+            addBatchId,
+            addType,
+            addTitle,
+            customTitle,
+            addMed,
+            customMed,
+            addDosage,
+            addAffected,
+            addNotes,
+            addSeverity,
+            addDate,
+            addFollowup,
+        },
+        {
+            enabled: addVisible,
+            onRestore: (draft) => {
+                if (draft.addBatchId) setAddBatchId(draft.addBatchId);
+                if (draft.addType) setAddType(draft.addType);
+                if (draft.addTitle) setAddTitle(draft.addTitle);
+                if (draft.customTitle) setCustomTitle(draft.customTitle);
+                if (draft.addMed) setAddMed(draft.addMed);
+                if (draft.customMed) setCustomMed(draft.customMed);
+                if (draft.addDosage) setAddDosage(draft.addDosage);
+                if (draft.addAffected) setAddAffected(draft.addAffected);
+                if (draft.addNotes) setAddNotes(draft.addNotes);
+                if (draft.addSeverity) setAddSeverity(draft.addSeverity);
+                if (draft.addDate) setAddDate(draft.addDate);
+                if (draft.addFollowup) setAddFollowup(draft.addFollowup);
+            },
+        }
+    );
+
     // ── Housing Selection State ──
     const [housings, setHousings] = useState<HousingSummary[]>([]);
     const [housingsLoading, setHousingsLoading] = useState(true);
@@ -1145,7 +1185,7 @@ export default function HealthRecordsScreen() {
     const fetchHousings = useCallback(async (isRefresh = false) => {
         if (!farmId) { setHousingsLoading(false); return; }
         if (isRefresh) setHousingsRefreshing(true);
-        else setHousingsLoading(true);
+        else if (housings.length === 0) setHousingsLoading(true);
         try {
             const { data, error } = await supabase
                 .from('housings')
@@ -1174,7 +1214,7 @@ export default function HealthRecordsScreen() {
             if (isRefresh) setHousingsRefreshing(false);
             else setHousingsLoading(false);
         }
-    }, [farmId]);
+    }, [farmId, housings.length]);
 
     useEffect(() => {
         if (!housingId) {
@@ -1791,6 +1831,8 @@ export default function HealthRecordsScreen() {
             }
 
             showSnackbar('Health record added successfully.');
+            await clearDraft();
+            resetForm();
             handleCloseAddModal();
             await fetchData();
         } catch (err: any) {
@@ -1812,7 +1854,6 @@ export default function HealthRecordsScreen() {
 
     closeAddModalRef.current = () => {
         setAddVisible(false);
-        resetForm();
     };
 
     const handleCloseAddModal = () => {
@@ -2094,7 +2135,7 @@ export default function HealthRecordsScreen() {
 
     if (!housingId) {
         return (
-            <SafeAreaView style={styles.safeArea}>
+            <View style={[styles.safeArea, { paddingTop: insets.top }]}>
                 <View style={styles.container}>
                     {/* Header */}
                     <Header />
@@ -2189,7 +2230,7 @@ export default function HealthRecordsScreen() {
                         </View>
 
                         <View style={styles.gridContainer}>
-                            {housingsLoading ? (
+                            {housingsLoading && housings.length === 0 ? (
                                 <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 32, width: '100%' }} />
                             ) : housings.length === 0 ? (
                                 <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', paddingVertical: 48, paddingHorizontal: 24, marginTop: 24 }}>
@@ -2262,13 +2303,13 @@ export default function HealthRecordsScreen() {
                 </View>
 
                 <FloatingNavBar />
-            </SafeAreaView>
+            </View>
         );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top }]}>
 
             {/* ── Header ── */}
             <View style={[styles.headerTopRow, { gap: 8 }]}>
@@ -3899,6 +3940,6 @@ export default function HealthRecordsScreen() {
             </Modal>
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
-        </SafeAreaView>
+        </View>
     );
 }

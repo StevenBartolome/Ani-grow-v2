@@ -32,9 +32,6 @@ export const useHomeStyles = () => {
             paddingHorizontal: hPad,
             paddingTop: 16,
             paddingBottom: 16,
-            backgroundColor: colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.stroke,
         },
         headerLeft: {
             flexDirection: 'row',

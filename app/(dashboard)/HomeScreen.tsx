@@ -1,9 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Animated,
+    Easing,
     Pressable,
     RefreshControl,
     ScrollView,
@@ -11,7 +13,7 @@ import {
     View,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
@@ -49,6 +51,68 @@ interface FarmBreakdown {
     farmName: string;
     pigs: number;
     chickens: number;
+}
+
+interface HomeCacheData {
+    farmName: string;
+    farmBreakdown: FarmBreakdown[];
+    totalAnimals: number;
+    animalSplit: { pigs: number; chickens: number };
+    housings: HousingCard[];
+    unreadNotifCount: number;
+    recentAlerts: AlertNotif[];
+    activeFeeders: { online: number; total: number };
+    activeScales: { online: number; total: number };
+    todayFeedGrams: number;
+    todayWeighSessions: number;
+    weekMortality: number;
+    lastUpdated: Date | null;
+}
+
+// Global in-memory cache for ultra-smooth tab switching & instant loads
+const homeDataCache: Record<string, HomeCacheData> = {};
+
+// ─── Animated Skeleton ────────────────────────────────────────────────────────
+
+function Skeleton({ w, h, radius = 8, style }: { w: number | string; h: number; radius?: number; style?: any }) {
+    const { colors } = useTheme();
+    const opacity = useRef(new Animated.Value(0.4)).current;
+
+    useEffect(() => {
+        const animation = Animated.loop(
+            Animated.sequence([
+                Animated.timing(opacity, {
+                    toValue: 0.85,
+                    duration: 750,
+                    easing: Easing.inOut(Easing.ease),
+                    useNativeDriver: true,
+                }),
+                Animated.timing(opacity, {
+                    toValue: 0.4,
+                    duration: 750,
+                    easing: Easing.inOut(Easing.ease),
+                    useNativeDriver: true,
+                }),
+            ])
+        );
+        animation.start();
+        return () => animation.stop();
+    }, [opacity]);
+
+    return (
+        <Animated.View
+            style={[
+                {
+                    width: w as any,
+                    height: h,
+                    borderRadius: radius,
+                    backgroundColor: colors.cardFill,
+                    opacity,
+                },
+                style,
+            ]}
+        />
+    );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -100,6 +164,7 @@ function timeAgo(date: Date | null): string {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
+    const insets = useSafeAreaInsets();
     const { profile, hasPermission, refreshProfile, role } = useAuth();
     const homeStyles = useHomeStyles();
     const textStyles = useTextStyles();
@@ -118,22 +183,66 @@ export default function HomeScreen() {
         isMultiFarm,
     } = useFarmFilter();
 
+    const cacheKey = useMemo(() => {
+        return activeFarmIds.slice().sort().join(',') || 'default';
+    }, [activeFarmIds]);
+
+    const initialFarmName = useMemo(() => {
+        if (!activeFarmIds.length) return '';
+        if (activeFarmIds.length === 1) {
+            return managedFarms.find(f => f.id === activeFarmIds[0])?.name || '';
+        }
+        return `${activeFarmIds.length} Farms`;
+    }, [activeFarmIds, managedFarms]);
+
+    // Check existing cached snapshot
+    const cachedData = homeDataCache[cacheKey];
+
     // ── State ─────────────────────────────────────────────────────────────────
-    const [farmName, setFarmName]           = useState('');
-    const [farmBreakdown, setFarmBreakdown] = useState<FarmBreakdown[]>([]);
-    const [totalAnimals, setTotalAnimals]   = useState(0);
-    const [animalSplit, setAnimalSplit]     = useState({ pigs: 0, chickens: 0 });
-    const [housings, setHousings]           = useState<HousingCard[]>([]);
-    const [unreadNotifCount, setUnreadNotifCount] = useState(0);
-    const [recentAlerts, setRecentAlerts]   = useState<AlertNotif[]>([]);
-    const [activeFeeders, setActiveFeeders] = useState({ online: 0, total: 0 });
-    const [activeScales, setActiveScales]   = useState({ online: 0, total: 0 });
-    const [todayFeedGrams, setTodayFeedGrams] = useState(0);
-    const [todayWeighSessions, setTodayWeighSessions] = useState(0);
-    const [weekMortality, setWeekMortality] = useState(0);
-    const [isLoading, setIsLoading]         = useState(true);
+    const [farmName, setFarmName]           = useState(cachedData?.farmName ?? initialFarmName);
+    const [farmBreakdown, setFarmBreakdown] = useState<FarmBreakdown[]>(cachedData?.farmBreakdown ?? []);
+    const [totalAnimals, setTotalAnimals]   = useState(cachedData?.totalAnimals ?? 0);
+    const [animalSplit, setAnimalSplit]     = useState(cachedData?.animalSplit ?? { pigs: 0, chickens: 0 });
+    const [housings, setHousings]           = useState<HousingCard[]>(cachedData?.housings ?? []);
+    const [unreadNotifCount, setUnreadNotifCount] = useState(cachedData?.unreadNotifCount ?? 0);
+    const [recentAlerts, setRecentAlerts]   = useState<AlertNotif[]>(cachedData?.recentAlerts ?? []);
+    const [activeFeeders, setActiveFeeders] = useState(cachedData?.activeFeeders ?? { online: 0, total: 0 });
+    const [activeScales, setActiveScales]   = useState(cachedData?.activeScales ?? { online: 0, total: 0 });
+    const [todayFeedGrams, setTodayFeedGrams] = useState(cachedData?.todayFeedGrams ?? 0);
+    const [todayWeighSessions, setTodayWeighSessions] = useState(cachedData?.todayWeighSessions ?? 0);
+    const [weekMortality, setWeekMortality] = useState(cachedData?.weekMortality ?? 0);
+    const [isLoading, setIsLoading]         = useState(!cachedData);
     const [refreshing, setRefreshing]       = useState(false);
-    const [lastUpdated, setLastUpdated]     = useState<Date | null>(null);
+    const [lastUpdated, setLastUpdated]     = useState<Date | null>(cachedData?.lastUpdated ?? null);
+
+    useEffect(() => {
+        if (initialFarmName && !cachedData?.farmName) {
+            setFarmName(initialFarmName);
+        }
+    }, [initialFarmName, cachedData?.farmName]);
+
+    // Handle farm filter switch smoothly using cache
+    useEffect(() => {
+        const cached = homeDataCache[cacheKey];
+        if (cached) {
+            setFarmName(cached.farmName);
+            setFarmBreakdown(cached.farmBreakdown);
+            setTotalAnimals(cached.totalAnimals);
+            setAnimalSplit(cached.animalSplit);
+            setHousings(cached.housings);
+            setUnreadNotifCount(cached.unreadNotifCount);
+            setRecentAlerts(cached.recentAlerts);
+            setActiveFeeders(cached.activeFeeders);
+            setActiveScales(cached.activeScales);
+            setTodayFeedGrams(cached.todayFeedGrams);
+            setTodayWeighSessions(cached.todayWeighSessions);
+            setWeekMortality(cached.weekMortality);
+            setLastUpdated(cached.lastUpdated);
+            setIsLoading(false);
+        } else {
+            setIsLoading(true);
+        }
+    }, [cacheKey]);
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchStats = useCallback(async () => {
@@ -179,30 +288,37 @@ export default function HomeScreen() {
                     .order('name'),
             ]);
 
-            // Set farm display name
+            let nextFarmName = farmName;
             if (isSingle && (farmRes as any).data?.name) {
-                setFarmName((farmRes as any).data.name);
+                nextFarmName = (farmRes as any).data.name;
+                setFarmName(nextFarmName);
             } else if (!isSingle && managedFarms.length > 0) {
-                setFarmName(`${activeFarmIds.length} Farms`);
+                nextFarmName = `${activeFarmIds.length} Farms`;
+                setFarmName(nextFarmName);
             }
 
             let feederIds: string[] = [];
             let scaleIds: string[] = [];
             let allBatchIds: string[] = [];
+            let nextTotalAnimals = 0;
+            let nextAnimalSplit = { pigs: 0, chickens: 0 };
+            let nextFarmBreakdown: FarmBreakdown[] = [];
 
             if (batchRes.data) {
                 const total = batchRes.data.reduce((s: number, b: any) => s + (b.current_count ?? 0), 0);
+                nextTotalAnimals = total;
                 setTotalAnimals(total);
                 allBatchIds = batchRes.data.map((b: any) => b.id);
 
                 const pigs = batchRes.data
                     .filter((b: any) => b.animal_type === 'pig')
                     .reduce((s: number, b: any) => s + (b.current_count ?? 0), 0);
-                setAnimalSplit({ pigs, chickens: total - pigs });
+                nextAnimalSplit = { pigs, chickens: total - pigs };
+                setAnimalSplit(nextAnimalSplit);
 
                 // Per-farm breakdown
                 if (isMultiFarm) {
-                    const breakdown: FarmBreakdown[] = activeFarmIds.map(fid => {
+                    nextFarmBreakdown = activeFarmIds.map(fid => {
                         const farmBatches = batchRes.data!.filter(
                             (b: any) => b.housings?.farm_id === fid
                         );
@@ -217,34 +333,47 @@ export default function HomeScreen() {
                             .reduce((s: number, b: any) => s + (b.current_count ?? 0), 0);
                         return { farmId: fid, farmName: fName, pigs: fp, chickens: fc };
                     });
-                    setFarmBreakdown(breakdown);
+                    setFarmBreakdown(nextFarmBreakdown);
                 } else {
+                    nextFarmBreakdown = [];
                     setFarmBreakdown([]);
                 }
             }
 
+            let nextUnreadNotifCount = 0;
+            let nextRecentAlerts: AlertNotif[] = [];
             if (notifRes.data) {
                 const totalCount = notifRes.count ?? notifRes.data.length;
+                nextUnreadNotifCount = totalCount;
                 setUnreadNotifCount(totalCount);
-                setRecentAlerts(notifRes.data.map((n: any) => ({
+                nextRecentAlerts = notifRes.data.map((n: any) => ({
                     id: n.id,
                     title: n.title,
                     message: n.message,
                     type: mapNotifType(n.type),
                     category: n.category,
-                })));
+                }));
+                setRecentAlerts(nextRecentAlerts);
             }
 
+            let nextActiveFeeders = { online: 0, total: 0 };
+            let nextActiveScales = { online: 0, total: 0 };
             if (deviceRes.data) {
                 const feeders = deviceRes.data.filter((d: any) => d.type === 'anifeed' || d.type === 'feeder');
                 const scales = deviceRes.data.filter((d: any) => d.type === 'aniweigh' || d.type === 'scale');
                 feederIds = feeders.map((d: any) => d.id);
                 scaleIds = scales.map((d: any) => d.id);
-                setActiveFeeders({ online: feeders.filter((d: any) => d.status === 'online').length, total: feeders.length });
-                setActiveScales({ online: scales.filter((d: any) => d.status === 'online').length, total: scales.length });
+                nextActiveFeeders = { online: feeders.filter((d: any) => d.status === 'online').length, total: feeders.length };
+                nextActiveScales = { online: scales.filter((d: any) => d.status === 'online').length, total: scales.length };
+                setActiveFeeders(nextActiveFeeders);
+                setActiveScales(nextActiveScales);
             }
 
-            if (housingRes.data) setHousings(housingRes.data as HousingCard[]);
+            let nextHousings: HousingCard[] = [];
+            if (housingRes.data) {
+                nextHousings = housingRes.data as HousingCard[];
+                setHousings(nextHousings);
+            }
 
             // ── Round 2: activity data ─────────────────────────────────────────
             const [feedRes, weightRes, mortalityRes] = await Promise.all([
@@ -259,22 +388,50 @@ export default function HomeScreen() {
                     : { data: [] },
             ]);
 
+            let nextTodayFeedGrams = 0;
             if (feedRes.data) {
-                setTodayFeedGrams(feedRes.data.reduce((s: number, r: any) => s + (r.grams_dispensed ?? 0), 0));
-            }
-            if (weightRes.data) setTodayWeighSessions(weightRes.data.length);
-            if (mortalityRes.data) {
-                setWeekMortality(mortalityRes.data.reduce((s: number, r: any) => s + (r.affected_count ?? 0), 0));
+                nextTodayFeedGrams = feedRes.data.reduce((s: number, r: any) => s + (r.grams_dispensed ?? 0), 0);
+                setTodayFeedGrams(nextTodayFeedGrams);
             }
 
-            setLastUpdated(new Date());
+            let nextTodayWeighSessions = 0;
+            if (weightRes.data) {
+                nextTodayWeighSessions = weightRes.data.length;
+                setTodayWeighSessions(nextTodayWeighSessions);
+            }
+
+            let nextWeekMortality = 0;
+            if (mortalityRes.data) {
+                nextWeekMortality = mortalityRes.data.reduce((s: number, r: any) => s + (r.affected_count ?? 0), 0);
+                setWeekMortality(nextWeekMortality);
+            }
+
+            const now = new Date();
+            setLastUpdated(now);
+
+            // Persist to in-memory cache
+            homeDataCache[cacheKey] = {
+                farmName: nextFarmName,
+                farmBreakdown: nextFarmBreakdown,
+                totalAnimals: nextTotalAnimals,
+                animalSplit: nextAnimalSplit,
+                housings: nextHousings,
+                unreadNotifCount: nextUnreadNotifCount,
+                recentAlerts: nextRecentAlerts,
+                activeFeeders: nextActiveFeeders,
+                activeScales: nextActiveScales,
+                todayFeedGrams: nextTodayFeedGrams,
+                todayWeighSessions: nextTodayWeighSessions,
+                weekMortality: nextWeekMortality,
+                lastUpdated: now,
+            };
         } catch (err) {
             console.error('[HomeScreen] fetchStats error:', err);
         } finally {
             setIsLoading(false);
             setRefreshing(false);
         }
-    }, [activeFarmIds, isMultiFarm, managedFarms]);
+    }, [activeFarmIds, isMultiFarm, managedFarms, farmName, cacheKey]);
 
     useEffect(() => {
         if (profile) {
@@ -358,11 +515,6 @@ export default function HomeScreen() {
 
     const primaryAlert = sortedAlerts.length > 0 ? sortedAlerts[0] : null;
     const totalAlertsCount = unreadNotifCount || recentAlerts.length;
-
-    // ── Skeleton Loader ───────────────────────────────────────────────────────
-    const Skeleton = ({ w, h, radius = 8 }: { w: number | string; h: number; radius?: number }) => (
-        <View style={{ width: w as any, height: h, borderRadius: radius, backgroundColor: colors.cardFill }} />
-    );
 
     // ── Dynamic Permissions Filtering ─────────────────────────────────────────
     const visibleStatCards: React.ReactNode[] = [];
@@ -725,7 +877,7 @@ export default function HomeScreen() {
     const showMortality = hasPermission('health:view');
 
     return (
-        <SafeAreaView style={homeStyles.safeArea}>
+        <View style={[homeStyles.safeArea, { paddingTop: insets.top }]}>
             <View style={homeStyles.container}>
 
                 {/* ── Header ─────────────────────────────────────────────────── */}
@@ -833,7 +985,7 @@ export default function HomeScreen() {
                                 </View>
 
                                 {isLoading ? (
-                                    <View style={{ height: 90, borderRadius: 16, backgroundColor: colors.cardFill }} />
+                                    <Skeleton w="100%" h={90} radius={18} />
                                 ) : (
                                     (() => {
                                         const { name, color } = alertIcon(primaryAlert.type, primaryAlert.category);
@@ -1284,7 +1436,9 @@ export default function HomeScreen() {
                                         )}
                                     </View>
                                     <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                                        {!isLoading && (
+                                        {isLoading ? (
+                                            <Skeleton w={24} h={26} radius={6} />
+                                        ) : (
                                             <Text style={[textStyles.h2, {
                                                 color: weekMortality > 0 ? colors.error : '#10B981',
                                                 fontSize: 22,
@@ -1304,6 +1458,6 @@ export default function HomeScreen() {
             </View>
 
             <FloatingNavBar />
-        </SafeAreaView>
+        </View>
     );
 }

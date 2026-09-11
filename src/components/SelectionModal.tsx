@@ -45,6 +45,9 @@ export function SelectionModal({
     const [isExpanded, setIsExpanded] = useState(false);
     const [customOtherText, setCustomOtherText] = useState('');
     const customInputRef = useRef<TextInput>(null);
+    const scrollViewRef = useRef<ScrollView>(null);
+
+    const isSearchActive = enableSearch || options.length > 5;
 
     useEffect(() => {
         if (visible) {
@@ -59,13 +62,24 @@ export function SelectionModal({
                 setDraftValue(selectedValue);
                 setCustomOtherText('');
             }
+
+            // Auto-scroll to selected item after render
+            const selectedIdx = options.indexOf(selectedValue);
+            if (selectedIdx > 2) {
+                setTimeout(() => {
+                    scrollViewRef.current?.scrollTo({
+                        y: Math.max(0, (selectedIdx - 1) * 52),
+                        animated: true,
+                    });
+                }, 100);
+            }
         }
     }, [visible, selectedValue, options, enableOther]);
 
     const isOtherSelected = (requireConfirm ? draftValue : selectedValue) === 'Other';
     const confirmDisabled = !draftValue.trim() || (draftValue === 'Other' && !customOtherText.trim());
 
-    const baseFiltered = enableSearch
+    const baseFiltered = isSearchActive && searchQuery.trim()
         ? options.filter(opt => opt.toLowerCase().includes(searchQuery.toLowerCase()))
         : options;
 
@@ -149,9 +163,9 @@ export function SelectionModal({
                         </View>
 
                         <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 6, fontSize: 20 }]}>{title}</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: enableSearch ? 14 : 20 }]}>{description}</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: isSearchActive ? 14 : 20 }]}>{description}</Text>
 
-                        {enableSearch && (
+                        {isSearchActive && (
                             <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.inputFill, borderRadius: 12, paddingHorizontal: 16, height: 48, marginBottom: 14, width: '100%' }}>
                                 <MaterialIcons name="search" size={20} color={colors.textGrey} style={{ marginRight: 8 }} />
                                 <TextInput
@@ -170,6 +184,7 @@ export function SelectionModal({
                         )}
 
                         <ScrollView 
+                            ref={scrollViewRef}
                             style={{ width: '100%', flexShrink: 1, maxHeight: 350, marginBottom: 20 }} 
                             showsVerticalScrollIndicator={true}
                             nestedScrollEnabled={true}

@@ -31,6 +31,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ActionModal from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
 import { SelectionModal } from '@/components/SelectionModal';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
@@ -155,6 +156,26 @@ export default function VaccineScreen() {
     const [schNotes, setSchNotes]                       = useState('');
     const [savingSch, setSavingSch]                     = useState(false);
 
+    // ── Form Draft Checkpointing ──────────────────────────────────
+    const {
+        clearDraft,
+    } = useFormDraft(
+        `vaccine_schedule_${primaryFarmId || 'farm'}`,
+        { schHousingId, schHousingName, schVaccineId, schVaccineName, schDate, schInterval, schNotes },
+        {
+            enabled: showSchModal,
+            onRestore: (draft) => {
+                if (draft.schHousingId) setSchHousingId(draft.schHousingId);
+                if (draft.schHousingName) setSchHousingName(draft.schHousingName);
+                if (draft.schVaccineId) setSchVaccineId(draft.schVaccineId);
+                if (draft.schVaccineName) setSchVaccineName(draft.schVaccineName);
+                if (draft.schDate) setSchDate(draft.schDate);
+                if (draft.schInterval) setSchInterval(draft.schInterval);
+                if (draft.schNotes) setSchNotes(draft.schNotes);
+            },
+        }
+    );
+
     // ── Search & Filter State ─────────────────────────────────────────────────
     const [searchQuery, setSearchQuery]                 = useState('');
     const [selectedFilterDate, setSelectedFilterDate]   = useState<string | null>(null);
@@ -251,7 +272,6 @@ export default function VaccineScreen() {
 
     const handleCloseSchModal = () => {
         setShowSchModal(false);
-        resetSchForm();
     };
 
     /** Add a scheduled vaccination with input validation */
@@ -310,6 +330,8 @@ export default function VaccineScreen() {
                 });
             }
 
+            await clearDraft();
+            resetSchForm();
             handleCloseSchModal();
             showSnack('Vaccine schedule added successfully!');
             loadSchedules();

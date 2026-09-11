@@ -14,6 +14,7 @@ import { useSettingsSubPageStyles } from '@/styles/settingsSubPageStyles';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
@@ -179,11 +180,25 @@ export default function ManageHousingsScreen() {
         setSnackbarVisible(true);
     };
 
+    // ── Form Draft Checkpointing ──────────────────────────────────
+    const {
+        clearDraft,
+    } = useFormDraft(
+        `add_housing_${farmId}`,
+        { tempHousingName, tempHousingType, tempCapacity },
+        {
+            enabled: editModalVisible && !editingHousingId,
+            onRestore: (draft) => {
+                if (draft.tempHousingName) setTempHousingName(draft.tempHousingName);
+                if (draft.tempHousingType) setTempHousingType(draft.tempHousingType);
+                if (draft.tempCapacity) setTempCapacity(draft.tempCapacity);
+            },
+        }
+    );
+
     const openAddModal = () => {
         setEditingHousingId(null);
-        setTempHousingName('');
-        setTempHousingType('Pigs');
-        setTempCapacity('');
+        // If there is no restored draft, values remain as-is or blank
         setCapacityError(null);
         setEditModalVisible(true);
     };
@@ -293,6 +308,7 @@ export default function ManageHousingsScreen() {
                         .from('housings')
                         .insert({ ...payload, farm_id: farmId });
                     if (error) throw error;
+                    await clearDraft();
                     showSnackbar('New housing added successfully.', 'success');
                 }
             }

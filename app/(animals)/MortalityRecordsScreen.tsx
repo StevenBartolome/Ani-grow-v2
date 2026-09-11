@@ -20,6 +20,7 @@ import { BackButton } from '@/components/BackButton';
 import ActionModal, { ActionModalType } from '@/components/ActionModal';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import { SelectionModal } from '@/components/SelectionModal';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -174,11 +175,24 @@ export default function MortalityRecordsScreen() {
         }
     }, [recordVisible]);
 
+    // ── Form Draft Checkpointing ──────────────────────────────────
+    const {
+        clearDraft,
+    } = useFormDraft(
+        `mortality_${batchId || housingId}`,
+        { deceasedNumber, deceasedReason, deceasedOtherReason },
+        {
+            enabled: recordVisible,
+            onRestore: (draft) => {
+                if (draft.deceasedNumber) setDeceasedNumber(draft.deceasedNumber);
+                if (draft.deceasedReason) setDeceasedReason(draft.deceasedReason);
+                if (draft.deceasedOtherReason) setDeceasedOtherReason(draft.deceasedOtherReason);
+            },
+        }
+    );
+
     closeRecordModalRef.current = () => {
         setRecordVisible(false);
-        setDeceasedNumber('');
-        setDeceasedReason('Illness');
-        setDeceasedOtherReason('');
     };
 
     const handleCloseRecordModal = () => {
@@ -310,6 +324,7 @@ export default function MortalityRecordsScreen() {
                 .eq('id', housingId);
 
             showSnack(`Recorded ${n} deceased — batch count updated.`);
+            await clearDraft();
             setDeceasedNumber('');
             setDeceasedReason('Illness');
             setDeceasedOtherReason('');

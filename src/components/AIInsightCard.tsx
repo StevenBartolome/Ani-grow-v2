@@ -9,7 +9,14 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { getInsight, AIInsightContext } from '@/lib/ai';
-import { getSavedFarmInsight, saveFarmInsight } from '@/lib/farmAiInsightService';
+import {
+  getSavedFarmInsight,
+  getLatestSavedFarmInsight,
+  hasContextDataChanged,
+  getTodayDateString,
+  saveFarmInsight,
+} from '@/lib/farmAiInsightService';
+import { supabase } from '@/lib/supabase';
 
 interface AIInsightCardProps {
   context?: AIInsightContext;
@@ -233,15 +240,45 @@ export function AIInsightCard({
     setLoading(true);
     setError(null);
     try {
+      const currentContextData = context?.data || (staticContent ? { staticContent } : {});
+
       // 1. If not bypassing cache, check if today's insight is already saved in Supabase
       if (!bypassCache && effectiveFarmId && effectiveCategory) {
-        const saved = await getSavedFarmInsight(effectiveFarmId, effectiveCategory, effectiveSubKey);
-        if (saved && saved.content) {
-          if (fetchIdRef.current === fetchId) {
-            setInsight(saved.content);
-            setLoading(false);
+        const savedToday = await getSavedFarmInsight(effectiveFarmId, effectiveCategory, effectiveSubKey);
+        
+        if (savedToday && savedToday.content) {
+          // If today's saved insight exists, check if context data has changed
+          const dataChanged = hasContextDataChanged(savedToday.context_data, currentContextData);
+          if (!dataChanged) {
+            if (fetchIdRef.current === fetchId) {
+              setInsight(savedToday.content);
+              setLoading(false);
+            }
+            return;
           }
-          return;
+        } else {
+          // If no insight saved for today yet, check the most recent saved insight
+          const latestSaved = await getLatestSavedFarmInsight(effectiveFarmId, effectiveCategory, effectiveSubKey);
+          if (latestSaved && latestSaved.content) {
+            const dataChanged = hasContextDataChanged(latestSaved.context_data, currentContextData);
+            // If data hasn't changed since previous saved insight, reuse and persist for today
+            if (!dataChanged) {
+              if (fetchIdRef.current === fetchId) {
+                setInsight(latestSaved.content);
+                setLoading(false);
+              }
+              // Save as today's snapshot
+              const parsed = parseInsight(latestSaved.content);
+              await saveFarmInsight(effectiveFarmId, effectiveCategory, latestSaved.content, {
+                subKey: effectiveSubKey,
+                title: latestSaved.title || title,
+                headline: latestSaved.headline || parsed.headline,
+                items: latestSaved.items || parsed.items,
+                contextData: currentContextData,
+              });
+              return;
+            }
+          }
         }
       }
 
@@ -265,7 +302,7 @@ export function AIInsightCard({
           title,
           headline: parsed.headline,
           items: parsed.items,
-          contextData: context?.data,
+          contextData: currentContextData,
         });
       }
     } catch (e: any) {
@@ -288,6 +325,42 @@ export function AIInsightCard({
     doFetch(forceFresh);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveFarmId, effectiveCategory, effectiveSubKey, staticContent, JSON.stringify(context), forceFresh]);
+
+  // Realtime subscription: dynamically listen for any updates to farm_ai_insights for this farm
+  useEffect(() => {
+    if (!effectiveFarmId || !effectiveCategory) return;
+
+    const channelName = `realtime-insight-${effectiveFarmId}-${effectiveCategory}-${effectiveSubKey || 'all'}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'farm_ai_insights',
+          filter: `farm_id=eq.${effectiveFarmId}`,
+        },
+        (payload: any) => {
+          const newRow = payload?.new;
+          if (
+            newRow &&
+            newRow.category === effectiveCategory &&
+            (newRow.sub_key || '') === effectiveSubKey
+          ) {
+            if (newRow.content) {
+              setInsight(newRow.content);
+              setLoading(false);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [effectiveFarmId, effectiveCategory, effectiveSubKey]);
 
   // Gradient by variant
   const gradientColors =

@@ -343,6 +343,30 @@ export default function FeedReportScreen() {
         fetchConsumption();
     }, [fetchConsumption]);
 
+    // ─── Realtime: Live update consumption when new dispense records land ───
+    useEffect(() => {
+        if (!farmId) return;
+        const channel = supabase
+            .channel(`realtime-feed-report-${farmId}-${selectedHousingId || 'all'}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'dispense_records',
+                    filter: `farm_id=eq.${farmId}`,
+                },
+                () => {
+                    fetchConsumption();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [farmId, selectedHousingId, fetchConsumption]);
+
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
         await fetchHousingsAndBatches();
@@ -1057,8 +1081,25 @@ export default function FeedReportScreen() {
                             title="AniBot Feeding Advice"
                             category="feed_report"
                             farmId={farmId}
-                            subKey={selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType}
+                            subKey={activeBatch?.id ? `${activeBatch.id}_${animalType}` : (selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType)}
                             staticContent={getBotAnalysis()}
+                            context={{
+                                type: 'feed',
+                                animalType,
+                                housingName: selectedHousing?.name,
+                                data: {
+                                    batchId: activeBatch?.id,
+                                    housingId: selectedHousingId,
+                                    totalConsumption,
+                                    totalDispenses,
+                                    headCount,
+                                    batchAgeDays,
+                                    timeframe,
+                                    appetiteStatus: feedAnalysis?.appetiteStatus,
+                                    dailyIntakePerHeadGrams: feedAnalysis?.dailyIntakePerHeadGrams,
+                                    reportSummary: reportData.map(r => ({ id: r.feedId, name: r.feedName, kg: r.consumption })),
+                                }
+                            }}
                             variant="orange"
                         />
                     </>

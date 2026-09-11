@@ -205,7 +205,7 @@ export default function DispenseRecordsScreen() {
         <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgLight }]}>
 
             {/* ── Header ───────────────────────────────────────────────── */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14 }}>
                 <View style={{ width: 40 }}>
                     <BackButton fallbackRoute="/(devices)/DevicesScreen" />
                 </View>

@@ -10,6 +10,7 @@ import ActionModal, { ActionModalType } from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import { SelectionModal } from '@/components/SelectionModal';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -239,6 +240,55 @@ export default function AnimalDetailsScreen() {
     const [newBatchAge, setNewBatchAge] = useState('');
     const [newBatchAgeUnit, setNewBatchAgeUnit] = useState<'days' | 'months'>('days');
     const [newBatchCountError, setNewBatchCountError] = useState<string | null>(null);
+
+    // Draft for New Batch
+    const {
+        clearDraft: clearNewBatchDraft,
+    } = useFormDraft(
+        `new_batch_${housingId}`,
+        { newBatchName, newBatchCount, newBatchSupplier, newBatchAge, newBatchAgeUnit },
+        {
+            enabled: newBatchVisible,
+            onRestore: (draft) => {
+                if (draft.newBatchName) setNewBatchName(draft.newBatchName);
+                if (draft.newBatchCount) setNewBatchCount(draft.newBatchCount);
+                if (draft.newBatchSupplier) setNewBatchSupplier(draft.newBatchSupplier);
+                if (draft.newBatchAge) setNewBatchAge(draft.newBatchAge);
+                if (draft.newBatchAgeUnit) setNewBatchAgeUnit(draft.newBatchAgeUnit);
+            },
+        }
+    );
+
+    // Draft for Add Heads
+    const {
+        clearDraft: clearAddHeadsDraft,
+    } = useFormDraft(
+        `add_heads_${housingId}_${selectedBatchId || 'batch'}`,
+        { addHeadsNumber, addHeadsAge },
+        {
+            enabled: addHeadsVisible,
+            onRestore: (draft) => {
+                if (draft.addHeadsNumber) setAddHeadsNumber(draft.addHeadsNumber);
+                if (draft.addHeadsAge) setAddHeadsAge(draft.addHeadsAge);
+            },
+        }
+    );
+
+    // Draft for Deceased
+    const {
+        clearDraft: clearDeceasedDraft,
+    } = useFormDraft(
+        `animal_deceased_${selectedBatchId || 'batch'}`,
+        { deceasedNumber, deceasedReason, deceasedOtherReason },
+        {
+            enabled: deceasedVisible,
+            onRestore: (draft) => {
+                if (draft.deceasedNumber) setDeceasedNumber(draft.deceasedNumber);
+                if (draft.deceasedReason) setDeceasedReason(draft.deceasedReason);
+                if (draft.deceasedOtherReason) setDeceasedOtherReason(draft.deceasedOtherReason);
+            },
+        }
+    );
 
     // ── Edit Batch Modal ──────────────────────────────────────────
     const [editBatchVisible, setEditBatchVisible] = useState(false);
@@ -559,6 +609,7 @@ export default function AnimalDetailsScreen() {
                 if (bErr) throw bErr;
                 const { error: hErr } = await supabase.from('housings').update({ current_count: (housing?.current_count ?? 0) + n, updated_at: new Date().toISOString() }).eq('id', housingId);
                 if (hErr) throw hErr;
+                await clearAddHeadsDraft();
                 showSnackbar(`Added ${n} heads successfully.`);
                 setAddHeadsNumber(''); setAddHeadsAge('');
 
@@ -616,6 +667,7 @@ export default function AnimalDetailsScreen() {
                 }).eq('id', housingId);
                 if (hErr) throw hErr;
 
+                await clearDeceasedDraft();
                 showSnackbar(`Recorded ${n} deceased.`);
                 setDeceasedNumber(''); setDeceasedReason('Illness'); setDeceasedOtherReason('');
 
@@ -646,6 +698,7 @@ export default function AnimalDetailsScreen() {
                 // Update housing count
                 const { error: hErr } = await supabase.from('housings').update({ current_count: (housing?.current_count ?? 0) + count, updated_at: new Date().toISOString() }).eq('id', housingId);
                 if (hErr) throw hErr;
+                await clearNewBatchDraft();
                 showSnackbar('New batch created successfully.');
                 setNewBatchName(''); setNewBatchCount(''); setNewBatchSupplier(''); setNewBatchAge(''); setNewBatchAgeUnit('days');
 

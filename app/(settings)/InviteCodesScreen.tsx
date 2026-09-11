@@ -535,7 +535,6 @@ export default function InviteCodesScreen() {
             <View style={{
                 flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                 paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16,
-                backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke,
             }}>
                 <View style={{ width: 44, height: 44 }}>
                     <BackButton fallbackRoute="/(dashboard)/HomeScreen" />

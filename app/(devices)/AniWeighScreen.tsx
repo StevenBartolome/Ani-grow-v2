@@ -2031,12 +2031,14 @@ export default function AniWeighScreen() {
                         title="AI Weight Analysis"
                         category="weigh_device"
                         farmId={farmId}
-                        subKey={deviceId || ''}
+                        subKey={deviceId ? `${deviceId}_${selectedBatchId || activeSession?.batch_id || 'general'}_${animalType.toLowerCase()}` : ''}
                         context={{
                             type: 'weight',
                             animalType: animalType,
                             housingName: housing,
                             data: {
+                                deviceId,
+                                batchId: selectedBatchId || activeSession?.batch_id || null,
                                 todayTotal: segregationStats.total,
                                 underweight: segregationStats.underweight,
                                 normal: segregationStats.normal,

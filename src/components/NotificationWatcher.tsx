@@ -112,6 +112,7 @@ export function NotificationWatcher() {
                     type: 'warning',
                     title: `${label} Reading`,
                     message: `A ${row.animal_type ?? 'animal'} weighed in at ${(row.net_weight_grams / 1000).toFixed(2)} kg — ${label.toLowerCase()}.`,
+                    actionUrl: '/(devices)/RecentLogsScreen',
                 });
             })
             .subscribe();
@@ -128,6 +129,7 @@ export function NotificationWatcher() {
                     type: 'error',
                     title: 'Dispense Failed',
                     message: 'A scheduled feed dispense failed — check the feeder and its feed stock.',
+                    actionUrl: '/(devices)/DispenseRecordsScreen',
                 });
             })
             .subscribe();
@@ -145,6 +147,7 @@ export function NotificationWatcher() {
                         type,
                         title: 'Mortality Recorded',
                         message: row.title || `${row.affected_count ?? 1} animal(s) deceased.`,
+                        actionUrl: '/(animals)/HealthRecordsScreen',
                     });
                 } else if (row.record_type === 'vaccination') {
                     createNotification({
@@ -275,6 +278,7 @@ export function NotificationWatcher() {
                         await createNotification({
                             farmId: feed.farm_id, category: 'feed_alert', type: 'error',
                             title: 'Feed Expired', message: `"${feed.name}" expired on ${feed.expiry_date}.`,
+                            actionUrl: '/(devices)/ManageFeedsScreen',
                         });
                         await markAlerted(key);
                     }
@@ -284,6 +288,7 @@ export function NotificationWatcher() {
                         await createNotification({
                             farmId: feed.farm_id, category: 'feed_alert', type: 'warning',
                             title: 'Feed Expiring Soon', message: `"${feed.name}" expires in ${days} day(s).`,
+                            actionUrl: '/(devices)/ManageFeedsScreen',
                         });
                         await markAlerted(key);
                     }
@@ -300,6 +305,7 @@ export function NotificationWatcher() {
                     await createNotification({
                         farmId: feed.farm_id, category: 'feed_alert', type: 'warning',
                         title: 'Low Feed Stock', message: `"${feed.name}" is down to ${feed.stock_kg} kg remaining.`,
+                        actionUrl: '/(devices)/ManageFeedsScreen',
                     });
                     await markAlerted(lowStockKey);
                 }

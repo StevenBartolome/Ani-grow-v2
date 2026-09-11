@@ -1024,12 +1024,15 @@ export default function AniFeedScreen() {
                         variant="orange"
                         category="feed_device"
                         farmId={farmId}
-                        subKey={deviceId || ''}
+                        subKey={deviceId ? `${deviceId}_${(schedule as any)?.batch_id || deviceInfo?.housingId || 'general'}_${(deviceInfo?.animalType || 'general').toLowerCase()}` : ''}
                         context={{
                             type: 'feed',
                             animalType: deviceInfo?.animalType ?? 'livestock',
                             housingName: deviceInfo?.housingName ?? '',
                             data: {
+                                deviceId,
+                                batchId: (schedule as any)?.batch_id ?? null,
+                                housingId: deviceInfo?.housingId ?? null,
                                 feedBrand: schedule?.feedBrand ?? null,
                                 timesPerDay: schedule?.timesPerDay ?? null,
                                 gramsPerDispense: schedule?.gramsPerDispense ?? null,

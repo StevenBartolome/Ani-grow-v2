@@ -354,6 +354,43 @@ export default function GrowthReportScreen() {
         }
     }, [selectedBatchId, fetchWeighSessions]);
 
+    // ─── Realtime: Live update growth data when new weigh readings land ───
+    useEffect(() => {
+        if (!selectedBatchId) return;
+
+        const channel = supabase
+            .channel(`realtime-growth-report-${selectedBatchId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'weigh_sessions',
+                    filter: `batch_id=eq.${selectedBatchId}`,
+                },
+                () => {
+                    fetchWeighSessions(selectedBatchId);
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'weighing_sessions',
+                    filter: `batch_id=eq.${selectedBatchId}`,
+                },
+                () => {
+                    fetchWeighSessions(selectedBatchId);
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [selectedBatchId, fetchWeighSessions]);
+
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
         await fetchReportMetadata();
@@ -2439,8 +2476,23 @@ export default function GrowthReportScreen() {
                             title="AniBot Insight"
                             category="growth_report"
                             farmId={farmId}
-                            subKey={selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType}
+                            subKey={selectedBatchId ? `${selectedBatchId}_${animalType}` : (selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType)}
                             staticContent={getGrowthAnalysis()}
+                            context={{
+                                type: 'weight',
+                                animalType,
+                                housingName: selectedHousing?.name,
+                                data: {
+                                    batchId: selectedBatchId,
+                                    housingId: selectedHousingId,
+                                    batchName: selectedBatch?.name,
+                                    totalSessions: weighSessions.length,
+                                    envelopeCount: weighingSessionEnvelopes.length,
+                                    latestSessionId: selectedSessionOption,
+                                    timeframe,
+                                    animalCount: selectedBatch?.current_count,
+                                }
+                            }}
                             variant="green"
                         />
                     </>

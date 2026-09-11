@@ -17,7 +17,7 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { Header } from '@/components/Header';
 import { SelectionModal } from '@/components/SelectionModal';
@@ -50,10 +50,6 @@ import {
 import {
     getRoadmapAdjustment,
 } from '@/lib/ai';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,6 +123,7 @@ const SKIP_REASON_OPTIONS = [
 ];
 
 export default function GuideScreen() {
+    const insets = useSafeAreaInsets();
     const textStyles = useTextStyles();
     const { colors, isDark } = useTheme();
     const { profile } = useAuth();
@@ -510,7 +507,7 @@ export default function GuideScreen() {
     };
 
     return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bgLight }} edges={['top', 'left', 'right']}>
+        <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top }}>
             {/* Fixed App Header */}
             <Header />
 
@@ -1941,6 +1938,6 @@ export default function GuideScreen() {
                     </View>
                 </TouchableWithoutFeedback>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 }

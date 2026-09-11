@@ -15,6 +15,7 @@ import { useDevicesStyles } from '@/styles/devicesStyles';
 import { SelectionModal } from '@/components/SelectionModal';
 import { CalendarPickerModal } from '@/components/CalendarPickerModal';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
@@ -288,21 +289,46 @@ export default function ManageFeedsScreen() {
         setSnackbarVisible(true);
     };
 
+    // ── Form Draft Checkpointing ──────────────────────────────────
+    const {
+        clearDraft,
+    } = useFormDraft(
+        `add_feed_${farmId}`,
+        {
+            tempFeedName,
+            tempFeedBrand,
+            tempFeedSupplier,
+            tempFeedCategory,
+            tempFeedType,
+            tempFeedStock,
+            tempFeedStockUnit,
+            tempDateStarted,
+            tempExpiryDate,
+            isCustomFeedName,
+            isCustomCategory,
+        },
+        {
+            enabled: editModalVisible && !editingFeedId,
+            onRestore: (draft) => {
+                if (draft.tempFeedName) setTempFeedName(draft.tempFeedName);
+                if (draft.tempFeedBrand) setTempFeedBrand(draft.tempFeedBrand);
+                if (draft.tempFeedSupplier) setTempFeedSupplier(draft.tempFeedSupplier);
+                if (draft.tempFeedCategory) setTempFeedCategory(draft.tempFeedCategory);
+                if (draft.tempFeedType) setTempFeedType(draft.tempFeedType);
+                if (draft.tempFeedStock) setTempFeedStock(draft.tempFeedStock);
+                if (draft.tempFeedStockUnit) setTempFeedStockUnit(draft.tempFeedStockUnit);
+                if (draft.tempDateStarted) setTempDateStarted(draft.tempDateStarted);
+                if (draft.tempExpiryDate) setTempExpiryDate(draft.tempExpiryDate);
+                if (draft.isCustomFeedName != null) setIsCustomFeedName(draft.isCustomFeedName);
+                if (draft.isCustomCategory != null) setIsCustomCategory(draft.isCustomCategory);
+            },
+        }
+    );
+
     const openAddModal = () => {
         setEditingFeedId(null);
-        setTempFeedName('');
-        setTempFeedBrand('');
-        setTempFeedSupplier('');
-        setTempFeedCategory('');
-        setTempFeedType('Pigs');
-        setTempFeedStock('');
-        setTempFeedStockUnit('kg');
         setTempFeedStockError(null);
-        setTempDateStarted('');
-        setTempExpiryDate('');
         setDateError(null);
-        setIsCustomFeedName(false);
-        setIsCustomCategory(false);
         setEditModalVisible(true);
     };
 
@@ -453,6 +479,7 @@ export default function ManageFeedsScreen() {
                 } else {
                     const { error } = await supabase.from('feeds').insert({ ...payload, farm_id: farmId });
                     if (error) throw error;
+                    await clearDraft();
                     showSnackbar('New feed added successfully.', 'success');
                 }
             }

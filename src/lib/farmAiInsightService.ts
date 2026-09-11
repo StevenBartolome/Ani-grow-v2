@@ -63,6 +63,59 @@ export async function getSavedFarmInsight(
 }
 
 /**
+ * Fetch the most recent saved insight for a specific farm, category, and subKey,
+ * regardless of date (useful when comparing if new records were added since last insight).
+ */
+export async function getLatestSavedFarmInsight(
+  farmId: string,
+  category: string,
+  subKey: string = '',
+): Promise<FarmAiInsightRecord | null> {
+  if (!farmId || !category) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('farm_ai_insights')
+      .select('*')
+      .eq('farm_id', farmId)
+      .eq('category', category)
+      .eq('sub_key', subKey)
+      .order('insight_date', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('[FarmAiInsight] Latest fetch warning:', error.message);
+      return null;
+    }
+
+    return data as FarmAiInsightRecord | null;
+  } catch (err: any) {
+    console.warn('[FarmAiInsight] Latest fetch exception:', err?.message);
+    return null;
+  }
+}
+
+/**
+ * Check if current contextData has meaningfully changed compared to saved contextData
+ */
+export function hasContextDataChanged(
+  savedData: Record<string, any> | undefined | null,
+  currentData: Record<string, any> | undefined | null,
+): boolean {
+  if (!savedData && !currentData) return false;
+  if (!savedData || !currentData) return true;
+
+  // Compare serialized representations or key metric fields
+  try {
+    return JSON.stringify(savedData) !== JSON.stringify(currentData);
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Save / Upsert an AI insight for a specific farm, category, and date.
  */
 export async function saveFarmInsight(

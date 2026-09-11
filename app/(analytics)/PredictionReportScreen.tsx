@@ -314,6 +314,43 @@ export default function PredictionReportScreen() {
         }
     }, [selectedBatchId, fetchBatchData]);
 
+    // ─── Realtime: Live update prediction when new weights or health logs land ───
+    useEffect(() => {
+        if (!selectedBatchId) return;
+
+        const channel = supabase
+            .channel(`realtime-prediction-report-${selectedBatchId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'weigh_sessions',
+                    filter: `batch_id=eq.${selectedBatchId}`,
+                },
+                () => {
+                    fetchBatchData(selectedBatchId);
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'health_records',
+                    filter: `batch_id=eq.${selectedBatchId}`,
+                },
+                () => {
+                    fetchBatchData(selectedBatchId);
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [selectedBatchId, fetchBatchData]);
+
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
         await fetchReportMetadata();
@@ -1458,8 +1495,22 @@ export default function PredictionReportScreen() {
                             title="AniBot Prediction"
                             category="prediction_report"
                             farmId={farmId}
-                            subKey={selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType}
+                            subKey={selectedBatchId ? `${selectedBatchId}_${animalType}` : (selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType)}
                             staticContent={getInsightText()}
+                            context={{
+                                type: 'animal',
+                                animalType,
+                                housingName: selectedHousing?.name,
+                                data: {
+                                    batchId: selectedBatchId,
+                                    housingId: selectedHousingId,
+                                    batchName: selectedBatch?.name,
+                                    currentCount: selectedBatch?.current_count,
+                                    weighCount: weighSessions.length,
+                                    healthCount: healthRecords.length,
+                                    mortalityCount: healthRecords.filter(r => r.record_type === 'mortality').reduce((s, r) => s + (r.affected_count || 1), 0),
+                                }
+                            }}
                             variant="purple"
                         />
                     </>
