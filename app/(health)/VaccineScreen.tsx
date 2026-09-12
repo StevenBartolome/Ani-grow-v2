@@ -40,6 +40,7 @@ import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTheme } from '@/context/ThemeContext';
 import { supabase } from '@/lib/supabase';
 import { createNotification } from '@/lib/notify';
+import { scheduleUpcomingVaccinations } from '@/lib/notificationScheduler';
 import { useVaccineStyles } from '@/styles/vaccineStyles';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -328,6 +329,7 @@ export default function VaccineScreen() {
                     message: `Scheduled for ${schDate}${selectedHousing ? ` in ${selectedHousing.name}` : ''}.`,
                     actionUrl: '/(health)/VaccineScreen',
                 });
+                scheduleUpcomingVaccinations([primaryFarmId]);
             }
 
             await clearDraft();
@@ -360,6 +362,7 @@ export default function VaccineScreen() {
                     message: `Marked as completed on ${TODAY}.`,
                     actionUrl: '/(health)/VaccineScreen',
                 });
+                scheduleUpcomingVaccinations([schedule.farm_id]);
             }
             showSnack(`Marked "${schedule.vaccine_name}" as completed!`);
             loadSchedules();
@@ -583,6 +586,28 @@ export default function VaccineScreen() {
 
     const isSaveDisabled = savingSch || !schVaccineId || !schDate;
 
+    const handleTestVaccinePush = async () => {
+        try {
+            let farmName = 'Farm';
+            if (primaryFarmId) {
+                const { data: f } = await supabase.from('farms').select('name').eq('id', primaryFarmId).single();
+                if (f?.name) farmName = f.name;
+            }
+            await createNotification({
+                farmId: primaryFarmId || 'demo-farm',
+                farmName,
+                title: 'Vaccination Due Today',
+                message: 'Vaccination scheduled for both species:\n• Pigs: Mycoplasma & Circovirus (Pen A)\n• Chickens: Newcastle Disease (Coop 1)\n\nTap to view Vaccine Planner.',
+                type: 'warning',
+                category: 'health_alert',
+                actionUrl: '/(health)/VaccineScreen',
+            });
+            Alert.alert('Push Notification Sent', 'Vaccine due push notification for both species sent successfully.');
+        } catch (err: any) {
+            Alert.alert('Error', err?.message || 'Failed to dispatch test notification.');
+        }
+    };
+
     return (
         <SafeAreaView style={styles.safeArea}>
             <View style={styles.container}>
@@ -595,7 +620,31 @@ export default function VaccineScreen() {
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                         Vaccines
                     </Text>
-                    <View style={{ width: 44, height: 44 }} />
+                    <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={handleTestVaccinePush}
+                        style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: 8,
+                            backgroundColor: '#EF4444',
+                            borderWidth: 1,
+                            borderColor: '#DC2626',
+                            elevation: 2,
+                            shadowColor: '#EF4444',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.25,
+                            shadowRadius: 3,
+                        }}
+                    >
+                        <MaterialIcons name="notifications-active" size={14} color="#FFFFFF" />
+                        <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                            Test Push
+                        </Text>
+                    </TouchableOpacity>
                 </View>
 
                 {/* Search Bar & Calendar Toggle */}

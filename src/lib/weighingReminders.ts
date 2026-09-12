@@ -82,8 +82,8 @@ export async function saveWeighingReminder(config: WeighingReminderConfig): Prom
 export async function cancelLocalWeighingNotification(deviceId: string): Promise<void> {
     if (Platform.OS === 'web') return;
     try {
-        const identifier = `aniweigh-reminder-${deviceId}`;
-        await Notifications.cancelScheduledNotificationAsync(identifier);
+        await Notifications.cancelScheduledNotificationAsync(`aniweigh-reminder-${deviceId}`);
+        await Notifications.cancelScheduledNotificationAsync(`aniweigh-reminder-1hr-${deviceId}`);
     } catch (err) {
         console.error('[weighingReminders] cancel error:', err);
     }
@@ -92,6 +92,9 @@ export async function cancelLocalWeighingNotification(deviceId: string): Promise
 /**
  * Schedule offline local device notification with expo-notifications.
  * This triggers on the device at the set time even if the app is closed.
+ * Schedules BOTH:
+ * 1. 1 Hour Before starting time (e.g. at 07:00 if scheduled for 08:00)
+ * 2. Exact start time (e.g. at 08:00)
  */
 export async function scheduleLocalWeighingNotification(
     config: WeighingReminderConfig
@@ -102,35 +105,55 @@ export async function scheduleLocalWeighingNotification(
         const granted = await ensureNotificationPermission();
         if (!granted) return;
 
-        const identifier = `aniweigh-reminder-${config.deviceId}`;
-        // Clear previous schedule for this device
-        await Notifications.cancelScheduledNotificationAsync(identifier);
+        const mainIdentifier = `aniweigh-reminder-${config.deviceId}`;
+        const hourBeforeIdentifier = `aniweigh-reminder-1hr-${config.deviceId}`;
+
+        // Clear previous schedules for this device
+        await Notifications.cancelScheduledNotificationAsync(mainIdentifier);
+        await Notifications.cancelScheduledNotificationAsync(hourBeforeIdentifier);
 
         const { hour, minute } = parseTime(config.reminderTime);
-        const title = `Weighing Session Reminder`;
         const targetLabel = config.batchName
             ? `for batch "${config.batchName}"`
             : config.housingName
             ? `for housing "${config.housingName}"`
             : 'for your livestock';
 
-        let body = `Time to record a weighing session ${targetLabel}.`;
-        if (config.mode === 'interval') {
-            body = `Regular weighing check ${targetLabel} (every ${config.intervalDays} days).`;
-        } else if (config.mode === 'weekly') {
-            body = `Scheduled weekly weigh-in ${targetLabel}.`;
-        } else if (config.mode === 'milestones') {
-            body = `Growth milestone weigh-in ${targetLabel}.`;
-        } else if (config.mode === 'inactivity') {
-            body = `No recent weighing recorded ${targetLabel} in over ${config.inactivityDays} days.`;
-        }
+        let strategyDesc = '';
+        if (config.mode === 'interval') strategyDesc = `(every ${config.intervalDays} days)`;
+        else if (config.mode === 'weekly') strategyDesc = '(weekly schedule)';
+        else if (config.mode === 'milestones') strategyDesc = '(growth milestone)';
+        else if (config.mode === 'inactivity') strategyDesc = `(inactivity threshold ${config.inactivityDays}d)`;
 
-        // Schedule recurring notification based on time of day
+        // ── 1. Schedule 1 Hour Before Notification ──
+        let hourBefore = hour - 1;
+        if (hourBefore < 0) hourBefore = 23;
+
         await Notifications.scheduleNotificationAsync({
-            identifier,
+            identifier: hourBeforeIdentifier,
             content: {
-                title,
-                body,
+                title: 'Scheduled Weighing Session in 1 Hour',
+                body: `A scheduled weighing session ${targetLabel} is set to begin in 1 hour (at ${config.reminderTime}) ${strategyDesc}. Please ensure scales and crates are prepared.`,
+                sound: true,
+                data: {
+                    actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId}`,
+                    type: 'weight_alert',
+                },
+            },
+            trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+                hour: hourBefore,
+                minute,
+                repeats: true,
+            } as any,
+        });
+
+        // ── 2. Schedule Exact Starting Time Notification ──
+        await Notifications.scheduleNotificationAsync({
+            identifier: mainIdentifier,
+            content: {
+                title: 'Weighing Session Starting Now',
+                body: `The scheduled weighing session ${targetLabel} is starting now ${strategyDesc}. Please proceed with live animal scaling.`,
                 sound: true,
                 data: {
                     actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId}`,
@@ -196,6 +219,36 @@ export async function validateActiveBatch(batchId: string | null): Promise<{
     }
 }
 
+async function getDaysSinceLastWeighing(batchId: string | null, deviceId?: string): Promise<number> {
+    try {
+        let lastWeighQuery = supabase
+            .from('weighing_sessions')
+            .select('created_at, status')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (deviceId) {
+            lastWeighQuery = lastWeighQuery.eq('device_id', deviceId);
+        }
+        if (batchId) {
+            lastWeighQuery = lastWeighQuery.eq('batch_id', batchId);
+        }
+
+        const { data: lastSessions } = await lastWeighQuery;
+        const lastSession = lastSessions && lastSessions.length > 0 ? lastSessions[0] : null;
+
+        if (!lastSession?.created_at) return 999;
+
+        const lastDate = new Date(lastSession.created_at);
+        lastDate.setHours(0, 0, 0, 0);
+        const todayObj = new Date();
+        todayObj.setHours(0, 0, 0, 0);
+        return Math.floor((todayObj.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+    } catch {
+        return 999;
+    }
+}
+
 /**
  * Background checker called by NotificationWatcher on app open and periodic intervals.
  * Checks all active weighing reminders for active farms, validates active batches,
@@ -224,84 +277,65 @@ export async function checkAndTriggerWeighingReminders(activeFarmIds: string[]):
             if (config.batchId) {
                 const batchCheck = await validateActiveBatch(config.batchId);
                 if (!batchCheck.isActive) {
-                    // Batch is completed or archived — cancel reminder for this device
-                    await cancelLocalWeighingNotification(config.deviceId);
                     continue;
                 }
             }
 
-            // Check if already notified today
+            // 2. Check if already notified today
             if (config.lastNotifiedDate === today) {
                 continue;
             }
 
-            // Fetch last weighing session timestamp for this device/batch
-            let lastWeighQuery = supabase
-                .from('weighing_sessions')
-                .select('created_at, status')
-                .eq('device_id', config.deviceId)
-                .order('created_at', { ascending: false })
-                .limit(1);
-
-            if (config.batchId) {
-                lastWeighQuery = lastWeighQuery.eq('batch_id', config.batchId);
-            }
-
-            const { data: lastSessions } = await lastWeighQuery;
-            const lastSession = lastSessions && lastSessions.length > 0 ? lastSessions[0] : null;
-
-            let lastWeighedDaysAgo = 999;
-            if (lastSession?.created_at) {
-                const lastDate = new Date(lastSession.created_at);
-                lastDate.setHours(0, 0, 0, 0);
-                const todayObj = new Date();
-                todayObj.setHours(0, 0, 0, 0);
-                lastWeighedDaysAgo = Math.floor((todayObj.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
-            }
-
+            // 3. Evaluate Reminder Strategy
+            const lastWeighedDaysAgo = await getDaysSinceLastWeighing(config.batchId, config.deviceId);
             let shouldNotify = false;
-            let reason = '';
+            let formalTitle = 'Scheduled Weighing Session';
+            let formalMessage = '';
+
+            const targetLabel = config.batchName
+                ? `Batch "${config.batchName}"`
+                : config.housingName
+                ? `Housing "${config.housingName}"`
+                : 'Animals';
 
             if (config.mode === 'interval') {
                 const interval = Math.max(1, config.intervalDays || 7);
                 if (lastWeighedDaysAgo >= interval) {
                     shouldNotify = true;
-                    reason = `Last session was ${lastWeighedDaysAgo === 999 ? 'never' : `${lastWeighedDaysAgo} day(s) ago`} (scheduled every ${interval} days).`;
+                    formalTitle = `Scheduled Weighing: ${targetLabel}`;
+                    formalMessage = `A recurring weighing session for ${targetLabel} is scheduled for today (every ${interval} days). Please perform weight sampling.\n\nTap to open scale.`;
                 }
             } else if (config.mode === 'weekly') {
-                const selectedDays = config.daysOfWeek || [1]; // default Monday
-                if (selectedDays.includes(currentDayOfWeek)) {
+                const days = config.daysOfWeek || [1, 4];
+                if (days.includes(currentDayOfWeek)) {
                     shouldNotify = true;
-                    reason = `Weekly weighing is scheduled for today.`;
+                    formalTitle = `Scheduled Weighing: ${targetLabel}`;
+                    formalMessage = `A weekly scheduled weighing session for ${targetLabel} is due today. Please conduct animal weight assessment.\n\nTap to open scale.`;
                 }
             } else if (config.mode === 'inactivity') {
                 const threshold = Math.max(1, config.inactivityDays || 5);
                 if (lastWeighedDaysAgo >= threshold) {
                     shouldNotify = true;
-                    reason = `No weighing session has been recorded in ${lastWeighedDaysAgo === 999 ? 'a while' : `${lastWeighedDaysAgo} days`}.`;
+                    formalTitle = `Weighing Inactivity Notice: ${targetLabel}`;
+                    formalMessage = `No weight records have been logged for ${targetLabel} in ${lastWeighedDaysAgo === 999 ? threshold : lastWeighedDaysAgo} days. Regular weight recording is required for growth tracking.\n\nTap to open scale.`;
                 }
             } else if (config.mode === 'milestones' && config.batchId) {
                 const batchCheck = await validateActiveBatch(config.batchId);
                 const milestones = config.milestoneDays || [7, 14, 21, 28, 35, 42];
                 if (milestones.includes(batchCheck.currentAgeDays)) {
                     shouldNotify = true;
-                    reason = `Batch reached growth milestone Day ${batchCheck.currentAgeDays}.`;
+                    formalTitle = `Growth Milestone Weigh-In: ${targetLabel}`;
+                    formalMessage = `Batch ${targetLabel} has reached the Day ${batchCheck.currentAgeDays} growth milestone. Please conduct the scheduled weight assessment.\n\nTap to open scale.`;
                 }
             }
 
             if (shouldNotify) {
-                const targetLabel = config.batchName
-                    ? `Batch "${config.batchName}"`
-                    : config.housingName
-                    ? `Housing "${config.housingName}"`
-                    : 'Animals';
-
                 await createNotification({
                     farmId: config.farmId,
                     category: 'weight_alert',
                     type: 'info',
-                    title: `Weighing Reminder: ${targetLabel}`,
-                    message: `Time to perform a weighing session. ${reason}`,
+                    title: formalTitle,
+                    message: formalMessage,
                     actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId}`,
                 });
 
@@ -315,50 +349,204 @@ export async function checkAndTriggerWeighingReminders(activeFarmIds: string[]):
     }
 }
 
+// ─── Helper for Target Label ─────────────────────────────────────────
+function getTargetLabel(config: WeighingReminderConfig): string {
+    return config.batchName
+        ? `Batch "${config.batchName}"`
+        : config.housingName
+        ? `Housing "${config.housingName}"`
+        : 'Livestock';
+}
+
 /**
- * Mock / Test trigger for a weighing reminder.
- * Fired instantly to verify in-app notifications and local device banners even if device is offline.
+ * Mock / Test Trigger: 1 Hour Before Reminder
  */
-export async function triggerTestWeighingReminder(config: WeighingReminderConfig): Promise<void> {
-    try {
-        const targetLabel = config.batchName
-            ? `Batch "${config.batchName}"`
-            : config.housingName
-            ? `Housing "${config.housingName}"`
-            : 'Livestock';
+export async function triggerTest1HourBeforeReminder(config: WeighingReminderConfig): Promise<void> {
+    const targetLabel = getTargetLabel(config);
+    const alertTime = config.reminderTime || '08:00';
 
-        let modeDesc = `Mode: Every ${config.intervalDays || 7} days`;
-        if (config.mode === 'weekly') modeDesc = 'Mode: Weekly Days';
-        else if (config.mode === 'inactivity') modeDesc = `Mode: Inactivity (> ${config.inactivityDays || 5} days)`;
-        else if (config.mode === 'milestones') modeDesc = 'Mode: Growth Milestones';
+    await createNotification({
+        farmId: config.farmId || '',
+        category: 'weight_alert',
+        type: 'info',
+        title: 'Scheduled Weighing in 1 Hour',
+        message: `A scheduled weighing session for ${targetLabel} will commence in 1 hour (at ${alertTime}). Please verify that scales and holding equipment are prepared.\n\nTap to open scale and begin setup.`,
+        actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
+    });
 
-        // 1. In-app notification
-        await createNotification({
-            farmId: config.farmId || '',
-            category: 'weight_alert',
-            type: 'info',
-            title: `Weighing Reminder: ${targetLabel}`,
-            message: `Time for a scheduled weighing session (${modeDesc}).`,
-            actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
-        });
-
-        // 2. Immediate local device push banner
-        if (Platform.OS !== 'web') {
-            await Notifications.scheduleNotificationAsync({
-                content: {
-                    title: `Weighing Reminder: ${targetLabel}`,
-                    body: `Scheduled weigh-in alert (${modeDesc}). Tap to open AniWeigh.`,
-                    sound: true,
-                    data: {
-                        actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
-                        type: 'weight_alert',
-                    },
+    if (Platform.OS !== 'web') {
+        await Notifications.scheduleNotificationAsync({
+            content: {
+                title: 'Scheduled Weighing in 1 Hour',
+                body: `Scheduled session for ${targetLabel} starts in 1 hour (at ${alertTime}). Please prepare scales.`,
+                sound: true,
+                data: {
+                    actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
+                    type: 'weight_alert',
                 },
-                trigger: null, // trigger immediately
-            });
-        }
-    } catch (err) {
-        console.error('[triggerTestWeighingReminder] error:', err);
+            },
+            trigger: null,
+        });
     }
 }
 
+/**
+ * Mock / Test Trigger: Starting Now Reminder
+ */
+export async function triggerTestStartingNowReminder(config: WeighingReminderConfig): Promise<void> {
+    const targetLabel = getTargetLabel(config);
+
+    await createNotification({
+        farmId: config.farmId || '',
+        category: 'weight_alert',
+        type: 'info',
+        title: 'Weighing Session Starting Now',
+        message: `The scheduled weighing session for ${targetLabel} is starting now. Please proceed with live animal scaling.\n\nTap to connect scale and record weights.`,
+        actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
+    });
+
+    if (Platform.OS !== 'web') {
+        await Notifications.scheduleNotificationAsync({
+            content: {
+                title: 'Weighing Session Starting Now',
+                body: `Weighing session for ${targetLabel} is starting now. Tap to connect scale and record weights.`,
+                sound: true,
+                data: {
+                    actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
+                    type: 'weight_alert',
+                },
+            },
+            trigger: null,
+        });
+    }
+}
+
+/**
+ * Mock / Test Trigger: Inactivity Notice
+ */
+export async function triggerTestInactivityReminder(config: WeighingReminderConfig): Promise<void> {
+    const targetLabel = getTargetLabel(config);
+    const days = config.inactivityDays || 5;
+
+    await createNotification({
+        farmId: config.farmId || '',
+        category: 'weight_alert',
+        type: 'info',
+        title: `Weighing Inactivity Notice: ${targetLabel}`,
+        message: `No weight records have been logged for ${targetLabel} in ${days} days. Regular weight monitoring is required to maintain accurate growth analytics.\n\nTap to open scale and record weights.`,
+        actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
+    });
+
+    if (Platform.OS !== 'web') {
+        await Notifications.scheduleNotificationAsync({
+            content: {
+                title: `Weighing Inactivity Notice: ${targetLabel}`,
+                body: `No weight records logged in ${days} days. Tap to record weights.`,
+                sound: true,
+                data: {
+                    actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
+                    type: 'weight_alert',
+                },
+            },
+            trigger: null,
+        });
+    }
+}
+
+/**
+ * Mock / Test Trigger: Growth Milestone Alert
+ */
+export async function triggerTestMilestoneReminder(config: WeighingReminderConfig): Promise<void> {
+    const targetLabel = getTargetLabel(config);
+    const milestoneDay = config.milestoneDays?.[0] || 14;
+
+    await createNotification({
+        farmId: config.farmId || '',
+        category: 'weight_alert',
+        type: 'info',
+        title: `Growth Milestone Weigh-In: ${targetLabel}`,
+        message: `Batch ${targetLabel} has reached the Day ${milestoneDay} growth milestone. Please conduct the scheduled weight assessment to evaluate herd development.\n\nTap to open scale.`,
+        actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
+    });
+
+    if (Platform.OS !== 'web') {
+        await Notifications.scheduleNotificationAsync({
+            content: {
+                title: `Growth Milestone Weigh-In: ${targetLabel}`,
+                body: `Batch ${targetLabel} reached Day ${milestoneDay} milestone. Tap to open AniWeigh scale.`,
+                sound: true,
+                data: {
+                    actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
+                    type: 'weight_alert',
+                },
+            },
+            trigger: null,
+        });
+    }
+}
+
+/**
+ * Mock / Test Trigger: Delayed Reminder (5s, 30s, 60s)
+ * Uses OS timer so the user can completely close / kill the app and see the phone banner pop up!
+ */
+export async function triggerTestDelayedReminder(
+    config: WeighingReminderConfig,
+    delaySeconds: number = 5
+): Promise<void> {
+    const targetLabel = getTargetLabel(config);
+
+    await createNotification({
+        farmId: config.farmId || '',
+        category: 'weight_alert',
+        type: 'info',
+        title: 'Weighing Session Starting Now',
+        message: `The scheduled weighing session for ${targetLabel} is starting now. Please proceed with live animal scaling.\n\nTap to connect scale and record weights.`,
+        actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
+        skipLocalPush: true,
+    });
+
+    if (Platform.OS !== 'web') {
+        await Notifications.scheduleNotificationAsync({
+            content: {
+                title: 'Weighing Session Starting Now',
+                body: `Weighing session for ${targetLabel} is starting now. Tap to connect scale and record weights.`,
+                sound: true,
+                data: {
+                    actionUrl: `/(devices)/AniWeighScreen?deviceId=${config.deviceId || ''}`,
+                    type: 'weight_alert',
+                },
+            },
+            trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                seconds: Math.max(1, delaySeconds),
+                repeats: false,
+            } as any,
+        });
+    }
+}
+
+/**
+ * General Mock / Test trigger for a weighing reminder.
+ */
+export async function triggerTestWeighingReminder(
+    config: WeighingReminderConfig,
+    scenario?: '1hr' | 'start' | 'inactivity' | 'milestone' | 'delay5s' | 'delay30s' | 'delay60s'
+): Promise<void> {
+    switch (scenario) {
+        case 'delay5s':
+            return triggerTestDelayedReminder(config, 5);
+        case 'delay30s':
+            return triggerTestDelayedReminder(config, 30);
+        case 'delay60s':
+            return triggerTestDelayedReminder(config, 60);
+        case '1hr':
+            return triggerTest1HourBeforeReminder(config);
+        case 'inactivity':
+            return triggerTestInactivityReminder(config);
+        case 'milestone':
+            return triggerTestMilestoneReminder(config);
+        case 'start':
+        default:
+            return triggerTestStartingNowReminder(config);
+    }
+}

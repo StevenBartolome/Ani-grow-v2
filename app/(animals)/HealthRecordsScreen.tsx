@@ -3,7 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     ActivityIndicator, Modal, Platform, RefreshControl, ScrollView,
-    TextInput, TouchableOpacity, View, Animated, PanResponder, Easing, StyleSheet,
+    TextInput, TouchableOpacity, View, Animated, PanResponder, Easing, StyleSheet, Alert, useWindowDimensions,
 } from 'react-native';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,6 +23,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
 import { createNotification } from '@/lib/notify';
+import { scheduleUpcomingVetVisits } from '@/lib/notificationScheduler';
 import {
     ILLNESS_SUGGESTIONS, TREATMENT_SUGGESTIONS, VITAMIN_SUGGESTIONS, DEWORMING_SUGGESTIONS
 } from '@/constants/healthSuggestions';
@@ -1011,6 +1012,8 @@ const affectedLabel = (type: RecordType) => {
 
 export default function HealthRecordsScreen() {
     const insets = useSafeAreaInsets();
+    const { width } = useWindowDimensions();
+    const hPad = width >= 900 ? Math.round(width * 0.12) : width >= 600 ? Math.round(width * 0.07) : 20;
     const { housingId, batchId: paramBatchId } = useLocalSearchParams<{ housingId: string; batchId: string }>();
     const router = useRouter();
     const { colors } = useTheme();
@@ -1830,6 +1833,10 @@ export default function HealthRecordsScreen() {
                 }
             }
 
+            if (resolvedFarmId) {
+                scheduleUpcomingVetVisits([resolvedFarmId]);
+            }
+
             showSnackbar('Health record added successfully.');
             await clearDraft();
             resetForm();
@@ -2100,6 +2107,10 @@ export default function HealthRecordsScreen() {
                 await syncCountsForBatchAndHousing(editBatchId, housingId);
             }
 
+            if (farmId) {
+                scheduleUpcomingVetVisits([farmId]);
+            }
+
             showSnackbar('Record updated successfully.');
             handleCloseEditModal();
             await fetchData();
@@ -2133,6 +2144,44 @@ export default function HealthRecordsScreen() {
     const pigColor = (colors as any).pig ?? '#E67E22';
     const chickenColor = (colors as any).chicken ?? '#F1C40F';
 
+    const handleTestHealthPush = () => {
+        Alert.alert(
+            'Test Health Push Notification',
+            'Choose a health alert event to test delivery:',
+            [
+                {
+                    text: 'Mortality Alert',
+                    onPress: async () => {
+                        await createNotification({
+                            farmId: farmId || 'demo-farm',
+                            title: 'Mortality Recorded',
+                            message: 'Mortality report filed:\n• 2 heads reported in Pen A (Swine)\n• 1 head reported in Coop 1 (Broiler)\n\nTap to inspect Health Records.',
+                            type: 'error',
+                            category: 'health_alert',
+                            actionUrl: '/(animals)/HealthRecordsScreen',
+                        });
+                        Alert.alert('Push Sent', 'Mortality push alert sent successfully.');
+                    },
+                },
+                {
+                    text: 'Scheduled Vet Consultation',
+                    onPress: async () => {
+                        await createNotification({
+                            farmId: farmId || 'demo-farm',
+                            title: 'Vet Consultation Today',
+                            message: 'Dr. Santos scheduled routine herd inspection for Swine Bay & Poultry Brooder today.',
+                            type: 'info',
+                            category: 'health_alert',
+                            actionUrl: '/(animals)/HealthRecordsScreen',
+                        });
+                        Alert.alert('Push Sent', 'Vet consultation push alert sent successfully.');
+                    },
+                },
+                { text: 'Cancel', style: 'cancel' },
+            ]
+        );
+    };
+
     if (!housingId) {
         return (
             <View style={[styles.safeArea, { paddingTop: insets.top }]}>
@@ -2140,13 +2189,39 @@ export default function HealthRecordsScreen() {
                     {/* Header */}
                     <Header />
 
-                    <View style={styles.headerContainer}>
-                        <View style={styles.headerTextContainer}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: hPad, paddingTop: 8 }}>
+                        <View style={{ flex: 1, marginRight: 12, marginTop: 8 }}>
                             <Text style={[textStyles.h1, { color: colors.text, fontSize: 32 }]}>Health Records</Text>
-                            <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16 }]}>
+                            <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16, marginBottom: 12 }]}>
                                 Select a housing to Record vaccinations & treatments
                             </Text>
                         </View>
+
+                        <TouchableOpacity
+                            activeOpacity={0.7}
+                            onPress={handleTestHealthPush}
+                            style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                paddingHorizontal: 12,
+                                paddingVertical: 7,
+                                borderRadius: 10,
+                                backgroundColor: '#EF4444',
+                                borderWidth: 1,
+                                borderColor: '#DC2626',
+                                elevation: 2,
+                                shadowColor: '#EF4444',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.25,
+                                shadowRadius: 3,
+                            }}
+                        >
+                            <MaterialIcons name="notifications-active" size={14} color="#FFFFFF" />
+                            <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                                Test Push
+                            </Text>
+                        </TouchableOpacity>
                     </View>
 
                     <ScrollView

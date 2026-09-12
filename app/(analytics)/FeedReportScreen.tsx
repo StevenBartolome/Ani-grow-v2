@@ -164,6 +164,28 @@ export default function FeedReportScreen() {
         fetchHousingsAndBatches();
     }, [fetchHousingsAndBatches]);
 
+    const handleSwitchAnimalType = useCallback((type: 'pig' | 'chicken') => {
+        if (type === animalType) return;
+        setAnimalType(type);
+        setChartTooltip(null);
+        const targetHousings = allHousings.filter(h => h.animal_type === type);
+        if (targetHousings.length > 0) {
+            const nextHousingId = targetHousings[0].id;
+            setSelectedHousingId(nextHousingId);
+        } else {
+            setSelectedHousingId(null);
+            setReportData([]);
+            setChartData(null);
+            setTotalDispenses(0);
+        }
+    }, [animalType, allHousings]);
+
+    const handleSelectHousing = useCallback((housingId: string) => {
+        if (housingId === selectedHousingId) return;
+        setSelectedHousingId(housingId);
+        setChartTooltip(null);
+    }, [selectedHousingId]);
+
     // ─── Resolve selected housing when animal type or housings change ─
     useEffect(() => {
         if (filteredHousings.length > 0) {
@@ -606,11 +628,10 @@ export default function FeedReportScreen() {
                 <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.stroke, padding: 4, marginBottom: 18 }}>
                     {(['pig', 'chicken'] as const).map(type => {
                         const isSelected = animalType === type;
-                        const c = type === 'pig' ? colors.pig : colors.chicken;
                         return (
                             <TouchableOpacity
                                 key={type}
-                                onPress={() => setAnimalType(type)}
+                                onPress={() => handleSwitchAnimalType(type)}
                                 activeOpacity={0.8}
                                 style={{
                                     flex: 1,
@@ -1112,7 +1133,7 @@ export default function FeedReportScreen() {
                 onSelect={(val) => {
                     const matched = filteredHousings.find(h => h.name === val);
                     if (matched) {
-                        setSelectedHousingId(matched.id);
+                        handleSelectHousing(matched.id);
                     }
                     setHousingModalVisible(false);
                 }}

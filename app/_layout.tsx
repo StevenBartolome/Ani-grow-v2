@@ -29,11 +29,26 @@ import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-c
 import { LogBox, Platform } from 'react-native';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
-import { FarmFilterProvider } from '@/context/FarmFilterContext';
+import { FarmFilterProvider, useFarmFilter } from '@/context/FarmFilterContext';
 import { AniBotFAB } from '@/components/AniBotFAB';
 import { OfflineSyncBanner } from '@/components/OfflineSyncBanner';
 import { NotificationWatcher } from '@/components/NotificationWatcher';
+import { registerForPushNotificationsAsync } from '@/lib/pushToken';
+import { useAuth } from '@/context/AuthContext';
 import { ThemeProvider as NavigationThemeProvider, DefaultTheme, DarkTheme } from '@react-navigation/native';
+
+function PushTokenRegistrar() {
+  const { user } = useAuth();
+  const { activeFarmIds } = useFarmFilter();
+
+  useEffect(() => {
+    if (user?.id) {
+      registerForPushNotificationsAsync(user.id, activeFarmIds[0]);
+    }
+  }, [user?.id, activeFarmIds]);
+
+  return null;
+}
 
 // Silence non-critical deprecation and third-party package warnings
 LogBox.ignoreLogs([
@@ -120,6 +135,7 @@ export default function RootLayout() {
             <AniBotFAB />
             <OfflineSyncBanner />
             <NotificationWatcher />
+            <PushTokenRegistrar />
           </FarmFilterProvider>
         </AuthProvider>
       </ThemeProvider>

@@ -1,29 +1,47 @@
-// Always-mounted, screen-independent watcher that turns real farm events
-// into rows in the `notifications` table (+ a local device notification) —
-// see app/_layout.tsx, next to <OfflineSyncBanner />. Centralizing this here
-// (instead of scattering creation calls across AniWeighScreen, AniFeedScreen,
-// MortalityRecordsScreen, AnimalDetails) means every one of those screens
-// stays completely untouched, and notifications fire farm-wide regardless of
-// which screen — if any — is currently open.
-//
-// Renders nothing. Scope is deliberately client-side-only: this only runs
-// while the app is open (foreground or backgrounded, JS still alive) — true
-// background/killed-app monitoring would need expo-task-manager, out of
-// scope for staying Expo-Go compatible (see notify.ts).
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
-import { createNotification } from '@/lib/notify';
+import { createNotification, canUserViewNotification } from '@/lib/notify';
 import { getDeviceDisplayStatus, DeviceDisplayStatus } from '@/lib/deviceStatus';
 import { checkAndTriggerWeighingReminders } from '@/lib/weighingReminders';
+import { type GuidePhaseItem } from '@/constants/guideMockData';
+import { getEffectiveRoadmap, sortActionsByDay, isDayMatching } from '@/lib/roadmapService';
+import { syncAllScheduledNotifications } from '@/lib/notificationScheduler';
 
 const DEVICE_POLL_INTERVAL_MS = 30_000;
+const SCHEDULE_POLL_INTERVAL_MS = 60_000;
 const LOW_STOCK_THRESHOLD_KG = 5;
 
 function todayDateString(): string {
-    return new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local time
+    return new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local time
+}
+
+function formatDisplayDate(dateStr: string): string {
+    if (!dateStr) return '';
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const monthIdx = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        const months = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'June', 'July', 'Aug.', 'Sept.', 'Oct.', 'Nov.', 'Dec.'];
+        if (monthIdx >= 0 && monthIdx < 12 && !isNaN(day) && !isNaN(year)) {
+            return `${months[monthIdx]} ${day}, ${year}`;
+        }
+    }
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const months = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'June', 'July', 'Aug.', 'Sept.', 'Oct.', 'Nov.', 'Dec.'];
+    return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+function currentTimeString(): string {
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
 }
 
 function daysUntil(dateStr: string): number {
@@ -32,35 +50,148 @@ function daysUntil(dateStr: string): number {
     return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function minutesDifference(timeStrA: string, timeStrB: string): number {
+    const [hA, mA] = timeStrA.split(':').map(Number);
+    const [hB, mB] = timeStrB.split(':').map(Number);
+    return (hA * 60 + mA) - (hB * 60 + mB);
+}
+
 async function alreadyAlerted(key: string): Promise<boolean> {
-    try { return (await AsyncStorage.getItem(key)) !== null; } catch { return false; }
+    try {
+        return (await AsyncStorage.getItem(key)) !== null;
+    } catch {
+        return false;
+    }
 }
+
 async function markAlerted(key: string): Promise<void> {
-    try { await AsyncStorage.setItem(key, '1'); } catch { /* best-effort */ }
+    try {
+        await AsyncStorage.setItem(key, '1');
+    } catch {
+        /* best-effort */
+    }
 }
+
 async function clearAlerted(key: string): Promise<void> {
-    try { await AsyncStorage.removeItem(key); } catch { /* best-effort */ }
+    try {
+        await AsyncStorage.removeItem(key);
+    } catch {
+        /* best-effort */
+    }
+}
+
+function calculateBatchDay(arrivalDateStr?: string, ageAtArrivalDays: number = 1): number {
+    if (!arrivalDateStr) return 1;
+    const arr = new Date(arrivalDateStr.split('T')[0]);
+    const today = new Date(todayDateString());
+    arr.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.floor((today.getTime() - arr.getTime()) / (1000 * 60 * 60 * 24));
+    return Math.max(1, diff + (ageAtArrivalDays || 1));
+}
+
+function getCoreActionForDay(phases: GuidePhaseItem[], day: number): {
+    phaseName: string;
+    coreAction: string;
+    targetTemp: string;
+    targetWeight: string;
+} {
+    const phase = phases.find(p => day >= p.dayStart && day <= p.dayEnd) || phases[phases.length - 1];
+    if (!phase) {
+        return {
+            phaseName: 'Care Phase',
+            coreAction: 'Follow standard daily feeding and animal health protocol.',
+            targetTemp: '',
+            targetWeight: '',
+        };
+    }
+    const sortedActions = sortActionsByDay(phase.fullGuideActions || []);
+    const matched = sortedActions.filter(act => isDayMatching(act.dayTag, day));
+    let coreAction = matched.length > 0
+        ? matched[0].action
+        : (phase.todayAction || phase.actionable || 'Follow standard daily feeding and hygiene protocol.');
+    coreAction = coreAction.replace(/^Action:\s*/i, '').trim();
+
+    return {
+        phaseName: phase.name,
+        coreAction,
+        targetTemp: phase.targetTemp,
+        targetWeight: phase.targetWeight,
+    };
 }
 
 export function NotificationWatcher() {
+    const { hasPermission, role } = useAuth();
     const { activeFarmIds } = useFarmFilter();
     const farmIdsRef = useRef<string[]>([]);
     farmIdsRef.current = activeFarmIds;
 
-    // ── Device online/offline transitions ──────────────────────────────
+    const farmNamesRef = useRef<Record<string, string>>({});
+
+    const getFarmName = useCallback((farmId: string): string => {
+        return farmNamesRef.current[farmId] || 'Farm';
+    }, []);
+
+    // Fetch and cache farm names for multi-farm notification prefixing
+    const fetchFarmNames = useCallback(async () => {
+        if (!farmIdsRef.current.length) return;
+        try {
+            const { data } = await supabase
+                .from('farms')
+                .select('id, name')
+                .in('id', farmIdsRef.current);
+            if (data) {
+                data.forEach((f: any) => {
+                    farmNamesRef.current[f.id] = f.name;
+                });
+            }
+        } catch (err) {
+            console.warn('[NotificationWatcher] fetchFarmNames error:', err);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchFarmNames();
+    }, [activeFarmIds, fetchFarmNames]);
+
+    // ── Helper to create notifications with farm name prefix and permission check ──
+    const dispatchNotification = useCallback(
+        async (input: {
+            farmId: string;
+            category: 'device_alert' | 'weight_alert' | 'feed_alert' | 'health_alert' | 'system' | 'invite' | 'ai_suggestion';
+            type: 'info' | 'warning' | 'error' | 'success';
+            title: string;
+            message: string;
+            actionUrl?: string;
+        }) => {
+            const farmName = getFarmName(input.farmId);
+            const userCanReceive = canUserViewNotification(input.category, input.actionUrl, hasPermission, role);
+
+            await createNotification({
+                farmId: input.farmId,
+                farmName,
+                title: input.title,
+                message: input.message,
+                type: input.type,
+                category: input.category,
+                actionUrl: input.actionUrl,
+                skipLocalPush: !userCanReceive,
+            });
+        },
+        [getFarmName, hasPermission, role]
+    );
+
+    // ── 1. Device Online / Offline & Realtime Device Additions ──────────
     useEffect(() => {
         if (activeFarmIds.length === 0) return;
 
-        // Last-known display status per device — first tick after mount only
-        // seeds this map (never notifies), so app launch never floods
-        // notifications for devices that were already offline.
         const lastKnown = new Map<string, DeviceDisplayStatus>();
         let seeded = false;
 
         const tick = async () => {
             const { data, error } = await supabase
                 .from('devices')
-                .select('id, name, status, last_seen, farm_id')
+                .select('id, name, status, last_seen, farm_id, type')
                 .in('farm_id', farmIdsRef.current);
             if (error || !data) return;
 
@@ -69,20 +200,19 @@ export function NotificationWatcher() {
                 const prev = lastKnown.get(d.id);
                 lastKnown.set(d.id, display);
 
-                if (!seeded) continue; // baseline pass — record, don't alert
+                if (!seeded) continue;
                 if (prev === undefined || prev === display) continue;
-                // Only alert on genuine online<->offline flips — a
-                // transition into/out of 'maintenance' is an intentional
-                // human action, not something to alarm about.
                 if (prev === 'maintenance' || display === 'maintenance') continue;
 
                 const nowOnline = display === 'online';
-                await createNotification({
+                await dispatchNotification({
                     farmId: d.farm_id,
                     category: 'device_alert',
                     type: nowOnline ? 'success' : 'error',
-                    title: d.name,
-                    message: nowOnline ? 'is back online.' : 'went offline — check its connection.',
+                    title: nowOnline ? 'Device Online' : 'Device Offline',
+                    message: nowOnline
+                        ? `${d.name} is now online and connected.`
+                        : `${d.name} went offline. Please check its power and network connection.`,
                     actionUrl: `/(devices)/DeviceSettingsScreen?deviceId=${d.id}`,
                 });
             }
@@ -92,253 +222,594 @@ export function NotificationWatcher() {
         tick();
         const interval = setInterval(tick, DEVICE_POLL_INTERVAL_MS);
         return () => clearInterval(interval);
-    }, [activeFarmIds]);
+    }, [activeFarmIds, dispatchNotification]);
 
-    // ── Weight / feed(dispense) / health(mortality) realtime events ────
-    // No per-farm server-side filter (Realtime filters only support one
-    // equality condition, and a farm-admin can manage many farms) — same
-    // precedent already used by RecentLogsScreen.tsx: filter client-side.
+    // ── 2. Realtime Event Listeners (Dispense, Sessions, Health, Devices) ────
     useEffect(() => {
-        const weighChannel = supabase
-            .channel('notif-watch-weigh')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'weigh_sessions' }, (payload) => {
+        const uid = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+        // A. Realtime New Device Registered
+        const deviceChannel = supabase
+            .channel(`notif-watch-devices-${uid}`)
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'devices' }, (payload) => {
                 const row = payload.new as any;
                 if (!farmIdsRef.current.includes(row.farm_id)) return;
-                if (row.status === 'normal' || row.status === 'invalid') return;
-                const label = row.status === 'underweight' ? 'Underweight' : 'Overweight';
-                createNotification({
+                const typeLabel = row.type === 'anifeed' ? 'AniFeed' : row.type === 'aniweigh' ? 'AniWeigh' : 'Device';
+                dispatchNotification({
                     farmId: row.farm_id,
-                    category: 'weight_alert',
-                    type: 'warning',
-                    title: `${label} Reading`,
-                    message: `A ${row.animal_type ?? 'animal'} weighed in at ${(row.net_weight_grams / 1000).toFixed(2)} kg — ${label.toLowerCase()}.`,
-                    actionUrl: '/(devices)/RecentLogsScreen',
+                    category: 'device_alert',
+                    type: 'info',
+                    title: 'New Device Connected',
+                    message: `${typeLabel} '${row.name}' was successfully registered.`,
+                    actionUrl: `/(devices)/DeviceSettingsScreen?deviceId=${row.id}`,
                 });
             })
             .subscribe();
 
+        // B. Realtime Feed Dispensed Successfully
         const feedChannel = supabase
-            .channel('notif-watch-feed')
+            .channel(`notif-watch-dispense-${uid}`)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dispense_records' }, (payload) => {
                 const row = payload.new as any;
                 if (!farmIdsRef.current.includes(row.farm_id)) return;
-                if (row.status !== 'error') return;
-                createNotification({
-                    farmId: row.farm_id,
-                    category: 'feed_alert',
-                    type: 'error',
-                    title: 'Dispense Failed',
-                    message: 'A scheduled feed dispense failed — check the feeder and its feed stock.',
-                    actionUrl: '/(devices)/DispenseRecordsScreen',
-                });
+                if (row.status === 'success') {
+                    const time = row.dispensed_at ? new Date(row.dispensed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : currentTimeString();
+                    const kg = (Number(row.grams_dispensed || 0) / 1000).toFixed(2);
+                    dispatchNotification({
+                        farmId: row.farm_id,
+                        category: 'feed_alert',
+                        type: 'success',
+                        title: 'Feed Dispensed',
+                        message: `Feeder dispensed ${kg} kg of feed successfully at ${time}.`,
+                        actionUrl: '/(devices)/DispenseRecordsScreen',
+                    });
+                } else if (row.status === 'error') {
+                    dispatchNotification({
+                        farmId: row.farm_id,
+                        category: 'feed_alert',
+                        type: 'error',
+                        title: 'Feed Dispense Failed',
+                        message: 'A scheduled feed dispense failed. Please check feeder mechanism and feed stock.',
+                        actionUrl: '/(devices)/DispenseRecordsScreen',
+                    });
+                }
             })
             .subscribe();
 
+        // C. Realtime Weighing Session Completed
+        const sessionChannel = supabase
+            .channel(`notif-watch-sessions-${uid}`)
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'weighing_sessions' }, async (payload) => {
+                const row = payload.new as any;
+                const old = payload.old as any;
+                if (!farmIdsRef.current.includes(row.farm_id)) return;
+                if (row.status === 'completed' && old?.status !== 'completed') {
+                    let housingLabel = 'pen';
+                    if (row.housing_id) {
+                        const { data: h } = await supabase.from('housings').select('name').eq('id', row.housing_id).single();
+                        if (h?.name) housingLabel = h.name;
+                    }
+                    dispatchNotification({
+                        farmId: row.farm_id,
+                        category: 'weight_alert',
+                        type: 'success',
+                        title: 'Weighing Complete',
+                        message: `Weighing session for ${housingLabel} finished. ${row.completed_quantity ?? 0} animal(s) recorded.`,
+                        actionUrl: `/(weighing)/SessionReportScreen?sessionId=${row.id}`,
+                    });
+                }
+            })
+            .subscribe();
+
+        // D. Realtime Health Records & Mortality
         const healthChannel = supabase
-            .channel('notif-watch-health')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'health_records' }, (payload) => {
+            .channel(`notif-watch-health-${uid}`)
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'health_records' }, async (payload) => {
                 const row = payload.new as any;
                 if (!farmIdsRef.current.includes(row.farm_id)) return;
+
+                let housingName = 'Housing';
+                if (row.housing_id) {
+                    const { data: h } = await supabase.from('housings').select('name').eq('id', row.housing_id).single();
+                    if (h?.name) housingName = h.name;
+                }
+
                 if (row.record_type === 'mortality') {
-                    const type = row.severity === 'high' ? 'error' : row.severity === 'medium' ? 'warning' : 'info';
-                    createNotification({
+                    dispatchNotification({
                         farmId: row.farm_id,
                         category: 'health_alert',
-                        type,
+                        type: 'error',
                         title: 'Mortality Recorded',
-                        message: row.title || `${row.affected_count ?? 1} animal(s) deceased.`,
+                        message: `${row.affected_count ?? 1} animal(s) reported in ${housingName}. ${row.notes ? `Note: ${row.notes}` : ''}`,
                         actionUrl: '/(animals)/HealthRecordsScreen',
                     });
-                } else if (row.record_type === 'vaccination') {
-                    createNotification({
+                } else {
+                    const details = row.medication ? `Medication: ${row.medication}` : row.notes || row.title || 'New record logged';
+                    dispatchNotification({
                         farmId: row.farm_id,
                         category: 'health_alert',
                         type: 'info',
-                        title: `New Vaccination: ${row.title || 'Vaccine Record'}`,
-                        message: row.notes || (row.medication ? `Medication: ${row.medication}` : 'A new vaccination record was logged.'),
+                        title: 'New Health Record',
+                        message: `${row.title || 'Health entry'} logged for ${housingName}. ${details}`,
                         actionUrl: `/(animals)/HealthRecordsScreen?housingId=${row.housing_id || ''}`,
                     });
                 }
             })
             .subscribe();
 
-        const vaccineScheduleChannel = supabase
-            .channel('notif-watch-vaccine-schedules')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'vaccination_schedules' }, (payload) => {
-                const row = payload.new as any;
-                if (!farmIdsRef.current.includes(row.farm_id)) return;
-                createNotification({
-                    farmId: row.farm_id,
-                    category: 'health_alert',
-                    type: 'info',
-                    title: `Vaccine Scheduled: ${row.vaccine_name || 'Vaccination'}`,
-                    message: `Scheduled for ${row.scheduled_date || 'upcoming date'}${row.notes ? ` — ${row.notes}` : '.'}`,
-                    actionUrl: '/(health)/VaccineScreen',
-                });
-            })
-            .subscribe();
-
-        const vaccineRecordChannel = supabase
-            .channel('notif-watch-vaccine-records')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'vaccination_records' }, (payload) => {
-                const row = payload.new as any;
-                if (!farmIdsRef.current.includes(row.farm_id)) return;
-                createNotification({
-                    farmId: row.farm_id,
-                    category: 'health_alert',
-                    type: 'success',
-                    title: `Vaccination Administered: ${row.vaccine_name || 'Vaccine'}`,
-                    message: row.animals_vaccinated ? `${row.animals_vaccinated} animal(s) vaccinated.` : `Administered on ${row.administered_date}.`,
-                    actionUrl: '/(health)/VaccineScreen',
-                });
-            })
-            .subscribe();
-
         return () => {
-            supabase.removeChannel(weighChannel);
+            supabase.removeChannel(deviceChannel);
             supabase.removeChannel(feedChannel);
+            supabase.removeChannel(sessionChannel);
             supabase.removeChannel(healthChannel);
-            supabase.removeChannel(vaccineScheduleChannel);
-            supabase.removeChannel(vaccineRecordChannel);
         };
-    }, []);
+    }, [dispatchNotification]);
 
-    // ── Vaccination due / overdue — checked once per calendar day ─────
+    // ── 3. Scheduled Feed Dispense (1-Hr Before Reminder) ────────────────
+    const checkUpcomingFeedDispenses = useCallback(async () => {
+        if (farmIdsRef.current.length === 0) return;
+        const now = currentTimeString();
+        const today = todayDateString();
+
+        try {
+            const { data: schedules } = await supabase
+                .from('feed_schedules')
+                .select('id, farm_id, dispense_times, grams_per_dispense, devices(name), housings(name)')
+                .in('farm_id', farmIdsRef.current);
+
+            if (!schedules) return;
+
+            for (const sch of schedules as any[]) {
+                const times: string[] = sch.dispense_times || [];
+                const feederName = sch.devices?.name || 'Feeder';
+                const kg = (Number(sch.grams_per_dispense || 0) / 1000).toFixed(2);
+
+                for (const t of times) {
+                    const diff = minutesDifference(t, now);
+                    // 1-hour before window (between 55 and 60 minutes prior)
+                    if (diff >= 55 && diff <= 60) {
+                        const key = `feed_dispense_1hr_${sch.id}_${t}_${today}`;
+                        if (!(await alreadyAlerted(key))) {
+                            await dispatchNotification({
+                                farmId: sch.farm_id,
+                                category: 'feed_alert',
+                                type: 'info',
+                                title: 'Upcoming Feed',
+                                message: `${feederName} is scheduled to dispense ${kg} kg in 1 hour (at ${t}).`,
+                                actionUrl: '/(devices)/ManageFeedsScreen',
+                            });
+                            await markAlerted(key);
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[NotificationWatcher] checkUpcomingFeedDispenses error:', err);
+        }
+    }, [dispatchNotification]);
+
+    // ── 4. Scheduled Vet Visits (1-Hr Before & Today) ────────────────────
+    const checkScheduledVetVisits = useCallback(async () => {
+        if (farmIdsRef.current.length === 0) return;
+        const today = todayDateString();
+
+        try {
+            const { data } = await supabase
+                .from('health_records')
+                .select('id, farm_id, title, notes, followup_date, housings(name)')
+                .in('farm_id', farmIdsRef.current)
+                .eq('followup_date', today);
+
+            if (!data) return;
+
+            for (const rec of data as any[]) {
+                const key = `vet_visit_today_${rec.id}_${today}`;
+                if (!(await alreadyAlerted(key))) {
+                    const housing = rec.housings?.name ? ` for ${rec.housings.name}` : '';
+                    await dispatchNotification({
+                        farmId: rec.farm_id,
+                        category: 'health_alert',
+                        type: 'info',
+                        title: 'Vet Visit Today',
+                        message: `Scheduled consultation${housing} is scheduled for today. ${rec.notes ? `Note: ${rec.notes}` : ''}`,
+                        actionUrl: '/(animals)/HealthRecordsScreen',
+                    });
+                    await markAlerted(key);
+                }
+            }
+        } catch (err) {
+            console.warn('[NotificationWatcher] checkScheduledVetVisits error:', err);
+        }
+    }, [dispatchNotification]);
+
+    // ── 5. Vaccinations Due Today & Overdue ──────────────────────────────
     const checkVaccinations = useCallback(async () => {
         if (farmIdsRef.current.length === 0) return;
         const today = todayDateString();
         const dayKey = `vaccination_alert_checked_${today}`;
         if (await alreadyAlerted(dayKey)) return;
 
-        const { data, error } = await supabase
-            .from('vaccination_schedules')
-            .select('id, vaccine_name, farm_id, scheduled_date, status, housings(name)')
-            .in('farm_id', farmIdsRef.current)
-            .neq('status', 'completed')
-            .neq('status', 'cancelled');
-        if (error || !data) return;
+        try {
+            const { data, error } = await supabase
+                .from('vaccination_schedules')
+                .select('id, vaccine_name, farm_id, scheduled_date, status, housings(name)')
+                .in('farm_id', farmIdsRef.current)
+                .neq('status', 'completed')
+                .neq('status', 'cancelled');
+            if (error || !data) return;
 
-        for (const sch of data as any[]) {
-            const days = daysUntil(sch.scheduled_date);
-            const housingLabel = sch.housings?.name ? ` in ${sch.housings.name}` : '';
-            if (days < 0) {
-                const key = `vaccine_overdue_${sch.id}_${today}`;
-                if (!(await alreadyAlerted(key))) {
-                    await createNotification({
-                        farmId: sch.farm_id,
-                        category: 'health_alert',
-                        type: 'error',
-                        title: 'Vaccination Overdue',
-                        message: `"${sch.vaccine_name}"${housingLabel} was scheduled for ${sch.scheduled_date}.`,
-                        actionUrl: '/(health)/VaccineScreen',
-                    });
-                    await markAlerted(key);
-                }
-            } else if (days === 0) {
-                const key = `vaccine_due_today_${sch.id}_${today}`;
-                if (!(await alreadyAlerted(key))) {
-                    await createNotification({
-                        farmId: sch.farm_id,
-                        category: 'health_alert',
-                        type: 'warning',
-                        title: 'Vaccination Due Today',
-                        message: `"${sch.vaccine_name}"${housingLabel} is scheduled for today.`,
-                        actionUrl: '/(health)/VaccineScreen',
-                    });
-                    await markAlerted(key);
+            for (const sch of data as any[]) {
+                const days = daysUntil(sch.scheduled_date);
+                const housingLabel = sch.housings?.name ? ` in ${sch.housings.name}` : '';
+                if (days < 0) {
+                    const key = `vaccine_overdue_${sch.id}_${today}`;
+                    if (!(await alreadyAlerted(key))) {
+                        await dispatchNotification({
+                            farmId: sch.farm_id,
+                            category: 'health_alert',
+                            type: 'error',
+                            title: 'Vaccination Overdue',
+                            message: `Vaccination '${sch.vaccine_name}'${housingLabel} was scheduled for ${formatDisplayDate(sch.scheduled_date)}.`,
+                            actionUrl: '/(health)/VaccineScreen',
+                        });
+                        await markAlerted(key);
+                    }
+                } else if (days === 0) {
+                    const key = `vaccine_due_today_${sch.id}_${today}`;
+                    if (!(await alreadyAlerted(key))) {
+                        await dispatchNotification({
+                            farmId: sch.farm_id,
+                            category: 'health_alert',
+                            type: 'warning',
+                            title: 'Vaccination Due',
+                            message: `Vaccination '${sch.vaccine_name}'${housingLabel} is due today.`,
+                            actionUrl: '/(health)/VaccineScreen',
+                        });
+                        await markAlerted(key);
+                    }
                 }
             }
+            await markAlerted(dayKey);
+        } catch (err) {
+            console.warn('[NotificationWatcher] checkVaccinations error:', err);
         }
+    }, [dispatchNotification]);
 
-        await markAlerted(dayKey);
-    }, []);
-
-    // ── Feed expiry / low stock — checked once per calendar day ────────
-    // Defined via useCallback (stable identity, reads farmIdsRef fresh each
-    // call) so it can be triggered both by activeFarmIds becoming available
-    // and by the AppState foreground listener below.
+    // ── 6. Feed Inventory (Low Stock & Expiring Soon) ───────────────────
     const checkFeeds = useCallback(async () => {
         if (farmIdsRef.current.length === 0) return;
         const today = todayDateString();
         const dayKey = `feed_alert_checked_${today}`;
         if (await alreadyAlerted(dayKey)) return;
 
-        const { data, error } = await supabase
-            .from('feeds')
-            .select('id, name, farm_id, stock_kg, expiry_date')
-            .in('farm_id', farmIdsRef.current);
-        if (error || !data) return;
+        try {
+            const { data, error } = await supabase
+                .from('feeds')
+                .select('id, name, farm_id, stock_kg, expiry_date')
+                .in('farm_id', farmIdsRef.current);
+            if (error || !data) return;
 
-        for (const feed of data as any[]) {
-            if (feed.expiry_date) {
-                const days = daysUntil(feed.expiry_date);
-                if (days < 0) {
-                    const key = `feed_expired_${feed.id}`;
-                    if (!(await alreadyAlerted(key))) {
-                        await createNotification({
-                            farmId: feed.farm_id, category: 'feed_alert', type: 'error',
-                            title: 'Feed Expired', message: `"${feed.name}" expired on ${feed.expiry_date}.`,
-                            actionUrl: '/(devices)/ManageFeedsScreen',
-                        });
-                        await markAlerted(key);
+            for (const feed of data as any[]) {
+                if (feed.expiry_date) {
+                    const days = daysUntil(feed.expiry_date);
+                    if (days < 0) {
+                        const key = `feed_expired_${feed.id}`;
+                        if (!(await alreadyAlerted(key))) {
+                            await dispatchNotification({
+                                farmId: feed.farm_id,
+                                category: 'feed_alert',
+                                type: 'error',
+                                title: 'Feed Expired',
+                                message: `'${feed.name}' expired on ${formatDisplayDate(feed.expiry_date)}.`,
+                                actionUrl: '/(devices)/ManageFeedsScreen',
+                            });
+                            await markAlerted(key);
+                        }
+                    } else if (days <= 7) {
+                        const key = `feed_expiring_${feed.id}`;
+                        if (!(await alreadyAlerted(key))) {
+                            await dispatchNotification({
+                                farmId: feed.farm_id,
+                                category: 'feed_alert',
+                                type: 'warning',
+                                title: 'Feed Expiring',
+                                message: `'${feed.name}' expires in ${days} day(s) (on ${formatDisplayDate(feed.expiry_date)}).`,
+                                actionUrl: '/(devices)/ManageFeedsScreen',
+                            });
+                            await markAlerted(key);
+                        }
+                    } else {
+                        await clearAlerted(`feed_expiring_${feed.id}`);
                     }
-                } else if (days <= 7) {
-                    const key = `feed_expiring_${feed.id}`;
-                    if (!(await alreadyAlerted(key))) {
-                        await createNotification({
-                            farmId: feed.farm_id, category: 'feed_alert', type: 'warning',
-                            title: 'Feed Expiring Soon', message: `"${feed.name}" expires in ${days} day(s).`,
+                }
+
+                const lowStockKey = `feed_low_stock_${feed.id}`;
+                if (typeof feed.stock_kg === 'number' && feed.stock_kg < LOW_STOCK_THRESHOLD_KG) {
+                    if (!(await alreadyAlerted(lowStockKey))) {
+                        await dispatchNotification({
+                            farmId: feed.farm_id,
+                            category: 'feed_alert',
+                            type: 'warning',
+                            title: 'Low Stock Alert',
+                            message: `'${feed.name}' has only ${feed.stock_kg} kg remaining.`,
                             actionUrl: '/(devices)/ManageFeedsScreen',
                         });
-                        await markAlerted(key);
+                        await markAlerted(lowStockKey);
                     }
                 } else {
-                    // Back outside the window (e.g. expiry_date was
-                    // pushed out) — clear so a future re-entry re-alerts.
-                    await clearAlerted(`feed_expiring_${feed.id}`);
+                    await clearAlerted(lowStockKey);
                 }
             }
-
-            const lowStockKey = `feed_low_stock_${feed.id}`;
-            if (typeof feed.stock_kg === 'number' && feed.stock_kg < LOW_STOCK_THRESHOLD_KG) {
-                if (!(await alreadyAlerted(lowStockKey))) {
-                    await createNotification({
-                        farmId: feed.farm_id, category: 'feed_alert', type: 'warning',
-                        title: 'Low Feed Stock', message: `"${feed.name}" is down to ${feed.stock_kg} kg remaining.`,
-                        actionUrl: '/(devices)/ManageFeedsScreen',
-                    });
-                    await markAlerted(lowStockKey);
-                }
-            } else {
-                await clearAlerted(lowStockKey); // restocked above threshold — re-arm for next time
-            }
+            await markAlerted(dayKey);
+        } catch (err) {
+            console.warn('[NotificationWatcher] checkFeeds error:', err);
         }
+    }, [dispatchNotification]);
 
-        await markAlerted(dayKey);
-    }, []);
+    // ── 7. Animals & Batch Lifecycle (Growth Stage & Harvest Target) ─────
+    const checkBatchLifecycle = useCallback(async () => {
+        if (farmIdsRef.current.length === 0) return;
+        const today = todayDateString();
+        const dayKey = `batch_lifecycle_checked_${today}`;
+        if (await alreadyAlerted(dayKey)) return;
 
-    // Runs whenever activeFarmIds changes — including the very first time it
-    // populates after this component mounts before farm data has loaded
-    // (checkFeeds & checkVaccinations & checkAndTriggerWeighingReminders no-op on an empty list, so this fires safely on
-    // every render of that dependency without double-checking same-day work).
-    useEffect(() => {
+        try {
+            const { data: batches } = await supabase
+                .from('batches')
+                .select('id, farm_id, name, animal_type, arrival_date, age_at_arrival_days, harvest_target_kg, housings(name, farm_id)')
+                .in('status', ['active']);
+
+            if (!batches) return;
+
+            const activeBatches = (batches as any[]).filter(b => {
+                const bFarmId = b.farm_id || b.housings?.farm_id;
+                return bFarmId && farmIdsRef.current.includes(bFarmId);
+            });
+
+            for (const b of activeBatches) {
+                const farmId = b.farm_id || b.housings?.farm_id;
+                const totalAgeDays = calculateBatchDay(b.arrival_date, b.age_at_arrival_days);
+                const housingName = b.housings?.name || 'Housing';
+                const animalType = (b.animal_type === 'chicken' ? 'chicken' : 'pig') as 'pig' | 'chicken';
+
+                // Check guide phase milestones & transitions
+                const phases = await getEffectiveRoadmap(farmId, animalType, b.id);
+                const phaseInfo = getCoreActionForDay(phases, totalAgeDays);
+                const currentPhase = phases.find(p => totalAgeDays >= p.dayStart && totalAgeDays <= p.dayEnd) || phases[phases.length - 1];
+
+                if (currentPhase && (totalAgeDays === currentPhase.dayStart || totalAgeDays === 1)) {
+                    const phaseKey = `guide_phase_milestone_${b.id}_${currentPhase.id}_day${totalAgeDays}_${today}`;
+                    if (!(await alreadyAlerted(phaseKey))) {
+                        const speciesLabel = animalType === 'chicken' ? 'Chickens' : 'Pigs';
+                        await dispatchNotification({
+                            farmId,
+                            category: 'ai_suggestion',
+                            type: 'info',
+                            title: `Guide: ${currentPhase.name} (Day ${totalAgeDays})`,
+                            message: `Batch ${b.name} (${speciesLabel}) entered ${currentPhase.name}. Target temp: ${currentPhase.targetTemp}, weight: ${currentPhase.targetWeight}. Focus: ${phaseInfo.coreAction}`,
+                            actionUrl: '/(guide)/GuideScreen',
+                        });
+                        await markAlerted(phaseKey);
+                    }
+                }
+
+                // Check harvest milestone
+                if (b.harvest_target_kg) {
+                    const { data: latestWeigh } = await supabase
+                        .from('weigh_sessions')
+                        .select('avg_weight_grams')
+                        .eq('batch_id', b.id)
+                        .order('recorded_at', { ascending: false })
+                        .limit(1)
+                        .single();
+
+                    if (latestWeigh && (latestWeigh.avg_weight_grams / 1000) >= Number(b.harvest_target_kg)) {
+                        const key = `batch_harvest_reached_${b.id}`;
+                        if (!(await alreadyAlerted(key))) {
+                            await dispatchNotification({
+                                farmId,
+                                category: 'system',
+                                type: 'success',
+                                title: 'Target Harvest Reached',
+                                message: `Batch ${b.name} in ${housingName} reached target harvest weight of ${b.harvest_target_kg} kg. Ready for market.`,
+                                actionUrl: `/(animals)/AnimalDetails?batchId=${b.id}`,
+                            });
+                            await markAlerted(key);
+                        }
+                    }
+                }
+            }
+            await markAlerted(dayKey);
+        } catch (err) {
+            console.warn('[NotificationWatcher] checkBatchLifecycle error:', err);
+        }
+    }, [dispatchNotification]);
+
+    // ── 8. Growth Analytics Alert ────────────────────────────────────────
+    const checkGrowthAnalytics = useCallback(async () => {
+        if (farmIdsRef.current.length === 0) return;
+        const today = todayDateString();
+        const dayKey = `analytics_growth_alert_${today}`;
+        if (await alreadyAlerted(dayKey)) return;
+
+        try {
+            const { data: activeBatches } = await supabase
+                .from('batches')
+                .select('id, farm_id, name, animal_type, housings(name, farm_id)')
+                .in('status', ['active'])
+                .limit(4);
+
+            const filtered = (activeBatches || []).filter((b: any) => {
+                const bFarmId = b.farm_id || b.housings?.farm_id;
+                return bFarmId && farmIdsRef.current.includes(bFarmId);
+            });
+
+            if (filtered.length > 0) {
+                const b = filtered[0] as any;
+                const bFarmId = b.farm_id || b.housings?.farm_id;
+                const housingName = b.housings?.name || 'Housing';
+                await dispatchNotification({
+                    farmId: bFarmId,
+                    category: 'ai_suggestion',
+                    type: 'info',
+                    title: 'Growth Analytics',
+                    message: `Check the growth and weight performance for Batch ${b.name} in ${housingName}.`,
+                    actionUrl: `/(analytics)/GrowthReportScreen?batchId=${b.id}`,
+                });
+                await markAlerted(dayKey);
+            }
+        } catch (err) {
+            console.warn('[NotificationWatcher] checkGrowthAnalytics error:', err);
+        }
+    }, [dispatchNotification]);
+
+    // ── 9. Daily Morning Briefing & Actionable Guide (Checking species & core action) ─
+    const checkDailyMorningBriefing = useCallback(async () => {
+        if (farmIdsRef.current.length === 0) return;
+        const today = todayDateString();
+        const dayKey = `daily_morning_briefing_${today}`;
+        if (await alreadyAlerted(dayKey)) return;
+
+        try {
+            for (const fId of farmIdsRef.current) {
+                // 1. Fetch active batches for this farm
+                const { data: batches } = await supabase
+                    .from('batches')
+                    .select('id, farm_id, name, animal_type, arrival_date, age_at_arrival_days, housings(name, farm_id)')
+                    .in('status', ['active']);
+
+                const farmBatches = (batches || []).filter((b: any) => {
+                    return b.farm_id === fId || b.housings?.farm_id === fId;
+                });
+
+                const pigBatches = farmBatches.filter((b: any) => b.animal_type === 'pig');
+                const chickenBatches = farmBatches.filter((b: any) => b.animal_type === 'chicken');
+
+                const hasPigs = pigBatches.length > 0;
+                const hasChickens = chickenBatches.length > 0;
+
+                let taskSummary = '';
+
+                if (hasPigs && hasChickens) {
+                    // Both pigs and chickens present on farm
+                    const pigBatch = pigBatches[0];
+                    const pigDay = calculateBatchDay(pigBatch.arrival_date, pigBatch.age_at_arrival_days);
+                    const pigPhases = await getEffectiveRoadmap(fId, 'pig', pigBatch.id);
+                    const pigInfo = getCoreActionForDay(pigPhases, pigDay);
+
+                    const chickenBatch = chickenBatches[0];
+                    const chickenDay = calculateBatchDay(chickenBatch.arrival_date, chickenBatch.age_at_arrival_days);
+                    const chickenPhases = await getEffectiveRoadmap(fId, 'chicken', chickenBatch.id);
+                    const chickenInfo = getCoreActionForDay(chickenPhases, chickenDay);
+
+                    taskSummary = `Pigs (Day ${pigDay}): ${pigInfo.coreAction}\n\nChickens (Day ${chickenDay}): ${chickenInfo.coreAction}`;
+                } else if (hasPigs) {
+                    // Pigs only
+                    const pigBatch = pigBatches[0];
+                    const pigDay = calculateBatchDay(pigBatch.arrival_date, pigBatch.age_at_arrival_days);
+                    const pigPhases = await getEffectiveRoadmap(fId, 'pig', pigBatch.id);
+                    const pigInfo = getCoreActionForDay(pigPhases, pigDay);
+
+                    taskSummary = `Pigs (Day ${pigDay}, ${pigInfo.phaseName}):\n${pigInfo.coreAction}`;
+                } else if (hasChickens) {
+                    // Chickens only
+                    const chickenBatch = chickenBatches[0];
+                    const chickenDay = calculateBatchDay(chickenBatch.arrival_date, chickenBatch.age_at_arrival_days);
+                    const chickenPhases = await getEffectiveRoadmap(fId, 'chicken', chickenBatch.id);
+                    const chickenInfo = getCoreActionForDay(chickenPhases, chickenDay);
+
+                    taskSummary = `Chickens (Day ${chickenDay}, ${chickenInfo.phaseName}):\n${chickenInfo.coreAction}`;
+                } else {
+                    // Fallback if no active batches registered yet
+                    const pigPhases = await getEffectiveRoadmap(fId, 'pig');
+                    const defaultInfo = getCoreActionForDay(pigPhases, 1);
+                    taskSummary = `Daily SOP:\n${defaultInfo.coreAction}`;
+                }
+
+                // Count vaccines due today
+                const { count: vaccineCount } = await supabase
+                    .from('vaccination_schedules')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('farm_id', fId)
+                    .eq('scheduled_date', today)
+                    .neq('status', 'completed');
+
+                // Count low stock feeds
+                const { count: lowFeedCount } = await supabase
+                    .from('feeds')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('farm_id', fId)
+                    .lt('stock_kg', LOW_STOCK_THRESHOLD_KG);
+
+                let fullMessage = `Good morning! Check your farm and today's SOP focus:\n\n${taskSummary}`;
+
+                const extraAlerts: string[] = [];
+                if ((vaccineCount || 0) > 0) extraAlerts.push(`${vaccineCount} vaccine(s) due today`);
+                if ((lowFeedCount || 0) > 0) extraAlerts.push(`${lowFeedCount} feeder(s) low on stock`);
+
+                if (extraAlerts.length > 0) {
+                    fullMessage += `\n\nAlerts: ${extraAlerts.join(', ')}`;
+                }
+
+                fullMessage += `\n\nTap to check your farm and view Guide.`;
+
+                await dispatchNotification({
+                    farmId: fId,
+                    category: 'ai_suggestion',
+                    type: 'info',
+                    title: 'Good Morning! Daily Briefing',
+                    message: fullMessage,
+                    actionUrl: '/(guide)/GuideScreen',
+                });
+            }
+            await markAlerted(dayKey);
+        } catch (err) {
+            console.warn('[NotificationWatcher] checkDailyMorningBriefing error:', err);
+        }
+    }, [dispatchNotification]);
+
+    // ── Run all periodic daily checks ───────────────────────────────────
+    const runDailyChecks = useCallback(() => {
+        fetchFarmNames();
         checkFeeds();
         checkVaccinations();
-        checkAndTriggerWeighingReminders(activeFarmIds);
-    }, [activeFarmIds, checkFeeds, checkVaccinations]);
+        checkScheduledVetVisits();
+        checkBatchLifecycle();
+        checkGrowthAnalytics();
+        checkDailyMorningBriefing();
+        checkUpcomingFeedDispenses();
+        checkAndTriggerWeighingReminders(farmIdsRef.current);
+        syncAllScheduledNotifications(farmIdsRef.current);
+    }, [
+        fetchFarmNames,
+        checkFeeds,
+        checkVaccinations,
+        checkScheduledVetVisits,
+        checkBatchLifecycle,
+        checkGrowthAnalytics,
+        checkDailyMorningBriefing,
+        checkUpcomingFeedDispenses,
+    ]);
 
-    // Also re-check whenever the app comes back to the foreground, in case a
-    // feed or vaccination crossed a threshold while the app was backgrounded.
+    useEffect(() => {
+        runDailyChecks();
+    }, [activeFarmIds, runDailyChecks]);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            checkUpcomingFeedDispenses();
+        }, SCHEDULE_POLL_INTERVAL_MS);
+        return () => clearInterval(interval);
+    }, [checkUpcomingFeedDispenses]);
+
     useEffect(() => {
         const sub = AppState.addEventListener('change', (state) => {
             if (state === 'active') {
-                checkFeeds();
-                checkVaccinations();
-                checkAndTriggerWeighingReminders(farmIdsRef.current);
+                runDailyChecks();
             }
         });
         return () => sub.remove();
-    }, [checkFeeds, checkVaccinations]);
+    }, [runDailyChecks]);
 
     return null;
 }

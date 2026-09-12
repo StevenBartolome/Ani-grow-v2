@@ -68,6 +68,33 @@ export function sortActionsByDay(actions: SOPAction[]): SOPAction[] {
 }
 
 /**
+ * Checks if a given dayTag (e.g. 'Day 3', 'Day 1–5', 'Pre-Arrival') applies to the specified day number.
+ */
+export function isDayMatching(dayTag: string | undefined, day: number): boolean {
+  if (!dayTag) return false;
+  const tag = dayTag.trim().toLowerCase();
+  if (tag === 'pre-arrival' && day <= 1) return true;
+  if (tag.includes('harvest') || tag.includes('pre-haul') || tag.includes('pre-catch')) return false;
+
+  // Range like "Day 1-5" or "Day 1–5" or "Day 6–30"
+  const rangeMatch = tag.match(/day\s*(\d+)\s*[-–—to]+\s*(\d+)/i);
+  if (rangeMatch) {
+    const start = parseInt(rangeMatch[1], 10);
+    const end = parseInt(rangeMatch[2], 10);
+    return day >= start && day <= end;
+  }
+
+  // Single day like "Day 3" or "Day 14"
+  const singleMatch = tag.match(/day\s*(\d+)/i);
+  if (singleMatch) {
+    const single = parseInt(singleMatch[1], 10);
+    return day === single;
+  }
+
+  return false;
+}
+
+/**
  * Normalizes fullGuideActions into SOPAction[] format and ensures they are sorted by day.
  */
 export function normalizeSOPActions(raw: any, phase: GuidePhaseItem): SOPAction[] {

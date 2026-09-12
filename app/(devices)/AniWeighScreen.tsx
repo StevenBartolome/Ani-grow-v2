@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, RefreshControl, ScrollView, Switch, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, RefreshControl, ScrollView, Switch, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -24,6 +24,11 @@ import { getDeviceDisplayStatus } from '@/lib/deviceStatus';
 import {
     getWeighingReminder,
     saveWeighingReminder,
+    triggerTest1HourBeforeReminder,
+    triggerTestStartingNowReminder,
+    triggerTestInactivityReminder,
+    triggerTestMilestoneReminder,
+    triggerTestDelayedReminder,
     triggerTestWeighingReminder,
     WeighingReminderConfig,
     ReminderMode,
@@ -514,8 +519,8 @@ export default function AniWeighScreen() {
         try {
             const cfg = await getWeighingReminder(deviceId);
             if (cfg) {
-                setReminderConfig(cfg);
-                setReminderEnabled(cfg.enabled);
+                setReminderConfig({ ...cfg, enabled: true });
+                setReminderEnabled(true);
                 setReminderMode(cfg.mode || 'interval');
                 setReminderInterval(cfg.intervalDays || 7);
                 setReminderDaysOfWeek(cfg.daysOfWeek || [1, 4]);
@@ -1226,7 +1231,7 @@ export default function AniWeighScreen() {
             const bId = effectiveBatchId;
             const bName = targetBatchName;
 
-            if (reminderEnabled && bId && !isBatchActive) {
+            if (bId && !isBatchActive) {
                 showSnackbar('Note: Assigned batch is not active. Reminders only notify for active batches.', 'info');
             }
 
@@ -1237,7 +1242,7 @@ export default function AniWeighScreen() {
                 housingName: hName,
                 batchId: bId,
                 batchName: bName,
-                enabled: reminderEnabled,
+                enabled: true,
                 mode: reminderMode,
                 intervalDays: reminderInterval,
                 daysOfWeek: reminderDaysOfWeek,
@@ -1250,17 +1255,10 @@ export default function AniWeighScreen() {
             await new Promise(r => setTimeout(r, 350));
             await saveWeighingReminder(config);
             setReminderConfig(config);
+            setReminderEnabled(true);
             setReminderModalVisible(false);
 
-            if (reminderEnabled) {
-                if (!isConnected) {
-                    showSnackbar('Schedule saved! (Offline Mode — notifications will alert on this device)', 'success');
-                } else {
-                    showSnackbar('Weighing reminder schedule saved & active!', 'success');
-                }
-            } else {
-                showSnackbar('Weighing reminder disabled.', 'info');
-            }
+            showSnackbar('Weighing reminder schedule saved & active!', 'success');
         } catch (err) {
             console.error('[handleSaveReminder] error:', err);
             showSnackbar('Failed to save reminder schedule.', 'error');
@@ -1269,7 +1267,10 @@ export default function AniWeighScreen() {
         }
     };
 
-    const handleTestTrigger = async () => {
+    const runTestScenario = async (
+        scenarioName: string,
+        action: (config: WeighingReminderConfig) => Promise<void>
+    ) => {
         setIsTestingReminder(true);
         try {
             const effectiveDeviceId = deviceId || 'dev_aniweigh_standalone';
@@ -1286,7 +1287,7 @@ export default function AniWeighScreen() {
                 housingName: hName,
                 batchId: bId,
                 batchName: bName,
-                enabled: reminderEnabled,
+                enabled: true,
                 mode: reminderMode,
                 intervalDays: reminderInterval,
                 daysOfWeek: reminderDaysOfWeek,
@@ -1295,14 +1296,49 @@ export default function AniWeighScreen() {
                 reminderTime: reminderTime,
             };
 
-            await triggerTestWeighingReminder(config);
-            showSnackbar('Test notification fired! Check Notifications page & banner.', 'success');
-        } catch (err) {
-            console.error('[handleTestTrigger] error:', err);
-            showSnackbar('Failed to fire test notification.', 'error');
+            await action(config);
+            Alert.alert('Push Notification Sent', `${scenarioName} push notification dispatched successfully.`);
+            showSnackbar(`${scenarioName} notification dispatched!`, 'success');
+        } catch (err: any) {
+            console.error('[runTestScenario] error:', err);
+            Alert.alert('Error', err?.message || 'Failed to dispatch test notification.');
         } finally {
             setIsTestingReminder(false);
         }
+    };
+
+    const handleTestTrigger = () => {
+        Alert.alert(
+            'Test Push Notification',
+            'Select a weighing reminder scenario to test delivery:',
+            [
+                {
+                    text: '1 Hour Before Reminder',
+                    onPress: () => {
+                        runTestScenario('1-Hour Before Reminder', triggerTest1HourBeforeReminder);
+                    },
+                },
+                {
+                    text: 'Starting Now Reminder',
+                    onPress: () => {
+                        runTestScenario('Starting Now Reminder', triggerTestStartingNowReminder);
+                    },
+                },
+                {
+                    text: `Inactivity Notice (> ${reminderInactivityDays || 5} Days)`,
+                    onPress: () => {
+                        runTestScenario('Inactivity Alert', triggerTestInactivityReminder);
+                    },
+                },
+                {
+                    text: 'Growth Milestone Alert (Day 14)',
+                    onPress: () => {
+                        runTestScenario('Growth Milestone Alert', triggerTestMilestoneReminder);
+                    },
+                },
+                { text: 'Cancel', style: 'cancel' },
+            ]
+        );
     };
 
     // ─── Log helpers ─────────────────────────────────────────────
@@ -2377,60 +2413,37 @@ export default function AniWeighScreen() {
                             style={{ width: '100%', flexShrink: 1 }}
                             contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 22 }}
                         >
-                            {/* Device Connection Status Badge */}
-                            <View style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                alignSelf: 'center',
-                                gap: 6,
-                                backgroundColor: isConnected ? colors.primary + '15' : colors.warning + '18',
-                                paddingHorizontal: 12,
-                                paddingVertical: 4,
-                                borderRadius: 16,
-                                marginBottom: 14,
-                                borderWidth: 1,
-                                borderColor: isConnected ? colors.primary + '30' : colors.warning + '30',
-                            }}>
-                                <View style={{
-                                    width: 6,
-                                    height: 6,
-                                    borderRadius: 3,
-                                    backgroundColor: isConnected ? colors.primary : colors.warning,
-                                }} />
-                                <Text style={[textStyles.label, { color: isConnected ? colors.primary : colors.warning, fontSize: 11, fontWeight: '600' }]}>
-                                    {isConnected ? 'Device Online • Cloud Sync' : 'Device Offline • Local Schedule'}
-                                </Text>
-                            </View>
 
-                            {/* Master Toggle Card */}
-                            <View style={{
-                                backgroundColor: colors.surface,
-                                borderRadius: 16,
-                                borderWidth: 1,
-                                borderColor: colors.stroke,
-                                paddingHorizontal: 16,
-                                paddingVertical: 14,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: 16,
-                            }}>
-                                <View style={{ flex: 1, marginRight: 12 }}>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, marginBottom: 2 }]}>
-                                        Push Reminders
-                                    </Text>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
-                                        {reminderEnabled ? 'Active — alerts sent on due dates' : 'Paused — notifications muted'}
-                                    </Text>
-                                </View>
-                                <Switch
-                                    value={reminderEnabled}
-                                    onValueChange={setReminderEnabled}
-                                    trackColor={{ false: '#767577', true: colors.primary }}
-                                    thumbColor={Platform.OS === 'android' ? (reminderEnabled ? colors.primary : '#f4f3f4') : '#FFFFFF'}
-                                    ios_backgroundColor="#3e3e3e"
-                                />
-                            </View>
+
+                            {/* Mock Test Button (Moved Up to Top) */}
+                            <TouchableOpacity
+                                onPress={handleTestTrigger}
+                                activeOpacity={0.7}
+                                disabled={isTestingReminder}
+                                style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 8,
+                                    backgroundColor: colors.error + '10',
+                                    borderWidth: 1.5,
+                                    borderColor: colors.error + '40',
+                                    borderRadius: 12,
+                                    paddingVertical: 11,
+                                    marginBottom: 16,
+                                }}
+                            >
+                                {isTestingReminder ? (
+                                    <ActivityIndicator size="small" color={colors.error} />
+                                ) : (
+                                    <>
+                                        <MaterialIcons name="notifications-active" size={16} color={colors.error} />
+                                        <Text style={[textStyles.h3, { color: colors.error, fontSize: 12.5, fontWeight: '700' }]}>
+                                            Test Notification Now (Mock Trigger)
+                                        </Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
 
                             {/* Strategy Section Header */}
                             <Text style={{
@@ -2873,35 +2886,7 @@ export default function AniWeighScreen() {
                                 })}
                             </View>
 
-                            {/* Mock Test Button */}
-                            <TouchableOpacity
-                                onPress={handleTestTrigger}
-                                activeOpacity={0.7}
-                                disabled={isTestingReminder}
-                                style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 8,
-                                    backgroundColor: colors.surface,
-                                    borderWidth: 1.5,
-                                    borderColor: colors.stroke,
-                                    borderRadius: 12,
-                                    paddingVertical: 11,
-                                    marginBottom: 14,
-                                }}
-                            >
-                                {isTestingReminder ? (
-                                    <ActivityIndicator size="small" color={colors.primary} />
-                                ) : (
-                                    <>
-                                        <MaterialIcons name="notifications-active" size={16} color={colors.primary} />
-                                        <Text style={[textStyles.h3, { color: colors.primary, fontSize: 12.5 }]}>
-                                            Test Notification Now (Mock Trigger)
-                                        </Text>
-                                    </>
-                                )}
-                            </TouchableOpacity>
+
 
                             {/* Action Buttons */}
                             <View style={{ flexDirection: 'row', gap: 10, width: '100%', marginTop: 2 }}>

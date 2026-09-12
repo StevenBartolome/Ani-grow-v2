@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,6 +12,7 @@ import { SelectionModal } from '@/components/SelectionModal';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { ReportDocument, ReportSection } from '@/lib/pdfReport';
+import { createNotification } from '@/lib/notify';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -233,25 +234,73 @@ export default function WeighingSessionsScreen() {
         }
     }, []);
 
+    const handleSwitchAnimalType = useCallback((type: 'pig' | 'chicken') => {
+        if (type === animalType) return;
+        setAnimalType(type);
+        const targetHousings = allHousings.filter(h => h.animal_type === type);
+        if (targetHousings.length > 0) {
+            const nextHousingId = targetHousings[0].id;
+            setSelectedHousingId(nextHousingId);
+            const targetBatches = allBatches.filter(b => b.housing_id === nextHousingId);
+            if (targetBatches.length > 0) {
+                const nextBatchId = targetBatches[0].id;
+                setSelectedBatchId(nextBatchId);
+                fetchSessions(nextBatchId);
+            } else {
+                setSelectedBatchId(null);
+                setSessions([]);
+                setChildRows([]);
+            }
+        } else {
+            setSelectedHousingId(null);
+            setSelectedBatchId(null);
+            setSessions([]);
+            setChildRows([]);
+        }
+    }, [animalType, allHousings, allBatches, fetchSessions]);
+
+    const handleSelectHousing = useCallback((housingId: string) => {
+        if (housingId === selectedHousingId) return;
+        setSelectedHousingId(housingId);
+        const targetBatches = allBatches.filter(b => b.housing_id === housingId);
+        if (targetBatches.length > 0) {
+            const nextBatchId = targetBatches[0].id;
+            setSelectedBatchId(nextBatchId);
+            fetchSessions(nextBatchId);
+        } else {
+            setSelectedBatchId(null);
+            setSessions([]);
+            setChildRows([]);
+        }
+    }, [selectedHousingId, allBatches, fetchSessions]);
+
+    const handleSelectBatch = useCallback((batchId: string) => {
+        if (batchId === selectedBatchId) return;
+        setSelectedBatchId(batchId);
+        fetchSessions(batchId);
+    }, [selectedBatchId, fetchSessions]);
+
     useEffect(() => { fetchMetadata(); }, [fetchMetadata]);
 
     useEffect(() => {
         if (filteredHousings.length > 0) {
             if (!filteredHousings.some(h => h.id === selectedHousingId)) setSelectedHousingId(filteredHousings[0].id);
-        } else {
-            setSelectedHousingId(null);
+        } else if (allHousings.length > 0 && selectedHousingId) {
+            const stillValid = allHousings.some(h => h.id === selectedHousingId && h.animal_type === animalType);
+            if (!stillValid) setSelectedHousingId(null);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [animalType, allHousings]);
+    }, [animalType, allHousings, selectedHousingId, filteredHousings]);
 
     useEffect(() => {
         if (filteredBatches.length > 0) {
             if (!filteredBatches.some(b => b.id === selectedBatchId)) setSelectedBatchId(filteredBatches[0].id);
-        } else {
-            setSelectedBatchId(null);
+        } else if (allBatches.length > 0 && selectedBatchId) {
+            const stillValid = allBatches.some(b => b.id === selectedBatchId && b.housing_id === selectedHousingId);
+            if (!stillValid) setSelectedBatchId(null);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filteredBatches]);
+    }, [filteredBatches, selectedBatchId, allBatches, selectedHousingId]);
 
     useEffect(() => {
         if (selectedBatchId) fetchSessions(selectedBatchId);
@@ -564,18 +613,98 @@ export default function WeighingSessionsScreen() {
         };
     }, [selectedBatch, selectedHousing, animalType, resolvedRange, rangeTotal, rangeAvgG, rangeMinG, rangeMaxG, rangeFeedGrams, rangeUnder, rangeNormal, rangeOver, dayGroups, previousBatch, previousBatchStats, currentBatchStats, farmName]);
 
+    const handleTestWeighingPush = () => {
+        Alert.alert(
+            'Test Weighing Push',
+            'Select which weighing notification to simulate:',
+            [
+                {
+                    text: 'Session Completed',
+                    onPress: async () => {
+                        try {
+                            const bName = selectedBatch?.name || 'Batch Alpha';
+                            await createNotification({
+                                farmId: farmId || 'demo-farm',
+                                farmName: farmName || 'Farm',
+                                title: 'Weighing Session Completed',
+                                message: `Batch ${bName}: Weighing session completed (35 animals sampled, avg weight: 1.45 kg).\nDetailed growth distribution and charts are updated in Weighing History.`,
+                                type: 'info',
+                                category: 'weight_alert',
+                                actionUrl: '/(weighing)/WeighingSessionsScreen',
+                            });
+                            Alert.alert('Push Notification Sent', 'Weighing completed push notification sent successfully.');
+                        } catch (e: any) {
+                            Alert.alert('Error', e?.message || 'Failed to dispatch test notification.');
+                        }
+                    },
+                },
+                {
+                    text: 'Milestone Reminder',
+                    onPress: async () => {
+                        try {
+                            const bName = selectedBatch?.name || 'Batch Alpha';
+                            const hName = selectedHousing?.name || 'House 1';
+                            await createNotification({
+                                farmId: farmId || 'demo-farm',
+                                farmName: farmName || 'Farm',
+                                title: 'Weighing Milestone Due',
+                                message: `Batch ${bName}: Day 14 milestone sample weighing is scheduled for today in ${hName}.\nOpen AniWeigh to record the sample batch.`,
+                                type: 'warning',
+                                category: 'weight_alert',
+                                actionUrl: '/(devices)/AniWeighDeviceScreen',
+                            });
+                            Alert.alert('Push Notification Sent', 'Weighing milestone reminder push notification sent successfully.');
+                        } catch (e: any) {
+                            Alert.alert('Error', e?.message || 'Failed to dispatch test notification.');
+                        }
+                    },
+                },
+                { text: 'Cancel', style: 'cancel' },
+            ]
+        );
+    };
+
     return (
         <SafeAreaView style={styles.safeArea}>
             <View style={animalStyles.headerTopRow}>
                 <View style={{ width: 44, height: 44 }}>
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Weighing History & Reports</Text>
-                <PrintReportButton
-                    buildReport={buildRangeReport}
-                    emptyMessage="No weighing records in the selected range yet."
-                    onExported={() => showSnackbar('Report exported as PDF.', 'success')}
-                />
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 16, flex: 1, textAlign: 'center' }]} numberOfLines={1}>
+                    Weighing History
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={handleTestWeighingPush}
+                        style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                            paddingHorizontal: 8,
+                            paddingVertical: 6,
+                            borderRadius: 8,
+                            backgroundColor: '#EF4444',
+                            borderWidth: 1,
+                            borderColor: '#DC2626',
+                            elevation: 2,
+                            shadowColor: '#EF4444',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.25,
+                            shadowRadius: 3,
+                        }}
+                    >
+                        <MaterialIcons name="notifications-active" size={13} color="#FFFFFF" />
+                        <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                            Test Push
+                        </Text>
+                    </TouchableOpacity>
+                    <PrintReportButton
+                        buildReport={buildRangeReport}
+                        emptyMessage="No weighing records in the selected range yet."
+                        onExported={() => showSnackbar('Report exported as PDF.', 'success')}
+                    />
+                </View>
             </View>
 
             <ScrollView
@@ -593,7 +722,7 @@ export default function WeighingSessionsScreen() {
                         return (
                             <TouchableOpacity
                                 key={type}
-                                onPress={() => setAnimalType(type)}
+                                onPress={() => handleSwitchAnimalType(type)}
                                 activeOpacity={0.8}
                                 style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, backgroundColor: isSelected ? colors.primary : 'transparent' }}
                             >
@@ -895,7 +1024,7 @@ export default function WeighingSessionsScreen() {
                 onClose={() => setHousingModalVisible(false)}
                 onSelect={(val) => {
                     const matched = filteredHousings.find(h => h.name === val);
-                    if (matched) setSelectedHousingId(matched.id);
+                    if (matched) handleSelectHousing(matched.id);
                     setHousingModalVisible(false);
                 }}
                 title="Select House"
@@ -911,7 +1040,7 @@ export default function WeighingSessionsScreen() {
                 onClose={() => setBatchModalVisible(false)}
                 onSelect={(val) => {
                     const matched = filteredBatches.find(b => b.name === val);
-                    if (matched) setSelectedBatchId(matched.id);
+                    if (matched) handleSelectBatch(matched.id);
                     setBatchModalVisible(false);
                 }}
                 title="Select Batch"

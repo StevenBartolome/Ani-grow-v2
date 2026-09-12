@@ -279,9 +279,58 @@ export default function PredictionReportScreen() {
         }
     }, []);
 
+    const handleSwitchAnimalType = useCallback((type: 'pig' | 'chicken') => {
+        if (type === animalType) return;
+        setAnimalType(type);
+        const targetHousings = allHousings.filter(h => h.animal_type === type);
+        if (targetHousings.length > 0) {
+            const nextHousingId = targetHousings[0].id;
+            setSelectedHousingId(nextHousingId);
+            const targetBatches = allBatches.filter(b => b.housing_id === nextHousingId);
+            if (targetBatches.length > 0) {
+                const nextBatchId = targetBatches[0].id;
+                setSelectedBatchId(nextBatchId);
+                fetchBatchData(nextBatchId);
+            } else {
+                setSelectedBatchId(null);
+                setWeighSessions([]);
+                setHealthRecords([]);
+                lastLoadedBatchIdRef.current = null;
+            }
+        } else {
+            setSelectedHousingId(null);
+            setSelectedBatchId(null);
+            setWeighSessions([]);
+            setHealthRecords([]);
+            lastLoadedBatchIdRef.current = null;
+        }
+    }, [animalType, allHousings, allBatches, fetchBatchData]);
+
+    const handleSelectHousing = useCallback((housingId: string) => {
+        if (housingId === selectedHousingId) return;
+        setSelectedHousingId(housingId);
+        const targetBatches = allBatches.filter(b => b.housing_id === housingId);
+        if (targetBatches.length > 0) {
+            const nextBatchId = targetBatches[0].id;
+            setSelectedBatchId(nextBatchId);
+            fetchBatchData(nextBatchId);
+        } else {
+            setSelectedBatchId(null);
+            setWeighSessions([]);
+            setHealthRecords([]);
+            lastLoadedBatchIdRef.current = null;
+        }
+    }, [selectedHousingId, allBatches, fetchBatchData]);
+
+    const handleSelectBatch = useCallback((batchId: string) => {
+        if (batchId === selectedBatchId) return;
+        setSelectedBatchId(batchId);
+        fetchBatchData(batchId);
+    }, [selectedBatchId, fetchBatchData]);
+
     useEffect(() => { fetchReportMetadata(); }, [fetchReportMetadata]);
 
-    // Auto-resolve housing when animal type changes
+    // Auto-resolve housing when animal type changes as a fallback
     useEffect(() => {
         if (filteredHousings.length > 0) {
             const exists = filteredHousings.some(h => h.id === selectedHousingId);
@@ -291,7 +340,7 @@ export default function PredictionReportScreen() {
         }
     }, [animalType, allHousings, selectedHousingId]);
 
-    // Auto-resolve batch when housing changes
+    // Auto-resolve batch when housing changes as a fallback
     useEffect(() => {
         if (filteredBatches.length > 0) {
             const exists = filteredBatches.some(b => b.id === selectedBatchId);
@@ -766,7 +815,7 @@ export default function PredictionReportScreen() {
                         return (
                             <TouchableOpacity
                                 key={t}
-                                onPress={() => setAnimalType(t)}
+                                onPress={() => handleSwitchAnimalType(t)}
                                 activeOpacity={0.8}
                                 style={{
                                     flex: 1,
@@ -1523,7 +1572,7 @@ export default function PredictionReportScreen() {
                 onClose={() => setHousingModalVisible(false)}
                 onSelect={(val) => {
                     const matched = filteredHousings.find(h => h.name === val);
-                    if (matched) setSelectedHousingId(matched.id);
+                    if (matched) handleSelectHousing(matched.id);
                     setHousingModalVisible(false);
                 }}
                 title="Select House"
@@ -1540,7 +1589,7 @@ export default function PredictionReportScreen() {
                 onClose={() => setBatchModalVisible(false)}
                 onSelect={(val) => {
                     const matched = filteredBatches.find(b => b.name === val);
-                    if (matched) setSelectedBatchId(matched.id);
+                    if (matched) handleSelectBatch(matched.id);
                     setBatchModalVisible(false);
                 }}
                 title="Select Batch"

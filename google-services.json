@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "952508189888",
+    "project_id": "anigrow-4c6cc",
+    "storage_bucket": "anigrow-4c6cc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:952508189888:android:0e568b7845d5d714967125",
+        "android_client_info": {
+          "package_name": "com.anigrow.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDRXRrj2A9EwprvWoH9grgcTPBzHlclTLk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

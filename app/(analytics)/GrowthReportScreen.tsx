@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LineChart } from 'react-native-chart-kit';
@@ -12,6 +12,7 @@ import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { ReportDocument } from '@/lib/pdfReport';
+import { createNotification } from '@/lib/notify';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -217,6 +218,7 @@ export default function GrowthReportScreen() {
                         .from('weighing_sessions')
                         .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                         .eq('batch_id', requestedBatch.id)
+                        .eq('status', 'completed')
                         .order('created_at', { ascending: true }),
                 ]);
                 if (weighRes.error) throw weighRes.error;
@@ -250,6 +252,7 @@ export default function GrowthReportScreen() {
                             .from('weighing_sessions')
                             .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                             .eq('batch_id', targetBatchId)
+                            .eq('status', 'completed')
                             .order('created_at', { ascending: true }),
                     ]);
 
@@ -297,6 +300,7 @@ export default function GrowthReportScreen() {
                     .from('weighing_sessions')
                     .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                     .eq('batch_id', batchId)
+                    .eq('status', 'completed')
                     .order('created_at', { ascending: true }),
             ]);
 
@@ -315,17 +319,78 @@ export default function GrowthReportScreen() {
         fetchReportMetadata();
     }, [fetchReportMetadata]);
 
-    // Auto-resolve housing selection when animal type or housings load
+    // ─── Smooth & Atomic Filter Switching Handlers ─────────────────
+    const handleSwitchAnimalType = useCallback((type: 'pig' | 'chicken') => {
+        if (type === animalType) return;
+        setAnimalType(type);
+        setGrowthTooltip(null);
+        setCompTooltip(null);
+        setSelectedSessionOption(null);
+
+        const targetHousings = allHousings.filter(h => h.animal_type === type);
+        if (targetHousings.length > 0) {
+            const nextHousingId = targetHousings[0].id;
+            setSelectedHousingId(nextHousingId);
+            const targetBatches = allBatches.filter(b => b.housing_id === nextHousingId);
+            if (targetBatches.length > 0) {
+                const nextBatchId = targetBatches[0].id;
+                setSelectedBatchId(nextBatchId);
+                fetchWeighSessions(nextBatchId);
+            } else {
+                setSelectedBatchId(null);
+                setWeighSessions([]);
+                setWeighingSessionEnvelopes([]);
+                lastLoadedBatchIdRef.current = null;
+            }
+        } else {
+            setSelectedHousingId(null);
+            setSelectedBatchId(null);
+            setWeighSessions([]);
+            setWeighingSessionEnvelopes([]);
+            lastLoadedBatchIdRef.current = null;
+        }
+    }, [animalType, allHousings, allBatches, fetchWeighSessions]);
+
+    const handleSelectHousing = useCallback((housingId: string) => {
+        if (housingId === selectedHousingId) return;
+        setSelectedHousingId(housingId);
+        setGrowthTooltip(null);
+        setCompTooltip(null);
+        setSelectedSessionOption(null);
+        const targetBatches = allBatches.filter(b => b.housing_id === housingId);
+        if (targetBatches.length > 0) {
+            const nextBatchId = targetBatches[0].id;
+            setSelectedBatchId(nextBatchId);
+            fetchWeighSessions(nextBatchId);
+        } else {
+            setSelectedBatchId(null);
+            setWeighSessions([]);
+            setWeighingSessionEnvelopes([]);
+            lastLoadedBatchIdRef.current = null;
+        }
+    }, [selectedHousingId, allBatches, fetchWeighSessions]);
+
+    const handleSelectBatch = useCallback((batchId: string) => {
+        if (batchId === selectedBatchId) return;
+        setSelectedBatchId(batchId);
+        setGrowthTooltip(null);
+        setCompTooltip(null);
+        setSelectedSessionOption(null);
+        fetchWeighSessions(batchId);
+    }, [selectedBatchId, fetchWeighSessions]);
+
+    // Auto-resolve housing selection when animal type or housings load initially
     useEffect(() => {
         if (filteredHousings.length > 0) {
             const exists = filteredHousings.some(h => h.id === selectedHousingId);
             if (!exists) {
                 setSelectedHousingId(filteredHousings[0].id);
             }
-        } else {
-            setSelectedHousingId(null);
+        } else if (allHousings.length > 0 && selectedHousingId) {
+            const stillValid = allHousings.some(h => h.id === selectedHousingId && h.animal_type === animalType);
+            if (!stillValid) setSelectedHousingId(null);
         }
-    }, [animalType, allHousings, selectedHousingId]);
+    }, [animalType, allHousings, selectedHousingId, filteredHousings]);
 
     // Auto-resolve batch selection when housing selection or batches change
     useEffect(() => {
@@ -334,10 +399,11 @@ export default function GrowthReportScreen() {
             if (!exists) {
                 setSelectedBatchId(filteredBatches[0].id);
             }
-        } else {
-            setSelectedBatchId(null);
+        } else if (allBatches.length > 0 && selectedBatchId) {
+            const stillValid = allBatches.some(b => b.id === selectedBatchId && b.housing_id === selectedHousingId);
+            if (!stillValid) setSelectedBatchId(null);
         }
-    }, [filteredBatches, selectedBatchId]);
+    }, [filteredBatches, selectedBatchId, allBatches, selectedHousingId]);
 
     // Load weigh sessions when selected batch changes
     useEffect(() => {
@@ -673,8 +739,9 @@ export default function GrowthReportScreen() {
     const sessionItems = useMemo(() => {
         if (weighSessions.length === 0) return [];
 
-        if (weighingSessionEnvelopes.length > 0) {
-            return weighingSessionEnvelopes.map((env, idx) => {
+        const completedEnvelopes = weighingSessionEnvelopes.filter(env => env.status === 'completed');
+        if (completedEnvelopes.length > 0) {
+            return completedEnvelopes.map((env, idx) => {
                 const num = idx + 1;
                 const ordinal = getOrdinal(num);
                 let dateLabel = env.created_at ? env.created_at.slice(0, 10) : '';
@@ -685,7 +752,7 @@ export default function GrowthReportScreen() {
                     }
                 } catch (_) {}
 
-                const isLatest = idx === weighingSessionEnvelopes.length - 1;
+                const isLatest = idx === completedEnvelopes.length - 1;
                 const dayPart = env.farm_day !== null ? ` (Day ${env.farm_day})` : '';
                 const latestPart = isLatest ? ' · Latest' : '';
                 const label = `${ordinal} Session · ${dateLabel}${dayPart}${latestPart}`;
@@ -1416,6 +1483,59 @@ export default function GrowthReportScreen() {
     const batchesOptions = filteredBatches.map(b => b.name);
     const selectedBatchOptionStr = selectedBatch ? selectedBatch.name : 'No Batch Selected';
 
+    const handleTestGrowthPush = () => {
+        Alert.alert(
+            'Test Growth Analytics Push',
+            'Select which growth notification to simulate:',
+            [
+                {
+                    text: 'Growth Target Optimal',
+                    onPress: async () => {
+                        try {
+                            const bName = selectedBatch?.name || 'Batch Alpha';
+                            const speciesStr = animalType === 'pig' ? 'Pigs' : 'Chickens';
+                            await createNotification({
+                                farmId: farmId || 'demo-farm',
+                                farmName: farmName || 'Farm',
+                                title: `${speciesStr} Growth Target Met`,
+                                message: `Batch ${bName}: Current average weight is on track (+5% vs standard growth curve).\nFeed conversion ratio and ADG are within optimal targets.`,
+                                type: 'success',
+                                category: 'weight_alert',
+                                actionUrl: `/(analytics)/GrowthReportScreen?type=${animalType}&batchId=${selectedBatch?.id || ''}`,
+                            });
+                            Alert.alert('Push Notification Sent', 'Growth target push notification sent successfully.');
+                        } catch (e: any) {
+                            Alert.alert('Error', e?.message || 'Failed to dispatch test notification.');
+                        }
+                    },
+                },
+                {
+                    text: 'Underweight Cohort Alert',
+                    onPress: async () => {
+                        try {
+                            const bName = selectedBatch?.name || 'Batch Alpha';
+                            const hName = selectedHousing?.name || 'House 1';
+                            const speciesStr = animalType === 'pig' ? 'Pigs' : 'Chickens';
+                            await createNotification({
+                                farmId: farmId || 'demo-farm',
+                                farmName: farmName || 'Farm',
+                                title: `Underweight ${speciesStr} Alert`,
+                                message: `Batch ${bName} (${hName}): 18% of weighed animals are underweight.\nConsider checking feeder spacing, pen crowding, or feed formulation.`,
+                                type: 'warning',
+                                category: 'weight_alert',
+                                actionUrl: `/(analytics)/GrowthReportScreen?type=${animalType}&batchId=${selectedBatch?.id || ''}`,
+                            });
+                            Alert.alert('Push Notification Sent', 'Underweight alert push notification sent successfully.');
+                        } catch (e: any) {
+                            Alert.alert('Error', e?.message || 'Failed to dispatch test notification.');
+                        }
+                    },
+                },
+                { text: 'Cancel', style: 'cancel' },
+            ]
+        );
+    };
+
     return (
         <SafeAreaView style={styles.safeArea}>
             {/* Header */}
@@ -1423,10 +1543,35 @@ export default function GrowthReportScreen() {
                 <View style={{ width: 44, height: 44, justifyContent: 'center' }}>
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flex: 1, textAlign: 'center', marginHorizontal: 8 }]}>
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 16, flex: 1, textAlign: 'center', marginHorizontal: 4 }]} numberOfLines={1}>
                     {animalType === 'pig' ? 'Pigs' : 'Chickens'} Growth
                 </Text>
-                <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={handleTestGrowthPush}
+                        style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                            paddingHorizontal: 8,
+                            paddingVertical: 6,
+                            borderRadius: 8,
+                            backgroundColor: '#EF4444',
+                            borderWidth: 1,
+                            borderColor: '#DC2626',
+                            elevation: 2,
+                            shadowColor: '#EF4444',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.25,
+                            shadowRadius: 3,
+                        }}
+                    >
+                        <MaterialIcons name="notifications-active" size={13} color="#FFFFFF" />
+                        <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                            Test Push
+                        </Text>
+                    </TouchableOpacity>
                     <PrintReportButton
                         buildReport={buildGrowthReport}
                         emptyMessage="Select a batch with recorded weigh-ins first."
@@ -1465,7 +1610,7 @@ export default function GrowthReportScreen() {
                         return (
                             <TouchableOpacity
                                 key={type}
-                                onPress={() => setAnimalType(type)}
+                                onPress={() => handleSwitchAnimalType(type)}
                                 activeOpacity={0.8}
                                 style={{
                                     flex: 1,
@@ -2506,7 +2651,7 @@ export default function GrowthReportScreen() {
                 onSelect={(val) => {
                     const matched = filteredHousings.find(h => h.name === val);
                     if (matched) {
-                        setSelectedHousingId(matched.id);
+                        handleSelectHousing(matched.id);
                     }
                     setHousingModalVisible(false);
                 }}
@@ -2526,7 +2671,7 @@ export default function GrowthReportScreen() {
                 onSelect={(val) => {
                     const matched = filteredBatches.find(b => b.name === val);
                     if (matched) {
-                        setSelectedBatchId(matched.id);
+                        handleSelectBatch(matched.id);
                     }
                     setBatchModalVisible(false);
                 }}

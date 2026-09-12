@@ -228,6 +228,52 @@ export default function HealthReportScreen() {
         }
     }, []);
 
+    const handleSwitchAnimalType = useCallback((type: 'pig' | 'chicken') => {
+        if (type === animalType) return;
+        setAnimalType(type);
+        const targetHousings = allHousings.filter(h => h.animal_type === type);
+        if (targetHousings.length > 0) {
+            const nextHousingId = targetHousings[0].id;
+            setSelectedHousingId(nextHousingId);
+            const targetBatches = allBatches.filter(b => b.housing_id === nextHousingId);
+            if (targetBatches.length > 0) {
+                const nextBatchId = targetBatches[0].id;
+                setSelectedBatchId(nextBatchId);
+                fetchHealthRecords(nextBatchId);
+            } else {
+                setSelectedBatchId(null);
+                setHealthRecords([]);
+                lastLoadedBatchIdRef.current = null;
+            }
+        } else {
+            setSelectedHousingId(null);
+            setSelectedBatchId(null);
+            setHealthRecords([]);
+            lastLoadedBatchIdRef.current = null;
+        }
+    }, [animalType, allHousings, allBatches, fetchHealthRecords]);
+
+    const handleSelectHousing = useCallback((housingId: string) => {
+        if (housingId === selectedHousingId) return;
+        setSelectedHousingId(housingId);
+        const targetBatches = allBatches.filter(b => b.housing_id === housingId);
+        if (targetBatches.length > 0) {
+            const nextBatchId = targetBatches[0].id;
+            setSelectedBatchId(nextBatchId);
+            fetchHealthRecords(nextBatchId);
+        } else {
+            setSelectedBatchId(null);
+            setHealthRecords([]);
+            lastLoadedBatchIdRef.current = null;
+        }
+    }, [selectedHousingId, allBatches, fetchHealthRecords]);
+
+    const handleSelectBatch = useCallback((batchId: string) => {
+        if (batchId === selectedBatchId) return;
+        setSelectedBatchId(batchId);
+        fetchHealthRecords(batchId);
+    }, [selectedBatchId, fetchHealthRecords]);
+
     useEffect(() => {
         fetchReportMetadata();
     }, [fetchReportMetadata]);
@@ -736,7 +782,7 @@ export default function HealthReportScreen() {
                         return (
                             <TouchableOpacity
                                 key={type}
-                                onPress={() => setAnimalType(type)}
+                                onPress={() => handleSwitchAnimalType(type)}
                                 activeOpacity={0.8}
                                 style={{
                                     flex: 1,
@@ -1541,7 +1587,7 @@ export default function HealthReportScreen() {
                 onSelect={(val) => {
                     const matched = filteredHousings.find(h => h.name === val);
                     if (matched) {
-                        setSelectedHousingId(matched.id);
+                        handleSelectHousing(matched.id);
                     }
                     setHousingModalVisible(false);
                 }}
@@ -1560,7 +1606,7 @@ export default function HealthReportScreen() {
                 onSelect={(val) => {
                     const matched = filteredBatches.find(b => b.name === val);
                     if (matched) {
-                        setSelectedBatchId(matched.id);
+                        handleSelectBatch(matched.id);
                     }
                     setBatchModalVisible(false);
                 }}

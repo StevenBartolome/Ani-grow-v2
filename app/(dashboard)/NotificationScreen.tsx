@@ -1,8 +1,19 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useState, useEffect, useCallback } from 'react';
-import { FlatList, TouchableOpacity, View, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+    FlatList,
+    TouchableOpacity,
+    View,
+    ActivityIndicator,
+    RefreshControl,
+    Animated,
+    Easing,
+    Alert,
+    Platform,
+} from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
@@ -14,13 +25,14 @@ import { useFarmFilter } from '@/context/FarmFilterContext';
 import { AniFeedIcon } from '@/components/AniFeedIcon';
 import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { supabase } from '@/lib/supabase';
-import { sortByPriority } from '@/lib/notify';
+import { sortByPriority, canUserViewNotification, createNotification } from '@/lib/notify';
 
 interface AppNotification {
     id: string;
     title: string;
     message: string;
     time: string;
+    shortTime: string;
     type: 'alert' | 'info' | 'warning' | 'success';
     category: string | null;
     actionUrl?: string | null;
@@ -28,22 +40,23 @@ interface AppNotification {
     isRead: boolean;
 }
 
-const CATEGORY_LABEL: Record<string, string> = {
-    device_alert: 'Device',
-    weight_alert: 'Weight',
-    feed_alert: 'Feed',
-    health_alert: 'Health',
-};
-
-function formatNotificationDate(ts: string): string {
-    if (!ts) return '';
+function formatNotificationDate(ts: string): { full: string; short: string } {
+    if (!ts) return { full: '', short: '' };
     const d = new Date(ts);
-    if (isNaN(d.getTime())) return '';
+    if (isNaN(d.getTime())) return { full: '', short: '' };
     const months = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'June', 'July', 'Aug.', 'Sept.', 'Oct.', 'Nov.', 'Dec.'];
     const month = months[d.getMonth()];
     const day = d.getDate();
     const year = d.getFullYear();
-    return `${month} ${day}, ${year}`;
+    const hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const hour12 = hours % 12 || 12;
+
+    return {
+        full: `${month} ${day}, ${year} at ${hour12}:${minutes} ${ampm}`,
+        short: `${month} ${day}`,
+    };
 }
 
 function mapType(type: string): AppNotification['type'] {
@@ -58,48 +71,128 @@ function resolveNotificationRoute(
     title: string,
     message: string
 ): string | null {
-    let url = (actionUrl || '').trim();
+    let raw = (actionUrl || '').trim();
 
-    if (url) {
-        // Normalize legacy paths that omit route group parentheses
-        if (url.startsWith('/AnimalDetails')) url = url.replace('/AnimalDetails', '/(animals)/AnimalDetails');
-        if (url.startsWith('/AnimalsScreen')) url = url.replace('/AnimalsScreen', '/(animals)/AnimalsScreen');
-        if (url.startsWith('/HealthRecordsScreen')) url = url.replace('/HealthRecordsScreen', '/(animals)/HealthRecordsScreen');
-        if (url.startsWith('/MortalityRecordsScreen')) url = url.replace('/MortalityRecordsScreen', '/(animals)/MortalityRecordsScreen');
-        if (url.startsWith('/DevicesScreen')) url = url.replace('/DevicesScreen', '/(devices)/DevicesScreen');
-        if (url.startsWith('/DeviceSettingsScreen')) url = url.replace('/DeviceSettingsScreen', '/(devices)/DeviceSettingsScreen');
-        if (url.startsWith('/AniWeighScreen')) url = url.replace('/AniWeighScreen', '/(devices)/AniWeighScreen');
-        if (url.startsWith('/AniFeedScreen')) url = url.replace('/AniFeedScreen', '/(devices)/AniFeedScreen');
-        if (url.startsWith('/RecentLogsScreen')) url = url.replace('/RecentLogsScreen', '/(devices)/RecentLogsScreen');
-        if (url.startsWith('/DispenseRecordsScreen')) url = url.replace('/DispenseRecordsScreen', '/(devices)/DispenseRecordsScreen');
-        if (url.startsWith('/ManageFeedsScreen')) url = url.replace('/ManageFeedsScreen', '/(devices)/ManageFeedsScreen');
-        if (url.startsWith('/ManageHousingsScreen')) url = url.replace('/ManageHousingsScreen', '/(devices)/ManageHousingsScreen');
-        if (url.startsWith('/VaccineScreen')) url = url.replace('/VaccineScreen', '/(health)/VaccineScreen');
-        if (url.startsWith('/(vaccine)/VaccineScreen')) url = url.replace('/(vaccine)/VaccineScreen', '/(health)/VaccineScreen');
-        if (url.startsWith('/AnalyticsScreen')) url = url.replace('/AnalyticsScreen', '/(analytics)/AnalyticsScreen');
-        if (url.startsWith('/GrowthReportScreen')) url = url.replace('/GrowthReportScreen', '/(analytics)/GrowthReportScreen');
-        if (url.startsWith('/FeedReportScreen')) url = url.replace('/FeedReportScreen', '/(analytics)/FeedReportScreen');
-        if (url.startsWith('/HealthReportScreen')) url = url.replace('/HealthReportScreen', '/(analytics)/HealthReportScreen');
-        if (url.startsWith('/PredictionReportScreen')) url = url.replace('/PredictionReportScreen', '/(analytics)/PredictionReportScreen');
-        if (url.startsWith('/HomeScreen')) url = url.replace('/HomeScreen', '/(dashboard)/HomeScreen');
-        if (url.startsWith('/NotificationScreen')) url = url.replace('/NotificationScreen', '/(dashboard)/NotificationScreen');
-        if (url.startsWith('/GuideScreen')) url = url.replace('/GuideScreen', '/(guide)/GuideScreen');
-        if (url.startsWith('/FarmsScreen')) url = url.replace('/FarmsScreen', '/(settings)/FarmsScreen');
-        if (url.startsWith('/InviteCodesScreen')) url = url.replace('/InviteCodesScreen', '/(settings)/InviteCodesScreen');
-        return url;
+    if (raw) {
+        if (!raw.startsWith('/')) raw = `/${raw}`;
+        const [path, queryString] = raw.split('?');
+        const query = queryString ? `?${queryString}` : '';
+
+        // Analytics routes
+        if (path.includes('Trajectory') || path.includes('trajectory') || path.includes('GrowthReport') || path.includes('growth')) {
+            return `/(analytics)/GrowthReportScreen${query}`;
+        }
+        if (path.includes('Prediction') || path.includes('prediction')) {
+            return `/(analytics)/PredictionReportScreen${query}`;
+        }
+        if (path.includes('FeedReport') || path.includes('feed_report')) {
+            return `/(analytics)/FeedReportScreen${query}`;
+        }
+        if (path.includes('HealthReport') || path.includes('health_report')) {
+            return `/(analytics)/HealthReportScreen${query}`;
+        }
+        if (path.includes('AnalyticsScreen') || path === '/Analytics' || path === '/(analytics)') {
+            return `/(analytics)/AnalyticsScreen${query}`;
+        }
+
+        // Animal & Health routes
+        if (path.includes('AnimalDetails') || path.includes('animal_details') || path.includes('batch')) {
+            return `/(animals)/AnimalDetails${query}`;
+        }
+        if (path.includes('Mortality') || path.includes('mortality')) {
+            return `/(animals)/MortalityRecordsScreen${query}`;
+        }
+        if (path.includes('HealthRecords') || path.includes('health_records')) {
+            return `/(animals)/HealthRecordsScreen${query}`;
+        }
+        if (path.includes('AnimalsScreen') || path === '/Animals' || path === '/(animals)') {
+            return `/(animals)/AnimalsScreen${query}`;
+        }
+        if (path.includes('Vaccine') || path.includes('vaccin')) {
+            return `/(health)/VaccineScreen${query}`;
+        }
+
+        // Device & Weighing/Feeding routes
+        if (path.includes('AniWeigh') || path.includes('aniweigh')) {
+            return `/(devices)/AniWeighScreen${query}`;
+        }
+        if (path.includes('AniFeed') || path.includes('anifeed')) {
+            return `/(devices)/AniFeedScreen${query}`;
+        }
+        if (path.includes('DispenseRecords') || path.includes('dispense')) {
+            return `/(devices)/DispenseRecordsScreen${query}`;
+        }
+        if (path.includes('ManageFeeds') || path.includes('feeds')) {
+            return `/(devices)/ManageFeedsScreen${query}`;
+        }
+        if (path.includes('ManageHousings') || path.includes('housings')) {
+            return `/(devices)/ManageHousingsScreen${query}`;
+        }
+        if (path.includes('Segregation') || path.includes('segregation')) {
+            return `/(devices)/SegregationRecordsScreen${query}`;
+        }
+        if (path.includes('DeviceSettings') || path.includes('device_settings')) {
+            return `/(devices)/DeviceSettingsScreen${query}`;
+        }
+        if (path.includes('RecentLogs') || path.includes('recent_logs') || path.includes('logs')) {
+            return `/(devices)/RecentLogsScreen${query}`;
+        }
+        if (path.includes('DevicesScreen') || path === '/Devices' || path === '/(devices)') {
+            return `/(devices)/DevicesScreen${query}`;
+        }
+        if (path.includes('SessionReport') || path.includes('session_report')) {
+            return `/(weighing)/SessionReportScreen${query}`;
+        }
+        if (path.includes('WeighingSessions') || path.includes('weighing_sessions')) {
+            return `/(weighing)/WeighingSessionsScreen${query}`;
+        }
+
+        // Guide, AI & Dashboard routes
+        if (path.includes('Guide') || path.includes('guide') || path.includes('roadmap')) {
+            return `/(guide)/GuideScreen${query}`;
+        }
+        if (path.includes('AI') || path.includes('ai') || path.includes('AniBot') || path.includes('chat')) {
+            return `/(ai)/AIAssistantScreen${query}`;
+        }
+        if (path.includes('VetDashboard') || path.includes('vet')) {
+            return `/(dashboard)/VetDashboardScreen${query}`;
+        }
+        if (path.includes('HomeScreen') || path === '/Home' || path === '/home') {
+            return `/(dashboard)/HomeScreen${query}`;
+        }
+        if (path.includes('NotificationScreen') || path.includes('notifications')) {
+            return `/(dashboard)/NotificationScreen${query}`;
+        }
+
+        // Settings routes
+        if (path.includes('FarmsScreen') || path.includes('farms')) {
+            return `/(settings)/FarmsScreen${query}`;
+        }
+        if (path.includes('InviteCodesScreen') || path.includes('invite')) {
+            return `/(settings)/InviteCodesScreen${query}`;
+        }
+        if (path.includes('SettingsScreen') || path.includes('settings')) {
+            return `/(settings)/SettingsScreen${query}`;
+        }
+
+        return raw;
     }
 
-    // Smart fallback routing when no actionUrl is set
+    // Semantic fallback routing
     const text = `${title} ${message}`.toLowerCase();
     if (category === 'weight_alert' || text.includes('weigh') || text.includes('weight')) {
+        if (text.includes('session') || text.includes('finished') || text.includes('complete')) {
+            return '/(weighing)/WeighingSessionsScreen';
+        }
         return '/(devices)/RecentLogsScreen';
     }
     if (category === 'feed_alert' || text.includes('feed') || text.includes('dispense')) {
         if (text.includes('dispense')) return '/(devices)/DispenseRecordsScreen';
         return '/(devices)/ManageFeedsScreen';
     }
-    if (category === 'health_alert' || text.includes('vaccin') || text.includes('mortality') || text.includes('health') || text.includes('deceased')) {
+    if (category === 'health_alert' || text.includes('vaccin') || text.includes('mortality') || text.includes('health') || text.includes('deceased') || text.includes('vet')) {
         if (text.includes('vaccin')) return '/(health)/VaccineScreen';
+        if (text.includes('mortality')) return '/(animals)/MortalityRecordsScreen';
         return '/(animals)/HealthRecordsScreen';
     }
     if (category === 'device_alert' || text.includes('device') || text.includes('offline') || text.includes('online')) {
@@ -111,91 +204,297 @@ function resolveNotificationRoute(
     if (category === 'invite' || text.includes('invite') || text.includes('code')) {
         return '/(settings)/InviteCodesScreen';
     }
-    if (category === 'ai_suggestion' || text.includes('insight') || text.includes('ai')) {
+    if (category === 'ai_suggestion' || text.includes('insight') || text.includes('ai') || text.includes('guide') || text.includes('briefing') || text.includes('trajectory') || text.includes('growth')) {
+        if (text.includes('growth') || text.includes('trajectory') || text.includes('analytic')) return '/(analytics)/GrowthReportScreen';
+        if (text.includes('guide') || text.includes('briefing') || text.includes('task')) return '/(guide)/GuideScreen';
         return '/(ai)/AIAssistantScreen';
     }
 
-    return null;
+    return '/(dashboard)/HomeScreen';
 }
+
+// ── Smooth Slide Accordion Notification Item ────────────────────────────
+interface NotificationItemProps {
+    item: AppNotification;
+    isFirst: boolean;
+    isLast: boolean;
+    isExpanded: boolean;
+    onToggle: (item: AppNotification) => void;
+    onNavigate: (item: AppNotification) => void;
+    iconInfo: any;
+    colors: any;
+    textStyles: any;
+    notificationStyles: any;
+}
+
+const ExpandableNotificationItem: React.FC<NotificationItemProps> = ({
+    item,
+    isFirst,
+    isLast,
+    isExpanded,
+    onToggle,
+    onNavigate,
+    iconInfo,
+    colors,
+    textStyles,
+    notificationStyles,
+}) => {
+    const animVal = useRef(new Animated.Value(isExpanded ? 1 : 0)).current;
+
+    useEffect(() => {
+        Animated.timing(animVal, {
+            toValue: isExpanded ? 1 : 0,
+            duration: 260,
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+            useNativeDriver: false,
+        }).start();
+    }, [isExpanded, animVal]);
+
+    const rotateChevron = animVal.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '180deg'],
+    });
+
+    const slideY = animVal.interpolate({
+        inputRange: [0, 1],
+        outputRange: [-8, 0],
+    });
+
+    const extendedOpacity = animVal.interpolate({
+        inputRange: [0, 0.35, 1],
+        outputRange: [0, 0, 1],
+    });
+
+    return (
+        <TouchableOpacity
+            style={[
+                notificationStyles.notificationItem,
+                {
+                    backgroundColor: item.isRead ? colors.surface : colors.primary + '08',
+                    borderTopLeftRadius: isFirst ? 16 : 0,
+                    borderTopRightRadius: isFirst ? 16 : 0,
+                    borderBottomLeftRadius: isLast ? 16 : 0,
+                    borderBottomRightRadius: isLast ? 16 : 0,
+                    borderTopWidth: isFirst ? 1 : 0,
+                    borderBottomWidth: isLast ? 1 : 0,
+                    borderLeftWidth: 1,
+                    borderRightWidth: 1,
+                    borderColor: isExpanded ? colors.primary + '60' : colors.stroke,
+                    paddingVertical: 14,
+                    paddingHorizontal: 16,
+                },
+            ]}
+            activeOpacity={0.85}
+            onPress={() => onToggle(item)}
+        >
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                <View style={[notificationStyles.iconBox, { backgroundColor: iconInfo.bgColor, marginTop: 2 }]}>
+                    {iconInfo.customComponent === 'aniweigh' ? (
+                        <AniWeighIcon size={19} />
+                    ) : iconInfo.customComponent === 'anifeed' ? (
+                        <AniFeedIcon size={19} />
+                    ) : (
+                        <MaterialIcons name={iconInfo.name as any} size={20} color={iconInfo.color} />
+                    )}
+                </View>
+
+                <View style={notificationStyles.contentContainer}>
+                    <View style={notificationStyles.titleRow}>
+                        <Text
+                            style={[
+                                textStyles.body,
+                                {
+                                    color: colors.text,
+                                    fontSize: 13.5,
+                                    fontFamily: item.isRead ? 'Poppins-Medium' : 'Poppins-SemiBold',
+                                    flex: 1,
+                                    marginRight: 8,
+                                },
+                            ]}
+                            numberOfLines={isExpanded ? undefined : 1}
+                        >
+                            {item.title}
+                        </Text>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text
+                                style={[
+                                    textStyles.label,
+                                    {
+                                        color: colors.textGrey,
+                                        fontSize: 11,
+                                        fontFamily: 'Poppins-Regular',
+                                        marginRight: 4,
+                                    },
+                                ]}
+                            >
+                                {isExpanded ? '' : item.shortTime}
+                            </Text>
+                            {!item.isRead && <View style={notificationStyles.unreadDot} />}
+                            <Animated.View style={{ transform: [{ rotate: rotateChevron }], marginLeft: 4 }}>
+                                <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.textGrey} />
+                            </Animated.View>
+                        </View>
+                    </View>
+
+                    {/* Message content */}
+                    <Text
+                        style={[
+                            textStyles.body,
+                            {
+                                color: isExpanded ? colors.text : colors.textGrey,
+                                fontSize: 12.5,
+                                lineHeight: 19,
+                                marginTop: 4,
+                                fontFamily: 'Poppins-Regular',
+                            },
+                        ]}
+                        numberOfLines={isExpanded ? undefined : 2}
+                    >
+                        {item.message}
+                    </Text>
+
+                    {/* Smooth sliding extended details */}
+                    {isExpanded && (
+                        <Animated.View
+                            style={{
+                                opacity: extendedOpacity,
+                                transform: [{ translateY: slideY }],
+                                marginTop: 12,
+                                paddingTop: 10,
+                                borderTopWidth: 1,
+                                borderTopColor: colors.stroke,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                            }}
+                        >
+                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>
+                                {item.time}
+                            </Text>
+
+                            <TouchableOpacity
+                                style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    backgroundColor: colors.primary,
+                                    paddingVertical: 6,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 8,
+                                    gap: 4,
+                                }}
+                                activeOpacity={0.8}
+                                onPress={() => onNavigate(item)}
+                            >
+                                <Text
+                                    style={[
+                                        textStyles.body,
+                                        { color: '#FFFFFF', fontSize: 12, fontFamily: 'Poppins-Medium' },
+                                    ]}
+                                >
+                                    View Page
+                                </Text>
+                                <MaterialIcons name="arrow-forward" size={14} color="#FFFFFF" />
+                            </TouchableOpacity>
+                        </Animated.View>
+                    )}
+                </View>
+            </View>
+        </TouchableOpacity>
+    );
+};
 
 export default function NotificationScreen() {
     const router = useRouter();
     const notificationStyles = useNotificationStyles();
     const textStyles = useTextStyles();
     const { colors } = useTheme();
-    const { profile } = useAuth();
+    const { profile, hasPermission, role } = useAuth();
     const { activeFarmIds } = useFarmFilter();
 
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
 
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const userId = (profile as any)?.uid || (profile as any)?.id;
 
-    const fetchNotifications = useCallback(async (isPullToRefresh = false) => {
-        if (!userId) {
-            setIsLoading(false);
-            setRefreshing(false);
-            return;
-        }
-        if (isPullToRefresh) {
-            setRefreshing(true);
-        } else {
-            setIsLoading(true);
-        }
-        try {
-            let query = supabase
-                .from('notifications')
-                .select('id, title, message, type, category, action_url, is_read, created_at')
-                .order('created_at', { ascending: false });
-
-            if (activeFarmIds.length > 0) {
-                const farmConditions = activeFarmIds.map(fId => `farm_id.eq.${fId}`).join(',');
-                query = query.or(`user_id.eq.${userId},${farmConditions}`);
-            } else if (farmId) {
-                query = query.or(`user_id.eq.${userId},farm_id.eq.${farmId}`);
-            } else {
-                query = query.eq('user_id', userId);
+    const fetchNotifications = useCallback(
+        async (isPullToRefresh = false, isSilent = false) => {
+            if (!userId) {
+                setIsLoading(false);
+                setRefreshing(false);
+                return;
+            }
+            if (isPullToRefresh) {
+                setRefreshing(true);
+            } else if (!isSilent && notifications.length === 0) {
+                setIsLoading(true);
             }
 
-            const { data, error } = await query;
-            if (error) throw error;
+            try {
+                let query = supabase
+                    .from('notifications')
+                    .select('id, title, message, type, category, action_url, is_read, created_at')
+                    .order('created_at', { ascending: false });
 
-            setNotifications(
-                sortByPriority(data ?? []).map(n => ({
-                    id: n.id,
-                    title: n.title,
-                    message: n.message,
-                    time: formatNotificationDate(n.created_at),
-                    type: mapType(n.type),
-                    category: n.category,
-                    actionUrl: n.action_url,
-                    created_at: n.created_at,
-                    isRead: n.is_read,
-                }))
-            );
-        } catch (err) {
-            console.error('[Notifications] fetch error:', err);
-        } finally {
-            setIsLoading(false);
-            setRefreshing(false);
-        }
-    }, [userId, farmId, activeFarmIds]);
+                if (activeFarmIds.length > 0) {
+                    const farmConditions = activeFarmIds.map(fId => `farm_id.eq.${fId}`).join(',');
+                    query = query.or(`user_id.eq.${userId},${farmConditions}`);
+                } else if (farmId) {
+                    query = query.or(`user_id.eq.${userId},farm_id.eq.${farmId}`);
+                } else {
+                    query = query.eq('user_id', userId);
+                }
+
+                const { data, error } = await query;
+                if (error) throw error;
+
+                const filteredRows = (data ?? []).filter(n =>
+                    canUserViewNotification(n.category, n.action_url, hasPermission, role)
+                );
+
+                setNotifications(
+                    sortByPriority(filteredRows).map(n => {
+                        const dateFormatted = formatNotificationDate(n.created_at);
+                        return {
+                            id: n.id,
+                            title: n.title,
+                            message: n.message,
+                            time: dateFormatted.full,
+                            shortTime: dateFormatted.short,
+                            type: mapType(n.type),
+                            category: n.category,
+                            actionUrl: n.action_url,
+                            created_at: n.created_at,
+                            isRead: n.is_read,
+                        };
+                    })
+                );
+            } catch (err) {
+                console.error('[Notifications] fetch error:', err);
+            } finally {
+                setIsLoading(false);
+                setRefreshing(false);
+            }
+        },
+        [userId, farmId, activeFarmIds, hasPermission, role, notifications.length]
+    );
 
     useFocusEffect(
         useCallback(() => {
-            fetchNotifications();
-        }, [fetchNotifications])
+            fetchNotifications(false, notifications.length > 0);
+        }, [fetchNotifications, notifications.length])
     );
 
-    // Dynamic Realtime Postgres changes listener
+    // Dynamic Realtime Postgres changes listener (silent background fetch)
     useEffect(() => {
         const channelName = `notif-screen-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
         const channel = supabase
             .channel(channelName)
             .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
-                fetchNotifications();
+                fetchNotifications(false, true);
             })
             .subscribe();
 
@@ -209,7 +508,7 @@ export default function NotificationScreen() {
     }, [fetchNotifications]);
 
     const markAsRead = async (id: string) => {
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+        setNotifications(prev => prev.map(n => (n.id === id ? { ...n, isRead: true } : n)));
         await supabase.from('notifications').update({ is_read: true }).eq('id', id);
     };
 
@@ -225,10 +524,36 @@ export default function NotificationScreen() {
         await query;
     };
 
+    const toggleExpand = (item: AppNotification) => {
+        if (expandedId === item.id) {
+            setExpandedId(null);
+        } else {
+            markAsRead(item.id);
+            setExpandedId(item.id);
+        }
+    };
+
+    const handleNavigate = (item: AppNotification) => {
+        markAsRead(item.id);
+        const route = resolveNotificationRoute(item.actionUrl, item.category, item.title, item.message);
+        if (route) {
+            try {
+                router.push(route as any);
+            } catch (err) {
+                console.warn('[NotificationScreen] Routing failed, fallback to Home:', err);
+                try {
+                    router.push('/(dashboard)/HomeScreen');
+                } catch {
+                    /* best-effort */
+                }
+            }
+        }
+    };
+
     const getIconDetails = (item: AppNotification) => {
         const text = `${item.title} ${item.message}`.toLowerCase();
 
-        // 1. Weight alerts (use exact same colors & icons like in the logs: overweight=error, underweight=warning, normal=primary)
+        // 1. Weight alerts
         if (item.category === 'weight_alert' || text.includes('weight') || text.includes('weigh')) {
             if (text.includes('reminder') || text.includes('scheduled')) {
                 return { customComponent: 'aniweigh', color: colors.primary, bgColor: colors.primary + '18' };
@@ -239,14 +564,20 @@ export default function NotificationScreen() {
             if (text.includes('overweight') || text.includes('high weight')) {
                 return { name: 'arrow-upward', color: colors.error, bgColor: colors.error + '18' };
             }
-            if (text.includes('normal') || text.includes('good')) {
-                return { name: 'check', color: colors.primary, bgColor: colors.primary + '18' };
+            if (text.includes('complete') || text.includes('finish') || text.includes('normal')) {
+                return { customComponent: 'aniweigh', color: colors.primary, bgColor: colors.primary + '18' };
             }
             return { customComponent: 'aniweigh', color: colors.primary, bgColor: colors.primary + '18' };
         }
 
-        // 2. Health & Vaccines
-        if (item.category === 'health_alert' || text.includes('health') || text.includes('vaccin') || text.includes('mortality') || text.includes('deceased')) {
+        // 2. Health & Vaccines & Mortality
+        if (
+            item.category === 'health_alert' ||
+            text.includes('health') ||
+            text.includes('vaccin') ||
+            text.includes('mortality') ||
+            text.includes('deceased')
+        ) {
             if (text.includes('vaccin')) {
                 return { name: 'vaccines', color: '#27AE60', bgColor: '#27AE6018' };
             }
@@ -256,7 +587,7 @@ export default function NotificationScreen() {
             return { name: 'medical-services', color: '#27AE60', bgColor: '#27AE6018' };
         }
 
-        // 3. Feeds & Dispense (use AniFeed icon for feeding reminders and feeds)
+        // 3. Feeds & Dispense
         if (item.category === 'feed_alert' || text.includes('feed') || text.includes('dispense')) {
             if (text.includes('expired') || text.includes('failed') || text.includes('error')) {
                 return { name: 'error-outline', color: colors.error, bgColor: colors.error + '18' };
@@ -272,85 +603,191 @@ export default function NotificationScreen() {
             if (item.type === 'alert' || text.includes('offline')) {
                 return { name: 'phonelink-erase', color: colors.error, bgColor: colors.error + '18' };
             }
-            if (item.type === 'success' || text.includes('online')) {
+            if (item.type === 'success' || text.includes('online') || text.includes('connected')) {
                 return { name: 'devices', color: '#10B981', bgColor: '#10B98118' };
             }
             return { name: 'devices', color: colors.primary, bgColor: colors.primary + '18' };
         }
 
+        // 5. Guide / Briefing / Analytics
+        if (
+            item.category === 'ai_suggestion' ||
+            text.includes('briefing') ||
+            text.includes('guide') ||
+            text.includes('analytic') ||
+            text.includes('growth')
+        ) {
+            if (text.includes('analytic') || text.includes('growth')) {
+                return { name: 'insights', color: '#3B82F6', bgColor: '#3B82F618' };
+            }
+            return { name: 'menu-book', color: colors.primary, bgColor: colors.primary + '18' };
+        }
+
         switch (item.type) {
-            case 'alert':   return { name: 'error',         color: colors.error,   bgColor: colors.error   + '18' };
-            case 'warning': return { name: 'warning-amber', color: colors.warning, bgColor: colors.warning + '18' };
-            case 'success': return { name: 'check-circle',  color: '#10B981',      bgColor: '#10B98118' };
-            default:        return { name: 'info',          color: colors.primary, bgColor: colors.primary + '18' };
+            case 'alert':
+                return { name: 'error', color: colors.error, bgColor: colors.error + '18' };
+            case 'warning':
+                return { name: 'warning-amber', color: colors.warning, bgColor: colors.warning + '18' };
+            case 'success':
+                return { name: 'check-circle', color: '#10B981', bgColor: '#10B98118' };
+            default:
+                return { name: 'info', color: colors.primary, bgColor: colors.primary + '18' };
         }
     };
 
     const unreadCount = notifications.filter(n => !n.isRead).length;
 
-    const handlePressItem = (item: AppNotification) => {
-        markAsRead(item.id);
-        const route = resolveNotificationRoute(item.actionUrl, item.category, item.title, item.message);
-        if (route) {
-            try {
-                router.push(route as any);
-            } catch (err) {
-                console.warn('[NotificationScreen] Routing failed:', err);
-            }
-        }
-    };
-
     const renderItem = ({ item, index }: { item: AppNotification; index: number }) => {
         const iconInfo = getIconDetails(item);
         const isFirst = index === 0;
         const isLast = index === notifications.length - 1;
+        const isExpanded = expandedId === item.id;
 
         return (
-            <TouchableOpacity
-                style={[
-                    notificationStyles.notificationItem,
-                    {
-                        backgroundColor: item.isRead ? colors.surface : colors.primary + '08',
-                        borderTopLeftRadius: isFirst ? 16 : 0,
-                        borderTopRightRadius: isFirst ? 16 : 0,
-                        borderBottomLeftRadius: isLast ? 16 : 0,
-                        borderBottomRightRadius: isLast ? 16 : 0,
-                        borderTopWidth: isFirst ? 1 : 0,
-                        borderBottomWidth: isLast ? 1 : 0,
-                        borderLeftWidth: 1,
-                        borderRightWidth: 1,
-                        borderColor: colors.stroke,
+            <ExpandableNotificationItem
+                item={item}
+                isFirst={isFirst}
+                isLast={isLast}
+                isExpanded={isExpanded}
+                onToggle={toggleExpand}
+                onNavigate={handleNavigate}
+                iconInfo={iconInfo}
+                colors={colors}
+                textStyles={textStyles}
+                notificationStyles={notificationStyles}
+            />
+        );
+    };
+
+    const scheduleDelayedTestPush = async (seconds: number, label: string) => {
+        try {
+            await createNotification({
+                farmId: farmId || 'demo-farm',
+                title: 'Good Morning! Daily Briefing',
+                message: `Good morning! Check your farm and today's SOP focus:\n\nPigs (Day 14): Schedule core vaccinations.\n\nChickens (Day 12): Administer Gumboro vaccine.\n\nTap to check your farm and view Guide.`,
+                type: 'info',
+                category: 'ai_suggestion',
+                actionUrl: '/(guide)/GuideScreen',
+                skipLocalPush: true,
+            });
+
+            if (Platform.OS !== 'web') {
+                await Notifications.scheduleNotificationAsync({
+                    content: {
+                        title: 'Good Morning! Daily Briefing',
+                        body: "Good morning! Check your farm and today's SOP focus (Pigs Day 14, Chickens Day 12). Tap to view Guide.",
+                        sound: true,
+                        data: {
+                            actionUrl: '/(guide)/GuideScreen',
+                            farmId: farmId || 'demo-farm',
+                        },
                     },
-                ]}
-                activeOpacity={0.7}
-                onPress={() => handlePressItem(item)}
-            >
-                <View style={[notificationStyles.iconBox, { backgroundColor: iconInfo.bgColor }]}>
-                    {iconInfo.customComponent === 'aniweigh' ? (
-                        <AniWeighIcon size={19} />
-                    ) : iconInfo.customComponent === 'anifeed' ? (
-                        <AniFeedIcon size={19} />
-                    ) : (
-                        <MaterialIcons name={iconInfo.name as any} size={20} color={iconInfo.color} />
-                    )}
-                </View>
-                <View style={notificationStyles.contentContainer}>
-                    <View style={notificationStyles.titleRow}>
-                        <Text style={[textStyles.body, { color: colors.text, fontSize: 13.5, fontFamily: item.isRead ? 'Poppins-Medium' : 'Poppins-SemiBold', flex: 1, marginRight: 8 }]} numberOfLines={1}>
-                            {item.title}
-                        </Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Regular' }]}>{item.time}</Text>
-                            {!item.isRead && (
-                                <View style={notificationStyles.unreadDot} />
-                            )}
-                        </View>
-                    </View>
-                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12.5, lineHeight: 18, marginTop: 1, fontFamily: 'Poppins-Regular' }]} numberOfLines={2}>
-                        {item.message}
-                    </Text>
-                </View>
-            </TouchableOpacity>
+                    trigger: {
+                        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                        seconds: Math.max(1, seconds),
+                        repeats: false,
+                    } as any,
+                });
+            }
+
+            Alert.alert(
+                `Push Alarm Set (${label})`,
+                `Test push notification will arrive in ${label}. You can now press Home and completely close/swipe away the app to test background banner delivery.`
+            );
+        } catch (err: any) {
+            Alert.alert('Error', err?.message || 'Failed to schedule delayed test notification.');
+        }
+    };
+
+    const handleTestPushNotification = () => {
+        Alert.alert(
+            'Test Push Notification',
+            'Select a notification event (use timed options to test with app fully closed):',
+            [
+                {
+                    text: '⏱ Test in 5s (Close app now)',
+                    onPress: () => scheduleDelayedTestPush(5, '5 seconds'),
+                },
+                {
+                    text: '⏱ Test in 30s (Close app now)',
+                    onPress: () => scheduleDelayedTestPush(30, '30 seconds'),
+                },
+                {
+                    text: '⏱ Test in 1 Min (Close app now)',
+                    onPress: () => scheduleDelayedTestPush(60, '1 minute'),
+                },
+                {
+                    text: 'Daily Briefing (Morning Greeting)',
+                    onPress: async () => {
+                        await createNotification({
+                            farmId: farmId || 'demo-farm',
+                            title: 'Good Morning! Daily Briefing',
+                            message: `Good morning! Check your farm and today's SOP focus:\n\nPigs (Day 14): Schedule core vaccinations.\n\nChickens (Day 12): Administer Gumboro vaccine.\n\nTap to check your farm and view Guide.`,
+                            type: 'info',
+                            category: 'ai_suggestion',
+                            actionUrl: '/(guide)/GuideScreen',
+                        });
+                        Alert.alert('Push Sent', 'Daily Briefing push notification sent.');
+                    },
+                },
+                {
+                    text: 'Device Offline Alert',
+                    onPress: async () => {
+                        await createNotification({
+                            farmId: farmId || 'demo-farm',
+                            title: 'Device Offline',
+                            message: 'AniFeed Feeder 1 went offline. Please check power and network connectivity.',
+                            type: 'error',
+                            category: 'device_alert',
+                            actionUrl: '/(devices)/DevicesScreen',
+                        });
+                        Alert.alert('Push Sent', 'Device offline push notification sent.');
+                    },
+                },
+                {
+                    text: 'Feed Low Stock Alert',
+                    onPress: async () => {
+                        await createNotification({
+                            farmId: farmId || 'demo-farm',
+                            title: 'Low Stock Alert',
+                            message: 'Starter Mash has only 3.20 kg remaining in stock.\n\nTap to view Feed Inventory.',
+                            type: 'warning',
+                            category: 'feed_alert',
+                            actionUrl: '/(devices)/ManageFeedsScreen',
+                        });
+                        Alert.alert('Push Sent', 'Low stock push notification sent.');
+                    },
+                },
+                {
+                    text: 'Vaccination Due Alert',
+                    onPress: async () => {
+                        await createNotification({
+                            farmId: farmId || 'demo-farm',
+                            title: 'Vaccination Due',
+                            message: 'Newcastle Disease + Bronchitis eye drops due today for Broiler Flock Alpha (Coop 1).',
+                            type: 'warning',
+                            category: 'health_alert',
+                            actionUrl: '/(health)/VaccineScreen',
+                        });
+                        Alert.alert('Push Sent', 'Vaccination due push notification sent.');
+                    },
+                },
+                {
+                    text: 'Weighing Complete',
+                    onPress: async () => {
+                        await createNotification({
+                            farmId: farmId || 'demo-farm',
+                            title: 'Weighing Complete',
+                            message: 'Weighing session for Pen A finished. 32 animal(s) recorded with average 18.5 kg.',
+                            type: 'success',
+                            category: 'weight_alert',
+                            actionUrl: '/(weighing)/WeighingSessionsScreen',
+                        });
+                        Alert.alert('Push Sent', 'Weighing complete push notification sent.');
+                    },
+                },
+                { text: 'Cancel', style: 'cancel' },
+            ]
         );
     };
 
@@ -364,7 +801,33 @@ export default function NotificationScreen() {
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                         Notifications
                     </Text>
-                    <View style={{ width: 44, height: 44, justifyContent: 'center', alignItems: 'flex-end' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <TouchableOpacity
+                            activeOpacity={0.7}
+                            onPress={handleTestPushNotification}
+                            style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                                borderRadius: 8,
+                                backgroundColor: '#EF4444',
+                                borderWidth: 1,
+                                borderColor: '#DC2626',
+                                elevation: 2,
+                                shadowColor: '#EF4444',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.25,
+                                shadowRadius: 3,
+                            }}
+                        >
+                            <MaterialIcons name="notifications-active" size={14} color="#FFFFFF" />
+                            <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                                Test Push
+                            </Text>
+                        </TouchableOpacity>
+
                         {unreadCount > 0 && (
                             <TouchableOpacity onPress={markAllAsRead} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                                 <MaterialIcons name="done-all" size={24} color={colors.primary} />
@@ -400,7 +863,7 @@ export default function NotificationScreen() {
                                 <MaterialIcons name="notifications-off" size={48} color={colors.textGrey} />
                                 <Text style={[textStyles.h2, { color: colors.text, marginTop: 16 }]}>No notifications yet</Text>
                                 <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginTop: 8 }]}>
-                                    You're all caught up! New alerts and messages will appear here.
+                                    You are all caught up. New alerts and messages will appear here.
                                 </Text>
                             </View>
                         }

@@ -12,6 +12,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { FarmSwitcherDrawer } from '@/components/FarmSwitcherDrawer';
 import { ProfileDrawer } from '@/components/ProfileDrawer';
 import { supabase } from '@/lib/supabase';
+import { canUserViewNotification } from '@/lib/notify';
 
 const getHPad = (width: number) => {
     if (width >= 900) return Math.round(width * 0.12);
@@ -34,6 +35,8 @@ export const Header: React.FC = () => {
         managedFarms,
         isMultiFarm,
     } = useFarmFilter();
+
+    const { hasPermission, role } = useAuth();
 
     // Derive farmName synchronously on frame 0 so there is no layout jump or empty text delay
     const initialFarmName = useMemo(() => {
@@ -69,7 +72,7 @@ export const Header: React.FC = () => {
                     : Promise.resolve({ data: null, error: null }),
                 supabase
                     .from('notifications')
-                    .select('id', { count: 'exact' })
+                    .select('id, category, action_url')
                     .in('farm_id', activeFarmIds)
                     .eq('is_read', false),
             ]);
@@ -81,19 +84,23 @@ export const Header: React.FC = () => {
                 setFarmName(`${activeFarmIds.length} Farms`);
             }
 
-            const count = notifRes.count ?? notifRes.data?.length ?? 0;
+            const unreadItems = (notifRes.data ?? []).filter((n: any) =>
+                canUserViewNotification(n.category, n.action_url, hasPermission, role)
+            );
+            const count = unreadItems.length;
             cachedUnreadNotifCount = count;
             setUnreadNotifCount(count);
         } catch (err) {
             console.error('[Header] fetchHeaderData error:', err);
         }
-    }, [activeFarmIds, managedFarms]);
+    }, [activeFarmIds, managedFarms, hasPermission, role]);
 
     useEffect(() => {
         fetchHeaderData();
 
+        const channelName = `header-notif-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
         const channel = supabase
-            .channel('header-notif-updates')
+            .channel(channelName)
             .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
                 fetchHeaderData();
             })
