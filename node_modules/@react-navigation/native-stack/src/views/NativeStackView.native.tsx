@@ -137,6 +137,7 @@ const SceneView = ({
     scrollEdgeEffects,
     freezeOnBlur,
     contentStyle,
+    unstable_headerInsets,
   } = options;
 
   if (gestureDirection === 'vertical' && Platform.OS === 'ios') {
@@ -190,6 +191,7 @@ const SceneView = ({
 
   const topInset =
     isParentHeaderShown ||
+    (Platform.OS === 'android' && unstable_headerInsets?.top === false) ||
     (Platform.OS === 'ios' && isModal) ||
     (isIPhone && isLandscape)
       ? 0
@@ -593,11 +595,19 @@ export function NativeStackView({
                 });
               }}
               onDismissed={(event) => {
-                navigation.dispatch({
-                  ...StackActions.pop(event.nativeEvent.dismissCount),
-                  source: route.key,
-                  target: state.key,
-                });
+                const currentState = navigation.getState();
+                const currentActiveRoutes = currentState.routes.slice(
+                  0,
+                  currentState.index + 1
+                );
+
+                if (currentActiveRoutes.some((r) => r.key === route.key)) {
+                  navigation.dispatch({
+                    ...StackActions.pop(event.nativeEvent.dismissCount),
+                    source: route.key,
+                    target: currentState.key,
+                  });
+                }
 
                 setNextDismissedKey(route.key);
               }}
