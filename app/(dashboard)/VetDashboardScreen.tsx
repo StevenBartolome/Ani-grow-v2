@@ -57,19 +57,19 @@ interface FollowUp {
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const RECORD_META: Record<RecordType, { label: string; icon: string; color: string }> = {
-    vaccination:  { label: 'Vaccination',  icon: 'vaccines',         color: '#27AE60' },
-    treatment:    { label: 'Treatment',    icon: 'healing',           color: '#2980B9' },
-    illness:      { label: 'Illness',      icon: 'sick',              color: '#E74C3C' },
-    observation:  { label: 'Observation',  icon: 'visibility',        color: '#8E44AD' },
-    deworming:    { label: 'Deworming',    icon: 'bug-report',        color: '#E67E22' },
-    vitamins:     { label: 'Vitamins',     icon: 'medical-services',  color: '#16A085' },
-    mortality:    { label: 'Mortality',    icon: 'remove-circle',     color: '#7F1D1D' },
+    vaccination: { label: 'Vaccination', icon: 'vaccines', color: '#27AE60' },
+    treatment: { label: 'Treatment', icon: 'healing', color: '#2980B9' },
+    illness: { label: 'Illness', icon: 'sick', color: '#E74C3C' },
+    observation: { label: 'Observation', icon: 'visibility', color: '#8E44AD' },
+    deworming: { label: 'Deworming', icon: 'bug-report', color: '#E67E22' },
+    vitamins: { label: 'Vitamins', icon: 'medical-services', color: '#16A085' },
+    mortality: { label: 'Mortality', icon: 'remove-circle', color: '#7F1D1D' },
 };
 
 const SEVERITY_COLOR: Record<Severity, string> = {
-    low:    '#27AE60',
+    low: '#27AE60',
     medium: '#E67E22',
-    high:   '#E74C3C',
+    high: '#E74C3C',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -110,20 +110,20 @@ export default function VetDashboardScreen() {
         : (profile as any)?.displayName || 'Veterinarian';
 
     // ── State ─────────────────────────────────────────────────────────────────
-    const [isLoading, setIsLoading]         = useState(true);
-    const [refreshing, setRefreshing]       = useState(false);
-    const [lastUpdated, setLastUpdated]     = useState<Date | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
     // Stats
-    const [totalAnimals, setTotalAnimals]   = useState(0);
-    const [openCases, setOpenCases]         = useState(0);
+    const [totalAnimals, setTotalAnimals] = useState(0);
+    const [openCases, setOpenCases] = useState(0);
     const [weekMortality, setWeekMortality] = useState(0);
-    const [dueFollowUps, setDueFollowUps]   = useState(0);
+    const [dueFollowUps, setDueFollowUps] = useState(0);
 
     // Lists
-    const [todayFollowUps, setTodayFollowUps]         = useState<FollowUp[]>([]);
-    const [upcomingFollowUps, setUpcomingFollowUps]   = useState<FollowUp[]>([]);
-    const [recentCases, setRecentCases]               = useState<HealthCase[]>([]);
+    const [todayFollowUps, setTodayFollowUps] = useState<FollowUp[]>([]);
+    const [upcomingFollowUps, setUpcomingFollowUps] = useState<FollowUp[]>([]);
+    const [recentCases, setRecentCases] = useState<HealthCase[]>([]);
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchData = useCallback(async () => {
@@ -132,13 +132,13 @@ export default function VetDashboardScreen() {
         try {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            const todayStr      = today.toISOString().split('T')[0];
-            const in14Days      = new Date(today); in14Days.setDate(today.getDate() + 14);
-            const in14DaysStr   = in14Days.toISOString().split('T')[0];
-            const ago7Days      = new Date(today); ago7Days.setDate(today.getDate() - 7);
-            const ago7DaysStr   = ago7Days.toISOString().split('T')[0];
-            const ago30Days     = new Date(today); ago30Days.setDate(today.getDate() - 30);
-            const ago30DaysStr  = ago30Days.toISOString().split('T')[0];
+            const todayStr = today.toISOString().split('T')[0];
+            const in14Days = new Date(today); in14Days.setDate(today.getDate() + 14);
+            const in14DaysStr = in14Days.toISOString().split('T')[0];
+            const ago7Days = new Date(today); ago7Days.setDate(today.getDate() - 7);
+            const ago7DaysStr = ago7Days.toISOString().split('T')[0];
+            const ago30Days = new Date(today); ago30Days.setDate(today.getDate() - 30);
+            const ago30DaysStr = ago30Days.toISOString().split('T')[0];
 
             // ── 1. Total live animals across all active batches ───────────────
             const { data: batchData } = await supabase
@@ -328,13 +328,13 @@ export default function VetDashboardScreen() {
         const urgentBg = isToday
             ? colors.error + '0D'
             : days <= 3
-            ? colors.warning + '0D'
-            : colors.surface;
+                ? colors.warning + '0D'
+                : colors.surface;
         const urgentBorder = isToday
             ? colors.error + '35'
             : days <= 3
-            ? colors.warning + '35'
-            : colors.stroke;
+                ? colors.warning + '35'
+                : colors.stroke;
 
         return (
             <Pressable

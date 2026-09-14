@@ -1,8 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState, useCallback } from 'react';
-import { ActivityIndicator, Alert, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { ActivityIndicator, Alert, Animated, AppState, AppStateStatus, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -32,7 +32,19 @@ interface RegisteredDevice {
 
 type FilterType = 'All' | 'AniFeed' | 'AniWeigh';
 
-const DeviceCard = ({ device, onPress, onConnectPress }: { device: RegisteredDevice; onPress: () => void; onConnectPress: () => void }) => {
+const DeviceCard = ({
+    device,
+    index = 0,
+    shouldAnimate = false,
+    onPress,
+    onConnectPress,
+}: {
+    device: RegisteredDevice;
+    index?: number;
+    shouldAnimate?: boolean;
+    onPress: () => void;
+    onConnectPress: () => void;
+}) => {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
 
@@ -42,87 +54,129 @@ const DeviceCard = ({ device, onPress, onConnectPress }: { device: RegisteredDev
     const accentColor = isWeigh ? colors.smartScale : colors.secondary;
     const animalColor = device.animalType === 'Pig' ? colors.pig : colors.chicken;
 
+    const fadeAnim = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
+    const translateYAnim = useRef(new Animated.Value(shouldAnimate ? 12 : 0)).current;
+
+    useEffect(() => {
+        if (!shouldAnimate) {
+            fadeAnim.setValue(1);
+            translateYAnim.setValue(0);
+            return;
+        }
+
+        fadeAnim.setValue(0);
+        translateYAnim.setValue(12);
+
+        const delay = Math.min(index * 40, 240);
+        const timer = setTimeout(() => {
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.spring(translateYAnim, {
+                    toValue: 0,
+                    damping: 18,
+                    stiffness: 220,
+                    mass: 0.8,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }, delay);
+
+        return () => clearTimeout(timer);
+    }, [shouldAnimate, device.id]);
+
     return (
-        <TouchableOpacity
-            activeOpacity={0.75}
+        <Animated.View
             style={{
                 flex: 1,
-                backgroundColor: colors.surface,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: colors.stroke,
-                padding: 16,
-                opacity: isOnline ? 1 : 0.6,
-                overflow: 'hidden',
+                opacity: fadeAnim,
+                transform: [{ translateY: translateYAnim }],
             }}
-            onPress={onPress}
         >
-            {/* Top row: icon box + status dot */}
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
-                <View style={{
-                    width: 46, height: 46, borderRadius: 13,
-                    backgroundColor: isOnline ? accentColor + '1A' : colors.bgLight,
-                    alignItems: 'center', justifyContent: 'center',
-                }}>
-                    <DeviceIcon
-                        type={device.type}
-                        size={24}
-                    />
+            <TouchableOpacity
+                activeOpacity={0.75}
+                style={{
+                    flex: 1,
+                    backgroundColor: colors.surface,
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: colors.stroke,
+                    padding: 16,
+                    opacity: isOnline ? 1 : 0.6,
+                    overflow: 'hidden',
+                }}
+                onPress={onPress}
+            >
+                {/* Top row: icon box + status dot */}
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <View style={{
+                        width: 46, height: 46, borderRadius: 13,
+                        backgroundColor: isOnline ? accentColor + '1A' : colors.bgLight,
+                        alignItems: 'center', justifyContent: 'center',
+                    }}>
+                        <DeviceIcon
+                            type={device.type}
+                            size={24}
+                        />
+                    </View>
+
+                    {/* Connection cloud icon — tap to open IoT setup */}
+                    <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={onConnectPress}
+                        style={{
+                            width: 32, height: 32, borderRadius: 10,
+                            backgroundColor: isOnline ? colors.primary + '15' : colors.bgLight,
+                            alignItems: 'center', justifyContent: 'center',
+                            borderWidth: 1, borderColor: isOnline ? colors.primary + '30' : colors.stroke,
+                        }}
+                    >
+                        <MaterialIcons
+                            name={isOnline ? 'cloud-done' : 'cloud-off'}
+                            size={18}
+                            color={isOnline ? colors.primary : colors.textGrey}
+                        />
+                    </TouchableOpacity>
                 </View>
 
-                {/* Connection cloud icon — tap to open IoT setup */}
-                <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={onConnectPress}
-                    style={{
-                        width: 32, height: 32, borderRadius: 10,
-                        backgroundColor: isOnline ? colors.primary + '15' : colors.bgLight,
-                        alignItems: 'center', justifyContent: 'center',
-                        borderWidth: 1, borderColor: isOnline ? colors.primary + '30' : colors.stroke,
-                    }}
-                >
-                    <MaterialIcons
-                        name={isOnline ? 'cloud-done' : 'cloud-off'}
-                        size={18}
-                        color={isOnline ? colors.primary : colors.textGrey}
-                    />
-                </TouchableOpacity>
-            </View>
+                {/* Device name */}
+                <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, marginBottom: 10 }]} numberOfLines={2}>
+                    {device.name}
+                </Text>
 
-            {/* Device name */}
-            <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, marginBottom: 10 }]} numberOfLines={2}>
-                {device.name}
-            </Text>
-
-            {/* Bottom: type label + animal tag — pinned to bottom */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 8 }}>
-                <Text style={[textStyles.label, { color: accentColor, fontSize: 11 }]}>{device.type}</Text>
-                {device.animalType ? (
-                    <View style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 4,
-                        backgroundColor: animalColor + '18',
-                        paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
-                    }}>
-                        <AnimalIcon type={device.animalType.toLowerCase() as any} size={11} color={animalColor} />
-                        <Text style={[textStyles.label, { color: animalColor, fontSize: 11 }]}>{device.animalType}</Text>
-                    </View>
-                ) : (
-                    <View style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 3,
-                        backgroundColor: colors.cardFill,
-                        paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
-                        borderWidth: 1, borderColor: colors.stroke,
-                    }}>
-                        <MaterialIcons name="home-work" size={10} color={colors.textGrey} />
-                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Unassigned</Text>
-                    </View>
-                )}
-            </View>
-        </TouchableOpacity>
+                {/* Bottom: type label + animal tag — pinned to bottom */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 8 }}>
+                    <Text style={[textStyles.label, { color: accentColor, fontSize: 11 }]}>{device.type}</Text>
+                    {device.animalType ? (
+                        <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                            backgroundColor: animalColor + '18',
+                            paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+                        }}>
+                            <AnimalIcon type={device.animalType.toLowerCase() as any} size={11} color={animalColor} />
+                            <Text style={[textStyles.label, { color: animalColor, fontSize: 11 }]}>{device.animalType}</Text>
+                        </View>
+                    ) : (
+                        <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 3,
+                            backgroundColor: colors.cardFill,
+                            paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+                            borderWidth: 1, borderColor: colors.stroke,
+                        }}>
+                            <MaterialIcons name="home-work" size={10} color={colors.textGrey} />
+                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Unassigned</Text>
+                        </View>
+                    )}
+                </View>
+            </TouchableOpacity>
+        </Animated.View>
     );
 };
 
@@ -159,6 +213,9 @@ export default function DevicesScreen() {
     const [activeFilter, setActiveFilter] = useState<FilterType>('All');
     const [devices, setDevices] = useState<RegisteredDevice[]>([]);
     const [loading, setLoading] = useState(true);
+    const [shouldAnimateCards, setShouldAnimateCards] = useState(false);
+    const hasInitialAnimatedRef = useRef(false);
+    const devicesLoadedRef = useRef(false);
 
     // Ticks forward periodically so a device's derived online/offline status
     // re-evaluates against DEVICE_ONLINE_THRESHOLD_MS purely from the passage
@@ -201,7 +258,7 @@ export default function DevicesScreen() {
     const fetchDevices = useCallback(async (isRefresh = false) => {
         if (!farmId) { setLoading(false); return; }
         if (isRefresh) setRefreshing(true);
-        else if (devices.length === 0) setLoading(true);
+        else if (!devicesLoadedRef.current) setLoading(true);
         try {
             const { data, error } = await supabase
                 .from('devices')
@@ -221,15 +278,63 @@ export default function DevicesScreen() {
                     d.housings?.animal_type === 'chicken' ? 'Chicken' : undefined,
             }));
             setDevices(mapped);
+            devicesLoadedRef.current = true;
+
+            // Only trigger fade-in animation on initial mount or manual pull-to-refresh
+            if (!hasInitialAnimatedRef.current || isRefresh) {
+                hasInitialAnimatedRef.current = true;
+                setShouldAnimateCards(true);
+                setTimeout(() => setShouldAnimateCards(false), 600);
+            }
         } catch (err) {
             console.error('[DevicesScreen] fetch error:', err);
         } finally {
             if (isRefresh) setRefreshing(false);
             else setLoading(false);
         }
-    }, [farmId, devices.length]);
+    }, [farmId]);
 
-    useEffect(() => { fetchDevices(); }, [fetchDevices]);
+    // Initial load
+    useEffect(() => { fetchDevices(false); }, [fetchDevices]);
+
+    // Silent background auto-sync on focus
+    useFocusEffect(
+        useCallback(() => {
+            fetchDevices(false);
+        }, [fetchDevices])
+    );
+
+    // Live Supabase Realtime channel
+    useEffect(() => {
+        if (!farmId) return;
+        let debounceTimer: any = null;
+        const triggerSync = () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                fetchDevices(false);
+            }, 300);
+        };
+
+        const channel = supabase
+            .channel(`devices-live-sync-${farmId}-${Date.now()}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'devices', filter: `farm_id=eq.${farmId}` }, triggerSync)
+            .subscribe();
+
+        return () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            supabase.removeChannel(channel);
+        };
+    }, [farmId, fetchDevices]);
+
+    // AppState listener
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+            if (nextState === 'active' && farmId) {
+                fetchDevices(false);
+            }
+        });
+        return () => sub.remove();
+    }, [farmId, fetchDevices]);
 
     // Resolve each device's *real* status (manual flag + heartbeat freshness)
     // against the current tick, so staleness shows up without a refetch.
@@ -300,10 +405,10 @@ export default function DevicesScreen() {
                 {/* Top Nav / Logo Row */}
                 <Header />
 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: hPad, paddingTop: 8 }}>
-                    <View style={{ flex: 1, marginRight: 12, marginTop: 8 }}>
-                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 32 }]}>Device Monitor</Text>
-                        <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16, marginBottom: 12 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: hPad, paddingTop: 4, marginBottom: 12 }}>
+                    <View style={{ flex: 1, marginRight: 12, marginTop: 2 }}>
+                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]}>Device Monitor</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]}>
                             Real-time control center
                         </Text>
                     </View>
@@ -399,10 +504,12 @@ export default function DevicesScreen() {
                             {/* Grid */}
                             {Array.from({ length: Math.ceil(filteredDevices.length / numCols) }).map((_, rowIdx) => (
                                 <View key={rowIdx} style={{ flexDirection: 'row', gap: cardGap, marginBottom: cardGap }}>
-                                    {filteredDevices.slice(rowIdx * numCols, rowIdx * numCols + numCols).map(device => (
+                                    {filteredDevices.slice(rowIdx * numCols, rowIdx * numCols + numCols).map((device, colIdx) => (
                                         <View key={device.id} style={{ width: cardWidth }}>
                                             <DeviceCard
                                                 device={device}
+                                                index={rowIdx * numCols + colIdx}
+                                                shouldAnimate={shouldAnimateCards}
                                                 onPress={() => {
                                                     if (device.type === 'AniWeigh') {
                                                         router.push(`/(devices)/AniWeighScreen?deviceId=${device.id}&status=${device.status}` as any);

@@ -51,12 +51,12 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
             setInternalVisible(true);
             Animated.parallel([
                 Animated.timing(slideAnim, { toValue: 0, duration: 280, useNativeDriver: Platform.OS !== 'web' }),
-                Animated.timing(fadeAnim,  { toValue: 0.4, duration: 250, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(fadeAnim, { toValue: 0.4, duration: 250, useNativeDriver: Platform.OS !== 'web' }),
             ]).start();
         } else {
             Animated.parallel([
                 Animated.timing(slideAnim, { toValue: -DRAWER_WIDTH, duration: 240, useNativeDriver: Platform.OS !== 'web' }),
-                Animated.timing(fadeAnim,  { toValue: 0,   duration: 200, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: Platform.OS !== 'web' }),
             ]).start(() => {
                 setInternalVisible(false);
             });
@@ -67,7 +67,7 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
         // Animate out, then navigate
         Animated.parallel([
             Animated.timing(slideAnim, { toValue: -DRAWER_WIDTH, duration: 200, useNativeDriver: Platform.OS !== 'web' }),
-            Animated.timing(fadeAnim,  { toValue: 0,   duration: 160, useNativeDriver: Platform.OS !== 'web' }),
+            Animated.timing(fadeAnim, { toValue: 0, duration: 160, useNativeDriver: Platform.OS !== 'web' }),
         ]).start(() => {
             onClose();
             router.push(route as any);
@@ -84,7 +84,7 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
             // Close drawer animations first
             Animated.parallel([
                 Animated.timing(slideAnim, { toValue: -DRAWER_WIDTH, duration: 180, useNativeDriver: Platform.OS !== 'web' }),
-                Animated.timing(fadeAnim,  { toValue: 0,   duration: 150, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: Platform.OS !== 'web' }),
             ]).start(async () => {
                 onClose();
                 await signOut();
@@ -100,7 +100,7 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
         ? `${profile.firstName} ${profile.lastName ?? ''}`.trim()
         : profile?.displayName || 'User';
     const userEmail = profile?.email || 'Unknown Email';
-    
+
     const formatRole = (role: string | undefined) => {
         if (!role) return '';
         const roleMap: Record<string, string> = {
@@ -132,8 +132,8 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
 
     const themeOptions: { mode: ThemeMode; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name'] }[] = [
         { mode: 'device', label: 'Device', icon: 'phone-android' },
-        { mode: 'light',  label: 'Light',  icon: 'wb-sunny' },
-        { mode: 'dark',   label: 'Dark',   icon: 'nightlight-round' },
+        { mode: 'light', label: 'Light', icon: 'wb-sunny' },
+        { mode: 'dark', label: 'Dark', icon: 'nightlight-round' },
     ];
 
     return (
@@ -203,7 +203,7 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
                     {/* Scrollable Navigation List */}
                     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
                         <Text style={[styles.menuSectionHeader, { color: colors.textGrey }]}>Account Settings</Text>
-                        
+
                         <TouchableOpacity style={styles.menuItem} onPress={() => handleLink('/(settings)/EditProfileScreen')}>
                             <View style={[styles.iconContainer, { backgroundColor: '#3B82F61A' }]}>
                                 <MaterialIcons name="manage-accounts" size={20} color="#3B82F6" />

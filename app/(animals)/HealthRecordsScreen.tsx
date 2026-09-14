@@ -1,8 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-    ActivityIndicator, Modal, Platform, RefreshControl, ScrollView,
+    ActivityIndicator, AppState, Modal, Platform, RefreshControl, ScrollView,
     TextInput, TouchableOpacity, View, Animated, PanResponder, Easing, StyleSheet, Alert, useWindowDimensions,
 } from 'react-native';
 import { Text } from '@/components/Text';
@@ -1008,6 +1008,266 @@ const affectedLabel = (type: RecordType) => {
     }
 };
 
+const HealthHousingCard = ({
+    housing,
+    index = 0,
+    shouldAnimate = false,
+    pigColor,
+    chickenColor,
+    onPress,
+}: {
+    housing: HousingSummary;
+    index?: number;
+    shouldAnimate?: boolean;
+    pigColor: string;
+    chickenColor: string;
+    onPress: () => void;
+}) => {
+    const { colors } = useTheme();
+    const textStyles = useTextStyles();
+    const styles = useAnimalStyles();
+
+    const isPig = housing.animal_type === 'pig';
+    const accent = isPig ? pigColor : chickenColor;
+    const bgColor = accent + '1A';
+    const imgSrc = ANIMAL_IMAGES[housing.animal_type];
+
+    const fadeAnim = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
+    const translateYAnim = useRef(new Animated.Value(shouldAnimate ? 12 : 0)).current;
+
+    useEffect(() => {
+        if (!shouldAnimate) {
+            fadeAnim.setValue(1);
+            translateYAnim.setValue(0);
+            return;
+        }
+
+        fadeAnim.setValue(0);
+        translateYAnim.setValue(12);
+
+        const delay = Math.min(index * 40, 240);
+        const timer = setTimeout(() => {
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.spring(translateYAnim, {
+                    toValue: 0,
+                    damping: 18,
+                    stiffness: 220,
+                    mass: 0.8,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }, delay);
+
+        return () => clearTimeout(timer);
+    }, [shouldAnimate, housing.id]);
+
+    return (
+        <Animated.View
+            style={{
+                width: '100%',
+                opacity: fadeAnim,
+                transform: [{ translateY: translateYAnim }],
+            }}
+        >
+            <TouchableOpacity
+                activeOpacity={0.7}
+                style={[
+                    styles.deviceCard,
+                    { backgroundColor: colors.surface, borderColor: colors.stroke, padding: 0, overflow: 'hidden', width: '100%', marginBottom: 12, flexDirection: 'row', alignItems: 'stretch' }
+                ]}
+                onPress={onPress}
+            >
+                <Image
+                    source={imgSrc}
+                    style={{ width: 110, height: 'auto', minHeight: 110, backgroundColor: bgColor }}
+                    contentFit="cover"
+                />
+                <View style={{ flex: 1, padding: 14, justifyContent: 'center' }}>
+                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 17, marginBottom: 6 }]}>
+                        {housing.name}
+                    </Text>
+                    <View style={{ gap: 4 }}>
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                            Live heads:{' '}
+                            <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
+                                {housing.current_count}
+                                {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
+                            </Text>
+                        </Text>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                            <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+                                <Text style={{ color: accent, fontSize: 11, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }}>
+                                    {isPig ? 'Pigs' : 'Chickens'}
+                                </Text>
+                            </View>
+                        </View>
+                    </View>
+                </View>
+                <View style={{ justifyContent: 'center', paddingRight: 12 }}>
+                    <MaterialIcons name="chevron-right" size={24} color={colors.textGrey} />
+                </View>
+            </TouchableOpacity>
+        </Animated.View>
+    );
+};
+
+const HealthRecordCardItem = ({
+    record,
+    index = 0,
+    shouldAnimate = false,
+    batchName,
+    onPress,
+    onLongPress,
+}: {
+    record: HealthRecord;
+    index?: number;
+    shouldAnimate?: boolean;
+    batchName: string;
+    onPress: () => void;
+    onLongPress: () => void;
+}) => {
+    const { colors } = useTheme();
+    const styles = useAnimalStyles();
+
+    const cfg = RECORD_TYPES[record.record_type];
+    const sev = SEVERITY_CONFIG[record.severity];
+
+    const fadeAnim = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
+    const translateYAnim = useRef(new Animated.Value(shouldAnimate ? 12 : 0)).current;
+
+    useEffect(() => {
+        if (!shouldAnimate) {
+            fadeAnim.setValue(1);
+            translateYAnim.setValue(0);
+            return;
+        }
+
+        fadeAnim.setValue(0);
+        translateYAnim.setValue(12);
+
+        const delay = Math.min(index * 40, 240);
+        const timer = setTimeout(() => {
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.spring(translateYAnim, {
+                    toValue: 0,
+                    damping: 18,
+                    stiffness: 220,
+                    mass: 0.8,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }, delay);
+
+        return () => clearTimeout(timer);
+    }, [shouldAnimate, record.id]);
+
+    return (
+        <Animated.View
+            style={{
+                width: '100%',
+                opacity: fadeAnim,
+                transform: [{ translateY: translateYAnim }],
+            }}
+        >
+            <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={onPress}
+                onLongPress={onLongPress}
+                style={[
+                    styles.deviceCard,
+                    { backgroundColor: colors.surface, borderColor: colors.stroke, flexDirection: 'row', alignItems: 'stretch', marginBottom: 12, width: '100%', overflow: 'hidden', padding: 0 }
+                ]}
+            >
+                {/* Left accent strip */}
+                <View style={{ width: 4, backgroundColor: cfg.color }} />
+
+                {/* Icon column */}
+                <View style={{ width: 60, alignItems: 'center', justifyContent: 'center', paddingVertical: 18 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: cfg.color + '18', alignItems: 'center', justifyContent: 'center' }}>
+                        <MaterialIcons name={cfg.icon as any} size={21} color={cfg.color} />
+                    </View>
+                </View>
+
+                {/* Content */}
+                <View style={{ flex: 1, paddingVertical: 14, paddingRight: 4 }}>
+                    {/* Title + severity badge */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
+                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text, flex: 1 }}>
+                            {record.title}
+                        </Text>
+                        <View style={{ backgroundColor: sev.color + '22', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8, flexShrink: 0 }}>
+                            <Text style={{ color: sev.color, fontSize: 10, fontFamily: 'Poppins-SemiBold' }}>{sev.label}</Text>
+                        </View>
+                    </View>
+
+                    {/* Type label */}
+                    <Text style={{ color: cfg.color, fontSize: 12, fontFamily: 'Poppins-SemiBold', marginBottom: 8 }}>
+                        {cfg.label}
+                    </Text>
+
+                    {/* Metadata chips */}
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.cardFill, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                            <MaterialIcons name="calendar-today" size={10} color={colors.textGrey} />
+                            <Text style={{ color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Regular' }}>
+                                {new Date(record.record_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.cardFill, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                            <MaterialIcons name="layers" size={10} color={colors.textGrey} />
+                            <Text style={{ color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Regular' }}>{batchName}</Text>
+                        </View>
+                        {record.affected_count != null && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.cardFill, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                                <Image
+                                    source={require('../../assets/icons/animals-filled.svg')}
+                                    style={{ width: 12, height: 12 }}
+                                    contentFit="contain"
+                                />
+                                <Text style={{ color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Regular' }}>{`${record.affected_count} animals`}</Text>
+                            </View>
+                        )}
+                        {record.medication ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.cardFill, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                                <MaterialIcons name="science" size={10} color={colors.textGrey} />
+                                <Text style={{ color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Regular' }}>
+                                    {record.medication + (record.dosage ? ` · ${record.dosage}` : '')}
+                                </Text>
+                            </View>
+                        ) : null}
+                    </View>
+
+                    {/* Follow-up badge */}
+                    {record.followup_date && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, backgroundColor: colors.warning + '18', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' }}>
+                            <MaterialIcons name="event" size={11} color={colors.warning} />
+                            <Text style={{ color: colors.warning, fontSize: 10, fontFamily: 'Poppins-SemiBold' }}>
+                                Follow-up: {new Date(record.followup_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </Text>
+                        </View>
+                    )}
+                </View>
+
+                {/* Chevron */}
+                <View style={{ justifyContent: 'center', paddingRight: 14 }}>
+                    <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                </View>
+            </TouchableOpacity>
+        </Animated.View>
+    );
+};
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function HealthRecordsScreen() {
@@ -1043,6 +1303,8 @@ export default function HealthRecordsScreen() {
     const [housingFarmId, setHousingFarmId] = useState<string>(''); // farm_id sourced from housing row
     const [housingAnimalType, setHousingAnimalType] = useState<string>('');
     const [dbVaccines, setDbVaccines] = useState<VaccineItem[]>([]);
+
+    const recordsLoadedRef = useRef(false);
 
     const fetchVaccines = useCallback(async (targetFarm: string) => {
         if (!targetFarm) return;
@@ -1182,6 +1444,8 @@ export default function HealthRecordsScreen() {
     // ── Housing Selection State ──
     const [housings, setHousings] = useState<HousingSummary[]>([]);
     const [housingsLoading, setHousingsLoading] = useState(true);
+    const [shouldAnimateHousings, setShouldAnimateHousings] = useState(false);
+    const hasInitialHousingsAnimatedRef = useRef(false);
 
     const [housingsRefreshing, setHousingsRefreshing] = useState(false);
 
@@ -1211,6 +1475,12 @@ export default function HealthRecordsScreen() {
                 active_batch_name: h.batches?.find((b: any) => b.status === 'active')?.name ?? null,
             }));
             setHousings(mapped);
+
+            if (!hasInitialHousingsAnimatedRef.current || isRefresh) {
+                hasInitialHousingsAnimatedRef.current = true;
+                setShouldAnimateHousings(true);
+                setTimeout(() => setShouldAnimateHousings(false), 600);
+            }
         } catch (err) {
             console.error('[HealthRecordsScreen] fetch housings error:', err);
         } finally {
@@ -1483,10 +1753,14 @@ export default function HealthRecordsScreen() {
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const COLS = 'id, record_type, title, notes, severity, record_date, medication, dosage, affected_count, followup_date, batch_id, created_at, deleted_at';
+    const [shouldAnimateRecords, setShouldAnimateRecords] = useState(false);
+    const hasInitialRecordsAnimatedRef = useRef(false);
 
-    const fetchData = useCallback(async () => {
+    const fetchData = useCallback(async (isSilent = false, isRefresh = false) => {
         if (!housingId) return;
-        setIsLoading(true);
+        if (!recordsLoadedRef.current && !isSilent) {
+            setIsLoading(true);
+        }
         try {
             const [housingRes, batchRes, activeRes, trashRes] = await Promise.all([
                 supabase
@@ -1529,6 +1803,13 @@ export default function HealthRecordsScreen() {
             setBatches(batchRes.data ?? []);
             setRecords(activeRes.data ?? []);
             setTrashedRecords(trashRes.data ?? []);
+            recordsLoadedRef.current = true;
+
+            if (!hasInitialRecordsAnimatedRef.current || isRefresh) {
+                hasInitialRecordsAnimatedRef.current = true;
+                setShouldAnimateRecords(true);
+                setTimeout(() => setShouldAnimateRecords(false), 600);
+            }
         } catch (err) {
             console.error('[HealthRecords] fetchData error:', err);
             showSnackbar('Failed to load records.', 'error');
@@ -1539,8 +1820,60 @@ export default function HealthRecordsScreen() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
+    // Focus revalidation
+    useFocusEffect(
+        useCallback(() => {
+            fetchData(true);
+        }, [fetchData])
+    );
+
+    // AppState foreground sync
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (nextState) => {
+            if (nextState === 'active') {
+                fetchData(true);
+            }
+        });
+        return () => sub.remove();
+    }, [fetchData]);
+
+    // Realtime subscription for health records and batches in this housing
+    useEffect(() => {
+        if (!housingId) return;
+        let timeout: ReturnType<typeof setTimeout>;
+        const debouncedRefresh = () => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                fetchData(true);
+            }, 300);
+        };
+
+        const channel = supabase
+            .channel(`health-records-rt-${housingId}`)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'health_records', filter: `housing_id=eq.${housingId}` },
+                debouncedRefresh
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'batches', filter: `housing_id=eq.${housingId}` },
+                debouncedRefresh
+            )
+            .subscribe();
+
+        return () => {
+            clearTimeout(timeout);
+            supabase.removeChannel(channel);
+        };
+    }, [housingId, fetchData]);
+
     const [refreshing, setRefreshing] = useState(false);
-    const onRefresh = useCallback(async () => { setRefreshing(true); await fetchData(); setRefreshing(false); }, [fetchData]);
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await fetchData(true, true);
+        setRefreshing(false);
+    }, [fetchData]);
 
     // Sync addBatchId when paramBatchId changes
     useEffect(() => { if (paramBatchId) setAddBatchId(paramBatchId); }, [paramBatchId]);
@@ -2189,11 +2522,13 @@ export default function HealthRecordsScreen() {
                     {/* Header */}
                     <Header />
 
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: hPad, paddingTop: 8 }}>
-                        <View style={{ flex: 1, marginRight: 12, marginTop: 8 }}>
-                            <Text style={[textStyles.h1, { color: colors.text, fontSize: 32 }]}>Health Records</Text>
-                            <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16, marginBottom: 12 }]}>
-                                Select a housing to Record vaccinations & treatments
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: hPad, marginBottom: 14, paddingTop: 2 }}>
+                        <View style={{ flex: 1, marginRight: 10 }}>
+                            <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]}>
+                                Health Records
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]}>
+                                Select a housing to record vaccinations & treatments
                             </Text>
                         </View>
 
@@ -2215,6 +2550,7 @@ export default function HealthRecordsScreen() {
                                 shadowOffset: { width: 0, height: 2 },
                                 shadowOpacity: 0.25,
                                 shadowRadius: 3,
+                                marginTop: 4,
                             }}
                         >
                             <MaterialIcons name="notifications-active" size={14} color="#FFFFFF" />
@@ -2320,59 +2656,21 @@ export default function HealthRecordsScreen() {
                                     </Text>
                                 </View>
                             ) : (
-                                housings.map(housing => {
-                                    const isPig = housing.animal_type === 'pig';
-                                    const accent = isPig ? pigColor : chickenColor;
-                                    const bgColor = accent + '1A';
-                                    const imgSrc = ANIMAL_IMAGES[housing.animal_type];
-
-                                    return (
-                                        <TouchableOpacity
-                                            key={housing.id}
-                                            activeOpacity={0.7}
-                                            style={[
-                                                styles.deviceCard,
-                                                { backgroundColor: colors.surface, borderColor: colors.stroke, padding: 0, overflow: 'hidden', width: '100%', marginBottom: 12, flexDirection: 'row', alignItems: 'stretch' }
-                                            ]}
-                                            onPress={() => router.push({
-                                                pathname: '/(animals)/HealthRecordsScreen',
-                                                params: { housingId: housing.id },
-                                            })}
-                                        >
-                                            <Image
-                                                source={imgSrc}
-                                                style={{ width: 110, height: 'auto', minHeight: 110, backgroundColor: bgColor }}
-                                                contentFit="cover"
-                                            />
-                                            <View style={{ flex: 1, padding: 14, justifyContent: 'center' }}>
-                                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 17, marginBottom: 6 }]}>
-                                                    {housing.name}
-                                                </Text>
-                                                <View style={{ gap: 4 }}>
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                                                        Live heads:{' '}
-                                                        <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
-                                                            {housing.current_count}
-                                                            {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
-                                                        </Text>
-                                                    </Text>
-
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                                                        <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
-                                                            <Text style={{ color: accent, fontSize: 11, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }}>
-                                                                {isPig ? 'Pigs' : 'Chickens'}
-                                                            </Text>
-                                                        </View>
-                                                    </View>
-                                                </View>
-                                            </View>
-                                            <View style={{ justifyContent: 'center', paddingRight: 12 }}>
-                                                <MaterialIcons name="chevron-right" size={24} color={colors.textGrey} />
-                                            </View>
-                                        </TouchableOpacity>
-                                    );
-                                })
-                            )}
+                            housings.map((housing, idx) => (
+                                <HealthHousingCard
+                                    key={housing.id}
+                                    housing={housing}
+                                    index={idx}
+                                    shouldAnimate={shouldAnimateHousings}
+                                    pigColor={pigColor}
+                                    chickenColor={chickenColor}
+                                    onPress={() => router.push({
+                                        pathname: '/(animals)/HealthRecordsScreen',
+                                        params: { housingId: housing.id },
+                                    })}
+                                />
+                            ))
+                        )}
                         </View>
                     </ScrollView>
                 </View>
@@ -2390,14 +2688,12 @@ export default function HealthRecordsScreen() {
             <View style={[styles.headerTopRow, { gap: 8 }]}>
                 <BackButton fallbackRoute="/(animals)/AnimalsScreen" />
                 <View style={{ flex: 1, marginLeft: 8 }}>
-                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]} numberOfLines={1}>
+                    <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]} numberOfLines={1}>
                         Health Records
                     </Text>
-                    {activeBatch && (
-                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>
-                            {activeBatch.name} · {activeBatch.animal_type}
-                        </Text>
-                    )}
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]} numberOfLines={1}>
+                        {activeBatch ? `${activeBatch.name} · ${activeBatch.animal_type}` : 'Veterinary logs & biosecurity tracking'}
+                    </Text>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                     {/* Vaccine Schedules button */}
@@ -2694,89 +2990,18 @@ export default function HealthRecordsScreen() {
                                 </View>
                             </View>
 
-                            {filtered.map(record => {
-                                const cfg = RECORD_TYPES[record.record_type];
-                                const sev = SEVERITY_CONFIG[record.severity];
+                            {filtered.map((record, idx) => {
                                 const batchName = record.batch_id ? batchMap[record.batch_id]?.name ?? '—' : '—';
-
-                                // Compact metadata chip
-                                const Chip = ({ icon, label }: { icon: string; label: string }) => (
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.cardFill, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-                                        {icon === 'pets' ? (
-                                            <Image
-                                                source={require('../../assets/icons/animals-filled.svg')}
-                                                style={{ width: 12, height: 12 }}
-                                                contentFit="contain"
-                                            />
-                                        ) : (
-                                            <MaterialIcons name={icon as any} size={10} color={colors.textGrey} />
-                                        )}
-                                        <Text style={{ color: colors.textGrey, fontSize: 11, fontFamily: 'Poppins-Regular' }}>{label}</Text>
-                                    </View>
-                                );
-
                                 return (
-                                    <TouchableOpacity
+                                    <HealthRecordCardItem
                                         key={record.id}
-                                        activeOpacity={0.85}
+                                        record={record}
+                                        index={idx}
+                                        shouldAnimate={shouldAnimateRecords}
+                                        batchName={batchName}
                                         onPress={() => setDetailRecord(record)}
                                         onLongPress={() => { setDeleteId(record.id); setDeleteModalVisible(true); }}
-                                        style={[
-                                            styles.deviceCard,
-                                            { backgroundColor: colors.surface, borderColor: colors.stroke, flexDirection: 'row', alignItems: 'stretch', marginBottom: 12, width: '100%', overflow: 'hidden', padding: 0 }
-                                        ]}
-                                    >
-                                        {/* Left accent strip */}
-                                        <View style={{ width: 4, backgroundColor: cfg.color }} />
-
-                                        {/* Icon column */}
-                                        <View style={{ width: 60, alignItems: 'center', justifyContent: 'center', paddingVertical: 18 }}>
-                                            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: cfg.color + '18', alignItems: 'center', justifyContent: 'center' }}>
-                                                <MaterialIcons name={cfg.icon as any} size={21} color={cfg.color} />
-                                            </View>
-                                        </View>
-
-                                        {/* Content */}
-                                        <View style={{ flex: 1, paddingVertical: 14, paddingRight: 4 }}>
-                                            {/* Title + severity badge */}
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
-                                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text, flex: 1 }}>
-                                                    {record.title}
-                                                </Text>
-                                                <View style={{ backgroundColor: sev.color + '22', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8, flexShrink: 0 }}>
-                                                    <Text style={{ color: sev.color, fontSize: 10, fontFamily: 'Poppins-SemiBold' }}>{sev.label}</Text>
-                                                </View>
-                                            </View>
-
-                                            {/* Type label */}
-                                            <Text style={{ color: cfg.color, fontSize: 12, fontFamily: 'Poppins-SemiBold', marginBottom: 8 }}>
-                                                {cfg.label}
-                                            </Text>
-
-                                            {/* Metadata chips */}
-                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
-                                                <Chip icon="calendar-today" label={new Date(record.record_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} />
-                                                <Chip icon="layers" label={batchName} />
-                                                {record.affected_count != null && <Chip icon="pets" label={`${record.affected_count} animals`} />}
-                                                {record.medication ? <Chip icon="science" label={record.medication + (record.dosage ? ` · ${record.dosage}` : '')} /> : null}
-                                            </View>
-
-                                            {/* Follow-up badge */}
-                                            {record.followup_date && (
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, backgroundColor: colors.warning + '18', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' }}>
-                                                    <MaterialIcons name="event" size={11} color={colors.warning} />
-                                                    <Text style={{ color: colors.warning, fontSize: 10, fontFamily: 'Poppins-SemiBold' }}>
-                                                        Follow-up: {new Date(record.followup_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                                    </Text>
-                                                </View>
-                                            )}
-                                        </View>
-
-                                        {/* Chevron */}
-                                        <View style={{ justifyContent: 'center', paddingRight: 14 }}>
-                                            <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
-                                        </View>
-                                    </TouchableOpacity>
+                                    />
                                 );
                             })}
                             <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, textAlign: 'center', marginTop: 4 }]}>

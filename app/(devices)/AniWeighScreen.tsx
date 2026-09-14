@@ -18,6 +18,7 @@ import { useAniWeighStyles } from '@/styles/aniweighStyles';
 import { AnimalIcon } from '@/components/AnimalIcon';
 import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { AIInsightCard } from '@/components/AIInsightCard';
+import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
 import { supabase } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getDeviceDisplayStatus } from '@/lib/deviceStatus';
@@ -1540,41 +1541,19 @@ export default function AniWeighScreen() {
                         </View>
 
                         <Text style={[textStyles.label, { color: colors.text, marginBottom: 8 }]}>Animal Type</Text>
-                        <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.stroke, padding: 4, marginBottom: 20 }}>
-                            {(['pig', 'chicken'] as const).map(type => {
-                                const isSelected = gateAnimalType === type;
-                                return (
-                                    <TouchableOpacity
-                                        key={type}
-                                        onPress={() => {
-                                            if (gateAnimalType === type) return;
-                                            gatePrefilledRef.current = true;
-                                            setGateAnimalType(type);
-                                            setGateHousingId(null);
-                                            setGateBatchId(null);
-                                            setGateBatches([]);
-                                            if (type === 'pig') setGateWeighMode('individual');
-                                        }}
-                                        activeOpacity={0.7}
-                                        style={{
-                                            flex: 1,
-                                            flexDirection: 'row',
-                                            gap: 8,
-                                            paddingVertical: 10,
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            borderRadius: 8,
-                                            backgroundColor: isSelected ? colors.primary : 'transparent',
-                                        }}
-                                    >
-                                        <AnimalIcon type={type} size={18} color={isSelected ? colors.onPrimary : colors.textGrey} />
-                                        <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.textGrey, fontSize: 14, fontWeight: '700' }]}>
-                                            {type === 'pig' ? 'Pig' : 'Chicken'}
-                                        </Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
+                        <AnimalTypePillSwitcher
+                            selected={gateAnimalType}
+                            onSelect={(type) => {
+                                if (gateAnimalType === type) return;
+                                gatePrefilledRef.current = true;
+                                setGateAnimalType(type);
+                                setGateHousingId(null);
+                                setGateBatchId(null);
+                                setGateBatches([]);
+                                if (type === 'pig') setGateWeighMode('individual');
+                            }}
+                            style={{ marginBottom: 20 }}
+                        />
 
                         {gateAnimalType === 'chicken' && (
                             <>

@@ -1,8 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, ScrollView, TouchableOpacity, View, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ActivityIndicator, Animated, ScrollView, TouchableOpacity, View, RefreshControl } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +32,124 @@ const ANIMAL_IMAGES: Record<string, any> = {
     chicken: require('../../assets/images/animals/chickens.png'),
 };
 
+const HousingCard = ({
+    housing,
+    index = 0,
+    shouldAnimate = false,
+    pigColor,
+    chickenColor,
+    onPress,
+}: {
+    housing: HousingSummary;
+    index?: number;
+    shouldAnimate?: boolean;
+    pigColor: string;
+    chickenColor: string;
+    onPress: () => void;
+}) => {
+    const { colors } = useTheme();
+    const textStyles = useTextStyles();
+    const styles = useAnimalStyles();
+
+    const isPig = housing.animal_type === 'pig';
+    const accent = isPig ? pigColor : chickenColor;
+    const bgColor = accent + '1A';
+    const imgSrc = ANIMAL_IMAGES[housing.animal_type];
+
+    const fadeAnim = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
+    const translateYAnim = useRef(new Animated.Value(shouldAnimate ? 12 : 0)).current;
+
+    useEffect(() => {
+        if (!shouldAnimate) {
+            fadeAnim.setValue(1);
+            translateYAnim.setValue(0);
+            return;
+        }
+
+        fadeAnim.setValue(0);
+        translateYAnim.setValue(12);
+
+        const delay = Math.min(index * 40, 240);
+        const timer = setTimeout(() => {
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.spring(translateYAnim, {
+                    toValue: 0,
+                    damping: 18,
+                    stiffness: 220,
+                    mass: 0.8,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }, delay);
+
+        return () => clearTimeout(timer);
+    }, [shouldAnimate, housing.id]);
+
+    return (
+        <Animated.View
+            style={{
+                width: '100%',
+                opacity: fadeAnim,
+                transform: [{ translateY: translateYAnim }],
+            }}
+        >
+            <TouchableOpacity
+                activeOpacity={0.7}
+                style={[
+                    styles.deviceCard,
+                    {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.stroke,
+                        padding: 0,
+                        overflow: 'hidden',
+                        width: '100%',
+                        marginBottom: 12,
+                        flexDirection: 'row',
+                        alignItems: 'stretch',
+                    },
+                ]}
+                onPress={onPress}
+            >
+                <Image
+                    source={imgSrc}
+                    style={{ width: 110, height: 'auto', minHeight: 110, backgroundColor: bgColor }}
+                    contentFit="cover"
+                />
+                <View style={{ flex: 1, padding: 14, justifyContent: 'center' }}>
+                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 17, marginBottom: 6 }]}>
+                        {housing.name}
+                    </Text>
+                    <View style={{ gap: 4 }}>
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                            Live heads:{' '}
+                            <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
+                                {housing.current_count}
+                                {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
+                            </Text>
+                        </Text>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                            <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+                                <Text style={{ color: accent, fontSize: 11, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }}>
+                                    {isPig ? 'Pigs' : 'Chickens'}
+                                </Text>
+                            </View>
+                        </View>
+                    </View>
+                </View>
+                <View style={{ justifyContent: 'center', paddingRight: 12 }}>
+                    <MaterialIcons name="chevron-right" size={24} color={colors.textGrey} />
+                </View>
+            </TouchableOpacity>
+        </Animated.View>
+    );
+};
+
 export default function AnimalsScreen() {
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
@@ -56,6 +174,8 @@ export default function AnimalsScreen() {
 
     const [housings, setHousings] = useState<HousingSummary[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [shouldAnimateCards, setShouldAnimateCards] = useState(false);
+    const hasInitialAnimatedRef = useRef(false);
 
     const calculateAge = (arrivalDateStr: string | null, ageAtArrivalDays: number, animalType: 'chicken' | 'pig') => {
         if (!arrivalDateStr) return '';
@@ -86,11 +206,12 @@ export default function AnimalsScreen() {
     };
 
     const [refreshing, setRefreshing] = useState(false);
+    const housingsLoadedRef = React.useRef(false);
 
     const fetchHousings = useCallback(async (isRefresh = false) => {
         if (!farmId) { setIsLoading(false); return; }
         if (isRefresh) setRefreshing(true);
-        else if (housings.length === 0) setIsLoading(true);
+        else if (!housingsLoadedRef.current) setIsLoading(true);
         try {
             // Fetch housings + their active batch (if any) in one query
             const { data, error } = await supabase
@@ -133,25 +254,41 @@ export default function AnimalsScreen() {
                 };
             });
             setHousings(mapped);
+            housingsLoadedRef.current = true;
+
+            // Only trigger fade-in animation on initial mount or manual pull-to-refresh
+            if (!hasInitialAnimatedRef.current || isRefresh) {
+                hasInitialAnimatedRef.current = true;
+                setShouldAnimateCards(true);
+                setTimeout(() => setShouldAnimateCards(false), 600);
+            }
         } catch (err) {
             console.error('[AnimalsScreen] fetch error:', err);
         } finally {
             if (isRefresh) setRefreshing(false);
             else setIsLoading(false);
         }
-    }, [farmId, housings.length]);
+    }, [farmId]);
 
     useFocusEffect(
         useCallback(() => {
-            fetchHousings();
+            fetchHousings(false);
         }, [fetchHousings])
     );
 
     useEffect(() => {
         if (!farmId) return;
 
+        let debounceTimer: any = null;
+        const triggerSync = () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                fetchHousings(false);
+            }, 300);
+        };
+
         const channel = supabase
-            .channel(`animals-live-${farmId}`)
+            .channel(`animals-live-${farmId}-${Date.now()}`)
             .on(
                 'postgres_changes',
                 {
@@ -160,9 +297,7 @@ export default function AnimalsScreen() {
                     table: 'housings',
                     filter: `farm_id=eq.${farmId}`
                 },
-                () => {
-                    fetchHousings();
-                }
+                triggerSync
             )
             .on(
                 'postgres_changes',
@@ -172,13 +307,12 @@ export default function AnimalsScreen() {
                     table: 'batches',
                     filter: `farm_id=eq.${farmId}`
                 },
-                () => {
-                    fetchHousings();
-                }
+                triggerSync
             )
             .subscribe();
 
         return () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
             supabase.removeChannel(channel);
         };
     }, [farmId, fetchHousings]);
@@ -192,10 +326,10 @@ export default function AnimalsScreen() {
                 {/* Header */}
                 <Header />
 
-                <View style={styles.headerContainer}>
+                <View style={[styles.headerContainer, { marginBottom: 14 }]}>
                     <View style={styles.headerTextContainer}>
-                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 32 }]}>Animals</Text>
-                        <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16 }]}>
+                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]}>Animals</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]}>
                             Track livestock head counts by housing
                         </Text>
                     </View>
@@ -279,58 +413,20 @@ export default function AnimalsScreen() {
                                 </TouchableOpacity>
                             </View>
                         ) : (
-                            housings.map(housing => {
-                                const isPig = housing.animal_type === 'pig';
-                                const accent = isPig ? pigColor : chickenColor;
-                                const bgColor = accent + '1A';
-                                const imgSrc = ANIMAL_IMAGES[housing.animal_type];
-
-                                return (
-                                    <TouchableOpacity
-                                        key={housing.id}
-                                        activeOpacity={0.7}
-                                        style={[
-                                            styles.deviceCard,
-                                            { backgroundColor: colors.surface, borderColor: colors.stroke, padding: 0, overflow: 'hidden', width: '100%', marginBottom: 12, flexDirection: 'row', alignItems: 'stretch' }
-                                        ]}
-                                        onPress={() => router.push({
-                                            pathname: '/(animals)/AnimalDetails',
-                                            params: { housingId: housing.id },
-                                        })}
-                                    >
-                                        <Image
-                                            source={imgSrc}
-                                            style={{ width: 110, height: 'auto', minHeight: 110, backgroundColor: bgColor }}
-                                            contentFit="cover"
-                                        />
-                                        <View style={{ flex: 1, padding: 14, justifyContent: 'center' }}>
-                                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 17, marginBottom: 6 }]}>
-                                                {housing.name}
-                                            </Text>
-                                            <View style={{ gap: 4 }}>
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                                                    Live heads:{' '}
-                                                    <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
-                                                        {housing.current_count}
-                                                        {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
-                                                    </Text>
-                                                </Text>
-
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                                                    <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
-                                                        <Text style={{ color: accent, fontSize: 11, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }}>
-                                                            {isPig ? 'Pigs' : 'Chickens'}
-                                                        </Text>
-                                                    </View>
-                                                </View>
-                                            </View>
-                                        </View>
-                                        <View style={{ justifyContent: 'center', paddingRight: 12 }}>
-                                            <MaterialIcons name="chevron-right" size={24} color={colors.textGrey} />
-                                        </View>
-                                    </TouchableOpacity>
-                                );
-                            })
+                            housings.map((housing, idx) => (
+                                <HousingCard
+                                    key={housing.id}
+                                    housing={housing}
+                                    index={idx}
+                                    shouldAnimate={shouldAnimateCards}
+                                    pigColor={pigColor}
+                                    chickenColor={chickenColor}
+                                    onPress={() => router.push({
+                                        pathname: '/(animals)/AnimalDetails',
+                                        params: { housingId: housing.id },
+                                    })}
+                                />
+                            ))
                         )}
                     </View>
 

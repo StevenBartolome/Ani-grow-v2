@@ -19,6 +19,7 @@ import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
+import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
 import { ReportDocument, ReportStat } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -808,30 +809,12 @@ export default function PredictionReportScreen() {
                     </View>
                 </View>
 
-                {/* Animal Type Segment Filter */}
-                <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.stroke, padding: 4, marginBottom: 20 }}>
-                    {(['pig', 'chicken'] as const).map(t => {
-                        const isSelected = animalType === t;
-                        return (
-                            <TouchableOpacity
-                                key={t}
-                                onPress={() => handleSwitchAnimalType(t)}
-                                activeOpacity={0.8}
-                                style={{
-                                    flex: 1,
-                                    paddingVertical: 10,
-                                    alignItems: 'center',
-                                    borderRadius: 8,
-                                    backgroundColor: isSelected ? colors.primary : 'transparent',
-                                }}
-                            >
-                                <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.textGrey, fontSize: 14, fontWeight: '700' }]}>
-                                    {t === 'pig' ? 'Pigs' : 'Chickens'}
-                                </Text>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
+                {/* Sliding Animal Type Pill Switcher */}
+                <AnimalTypePillSwitcher
+                    selected={animalType}
+                    onSelect={handleSwitchAnimalType}
+                    style={{ marginBottom: 16 }}
+                />
 
                 {/* House & Batch Dropdowns */}
                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>

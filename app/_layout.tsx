@@ -57,7 +57,9 @@ LogBox.ignoreLogs([
   'props.pointerEvents is deprecated',
 ]);
 
-SplashScreen.preventAutoHideAsync();
+export { ErrorBoundary } from 'expo-router';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function RootNavigator() {
   const { colors, isDark } = useTheme();

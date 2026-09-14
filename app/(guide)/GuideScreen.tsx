@@ -1,8 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useFocusEffect } from 'expo-router';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Animated,
+    AppState,
     Keyboard,
     LayoutAnimation,
     Modal,
@@ -21,9 +24,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FloatingNavBar } from '@/components/FloatingNavBar';
 import { Header } from '@/components/Header';
 import { SelectionModal } from '@/components/SelectionModal';
+import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
 import { useTextStyles } from '@/constants/textStyles';
-import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
 import { createNotification } from '@/lib/notify';
@@ -123,6 +127,497 @@ const SKIP_REASON_OPTIONS = [
     'Labor / Equipment shortage',
 ];
 
+// ─── Animated Wrapper Components ──────────────────────────────────────────────
+
+const GuideSectionFade = ({
+    children,
+    delay = 0,
+    shouldAnimate = false,
+}: {
+    children: React.ReactNode;
+    delay?: number;
+    shouldAnimate?: boolean;
+}) => {
+    const fadeAnim = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
+    const translateYAnim = useRef(new Animated.Value(shouldAnimate ? 12 : 0)).current;
+
+    useEffect(() => {
+        if (!shouldAnimate) {
+            fadeAnim.setValue(1);
+            translateYAnim.setValue(0);
+            return;
+        }
+        fadeAnim.setValue(0);
+        translateYAnim.setValue(12);
+
+        const timer = setTimeout(() => {
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.spring(translateYAnim, {
+                    toValue: 0,
+                    damping: 18,
+                    stiffness: 220,
+                    mass: 0.8,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }, delay);
+
+        return () => clearTimeout(timer);
+    }, [shouldAnimate]);
+
+    return (
+        <Animated.View
+            style={{
+                opacity: fadeAnim,
+                transform: [{ translateY: translateYAnim }],
+            }}
+        >
+            {children}
+        </Animated.View>
+    );
+};
+
+const GuideTimelinePhaseItem = ({
+    phase,
+    index = 0,
+    isLast = false,
+    shouldAnimate = false,
+    naturalPhaseIndex,
+}: {
+    phase: GuidePhaseItem;
+    index?: number;
+    isLast?: boolean;
+    shouldAnimate?: boolean;
+    naturalPhaseIndex: number;
+}) => {
+    const { colors, isDark } = useTheme();
+    const textStyles = useTextStyles();
+
+    const isPast = naturalPhaseIndex >= 0 && index < naturalPhaseIndex;
+    const isCurrent = naturalPhaseIndex >= 0 && index === naturalPhaseIndex;
+    const isFuture = naturalPhaseIndex < 0 || index > naturalPhaseIndex;
+
+    const circleColor = isPast ? colors.primary : isCurrent ? colors.warning : colors.surface;
+    const borderColor = isPast ? colors.primary : isCurrent ? colors.warning : colors.stroke;
+    const titleColor = isCurrent ? colors.warning : colors.text;
+
+    const fadeAnim = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
+    const translateYAnim = useRef(new Animated.Value(shouldAnimate ? 12 : 0)).current;
+
+    useEffect(() => {
+        if (!shouldAnimate) {
+            fadeAnim.setValue(1);
+            translateYAnim.setValue(0);
+            return;
+        }
+        fadeAnim.setValue(0);
+        translateYAnim.setValue(12);
+
+        const delay = Math.min(index * 40, 240);
+        const timer = setTimeout(() => {
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.spring(translateYAnim, {
+                    toValue: 0,
+                    damping: 18,
+                    stiffness: 220,
+                    mass: 0.8,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }, delay);
+
+        return () => clearTimeout(timer);
+    }, [shouldAnimate, phase.id]);
+
+    return (
+        <Animated.View
+            style={{
+                opacity: fadeAnim,
+                transform: [{ translateY: translateYAnim }],
+            }}
+        >
+            <View style={{ flexDirection: 'row', marginBottom: isLast ? 0 : 20 }}>
+                {/* Timeline Line/Dots */}
+                <View style={{ width: 32, alignItems: 'center', marginRight: 14 }}>
+                    <View style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 12,
+                        backgroundColor: circleColor,
+                        borderWidth: 2,
+                        borderColor: borderColor,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 2,
+                        shadowColor: isCurrent ? colors.warning : 'transparent',
+                        shadowOpacity: 0.4,
+                        shadowRadius: 8,
+                        shadowOffset: { width: 0, height: 0 },
+                    }}>
+                        {isPast && <MaterialIcons name="check" size={14} color="#FFF" />}
+                        {isCurrent && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFF' }} />}
+                    </View>
+
+                    {!isLast && (
+                        <View style={{
+                            width: 2,
+                            flex: 1,
+                            backgroundColor: isPast ? colors.primary : colors.stroke,
+                            marginBottom: -20,
+                            marginTop: 4,
+                        }} />
+                    )}
+                </View>
+
+                {/* Content Card */}
+                <View style={{ flex: 1, opacity: isFuture && naturalPhaseIndex >= 0 ? 0.65 : 1, paddingBottom: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <Text style={[textStyles.h2, { color: titleColor, fontSize: 17, fontFamily: 'Poppins-Bold' }]}>
+                            {phase.name}
+                        </Text>
+                    </View>
+
+                    <View style={{
+                        alignSelf: 'flex-start',
+                        backgroundColor: isCurrent ? colors.warning + '1A' : (isDark ? 'rgba(255,255,255,0.06)' : colors.bgLight),
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderRadius: 6,
+                        marginBottom: 8,
+                        borderWidth: 1,
+                        borderColor: isCurrent ? colors.warning + '40' : colors.stroke,
+                    }}>
+                        <Text style={{
+                            color: isCurrent ? colors.warning : colors.textGrey,
+                            fontSize: 10.5,
+                            fontFamily: 'Poppins-Bold',
+                        }}>
+                            {phase.dayRange.toUpperCase()}
+                        </Text>
+                    </View>
+
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, lineHeight: 20, marginBottom: 8 }]}>
+                        {phase.timelineDescription || phase.cardDescription}
+                    </Text>
+
+                    {/* Actionable Note */}
+                    {(isCurrent || isPast) && (
+                        <View style={{
+                            flexDirection: 'row',
+                            backgroundColor: isCurrent ? colors.warning + '14' : colors.surface,
+                            padding: 12,
+                            borderRadius: 10,
+                            borderWidth: 1,
+                            borderColor: isCurrent ? colors.warning + '4D' : colors.stroke,
+                            marginTop: 4,
+                        }}>
+                            <MaterialIcons name="lightbulb" size={16} color={isCurrent ? colors.warning : colors.primary} style={{ marginRight: 8, marginTop: 2 }} />
+                            <Text style={[textStyles.body, { color: isCurrent ? colors.text : colors.textGrey, fontSize: 12.5, flex: 1, lineHeight: 18, fontFamily: 'Poppins-Regular' }]}>
+                                {phase.todayAction || phase.actionable}
+                            </Text>
+                        </View>
+                    )}
+                </View>
+            </View>
+        </Animated.View>
+    );
+};
+
+const GuideTaskCardItem = ({
+    actionItem,
+    index = 0,
+    shouldAnimate = false,
+    naturalPhaseId,
+    currentDay,
+    actionLog,
+    onComplete,
+    onSkip,
+    onUndo,
+}: {
+    actionItem: SOPAction;
+    index?: number;
+    shouldAnimate?: boolean;
+    naturalPhaseId: string;
+    currentDay: number;
+    actionLog?: RoadmapActionLog;
+    onComplete: (actionItem: SOPAction, phaseId: string, currentDay: number) => void;
+    onSkip: (actionItem: SOPAction, phaseId: string, currentDay: number) => void;
+    onUndo: (actionItem: SOPAction, phaseId: string, currentDay: number) => void;
+}) => {
+    const { colors, isDark } = useTheme();
+
+    const isAIItem = typeof actionItem.action === 'string' && actionItem.action.startsWith('[AI Adjustment]');
+    const isTodayMatched = isDayMatching(actionItem.dayTag, currentDay);
+    const isCompleted = actionLog?.status === 'completed';
+    const isRejected = actionLog?.status === 'rejected';
+
+    const fadeAnim = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
+    const translateYAnim = useRef(new Animated.Value(shouldAnimate ? 12 : 0)).current;
+
+    useEffect(() => {
+        if (!shouldAnimate) {
+            fadeAnim.setValue(1);
+            translateYAnim.setValue(0);
+            return;
+        }
+        fadeAnim.setValue(0);
+        translateYAnim.setValue(12);
+
+        const delay = Math.min(index * 35, 200);
+        const timer = setTimeout(() => {
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.spring(translateYAnim, {
+                    toValue: 0,
+                    damping: 18,
+                    stiffness: 220,
+                    mass: 0.8,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }, delay);
+
+        return () => clearTimeout(timer);
+    }, [shouldAnimate]);
+
+    return (
+        <Animated.View
+            style={{
+                opacity: fadeAnim,
+                transform: [{ translateY: translateYAnim }],
+            }}
+        >
+            <View
+                style={{
+                    borderRadius: 12,
+                    backgroundColor: isCompleted
+                        ? (isDark ? 'rgba(16, 185, 129, 0.12)' : '#F0FDF4')
+                        : isRejected
+                            ? (isDark ? 'rgba(245, 158, 11, 0.1)' : '#FFFBEB')
+                            : isAIItem
+                                ? (isDark ? 'rgba(16, 185, 129, 0.08)' : '#ECFDF5')
+                                : (isDark ? 'rgba(255,255,255,0.02)' : '#FAFAFA'),
+                    borderWidth: 1,
+                    borderColor: isCompleted
+                        ? 'rgba(16, 185, 129, 0.5)'
+                        : isRejected
+                            ? 'rgba(245, 158, 11, 0.5)'
+                            : isAIItem
+                                ? 'rgba(16, 185, 129, 0.45)'
+                                : isTodayMatched
+                                    ? 'rgba(16, 185, 129, 0.35)'
+                                    : colors.stroke,
+                    borderLeftWidth: (isCompleted || isRejected) ? 4 : 1,
+                    borderLeftColor: isCompleted ? '#10B981' : isRejected ? '#F59E0B' : undefined,
+                    padding: 12,
+                    gap: 10,
+                }}
+            >
+                {/* Top Row: Task Description & Day Badge */}
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                    <View style={{ flex: 1 }}>
+                        <Text style={{
+                            fontSize: 12.5,
+                            color: isCompleted ? (isDark ? '#34D399' : '#065F46') : isRejected ? (isDark ? '#FBBF24' : '#92400E') : isAIItem ? '#10B981' : colors.text,
+                            fontFamily: isAIItem || isTodayMatched || isCompleted ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                            lineHeight: 18,
+                        }}>
+                            {actionItem.action}
+                        </Text>
+                    </View>
+
+                    <View style={{
+                        backgroundColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.15)' : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
+                        borderWidth: 1,
+                        borderColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.35)' : colors.stroke,
+                        paddingHorizontal: 7,
+                        paddingVertical: 2,
+                        borderRadius: 6,
+                        flexShrink: 0,
+                    }}>
+                        <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayMatched ? '#10B981' : colors.textGrey }}>
+                            {actionItem.dayTag}
+                        </Text>
+                    </View>
+                </View>
+
+                {/* Skipped Note Reason display */}
+                {isRejected && actionLog?.reason_notes && (
+                    <View style={{
+                        backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.08)',
+                        borderRadius: 8,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                    }}>
+                        <MaterialIcons name="comment" size={13} color="#F59E0B" />
+                        <Text style={{ fontSize: 11, color: isDark ? '#FCD34D' : '#B45309', fontFamily: 'Poppins-Medium', flex: 1 }} numberOfLines={2}>
+                            Note: "{actionLog.reason_notes}"
+                        </Text>
+                    </View>
+                )}
+
+                {/* Bottom Action Buttons Row */}
+                <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingTop: 6,
+                    borderTopWidth: 1,
+                    borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                }}>
+                    {isCompleted ? (
+                        <>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                <MaterialIcons name="check-circle" size={15} color="#10B981" />
+                                <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#10B981' }}>
+                                    Action Completed
+                                </Text>
+                            </View>
+
+                            <TouchableOpacity
+                                activeOpacity={0.7}
+                                onPress={() => onUndo(actionItem, naturalPhaseId, currentDay)}
+                                style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : colors.bgLight,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 5,
+                                    borderRadius: 8,
+                                }}
+                            >
+                                <MaterialIcons name="undo" size={13} color={colors.textGrey} />
+                                <Text style={{ fontSize: 11, fontFamily: 'Poppins-Medium', color: colors.textGrey }}>
+                                    Undo
+                                </Text>
+                            </TouchableOpacity>
+                        </>
+                    ) : isRejected ? (
+                        <>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                <MaterialIcons name="cancel" size={15} color="#F59E0B" />
+                                <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#F59E0B' }}>
+                                    Skipped / Rejected
+                                </Text>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    onPress={() => onSkip(actionItem, naturalPhaseId, currentDay)}
+                                    style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        backgroundColor: '#F59E0B',
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 5,
+                                        borderRadius: 8,
+                                    }}
+                                >
+                                    <MaterialIcons name="edit" size={12} color="#FFFFFF" />
+                                    <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                                        Edit Note
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    onPress={() => onUndo(actionItem, naturalPhaseId, currentDay)}
+                                    style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 3,
+                                        paddingHorizontal: 8,
+                                        paddingVertical: 5,
+                                        borderRadius: 8,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : colors.bgLight,
+                                    }}
+                                >
+                                    <MaterialIcons name="refresh" size={13} color={colors.textGrey} />
+                                    <Text style={{ fontSize: 11, fontFamily: 'Poppins-Medium', color: colors.textGrey }}>
+                                        Reset
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </>
+                    ) : (
+                        <>
+                            <Text style={{ fontSize: 11, fontFamily: 'Poppins-Regular', color: colors.textGrey }}>
+                                Record procedure:
+                            </Text>
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    onPress={() => onSkip(actionItem, naturalPhaseId, currentDay)}
+                                    style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        paddingHorizontal: 12,
+                                        paddingVertical: 6,
+                                        borderRadius: 8,
+                                        borderWidth: 1,
+                                        borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : '#FCA5A5',
+                                        backgroundColor: isDark ? 'rgba(239, 68, 68, 0.1)' : '#FEF2F2',
+                                    }}
+                                >
+                                    <MaterialIcons name="close" size={14} color="#EF4444" />
+                                    <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-SemiBold', color: '#EF4444' }}>
+                                        Skip
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    onPress={() => onComplete(actionItem, naturalPhaseId, currentDay)}
+                                    style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        paddingHorizontal: 14,
+                                        paddingVertical: 6,
+                                        borderRadius: 8,
+                                        backgroundColor: '#10B981',
+                                    }}
+                                >
+                                    <MaterialIcons name="check" size={14} color="#FFFFFF" />
+                                    <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
+                                        Done
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </>
+                    )}
+                </View>
+            </View>
+        </Animated.View>
+    );
+};
+
 export default function GuideScreen() {
     const insets = useSafeAreaInsets();
     const textStyles = useTextStyles();
@@ -144,11 +639,16 @@ export default function GuideScreen() {
     const [isBatchLoading, setIsBatchLoading] = useState(true);
     const [isBatchModalVisible, setIsBatchModalVisible] = useState(false);
 
+    const batchesLoadedRef = useRef(false);
+    const roadmapLoadedRef = useRef(false);
+
     // ─── Database-Loaded Roadmap & Weight States ────────────────────────────────
     const [phaseGuideList, setPhaseGuideList] = useState<GuidePhaseItem[]>(
         animalFilter === 'pig' ? PIG_GUIDE_DATA : CHICKEN_GUIDE_DATA
     );
     const [isRoadmapLoading, setIsRoadmapLoading] = useState(false);
+    const [shouldAnimateGuide, setShouldAnimateGuide] = useState(false);
+    const hasInitialGuideAnimatedRef = useRef(false);
     const [refreshing, setRefreshing] = useState(false);
     const [weightSummary, setWeightSummary] = useState<BatchWeightSummary>({
         latestAvgWeightKg: null,
@@ -175,12 +675,14 @@ export default function GuideScreen() {
     const [isSubmittingReason, setIsSubmittingReason] = useState(false);
 
     // ─── Fetch Active Batches with Demo Fallback ────────────────────────────────
-    const fetchBatches = useCallback(async () => {
+    const fetchBatches = useCallback(async (isSilent = false) => {
         if (!farmId) {
             setIsBatchLoading(false);
             return;
         }
-        setIsBatchLoading(true);
+        if (!batchesLoadedRef.current && !isSilent) {
+            setIsBatchLoading(true);
+        }
         try {
             const { data: housingData } = await supabase
                 .from('housings')
@@ -190,6 +692,7 @@ export default function GuideScreen() {
             const housingIds = (housingData ?? []).map((h: any) => h.id);
             if (housingIds.length === 0) {
                 setBatches([]);
+                batchesLoadedRef.current = true;
                 setIsBatchLoading(false);
                 return;
             }
@@ -203,6 +706,7 @@ export default function GuideScreen() {
 
             if (error) throw error;
             setBatches((data ?? []) as unknown as BatchSummary[]);
+            batchesLoadedRef.current = true;
         } catch (err) {
             console.error('[GuideScreen] fetchBatches error:', err);
         } finally {
@@ -214,15 +718,21 @@ export default function GuideScreen() {
         fetchBatches();
     }, [fetchBatches]);
 
-    // ─── Filter Batches (Combining Real with Demo Batches if empty) ──────────────
     const allBatchesForType = useMemo(() => {
         const real = batches.filter(b => b.animal_type === animalFilter);
         if (real.length > 0) return real;
-        return DEMO_BATCHES.filter(b => b.animal_type === animalFilter) as unknown as BatchSummary[];
+        if (batchesLoadedRef.current) {
+            return DEMO_BATCHES.filter(b => b.animal_type === animalFilter) as unknown as BatchSummary[];
+        }
+        return [];
     }, [animalFilter, batches]);
 
     useEffect(() => {
-        setSelectedBatchId(allBatchesForType[0]?.id ?? null);
+        if (allBatchesForType.length > 0) {
+            setSelectedBatchId(prev => (prev && allBatchesForType.some(b => b.id === prev) ? prev : allBatchesForType[0].id));
+        } else {
+            setSelectedBatchId(null);
+        }
         setRoadmapPhaseFilter('all');
     }, [animalFilter, allBatchesForType]);
 
@@ -249,12 +759,15 @@ export default function GuideScreen() {
     }, [fetchActionLogs]);
 
     // ─── Fetch Database-Backed Roadmap & Batch Weight ────────────────────────────
-    const fetchRoadmapAndWeight = useCallback(async () => {
+    const fetchRoadmapAndWeight = useCallback(async (isSilent = false, isRefresh = false) => {
         if (!farmId) {
             setPhaseGuideList(animalFilter === 'pig' ? PIG_GUIDE_DATA : CHICKEN_GUIDE_DATA);
+            setIsRoadmapLoading(false);
             return;
         }
-        setIsRoadmapLoading(true);
+        if (!isSilent) {
+            setIsRoadmapLoading(true);
+        }
         try {
             const [roadmapPhases, weightData] = await Promise.all([
                 getEffectiveRoadmap(farmId, animalFilter, selectedBatch?.id),
@@ -262,6 +775,13 @@ export default function GuideScreen() {
             ]);
             setPhaseGuideList(roadmapPhases);
             setWeightSummary(weightData);
+            roadmapLoadedRef.current = true;
+
+            if (!hasInitialGuideAnimatedRef.current || isRefresh) {
+                hasInitialGuideAnimatedRef.current = true;
+                setShouldAnimateGuide(true);
+                setTimeout(() => setShouldAnimateGuide(false), 600);
+            }
         } catch (err) {
             console.error('[GuideScreen] fetchRoadmapAndWeight error:', err);
             setPhaseGuideList(animalFilter === 'pig' ? PIG_GUIDE_DATA : CHICKEN_GUIDE_DATA);
@@ -274,9 +794,73 @@ export default function GuideScreen() {
         fetchRoadmapAndWeight();
     }, [fetchRoadmapAndWeight]);
 
+    // Focus revalidation: silent refresh whenever tab is focused
+    useFocusEffect(
+        useCallback(() => {
+            fetchBatches(true);
+            fetchRoadmapAndWeight(true);
+            fetchActionLogs();
+        }, [fetchBatches, fetchRoadmapAndWeight, fetchActionLogs])
+    );
+
+    // App state foreground revalidation
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (nextState) => {
+            if (nextState === 'active') {
+                fetchBatches(true);
+                fetchRoadmapAndWeight(true);
+                fetchActionLogs();
+            }
+        });
+        return () => sub.remove();
+    }, [fetchBatches, fetchRoadmapAndWeight, fetchActionLogs]);
+
+    // Realtime subscription to batches, roadmap actions, and custom roadmaps
+    useEffect(() => {
+        if (!farmId) return;
+        let timeout: ReturnType<typeof setTimeout>;
+        const debouncedRefresh = () => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                fetchBatches(true);
+                fetchRoadmapAndWeight(true);
+                fetchActionLogs();
+            }, 300);
+        };
+
+        const channel = supabase
+            .channel(`guide-realtime-${farmId}`)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'batches' },
+                debouncedRefresh
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'roadmap_action_logs' },
+                debouncedRefresh
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'custom_roadmaps' },
+                debouncedRefresh
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'weigh_sessions' },
+                debouncedRefresh
+            )
+            .subscribe();
+
+        return () => {
+            clearTimeout(timeout);
+            supabase.removeChannel(channel);
+        };
+    }, [farmId, fetchBatches, fetchRoadmapAndWeight, fetchActionLogs]);
+
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
-        await Promise.all([fetchBatches(), fetchRoadmapAndWeight(), fetchActionLogs()]);
+        await Promise.all([fetchBatches(true), fetchRoadmapAndWeight(true, true), fetchActionLogs()]);
         setRefreshing(false);
     }, [fetchBatches, fetchRoadmapAndWeight, fetchActionLogs]);
 
@@ -654,6 +1238,21 @@ export default function GuideScreen() {
         );
     };
 
+    if (isBatchLoading && !batchesLoadedRef.current) {
+        return (
+            <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top }}>
+                <Header />
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, fontFamily: 'Poppins-Regular' }]}>
+                        Loading actionable guide...
+                    </Text>
+                </View>
+                <FloatingNavBar />
+            </View>
+        );
+    }
+
     return (
         <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top }}>
             {/* Fixed App Header */}
@@ -845,7 +1444,7 @@ export default function GuideScreen() {
 
                         {/* 4. Filtered Phase List with Done Phase Collapsing */}
                         <View style={{ gap: 14 }}>
-                            {filteredRoadmapPhases.map((phase) => {
+                            {filteredRoadmapPhases.map((phase, pIdx) => {
                                 const phaseIdx = phaseGuideList.findIndex(p => p.id === phase.id);
                                 const isPast = naturalPhaseIndex >= 0 && phaseIdx < naturalPhaseIndex;
                                 const isCurrentStage = naturalPhaseIndex >= 0 && phaseIdx === naturalPhaseIndex;
@@ -862,16 +1461,20 @@ export default function GuideScreen() {
                                 const isAdjusting = isAiAdjusting[phase.id] === true;
 
                                 return (
-                                    <View
+                                    <GuideSectionFade
                                         key={phase.id}
-                                        style={{
-                                            backgroundColor: colors.surface,
-                                            borderRadius: 16,
-                                            borderWidth: 1,
-                                            borderColor: isCurrentStage ? colors.warning : colors.stroke,
-                                            overflow: 'hidden',
-                                        }}
+                                        delay={Math.min(pIdx * 40, 240)}
+                                        shouldAnimate={shouldAnimateGuide}
                                     >
+                                        <View
+                                            style={{
+                                                backgroundColor: colors.surface,
+                                                borderRadius: 16,
+                                                borderWidth: 1,
+                                                borderColor: isCurrentStage ? colors.warning : colors.stroke,
+                                                overflow: 'hidden',
+                                            }}
+                                        >
                                         {/* Phase Header (Tap to toggle collapse) */}
                                         <TouchableOpacity
                                             activeOpacity={0.8}
@@ -1296,7 +1899,8 @@ export default function GuideScreen() {
                                                 </View>
                                             </View>
                                         )}
-                                    </View>
+                                        </View>
+                                    </GuideSectionFade>
                                 );
                             })}
                         </View>
@@ -1307,12 +1911,12 @@ export default function GuideScreen() {
                     /* ═══════════════════════════════════════════════════════════════ */
                     <View>
                         {/* 1. Header Section */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
                             <View style={{ flex: 1, marginRight: 10 }}>
-                                <Text style={[textStyles.h1, { color: colors.text, fontSize: 30 }]}>
+                                <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]}>
                                     Actionable Guide
                                 </Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 14, marginTop: 4 }]}>
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]}>
                                     Track growth timelines and best practices
                                 </Text>
                             </View>
@@ -1346,37 +1950,29 @@ export default function GuideScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        {/* 2. Animal Tab Filter (AniGrow standard pills) */}
-                        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
-                            {(['pig', 'chicken'] as const).map((filter) => {
-                                const isSelected = animalFilter === filter;
-                                return (
-                                    <TouchableOpacity
-                                        key={filter}
-                                        activeOpacity={0.7}
-                                        onPress={() => setAnimalFilter(filter)}
-                                        style={{
-                                            paddingHorizontal: 20,
-                                            paddingVertical: 8,
-                                            borderRadius: 20,
-                                            backgroundColor: isSelected ? colors.primary : colors.surface,
-                                            borderWidth: 1,
-                                            borderColor: isSelected ? colors.primary : colors.stroke,
-                                        }}
-                                    >
-                                        <Text style={{
-                                            fontFamily: 'Poppins-Medium',
-                                            fontSize: 13,
-                                            color: isSelected ? colors.onPrimary : colors.textGrey,
-                                        }}>
-                                            {filter === 'pig' ? 'Pigs' : 'Chickens'}
-                                        </Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
+                        {/* 2. Sliding Animal Type Pill Switcher */}
+                        <AnimalTypePillSwitcher
+                            selected={animalFilter}
+                            onSelect={(filter) => {
+                                if (animalFilter !== filter) {
+                                    setIsRoadmapLoading(true);
+                                    setAnimalFilter(filter);
+                                    setShouldAnimateGuide(true);
+                                    setTimeout(() => setShouldAnimateGuide(false), 600);
+                                }
+                            }}
+                            style={{ marginBottom: 16 }}
+                        />
 
-
+                        {isRoadmapLoading ? (
+                            <View style={{ paddingVertical: 60, alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                                <ActivityIndicator size="small" color={colors.primary} />
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, fontFamily: 'Poppins-Regular' }]}>
+                                    Loading {animalFilter === 'pig' ? 'Swine' : 'Poultry'} guide...
+                                </Text>
+                            </View>
+                        ) : (
+                            <>
                         {/* 3. Batch Filter Dropdown */}
                         {isBatchLoading ? (
                             <View style={{ paddingBottom: 12 }}>
@@ -1416,93 +2012,97 @@ export default function GuideScreen() {
                         ) : null}
 
                         {/* 4. Real Day + Phase Header Card */}
-                        <View style={{
-                            flexDirection: 'row',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            backgroundColor: colors.surface,
-                            padding: 16,
-                            borderRadius: 16,
-                            borderWidth: 1,
-                            borderColor: colors.stroke,
-                            shadowColor: colors.shadow,
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.08,
-                            shadowRadius: 8,
-                            elevation: 2,
-                            marginBottom: 20,
-                        }}>
-                            <View style={{ flex: 1, marginRight: 14 }}>
-                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 19, marginBottom: 4 }]}>
-                                    {animalFilter === 'pig' ? 'Swine' : 'Poultry'} Timeline
-                                </Text>
-                                {selectedBatch ? (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, lineHeight: 20 }]}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>
-                                            {selectedBatch.name}
-                                        </Text>
-                                        {' '}is in{' '}
-                                        <Text style={{ fontFamily: 'Poppins-Bold', color: colors.primary }}>
-                                            {naturalPhase.name}
-                                        </Text>
-                                        . Steps below are tailored for today.
-                                    </Text>
-                                ) : (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, lineHeight: 20 }]}>
-                                        Select a batch above to see real-time guidance.
-                                    </Text>
-                                )}
-                            </View>
-
-                            {/* Day Badge */}
+                        <GuideSectionFade delay={0} shouldAnimate={shouldAnimateGuide}>
                             <View style={{
-                                backgroundColor: colors.primary + '18',
-                                paddingHorizontal: 16,
-                                paddingVertical: 10,
-                                borderRadius: 12,
+                                flexDirection: 'row',
+                                justifyContent: 'space-between',
                                 alignItems: 'center',
-                                minWidth: 64,
+                                backgroundColor: colors.surface,
+                                padding: 16,
+                                borderRadius: 16,
+                                borderWidth: 1,
+                                borderColor: colors.stroke,
+                                shadowColor: colors.shadow,
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.08,
+                                shadowRadius: 8,
+                                elevation: 2,
+                                marginBottom: 20,
                             }}>
-                                <Text style={{ color: colors.primary, fontSize: 10, letterSpacing: 1.2, fontFamily: 'Poppins-Bold' }}>
-                                    DAY
-                                </Text>
-                                <Text style={{ color: colors.primary, fontSize: 26, fontFamily: 'Poppins-Bold', lineHeight: 28 }}>
-                                    {currentDay}
-                                </Text>
+                                <View style={{ flex: 1, marginRight: 14 }}>
+                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 19, marginBottom: 4 }]}>
+                                        {animalFilter === 'pig' ? 'Swine' : 'Poultry'} Timeline
+                                    </Text>
+                                    {selectedBatch ? (
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, lineHeight: 20 }]}>
+                                            <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>
+                                                {selectedBatch.name}
+                                            </Text>
+                                            {' '}is in{' '}
+                                            <Text style={{ fontFamily: 'Poppins-Bold', color: colors.primary }}>
+                                                {naturalPhase.name}
+                                            </Text>
+                                            . Steps below are tailored for today.
+                                        </Text>
+                                    ) : (
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, lineHeight: 20 }]}>
+                                            Select a batch above to see real-time guidance.
+                                        </Text>
+                                    )}
+                                </View>
+
+                                {/* Day Badge */}
+                                <View style={{
+                                    backgroundColor: colors.primary + '18',
+                                    paddingHorizontal: 16,
+                                    paddingVertical: 10,
+                                    borderRadius: 12,
+                                    alignItems: 'center',
+                                    minWidth: 64,
+                                }}>
+                                    <Text style={{ color: colors.primary, fontSize: 10, letterSpacing: 1.2, fontFamily: 'Poppins-Bold' }}>
+                                        DAY
+                                    </Text>
+                                    <Text style={{ color: colors.primary, fontSize: 26, fontFamily: 'Poppins-Bold', lineHeight: 28 }}>
+                                        {currentDay}
+                                    </Text>
+                                </View>
                             </View>
-                        </View>
+                        </GuideSectionFade>
 
                         {/* 5. Core Today's Action Banner */}
-                        <View style={{
-                            backgroundColor: isDark ? 'rgba(16, 185, 129, 0.06)' : '#F0FDF4',
-                            borderWidth: 1.2,
-                            borderColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#BBF7D0',
-                            borderRadius: 14,
-                            padding: 14,
-                            marginBottom: 20,
-                            flexDirection: 'row',
-                            alignItems: 'flex-start',
-                            gap: 12,
-                        }}>
+                        <GuideSectionFade delay={40} shouldAnimate={shouldAnimateGuide}>
                             <View style={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: 8,
-                                backgroundColor: 'rgba(16, 185, 129, 0.15)',
-                                alignItems: 'center',
-                                justifyContent: 'center',
+                                backgroundColor: isDark ? 'rgba(16, 185, 129, 0.06)' : '#F0FDF4',
+                                borderWidth: 1.2,
+                                borderColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#BBF7D0',
+                                borderRadius: 14,
+                                padding: 14,
+                                marginBottom: 20,
+                                flexDirection: 'row',
+                                alignItems: 'flex-start',
+                                gap: 12,
                             }}>
-                                <MaterialIcons name="lightbulb" size={18} color="#10B981" />
+                                <View style={{
+                                    width: 34,
+                                    height: 34,
+                                    borderRadius: 8,
+                                    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}>
+                                    <MaterialIcons name="lightbulb" size={18} color="#10B981" />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: '#10B981', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                        Core Action Focus • {naturalPhase.name}
+                                    </Text>
+                                    <Text style={{ fontSize: 13, fontFamily: 'Poppins-SemiBold', color: colors.text, marginTop: 2, lineHeight: 18 }}>
+                                        {naturalPhase.todayAction}
+                                    </Text>
+                                </View>
                             </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: '#10B981', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                                    Core Action Focus • {naturalPhase.name}
-                                </Text>
-                                <Text style={{ fontSize: 13, fontFamily: 'Poppins-SemiBold', color: colors.text, marginTop: 2, lineHeight: 18 }}>
-                                    {naturalPhase.todayAction}
-                                </Text>
-                            </View>
-                        </View>
+                        </GuideSectionFade>
 
                         {/* 6. Today's Suggested Tasks */}
                         <View style={{
@@ -1527,228 +2127,21 @@ export default function GuideScreen() {
 
                             <View style={{ gap: 8 }}>
                                 {todayTasksForCurrentPhase.map((actionItem, idx) => {
-                                    const isAIItem = typeof actionItem.action === 'string' && actionItem.action.startsWith('[AI Adjustment]');
-                                    const isTodayMatched = isDayMatching(actionItem.dayTag, currentDay);
                                     const logKey = getActionLogKey(naturalPhase.id, actionItem.action, currentDay);
                                     const actionLog = actionLogs[logKey];
-                                    const isCompleted = actionLog?.status === 'completed';
-                                    const isRejected = actionLog?.status === 'rejected';
-
                                     return (
-                                        <View
+                                        <GuideTaskCardItem
                                             key={idx}
-                                            style={{
-                                                borderRadius: 12,
-                                                backgroundColor: isCompleted
-                                                    ? (isDark ? 'rgba(16, 185, 129, 0.12)' : '#F0FDF4')
-                                                    : isRejected
-                                                        ? (isDark ? 'rgba(245, 158, 11, 0.1)' : '#FFFBEB')
-                                                        : isAIItem
-                                                            ? (isDark ? 'rgba(16, 185, 129, 0.08)' : '#ECFDF5')
-                                                            : (isDark ? 'rgba(255,255,255,0.02)' : '#FAFAFA'),
-                                                borderWidth: 1,
-                                                borderColor: isCompleted
-                                                    ? 'rgba(16, 185, 129, 0.5)'
-                                                    : isRejected
-                                                        ? 'rgba(245, 158, 11, 0.5)'
-                                                        : isAIItem
-                                                            ? 'rgba(16, 185, 129, 0.45)'
-                                                            : isTodayMatched
-                                                                ? 'rgba(16, 185, 129, 0.35)'
-                                                                : colors.stroke,
-                                                borderLeftWidth: (isCompleted || isRejected) ? 4 : 1,
-                                                borderLeftColor: isCompleted ? '#10B981' : isRejected ? '#F59E0B' : undefined,
-                                                padding: 12,
-                                                gap: 10,
-                                            }}
-                                        >
-                                            {/* Top Row: Task Description & Day Badge */}
-                                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                                                <View style={{ flex: 1 }}>
-                                                    <Text style={{
-                                                        fontSize: 12.5,
-                                                        color: isCompleted ? (isDark ? '#34D399' : '#065F46') : isRejected ? (isDark ? '#FBBF24' : '#92400E') : isAIItem ? '#10B981' : colors.text,
-                                                        fontFamily: isAIItem || isTodayMatched || isCompleted ? 'Poppins-SemiBold' : 'Poppins-Regular',
-                                                        lineHeight: 18,
-                                                    }}>
-                                                        {actionItem.action}
-                                                    </Text>
-                                                </View>
-
-                                                <View style={{
-                                                    backgroundColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.15)' : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
-                                                    borderWidth: 1,
-                                                    borderColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.35)' : colors.stroke,
-                                                    paddingHorizontal: 7,
-                                                    paddingVertical: 2,
-                                                    borderRadius: 6,
-                                                    flexShrink: 0,
-                                                }}>
-                                                    <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayMatched ? '#10B981' : colors.textGrey }}>
-                                                        {actionItem.dayTag}
-                                                    </Text>
-                                                </View>
-                                            </View>
-
-                                            {/* Skipped Note Reason display */}
-                                            {isRejected && actionLog?.reason_notes && (
-                                                <View style={{
-                                                    backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.08)',
-                                                    borderRadius: 8,
-                                                    paddingHorizontal: 10,
-                                                    paddingVertical: 6,
-                                                    flexDirection: 'row',
-                                                    alignItems: 'center',
-                                                    gap: 6,
-                                                }}>
-                                                    <MaterialIcons name="comment" size={13} color="#F59E0B" />
-                                                    <Text style={{ fontSize: 11, color: isDark ? '#FCD34D' : '#B45309', fontFamily: 'Poppins-Medium', flex: 1 }} numberOfLines={2}>
-                                                        Note: "{actionLog.reason_notes}"
-                                                    </Text>
-                                                </View>
-                                            )}
-
-                                            {/* Bottom Action Buttons Row */}
-                                            <View style={{
-                                                flexDirection: 'row',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                paddingTop: 6,
-                                                borderTopWidth: 1,
-                                                borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-                                            }}>
-                                                {isCompleted ? (
-                                                    <>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                                            <MaterialIcons name="check-circle" size={15} color="#10B981" />
-                                                            <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#10B981' }}>
-                                                                Action Completed
-                                                            </Text>
-                                                        </View>
-
-                                                        <TouchableOpacity
-                                                            activeOpacity={0.7}
-                                                            onPress={() => handleUndoAction(actionItem, naturalPhase.id, currentDay)}
-                                                            style={{
-                                                                flexDirection: 'row',
-                                                                alignItems: 'center',
-                                                                gap: 4,
-                                                                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : colors.bgLight,
-                                                                borderWidth: 1,
-                                                                borderColor: colors.stroke,
-                                                                paddingHorizontal: 10,
-                                                                paddingVertical: 5,
-                                                                borderRadius: 8,
-                                                            }}
-                                                        >
-                                                            <MaterialIcons name="undo" size={13} color={colors.textGrey} />
-                                                            <Text style={{ fontSize: 11, fontFamily: 'Poppins-Medium', color: colors.textGrey }}>
-                                                                Undo
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    </>
-                                                ) : isRejected ? (
-                                                    <>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                                            <MaterialIcons name="cancel" size={15} color="#F59E0B" />
-                                                            <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#F59E0B' }}>
-                                                                Skipped / Rejected
-                                                            </Text>
-                                                        </View>
-
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                            <TouchableOpacity
-                                                                activeOpacity={0.7}
-                                                                onPress={() => handleOpenSkipModal(actionItem, naturalPhase.id, currentDay)}
-                                                                style={{
-                                                                    flexDirection: 'row',
-                                                                    alignItems: 'center',
-                                                                    gap: 4,
-                                                                    backgroundColor: '#F59E0B',
-                                                                    paddingHorizontal: 10,
-                                                                    paddingVertical: 5,
-                                                                    borderRadius: 8,
-                                                                }}
-                                                            >
-                                                                <MaterialIcons name="edit" size={12} color="#FFFFFF" />
-                                                                <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
-                                                                    Edit Note
-                                                                </Text>
-                                                            </TouchableOpacity>
-
-                                                            <TouchableOpacity
-                                                                activeOpacity={0.7}
-                                                                onPress={() => handleUndoAction(actionItem, naturalPhase.id, currentDay)}
-                                                                style={{
-                                                                    flexDirection: 'row',
-                                                                    alignItems: 'center',
-                                                                    gap: 3,
-                                                                    paddingHorizontal: 8,
-                                                                    paddingVertical: 5,
-                                                                    borderRadius: 8,
-                                                                    borderWidth: 1,
-                                                                    borderColor: colors.stroke,
-                                                                    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : colors.bgLight,
-                                                                }}
-                                                            >
-                                                                <MaterialIcons name="refresh" size={13} color={colors.textGrey} />
-                                                                <Text style={{ fontSize: 11, fontFamily: 'Poppins-Medium', color: colors.textGrey }}>
-                                                                    Reset
-                                                                </Text>
-                                                            </TouchableOpacity>
-                                                        </View>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Text style={{ fontSize: 11, fontFamily: 'Poppins-Regular', color: colors.textGrey }}>
-                                                            Record procedure:
-                                                        </Text>
-
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                                            <TouchableOpacity
-                                                                activeOpacity={0.7}
-                                                                onPress={() => handleOpenSkipModal(actionItem, naturalPhase.id, currentDay)}
-                                                                style={{
-                                                                    flexDirection: 'row',
-                                                                    alignItems: 'center',
-                                                                    gap: 4,
-                                                                    paddingHorizontal: 12,
-                                                                    paddingVertical: 6,
-                                                                    borderRadius: 8,
-                                                                    borderWidth: 1,
-                                                                    borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : '#FCA5A5',
-                                                                    backgroundColor: isDark ? 'rgba(239, 68, 68, 0.1)' : '#FEF2F2',
-                                                                }}
-                                                            >
-                                                                <MaterialIcons name="close" size={14} color="#EF4444" />
-                                                                <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-SemiBold', color: '#EF4444' }}>
-                                                                    Skip
-                                                                </Text>
-                                                            </TouchableOpacity>
-
-                                                            <TouchableOpacity
-                                                                activeOpacity={0.8}
-                                                                onPress={() => handleCompleteAction(actionItem, naturalPhase.id, currentDay)}
-                                                                style={{
-                                                                    flexDirection: 'row',
-                                                                    alignItems: 'center',
-                                                                    gap: 4,
-                                                                    paddingHorizontal: 14,
-                                                                    paddingVertical: 6,
-                                                                    borderRadius: 8,
-                                                                    backgroundColor: '#10B981',
-                                                                }}
-                                                            >
-                                                                <MaterialIcons name="check" size={14} color="#FFFFFF" />
-                                                                <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
-                                                                    Done
-                                                                </Text>
-                                                            </TouchableOpacity>
-                                                        </View>
-                                                    </>
-                                                )}
-                                            </View>
-                                        </View>
+                                            actionItem={actionItem}
+                                            index={idx}
+                                            shouldAnimate={shouldAnimateGuide}
+                                            naturalPhaseId={naturalPhase.id}
+                                            currentDay={currentDay}
+                                            actionLog={actionLog}
+                                            onComplete={handleCompleteAction}
+                                            onSkip={handleOpenSkipModal}
+                                            onUndo={handleUndoAction}
+                                        />
                                     );
                                 })}
                             </View>
@@ -1783,105 +2176,20 @@ export default function GuideScreen() {
                             </Text>
 
                             <View>
-                                {phaseGuideList.map((phase, index) => {
-                                    const isPast = naturalPhaseIndex >= 0 && index < naturalPhaseIndex;
-                                    const isCurrent = naturalPhaseIndex >= 0 && index === naturalPhaseIndex;
-                                    const isFuture = naturalPhaseIndex < 0 || index > naturalPhaseIndex;
-
-                                    const circleColor = isPast ? colors.primary : isCurrent ? colors.warning : colors.surface;
-                                    const borderColor = isPast ? colors.primary : isCurrent ? colors.warning : colors.stroke;
-                                    const titleColor = isCurrent ? colors.warning : colors.text;
-
-                                    return (
-                                        <View key={phase.id} style={{ flexDirection: 'row', marginBottom: index === phaseGuideList.length - 1 ? 0 : 20 }}>
-                                            {/* Timeline Line/Dots */}
-                                            <View style={{ width: 32, alignItems: 'center', marginRight: 14 }}>
-                                                <View style={{
-                                                    width: 24,
-                                                    height: 24,
-                                                    borderRadius: 12,
-                                                    backgroundColor: circleColor,
-                                                    borderWidth: 2,
-                                                    borderColor: borderColor,
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    zIndex: 2,
-                                                    shadowColor: isCurrent ? colors.warning : 'transparent',
-                                                    shadowOpacity: 0.4,
-                                                    shadowRadius: 8,
-                                                    shadowOffset: { width: 0, height: 0 },
-                                                }}>
-                                                    {isPast && <MaterialIcons name="check" size={14} color="#FFF" />}
-                                                    {isCurrent && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFF' }} />}
-                                                </View>
-
-                                                {index < phaseGuideList.length - 1 && (
-                                                    <View style={{
-                                                        width: 2,
-                                                        flex: 1,
-                                                        backgroundColor: isPast ? colors.primary : colors.stroke,
-                                                        marginBottom: -20,
-                                                        marginTop: 4,
-                                                    }} />
-                                                )}
-                                            </View>
-
-                                            {/* Content Card */}
-                                            <View style={{ flex: 1, opacity: isFuture && naturalPhaseIndex >= 0 ? 0.65 : 1, paddingBottom: 8 }}>
-                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                                    <Text style={[textStyles.h2, { color: titleColor, fontSize: 17, fontFamily: 'Poppins-Bold' }]}>
-                                                        {phase.name}
-                                                    </Text>
-                                                </View>
-
-                                                <View style={{
-                                                    alignSelf: 'flex-start',
-                                                    backgroundColor: isCurrent ? colors.warning + '1A' : (isDark ? 'rgba(255,255,255,0.06)' : colors.bgLight),
-                                                    paddingHorizontal: 8,
-                                                    paddingVertical: 3,
-                                                    borderRadius: 6,
-                                                    marginBottom: 8,
-                                                    borderWidth: 1,
-                                                    borderColor: isCurrent ? colors.warning + '40' : colors.stroke,
-                                                }}>
-                                                    <Text style={{
-                                                        color: isCurrent ? colors.warning : colors.textGrey,
-                                                        fontSize: 10.5,
-                                                        fontFamily: 'Poppins-Bold',
-                                                    }}>
-                                                        {phase.dayRange.toUpperCase()}
-                                                    </Text>
-                                                </View>
-
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, lineHeight: 20, marginBottom: 8 }]}>
-                                                    {phase.timelineDescription || phase.cardDescription}
-                                                </Text>
-
-
-
-                                                {/* Actionable Note */}
-                                                {(isCurrent || isPast) && (
-                                                    <View style={{
-                                                        flexDirection: 'row',
-                                                        backgroundColor: isCurrent ? colors.warning + '14' : colors.surface,
-                                                        padding: 12,
-                                                        borderRadius: 10,
-                                                        borderWidth: 1,
-                                                        borderColor: isCurrent ? colors.warning + '4D' : colors.stroke,
-                                                        marginTop: 4,
-                                                    }}>
-                                                        <MaterialIcons name="lightbulb" size={16} color={isCurrent ? colors.warning : colors.primary} style={{ marginRight: 8, marginTop: 2 }} />
-                                                        <Text style={[textStyles.body, { color: isCurrent ? colors.text : colors.textGrey, fontSize: 12.5, flex: 1, lineHeight: 18, fontFamily: 'Poppins-Regular' }]}>
-                                                            {phase.todayAction || phase.actionable}
-                                                        </Text>
-                                                    </View>
-                                                )}
-                                            </View>
-                                        </View>
-                                    );
-                                })}
+                                {phaseGuideList.map((phase, index) => (
+                                    <GuideTimelinePhaseItem
+                                        key={phase.id}
+                                        phase={phase}
+                                        index={index}
+                                        isLast={index === phaseGuideList.length - 1}
+                                        shouldAnimate={shouldAnimateGuide}
+                                        naturalPhaseIndex={naturalPhaseIndex}
+                                    />
+                                ))}
                             </View>
                         </View>
+                            </>
+                        )}
                     </View>
                 )}
             </ScrollView>
@@ -1897,6 +2205,8 @@ export default function GuideScreen() {
                     const idx = batchOptions.indexOf(val);
                     if (idx >= 0) {
                         setSelectedBatchId(allBatchesForType[idx].id);
+                        setShouldAnimateGuide(true);
+                        setTimeout(() => setShouldAnimateGuide(false), 600);
                     }
                     setIsBatchModalVisible(false);
                 }}

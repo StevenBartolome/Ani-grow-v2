@@ -181,8 +181,8 @@ export default function VaccineScreen() {
     const [searchQuery, setSearchQuery]                 = useState('');
     const [selectedFilterDate, setSelectedFilterDate]   = useState<string | null>(null);
     const [filterHousingId, setFilterHousingId]         = useState<string>('all');
-    const [filtersCollapsed, setFiltersCollapsed]       = useState(false);
-    const [showCalendar, setShowCalendar]               = useState(true);
+    const [filtersCollapsed, setFiltersCollapsed]       = useState(true);
+    const [showCalendar, setShowCalendar]               = useState(false);
 
     // ── Single Active Sub-Modals (Same Exact Pattern as ManageHousingsScreen) ──
     const [vaccineModalVisible, setVaccineModalVisible] = useState(false);
@@ -249,9 +249,14 @@ export default function VaccineScreen() {
         if (!error) setSchedules(data || []);
     }, [activeFarmIds, primaryFarmId]);
 
-    const loadAll = useCallback(async () => {
-        setIsLoading(true);
+    const vaccinesLoadedRef = React.useRef(false);
+
+    const loadAll = useCallback(async (isSilent = false) => {
+        if (!isSilent && !vaccinesLoadedRef.current) {
+            setIsLoading(true);
+        }
         await Promise.all([loadSchedules(), loadVaccines(), loadHousings()]);
+        vaccinesLoadedRef.current = true;
         setIsLoading(false);
     }, [loadSchedules, loadVaccines, loadHousings]);
 
@@ -263,9 +268,32 @@ export default function VaccineScreen() {
 
     useFocusEffect(
         useCallback(() => {
-            loadAll();
+            loadAll(true);
         }, [loadAll])
     );
+
+    // Live Supabase Realtime channel for vaccines & schedules
+    useEffect(() => {
+        if (!activeFarmIds.length) return;
+        let debounceTimer: any = null;
+        const triggerSync = () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                loadAll(true);
+            }, 300);
+        };
+
+        const channel = supabase
+            .channel(`vaccine-live-${activeFarmIds.join('-')}-${Date.now()}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'vaccines' }, triggerSync)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'vaccination_schedules' }, triggerSync)
+            .subscribe();
+
+        return () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            supabase.removeChannel(channel);
+        };
+    }, [activeFarmIds, loadAll]);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Actions & Form Validation
@@ -648,7 +676,7 @@ export default function VaccineScreen() {
                 </View>
 
                 {/* Search Bar & Calendar Toggle */}
-                <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4, flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10, flexDirection: 'row', gap: 10, alignItems: 'center' }}>
                     <View style={{
                         flex: 1,
                         flexDirection: 'row',
@@ -701,8 +729,8 @@ export default function VaccineScreen() {
                 {showCalendar && (
                     <View style={{
                         marginHorizontal: 20,
-                        marginTop: 6,
-                        marginBottom: 6,
+                        marginTop: 2,
+                        marginBottom: 12,
                         backgroundColor: colors.surface,
                         borderRadius: 20,
                         padding: 14,

@@ -144,7 +144,8 @@ export const useHomeStyles = () => {
             width: 160,
             padding: 16,
             borderRadius: 16,
-            borderWidth: 1.5,
+            borderWidth: 1,
+            borderColor: colors.stroke,
             marginRight: 12,
             ...Platform.select({
                 ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 15, shadowOffset: { width: 0, height: 8 } },
@@ -172,7 +173,8 @@ export const useHomeStyles = () => {
             flex: 1,
             padding: 14,
             borderRadius: 16,
-            borderWidth: 1.5,
+            borderWidth: 1,
+            borderColor: colors.stroke,
             justifyContent: 'space-between',
             ...Platform.select({
                 ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 15, shadowOffset: { width: 0, height: 8 } },
@@ -197,7 +199,8 @@ export const useHomeStyles = () => {
         quickActionsCard: {
             marginHorizontal: hPad,
             borderRadius: 20,
-            borderWidth: 1.5,
+            borderWidth: 1,
+            borderColor: colors.stroke,
             padding: 20,
             marginBottom: 28,
             ...Platform.select({
