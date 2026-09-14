@@ -25,12 +25,6 @@ import { getDeviceDisplayStatus } from '@/lib/deviceStatus';
 import {
     getWeighingReminder,
     saveWeighingReminder,
-    triggerTest1HourBeforeReminder,
-    triggerTestStartingNowReminder,
-    triggerTestInactivityReminder,
-    triggerTestMilestoneReminder,
-    triggerTestDelayedReminder,
-    triggerTestWeighingReminder,
     WeighingReminderConfig,
     ReminderMode,
 } from '@/lib/weighingReminders';
@@ -1268,80 +1262,6 @@ export default function AniWeighScreen() {
         }
     };
 
-    const runTestScenario = async (
-        scenarioName: string,
-        action: (config: WeighingReminderConfig) => Promise<void>
-    ) => {
-        setIsTestingReminder(true);
-        try {
-            const effectiveDeviceId = deviceId || 'dev_aniweigh_standalone';
-            const effectiveFarmId = farmId || (profile as any)?.farm_id || 'farm_local';
-            const hId = effectiveHousingId;
-            const hName = targetHousingName;
-            const bId = effectiveBatchId;
-            const bName = targetBatchName;
-
-            const config: WeighingReminderConfig = {
-                deviceId: effectiveDeviceId,
-                farmId: effectiveFarmId,
-                housingId: hId,
-                housingName: hName,
-                batchId: bId,
-                batchName: bName,
-                enabled: true,
-                mode: reminderMode,
-                intervalDays: reminderInterval,
-                daysOfWeek: reminderDaysOfWeek,
-                milestoneDays: reminderMilestoneDays,
-                inactivityDays: reminderInactivityDays,
-                reminderTime: reminderTime,
-            };
-
-            await action(config);
-            Alert.alert('Push Notification Sent', `${scenarioName} push notification dispatched successfully.`);
-            showSnackbar(`${scenarioName} notification dispatched!`, 'success');
-        } catch (err: any) {
-            console.error('[runTestScenario] error:', err);
-            Alert.alert('Error', err?.message || 'Failed to dispatch test notification.');
-        } finally {
-            setIsTestingReminder(false);
-        }
-    };
-
-    const handleTestTrigger = () => {
-        Alert.alert(
-            'Test Push Notification',
-            'Select a weighing reminder scenario to test delivery:',
-            [
-                {
-                    text: '1 Hour Before Reminder',
-                    onPress: () => {
-                        runTestScenario('1-Hour Before Reminder', triggerTest1HourBeforeReminder);
-                    },
-                },
-                {
-                    text: 'Starting Now Reminder',
-                    onPress: () => {
-                        runTestScenario('Starting Now Reminder', triggerTestStartingNowReminder);
-                    },
-                },
-                {
-                    text: `Inactivity Notice (> ${reminderInactivityDays || 5} Days)`,
-                    onPress: () => {
-                        runTestScenario('Inactivity Alert', triggerTestInactivityReminder);
-                    },
-                },
-                {
-                    text: 'Growth Milestone Alert (Day 14)',
-                    onPress: () => {
-                        runTestScenario('Growth Milestone Alert', triggerTestMilestoneReminder);
-                    },
-                },
-                { text: 'Cancel', style: 'cancel' },
-            ]
-        );
-    };
-
     // ─── Log helpers ─────────────────────────────────────────────
     const getLogIcon = (status: string) => {
         switch (status) {
@@ -2392,38 +2312,6 @@ export default function AniWeighScreen() {
                             style={{ width: '100%', flexShrink: 1 }}
                             contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 22 }}
                         >
-
-
-                            {/* Mock Test Button (Moved Up to Top) */}
-                            <TouchableOpacity
-                                onPress={handleTestTrigger}
-                                activeOpacity={0.7}
-                                disabled={isTestingReminder}
-                                style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 8,
-                                    backgroundColor: colors.error + '10',
-                                    borderWidth: 1.5,
-                                    borderColor: colors.error + '40',
-                                    borderRadius: 12,
-                                    paddingVertical: 11,
-                                    marginBottom: 16,
-                                }}
-                            >
-                                {isTestingReminder ? (
-                                    <ActivityIndicator size="small" color={colors.error} />
-                                ) : (
-                                    <>
-                                        <MaterialIcons name="notifications-active" size={16} color={colors.error} />
-                                        <Text style={[textStyles.h3, { color: colors.error, fontSize: 12.5, fontWeight: '700' }]}>
-                                            Test Notification Now (Mock Trigger)
-                                        </Text>
-                                    </>
-                                )}
-                            </TouchableOpacity>
-
                             {/* Strategy Section Header */}
                             <Text style={{
                                 fontFamily: 'Poppins-SemiBold',

@@ -614,57 +614,6 @@ export default function WeighingSessionsScreen() {
         };
     }, [selectedBatch, selectedHousing, animalType, resolvedRange, rangeTotal, rangeAvgG, rangeMinG, rangeMaxG, rangeFeedGrams, rangeUnder, rangeNormal, rangeOver, dayGroups, previousBatch, previousBatchStats, currentBatchStats, farmName]);
 
-    const handleTestWeighingPush = () => {
-        Alert.alert(
-            'Test Weighing Push',
-            'Select which weighing notification to simulate:',
-            [
-                {
-                    text: 'Session Completed',
-                    onPress: async () => {
-                        try {
-                            const bName = selectedBatch?.name || 'Batch Alpha';
-                            await createNotification({
-                                farmId: farmId || 'demo-farm',
-                                farmName: farmName || 'Farm',
-                                title: 'Weighing Session Completed',
-                                message: `Batch ${bName}: Weighing session completed (35 animals sampled, avg weight: 1.45 kg).\nDetailed growth distribution and charts are updated in Weighing History.`,
-                                type: 'info',
-                                category: 'weight_alert',
-                                actionUrl: '/(weighing)/WeighingSessionsScreen',
-                            });
-                            Alert.alert('Push Notification Sent', 'Weighing completed push notification sent successfully.');
-                        } catch (e: any) {
-                            Alert.alert('Error', e?.message || 'Failed to dispatch test notification.');
-                        }
-                    },
-                },
-                {
-                    text: 'Milestone Reminder',
-                    onPress: async () => {
-                        try {
-                            const bName = selectedBatch?.name || 'Batch Alpha';
-                            const hName = selectedHousing?.name || 'House 1';
-                            await createNotification({
-                                farmId: farmId || 'demo-farm',
-                                farmName: farmName || 'Farm',
-                                title: 'Weighing Milestone Due',
-                                message: `Batch ${bName}: Day 14 milestone sample weighing is scheduled for today in ${hName}.\nOpen AniWeigh to record the sample batch.`,
-                                type: 'warning',
-                                category: 'weight_alert',
-                                actionUrl: '/(devices)/AniWeighDeviceScreen',
-                            });
-                            Alert.alert('Push Notification Sent', 'Weighing milestone reminder push notification sent successfully.');
-                        } catch (e: any) {
-                            Alert.alert('Error', e?.message || 'Failed to dispatch test notification.');
-                        }
-                    },
-                },
-                { text: 'Cancel', style: 'cancel' },
-            ]
-        );
-    };
-
     return (
         <SafeAreaView style={styles.safeArea}>
             <View style={animalStyles.headerTopRow}>
@@ -675,31 +624,6 @@ export default function WeighingSessionsScreen() {
                     Weighing History
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={handleTestWeighingPush}
-                        style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 4,
-                            paddingHorizontal: 8,
-                            paddingVertical: 6,
-                            borderRadius: 8,
-                            backgroundColor: '#EF4444',
-                            borderWidth: 1,
-                            borderColor: '#DC2626',
-                            elevation: 2,
-                            shadowColor: '#EF4444',
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.25,
-                            shadowRadius: 3,
-                        }}
-                    >
-                        <MaterialIcons name="notifications-active" size={13} color="#FFFFFF" />
-                        <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
-                            Test Push
-                        </Text>
-                    </TouchableOpacity>
                     <PrintReportButton
                         buildReport={buildRangeReport}
                         emptyMessage="No weighing records in the selected range yet."

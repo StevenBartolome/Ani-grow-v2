@@ -79,6 +79,39 @@ function getFormattedDate(): string {
     return `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
 }
 
+function getOrdinalLabel(n: number): string {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function generateDefaultTimes(count: number): string[] {
+    const presets: Record<number, string[]> = {
+        1: ['08:00 AM'],
+        2: ['08:00 AM', '05:00 PM'],
+        3: ['08:00 AM', '12:00 PM', '06:00 PM'],
+        4: ['07:00 AM', '11:00 AM', '03:00 PM', '07:00 PM'],
+        5: ['06:00 AM', '09:30 AM', '01:00 PM', '04:30 PM', '08:00 PM'],
+        6: ['06:00 AM', '09:00 AM', '12:00 PM', '03:00 PM', '06:00 PM', '09:00 PM'],
+    };
+    if (presets[count]) return presets[count];
+    
+    // For counts > 6: spread evenly across 14 hours (6 AM to 8 PM)
+    const result: string[] = [];
+    const startHour = 6;
+    const endHour = 20;
+    const interval = (endHour - startHour) / Math.max(1, count - 1);
+    for (let i = 0; i < count; i++) {
+        const totalMinutes = Math.round((startHour + i * interval) * 60);
+        const h24 = Math.floor(totalMinutes / 60);
+        const m = totalMinutes % 60;
+        const ampm = h24 >= 12 ? 'PM' : 'AM';
+        const h12 = h24 % 12 || 12;
+        result.push(`${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`);
+    }
+    return result;
+}
+
 function format24to12(time24: string): string {
     if (!time24) return '—';
     const parts = time24.split(':');
@@ -164,12 +197,30 @@ export default function AniFeedScreen() {
 
     // Schedule edit modal
     const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
+    const [scheduleModalView, setScheduleModalView] = useState<'schedule' | 'timePicker'>('schedule');
     const [tempTimesPerDay, setTempTimesPerDay] = useState('3');
     const [tempGrams, setTempGrams] = useState('500');
     const [tempTimes, setTempTimes] = useState<string[]>([]);
 
-    // Custom Time Picker Modal State
-    const [timePickerVisible, setTimePickerVisible] = useState(false);
+    const updateTimesCount = (newCount: number) => {
+        const clamped = Math.max(1, Math.min(12, newCount));
+        setTempTimesPerDay(String(clamped));
+        setTempTimes(prev => {
+            if (prev.length === clamped) return prev;
+            if (clamped > prev.length) {
+                const defaults = generateDefaultTimes(clamped);
+                const next = [...prev];
+                for (let i = prev.length; i < clamped; i++) {
+                    next.push(defaults[i] || '12:00 PM');
+                }
+                return next;
+            } else {
+                return prev.slice(0, clamped);
+            }
+        });
+    };
+
+    // Time Picker State (inside unified modal)
     const [activeTimeIdx, setActiveTimeIdx] = useState<number | null>(null);
     const [selectedHour, setSelectedHour] = useState(12);
     const [selectedMinute, setSelectedMinute] = useState(0);
@@ -543,6 +594,13 @@ export default function AniFeedScreen() {
 
         if (tempTimes.length !== timesPerDay) {
             showSnackbar('Please configure all dispense times.', 'error');
+            return;
+        }
+
+        // Check for duplicate times
+        const uniqueTimes = new Set(tempTimes.map(t => t.trim().toUpperCase()));
+        if (uniqueTimes.size !== tempTimes.length) {
+            showSnackbar('Duplicate dispense times are not allowed. Each feeding must have a unique time.', 'error');
             return;
         }
 
@@ -935,85 +993,141 @@ export default function AniFeedScreen() {
                     </View>
 
                     {/* Dispense Schedule */}
-                    <View style={[anifeedStyles.statsCard, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
-                        <View style={anifeedStyles.statsHeader}>
-                            <View>
-                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 16 }]}>Dispense Schedule</Text>
-                                {schedule ? (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
-                                        {schedule.timesPerDay}× per day · {schedule.gramsPerDispense}g each
-                                    </Text>
-                                ) : (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>No schedule set</Text>
-                                )}
+                    <View style={[anifeedStyles.statsCard, { backgroundColor: colors.surface, borderColor: colors.stroke, padding: 20, borderRadius: 24 }]}>
+                        {/* Header */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                            <View style={{ flex: 1, marginRight: 10 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 17, fontWeight: '700' }]}>Dispense Schedule</Text>
+                                    {schedule && (
+                                        <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+                                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, fontWeight: '700' }]}>
+                                                {schedule.timesPerDay}× / day
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                    {schedule ? `${(schedule.timesPerDay * schedule.gramsPerDispense).toLocaleString()}g total daily feeding` : 'No schedule configured yet'}
+                                </Text>
                             </View>
-                            <TouchableOpacity onPress={() => {
-                                if (schedule) {
-                                    setTempTimesPerDay(String(schedule.timesPerDay));
-                                    setTempGrams(String(schedule.gramsPerDispense));
-                                    setTempTimes((schedule.dispenseTimes ?? ['08:00', '12:00', '18:00']).map(format24to12));
-                                } else {
-                                    setTempTimesPerDay('3');
-                                    setTempGrams('500');
-                                    setTempTimes(['08:00', '12:00', '18:00'].map(format24to12));
-                                }
-                                setScheduleModalVisible(true);
-                            }} style={{ padding: 4 }}>
-                                <MaterialIcons name="edit" size={20} color={colors.primary} />
+                            <TouchableOpacity
+                                onPress={() => {
+                                    if (schedule) {
+                                        setTempTimesPerDay(String(schedule.timesPerDay));
+                                        setTempGrams(String(schedule.gramsPerDispense));
+                                        setTempTimes((schedule.dispenseTimes ?? ['08:00', '12:00', '18:00']).map(format24to12));
+                                    } else {
+                                        setTempTimesPerDay('3');
+                                        setTempGrams('500');
+                                        setTempTimes(['08:00', '12:00', '18:00'].map(format24to12));
+                                    }
+                                    setScheduleModalView('schedule');
+                                    setScheduleModalVisible(true);
+                                }}
+                                style={{
+                                    width: 40,
+                                    height: 40,
+                                    borderRadius: 20,
+                                    backgroundColor: colors.primary + '18',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <MaterialIcons name="edit" size={19} color={colors.primary} />
                             </TouchableOpacity>
                         </View>
 
                         {schedule ? (
                             <>
-                                <View style={[anifeedStyles.statsRow, { borderBottomWidth: 1 }]}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <MaterialIcons name="repeat" size={18} color={colors.textGrey} style={{ marginRight: 8 }} />
-                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Frequency</Text>
-                                    </View>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>{schedule.timesPerDay}× / day</Text>
-                                </View>
-                                <View style={[anifeedStyles.statsRow, { borderBottomWidth: 1 }]}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <MaterialIcons name="line-weight" size={18} color={colors.textGrey} style={{ marginRight: 8 }} />
-                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Per dispense</Text>
-                                    </View>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>{schedule.gramsPerDispense}g</Text>
-                                </View>
-                                {schedule.feedStockKg !== undefined && schedule.feedStockKg !== null && (
-                                    <View style={[anifeedStyles.statsRow, { borderBottomWidth: 1 }]}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                            <MaterialIcons name="inventory" size={18} color={colors.textGrey} style={{ marginRight: 8 }} />
-                                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Remaining Stock</Text>
+                                {/* Stats Metric Row */}
+                                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                                    <View style={{ flex: 1, backgroundColor: colors.cardFill, borderRadius: 14, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                                            <MaterialIcons name="line-weight" size={14} color={colors.primary} />
+                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]} numberOfLines={1}>Per Dispense</Text>
                                         </View>
-                                        <Text style={[textStyles.h3, { color: schedule.feedStockKg < 10 ? colors.error : colors.text, fontSize: 14, fontWeight: schedule.feedStockKg < 10 ? '700' : 'normal' }]}>
-                                            {schedule.feedStockKg} kg
+                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 15, fontWeight: '700' }]}>
+                                            {schedule.gramsPerDispense}g
                                         </Text>
                                     </View>
-                                )}
-                                <View style={[anifeedStyles.statsRow, { borderBottomWidth: 0 }]}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 0.4 }}>
-                                        <MaterialIcons name="access-time" size={18} color={colors.textGrey} style={{ marginRight: 8 }} />
-                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Dispense Times</Text>
+                                    <View style={{ flex: 1, backgroundColor: colors.cardFill, borderRadius: 14, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                                            <MaterialIcons name="repeat" size={14} color={colors.secondary} />
+                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]} numberOfLines={1}>Daily Total</Text>
+                                        </View>
+                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 15, fontWeight: '700' }]}>
+                                            {(schedule.timesPerDay * schedule.gramsPerDispense).toLocaleString()}g
+                                        </Text>
                                     </View>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 13, textAlign: 'right', flex: 0.6, flexWrap: 'wrap' }]}>
-                                        {schedule.dispenseTimes && schedule.dispenseTimes.length > 0
-                                            ? schedule.dispenseTimes.map(format24to12).join(', ')
-                                            : 'Not set'}
+                                    {schedule.feedStockKg !== undefined && schedule.feedStockKg !== null && (
+                                        <View style={{ flex: 1, backgroundColor: colors.cardFill, borderRadius: 14, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                                                <MaterialIcons name="inventory" size={14} color={schedule.feedStockKg < 10 ? colors.error : colors.info} />
+                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]} numberOfLines={1}>Stock Left</Text>
+                                            </View>
+                                            <Text style={[textStyles.h3, { color: schedule.feedStockKg < 10 ? colors.error : colors.text, fontSize: 15, fontWeight: schedule.feedStockKg < 10 ? '700' : 'bold' }]}>
+                                                {schedule.feedStockKg} kg
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+
+                                {/* Dispense Times Badges */}
+                                <View style={{ width: '100%', marginBottom: 4 }}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }]}>
+                                        Dispense Times ({schedule.dispenseTimes?.length || 0})
                                     </Text>
+                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                        {schedule.dispenseTimes && schedule.dispenseTimes.length > 0 ? (
+                                            schedule.dispenseTimes.map((time, idx) => (
+                                                <View
+                                                    key={idx}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        backgroundColor: colors.bgLight,
+                                                        borderWidth: 1,
+                                                        borderColor: colors.stroke,
+                                                        paddingHorizontal: 12,
+                                                        paddingVertical: 7,
+                                                        borderRadius: 12,
+                                                        gap: 6,
+                                                    }}
+                                                >
+                                                    <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: colors.primary + '18', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, fontWeight: '700' }]}>
+                                                            {idx + 1}
+                                                        </Text>
+                                                    </View>
+                                                    <MaterialIcons name="access-time" size={14} color={colors.primary} />
+                                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontWeight: '600' }]}>
+                                                        {format24to12(time)}
+                                                    </Text>
+                                                </View>
+                                            ))
+                                        ) : (
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>Not set</Text>
+                                        )}
+                                    </View>
                                 </View>
                             </>
                         ) : (
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 14, paddingVertical: 8 }]}>
-                                Tap the edit button to set up a dispense schedule.
-                            </Text>
+                            <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+                                <MaterialIcons name="schedule" size={36} color={colors.textGrey} style={{ marginBottom: 8 }} />
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, textAlign: 'center' }]}>
+                                    Tap the edit button above to set up automatic dispensing times.
+                                </Text>
+                            </View>
                         )}
 
                         <TouchableOpacity
-                            style={[anifeedStyles.recordsLink, { borderTopColor: colors.stroke, marginTop: 16, marginHorizontal: -20, marginBottom: -20 }]}
+                            style={[anifeedStyles.recordsLink, { borderTopColor: colors.stroke, marginTop: 14, marginHorizontal: -20, marginBottom: -20 }]}
                             activeOpacity={0.7}
                             onPress={() => router.push(`/(devices)/DispenseRecordsScreen?deviceId=${deviceId}` as any)}
                         >
-                            <Text style={[textStyles.label, { color: colors.primary }]}>View All Dispense Records</Text>
+                            <Text style={[textStyles.label, { color: colors.primary, fontWeight: '600' }]}>View All Dispense Records</Text>
                             <MaterialIcons name="chevron-right" size={20} color={colors.primary} />
                         </TouchableOpacity>
                     </View>
@@ -1262,35 +1376,32 @@ export default function AniFeedScreen() {
                 </KeyboardAvoidingView>
             </Modal>
 
-            {/* Schedule modal */}
+            {/* Unified Schedule & Time Picker Modal */}
             <Modal
                 visible={scheduleModalVisible}
                 transparent
                 animationType="fade"
                 onRequestClose={() => {
                     Keyboard.dismiss();
-                    setScheduleModalVisible(false);
+                    if (scheduleModalView === 'timePicker') {
+                        setScheduleModalView('schedule');
+                    } else {
+                        setScheduleModalVisible(false);
+                    }
                 }}
             >
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={{ flex: 1 }}
-                >
-                    <TouchableOpacity
-                        activeOpacity={1}
-                        onPress={() => Keyboard.dismiss()}
-                        style={[anifeedStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                        style={{ width: '100%', maxWidth: 360, maxHeight: '90%' }}
                     >
-                        <TouchableOpacity
-                            activeOpacity={1}
-                            onPress={() => {}}
-                            style={[anifeedStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 360, maxHeight: '90%', padding: 24, borderRadius: 24, alignItems: 'center', position: 'relative' }]}
-                        >
+                        <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 22, overflow: 'hidden', position: 'relative' }}>
                             {/* Close button */}
                             <TouchableOpacity
                                 style={{ position: 'absolute', top: 16, right: 16, padding: 6, zIndex: 10 }}
                                 onPress={() => {
                                     Keyboard.dismiss();
+                                    setScheduleModalView('schedule');
                                     setScheduleModalVisible(false);
                                 }}
                                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -1299,311 +1410,483 @@ export default function AniFeedScreen() {
                                 <MaterialIcons name="close" size={22} color={colors.textGrey} />
                             </TouchableOpacity>
 
-                            <View style={[anifeedStyles.iconContainer, { backgroundColor: colors.primary + '1A', marginBottom: 12 }]}>
-                                <MaterialIcons name="edit-calendar" size={32} color={colors.primary} />
-                            </View>
-                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 6, fontSize: 20 }]}>Edit Schedule</Text>
-                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 16 }]}>
-                                Set how many times per day to dispense and how much feed per dispense.
-                            </Text>
+                            {scheduleModalView === 'schedule' ? (
+                                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
+                                    {/* Icon & Title */}
+                                    <View style={[anifeedStyles.iconContainer, { backgroundColor: colors.primary + '1A', marginBottom: 10, marginTop: 4 }]}>
+                                        <MaterialIcons name="edit-calendar" size={30} color={colors.primary} />
+                                    </View>
+                                    <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 4, fontSize: 20, fontWeight: '700' }]}>
+                                        Edit Schedule
+                                    </Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 18, fontSize: 13 }]}>
+                                        Configure dispensing frequency and times.
+                                    </Text>
 
-                            <ScrollView
-                                style={{ width: '100%', flexShrink: 1, maxHeight: 360, marginBottom: 16 }}
-                                contentContainerStyle={{ paddingHorizontal: 2, paddingBottom: 4 }}
-                                showsVerticalScrollIndicator={false}
-                                keyboardShouldPersistTaps="handled"
-                            >
-                                <View style={{ width: '100%', marginBottom: 12 }}>
-                                    <FloatingLabelInput
-                                        label="Times per day"
-                                        icon="repeat"
-                                        value={tempTimesPerDay}
-                                        onChangeText={t => {
-                                            const cleaned = t.replace(/[^0-9]/g, '');
-                                            setTempTimesPerDay(cleaned);
-                                            if (cleaned) {
-                                                const count = parseInt(cleaned, 10);
-                                                if (!isNaN(count) && count >= 0 && count <= 12) {
-                                                    setTempTimes(prev => {
-                                                        const updated = [...prev];
-                                                        if (count > updated.length) {
-                                                            while (updated.length < count) {
-                                                                updated.push('12:00 PM');
-                                                            }
-                                                        } else if (count < updated.length) {
-                                                            updated.length = count;
-                                                        }
-                                                        return updated;
-                                                    });
-                                                }
-                                            } else {
-                                                setTempTimes([]);
-                                            }
-                                        }}
-                                        keyboardType="numeric"
-                                        backgroundColor={colors.surface}
-                                    />
-                                </View>
+                                    {/* 1. Times Per Day Section */}
+                                    <View style={{ width: '100%', marginBottom: 18 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' }]}>
+                                                Times Per Day
+                                            </Text>
+                                            <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 }}>
+                                                <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, fontWeight: '700' }]}>
+                                                    {tempTimesPerDay}× Daily
+                                                </Text>
+                                            </View>
+                                        </View>
 
-                                {tempTimes.length > 0 && (
-                                    <View style={{ width: '100%', marginBottom: 16 }}>
-                                        <Text style={[textStyles.label, { color: colors.textGrey, alignSelf: 'flex-start', marginBottom: 8, fontSize: 12 }]}>Dispense Times (12h format)</Text>
-                                        <ScrollView style={{ maxHeight: 150, width: '100%', borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingHorizontal: 12, backgroundColor: colors.bgLight }} nestedScrollEnabled={true}>
-                                            {tempTimes.map((time, idx) => (
-                                                <View key={idx} style={anifeedStyles.dispenseTimeRow}>
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                        <MaterialIcons name="access-time" size={16} color={colors.textGrey} style={{ marginRight: 6 }} />
-                                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 14 }]}>Time #{idx + 1}</Text>
-                                                    </View>
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                        <TextInput
-                                                            style={{
-                                                                backgroundColor: colors.surface,
-                                                                borderColor: colors.stroke,
-                                                                borderWidth: 1,
-                                                                borderRadius: 8,
-                                                                paddingHorizontal: 8,
-                                                                paddingVertical: 6,
-                                                                color: colors.text,
-                                                                fontSize: 13,
-                                                                width: 105,
-                                                                textAlign: 'center',
-                                                            }}
-                                                            value={time}
-                                                            placeholder="12:00 PM"
-                                                            placeholderTextColor={colors.textGrey}
-                                                            maxLength={8}
-                                                            onChangeText={(text) => {
-                                                                const updated = [...tempTimes];
-                                                                updated[idx] = text;
-                                                                setTempTimes(updated);
-                                                            }}
-                                                        />
+                                        {/* Stepper + Quick Preset Pills */}
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                            <TouchableOpacity
+                                                style={{
+                                                    width: 38,
+                                                    height: 38,
+                                                    borderRadius: 12,
+                                                    backgroundColor: colors.cardFill,
+                                                    borderWidth: 1,
+                                                    borderColor: colors.stroke,
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                }}
+                                                onPress={() => {
+                                                    const cur = parseInt(tempTimesPerDay, 10) || 1;
+                                                    updateTimesCount(cur - 1);
+                                                }}
+                                                activeOpacity={0.7}
+                                            >
+                                                <MaterialIcons name="remove" size={18} color={colors.text} />
+                                            </TouchableOpacity>
+
+                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                                                {[1, 2, 3, 4, 5, 6].map((freq) => {
+                                                    const isSelected = (parseInt(tempTimesPerDay, 10) || 0) === freq;
+                                                    return (
                                                         <TouchableOpacity
+                                                            key={freq}
+                                                            onPress={() => updateTimesCount(freq)}
+                                                            activeOpacity={0.7}
                                                             style={{
-                                                                backgroundColor: colors.primary + '1A',
-                                                                borderColor: colors.primary,
+                                                                paddingHorizontal: 12,
+                                                                height: 38,
+                                                                borderRadius: 12,
+                                                                backgroundColor: isSelected ? colors.primary : colors.cardFill,
                                                                 borderWidth: 1,
-                                                                borderRadius: 8,
-                                                                width: 36,
-                                                                height: 36,
+                                                                borderColor: isSelected ? colors.primary : colors.stroke,
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
                                                             }}
-                                                            activeOpacity={0.7}
-                                                            onPress={() => {
-                                                                setActiveTimeIdx(idx);
-                                                                const cleaned = time.trim().toUpperCase();
-                                                                const match = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
-                                                                if (match) {
-                                                                    setSelectedHour(parseInt(match[1], 10));
-                                                                    setSelectedMinute(parseInt(match[2], 10));
-                                                                    setSelectedAmPm(match[3] as 'AM' | 'PM');
-                                                                } else {
-                                                                    setSelectedHour(12);
-                                                                    setSelectedMinute(0);
-                                                                    setSelectedAmPm('AM');
-                                                                }
-                                                                setTimePickerVisible(true);
-                                                            }}
                                                         >
-                                                            <MaterialIcons name="access-time" size={18} color={colors.primary} />
+                                                            <Text style={[textStyles.body, { color: isSelected ? colors.onPrimary : colors.text, fontWeight: isSelected ? '700' : '500', fontSize: 13 }]}>
+                                                                {freq}×
+                                                            </Text>
                                                         </TouchableOpacity>
-                                                    </View>
-                                                </View>
-                                            ))}
-                                        </ScrollView>
+                                                    );
+                                                })}
+                                            </ScrollView>
+
+                                            <TouchableOpacity
+                                                style={{
+                                                    width: 38,
+                                                    height: 38,
+                                                    borderRadius: 12,
+                                                    backgroundColor: colors.cardFill,
+                                                    borderWidth: 1,
+                                                    borderColor: colors.stroke,
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                }}
+                                                onPress={() => {
+                                                    const cur = parseInt(tempTimesPerDay, 10) || 1;
+                                                    updateTimesCount(cur + 1);
+                                                }}
+                                                activeOpacity={0.7}
+                                            >
+                                                <MaterialIcons name="add" size={18} color={colors.text} />
+                                            </TouchableOpacity>
+                                        </View>
                                     </View>
-                                )}
 
-                                <View style={{ width: '100%', marginBottom: 16 }}>
-                                    <FloatingLabelInput
-                                        label="Grams per dispense"
-                                        icon="line-weight"
-                                        value={tempGrams}
-                                        onChangeText={t => setTempGrams(t.replace(/[^0-9]/g, ''))}
-                                        keyboardType="numeric"
-                                        backgroundColor={colors.surface}
-                                    />
-                                </View>
-                            </ScrollView>
-
-                            <View style={[anifeedStyles.actionContainer, { width: '100%' }]}>
-                                <TouchableOpacity
-                                    style={[anifeedStyles.btn, { backgroundColor: colors.cardFill }]}
-                                    onPress={() => {
-                                        Keyboard.dismiss();
-                                        setScheduleModalVisible(false);
-                                    }}
-                                    activeOpacity={0.7}
-                                >
-                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[anifeedStyles.btn, { backgroundColor: colors.primary, opacity: (tempTimesPerDay && tempGrams && tempTimes.length > 0) ? 1 : 0.5 }]}
-                                    onPress={() => {
-                                        Keyboard.dismiss();
-                                        handleSaveSchedule();
-                                    }}
-                                    activeOpacity={0.7}
-                                    disabled={!(tempTimesPerDay && tempGrams && tempTimes.length > 0)}
-                                >
-                                    <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Save</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </TouchableOpacity>
-                    </TouchableOpacity>
-                </KeyboardAvoidingView>
-            </Modal>
-
-            {/* Custom Time Picker Modal */}
-            <Modal visible={timePickerVisible} transparent animationType="slide">
-                <View style={[anifeedStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                    <View style={[anifeedStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 360, padding: 24, borderRadius: 28, alignItems: 'center' }]}>
-                        <View style={[anifeedStyles.iconContainer, { backgroundColor: colors.primary + '1A', marginBottom: 12 }]}>
-                            <MaterialIcons name="access-time" size={32} color={colors.primary} />
-                        </View>
-                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 4, fontSize: 20 }]}>Select Time</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 20, fontSize: 13 }]}>
-                            Scroll and select the hour and minute.
-                        </Text>
-                        
-                        {/* Digital Display Preview */}
-                        <View style={{ backgroundColor: colors.bgLight, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 20, borderWidth: 1, borderColor: colors.stroke, width: '100%' }}>
-                            <Text style={[textStyles.h1, { color: colors.primary, fontSize: 36, letterSpacing: 1, fontWeight: 'bold' }]}>
-                                {`${String(selectedHour).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')} ${selectedAmPm}`}
-                            </Text>
-                        </View>
-
-                        {/* Hours list selector (1 to 12 only) */}
-                        <View style={{ width: '100%', marginBottom: 16 }}>
-                            <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', fontSize: 12 }]}>HOUR</Text>
-                            <ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
-                                style={{ width: '100%' }}
-                            >
-                                {Array.from({ length: 12 }).map((_, i) => {
-                                    const h = i + 1;
-                                    const isSelected = selectedHour === h;
-                                    return (
-                                        <TouchableOpacity
-                                            key={h}
-                                            onPress={() => setSelectedHour(h)}
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 44,
-                                                borderRadius: 22,
-                                                backgroundColor: isSelected ? colors.primary : colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1,
-                                                borderColor: isSelected ? colors.primary : colors.stroke,
-                                            }}
-                                        >
-                                            <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 14 }]}>
-                                                {String(h).padStart(2, '0')}
+                                    {/* 2. Dispense Times List */}
+                                    <View style={{ width: '100%', marginBottom: 18 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' }]}>
+                                                Dispense Times
                                             </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </ScrollView>
-                        </View>
-
-                        {/* Minutes list selector */}
-                        <View style={{ width: '100%', marginBottom: 16 }}>
-                            <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', fontSize: 12 }]}>MINUTE</Text>
-                            <ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
-                                style={{ width: '100%' }}
-                            >
-                                {Array.from({ length: 60 }).map((_, m) => {
-                                    const isSelected = selectedMinute === m;
-                                    return (
-                                        <TouchableOpacity
-                                            key={m}
-                                            onPress={() => setSelectedMinute(m)}
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 44,
-                                                borderRadius: 22,
-                                                backgroundColor: isSelected ? colors.primary : colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1,
-                                                borderColor: isSelected ? colors.primary : colors.stroke,
-                                            }}
-                                        >
-                                            <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 14 }]}>
-                                                {String(m).padStart(2, '0')}
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                                                Tap any time to adjust
                                             </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </ScrollView>
-                        </View>
+                                        </View>
 
-                        {/* AM/PM selector */}
-                        <View style={{ width: '100%', marginBottom: 24 }}>
-                            <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', fontSize: 12 }]}>PERIOD</Text>
-                            <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
-                                {(['AM', 'PM'] as const).map((period) => {
-                                    const isSelected = selectedAmPm === period;
-                                    return (
+                                        <View style={{ width: '100%', gap: 8 }}>
+                                            {tempTimes.map((time, idx) => (
+                                                <TouchableOpacity
+                                                    key={idx}
+                                                    activeOpacity={0.7}
+                                                    onPress={() => {
+                                                        setActiveTimeIdx(idx);
+                                                        const cleaned = time.trim().toUpperCase();
+                                                        const match = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+                                                        if (match) {
+                                                            const h = parseInt(match[1], 10);
+                                                            const m = parseInt(match[2], 10);
+                                                            setSelectedHour(h >= 1 && h <= 12 ? h : 12);
+                                                            setSelectedMinute(Math.min(55, Math.round(m / 5) * 5));
+                                                            setSelectedAmPm(match[3] as 'AM' | 'PM');
+                                                        } else {
+                                                            setSelectedHour(12);
+                                                            setSelectedMinute(0);
+                                                            setSelectedAmPm('AM');
+                                                        }
+                                                        setScheduleModalView('timePicker');
+                                                    }}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        backgroundColor: colors.bgLight,
+                                                        borderWidth: 1,
+                                                        borderColor: colors.stroke,
+                                                        borderRadius: 14,
+                                                        paddingVertical: 10,
+                                                        paddingHorizontal: 14,
+                                                    }}
+                                                >
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                                        <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: colors.primary + '18', alignItems: 'center', justifyContent: 'center' }}>
+                                                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, fontWeight: '700' }]}>
+                                                                {idx + 1}
+                                                            </Text>
+                                                        </View>
+                                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 14, fontWeight: '600' }]}>
+                                                            {getOrdinalLabel(idx + 1)} Dispense
+                                                        </Text>
+                                                    </View>
+
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                        <View style={{ backgroundColor: colors.surface, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke }}>
+                                                            <Text style={[textStyles.body, { color: colors.primary, fontSize: 13, fontWeight: '700' }]}>
+                                                                {time}
+                                                            </Text>
+                                                        </View>
+                                                        <MaterialIcons name="edit" size={16} color={colors.primary} />
+                                                    </View>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                    </View>
+
+                                    {/* 3. Grams Per Dispense */}
+                                    <View style={{ width: '100%', marginBottom: 14 }}>
+                                        <FloatingLabelInput
+                                            label="Grams per dispense"
+                                            icon="line-weight"
+                                            value={tempGrams}
+                                            onChangeText={t => setTempGrams(t.replace(/[^0-9]/g, ''))}
+                                            keyboardType="numeric"
+                                            backgroundColor={colors.surface}
+                                        />
+                                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                                            {[250, 500, 750, 1000].map((amount) => {
+                                                const isSelected = tempGrams === String(amount);
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={amount}
+                                                        onPress={() => setTempGrams(String(amount))}
+                                                        activeOpacity={0.7}
+                                                        style={{
+                                                            flex: 1,
+                                                            paddingVertical: 6,
+                                                            borderRadius: 8,
+                                                            backgroundColor: isSelected ? colors.primary + '18' : colors.cardFill,
+                                                            borderWidth: 1,
+                                                            borderColor: isSelected ? colors.primary : colors.stroke,
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                        }}
+                                                    >
+                                                        <Text style={[textStyles.label, { color: isSelected ? colors.primary : colors.textGrey, fontSize: 11, fontWeight: isSelected ? '700' : '500' }]}>
+                                                            {amount}g
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+
+                                    {/* Live Daily Feed Preview Banner */}
+                                    {(() => {
+                                        const count = parseInt(tempTimesPerDay, 10) || 0;
+                                        const grams = parseInt(tempGrams, 10) || 0;
+                                        const total = count * grams;
+                                        return (
+                                            <View style={{ width: '100%', backgroundColor: colors.cardFill, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke, marginBottom: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                    <MaterialIcons name="calculate" size={18} color={colors.primary} />
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                                        Daily Total
+                                                    </Text>
+                                                </View>
+                                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontWeight: '700' }]}>
+                                                    {count} × {grams}g = <Text style={{ color: colors.primary }}>{total.toLocaleString()}g / day</Text>
+                                                </Text>
+                                            </View>
+                                        );
+                                    })()}
+
+                                    {/* Action Buttons */}
+                                    <View style={{ flexDirection: 'row', gap: 10, width: '100%' }}>
                                         <TouchableOpacity
-                                            key={period}
-                                            onPress={() => setSelectedAmPm(period)}
-                                            activeOpacity={0.7}
                                             style={{
                                                 flex: 1,
-                                                height: 44,
-                                                borderRadius: 22,
-                                                backgroundColor: isSelected ? colors.primary : colors.cardFill,
+                                                paddingVertical: 13,
+                                                borderRadius: 14,
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 borderWidth: 1,
-                                                borderColor: isSelected ? colors.primary : colors.stroke,
+                                                borderColor: colors.stroke,
+                                                backgroundColor: colors.cardFill,
                                             }}
+                                            onPress={() => {
+                                                Keyboard.dismiss();
+                                                setScheduleModalVisible(false);
+                                            }}
+                                            activeOpacity={0.7}
                                         >
-                                            <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 14, fontWeight: 'bold' }]}>
-                                                {period}
-                                            </Text>
+                                            <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 14 }]}>Cancel</Text>
                                         </TouchableOpacity>
-                                    );
-                                })}
-                            </View>
-                        </View>
+                                        <TouchableOpacity
+                                            style={{
+                                                flex: 1,
+                                                paddingVertical: 13,
+                                                borderRadius: 14,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                backgroundColor: colors.primary,
+                                                opacity: (tempTimesPerDay && tempGrams && tempTimes.length > 0) ? 1 : 0.5,
+                                            }}
+                                            onPress={() => {
+                                                Keyboard.dismiss();
+                                                handleSaveSchedule();
+                                            }}
+                                            activeOpacity={0.7}
+                                            disabled={!(tempTimesPerDay && tempGrams && tempTimes.length > 0)}
+                                        >
+                                            <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 14, fontWeight: '700' }]}>Save Schedule</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </ScrollView>
+                            ) : (
+                                /* Time Picker View */
+                                <View style={{ alignItems: 'center', width: '100%' }}>
+                                    {/* Top Navigation */}
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 12 }}>
+                                        <TouchableOpacity
+                                            onPress={() => setScheduleModalView('schedule')}
+                                            style={{
+                                                width: 36,
+                                                height: 36,
+                                                borderRadius: 18,
+                                                backgroundColor: colors.cardFill,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                            }}
+                                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <MaterialIcons name="arrow-back" size={20} color={colors.text} />
+                                        </TouchableOpacity>
+                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 17, fontWeight: '700' }]}>
+                                            {activeTimeIdx !== null ? `${getOrdinalLabel(activeTimeIdx + 1)} Dispense Time` : 'Select Time'}
+                                        </Text>
+                                        <View style={{ width: 36 }} />
+                                    </View>
 
-                        {/* Action buttons */}
-                        <View style={[anifeedStyles.actionContainer, { width: '100%', borderTopWidth: 0 }]}>
-                            <TouchableOpacity
-                                style={[anifeedStyles.btn, { backgroundColor: colors.cardFill }]}
-                                onPress={() => setTimePickerVisible(false)}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[anifeedStyles.btn, { backgroundColor: colors.primary }]}
-                                onPress={() => {
-                                    if (activeTimeIdx !== null) {
-                                        const updated = [...tempTimes];
-                                        updated[activeTimeIdx] = `${String(selectedHour).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')} ${selectedAmPm}`;
-                                        setTempTimes(updated);
-                                    }
-                                    setTimePickerVisible(false);
-                                }}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Confirm</Text>
-                            </TouchableOpacity>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 12, marginBottom: 12 }]}>
+                                        Select hour, minute (5-min intervals), and period.
+                                    </Text>
+
+                                    {/* Digital Display Card */}
+                                    {(() => {
+                                        const candidateTime = `${String(selectedHour).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')} ${selectedAmPm}`;
+                                        const isDuplicateTime = activeTimeIdx !== null && tempTimes.some((t, i) => i !== activeTimeIdx && t.trim().toUpperCase() === candidateTime);
+                                        return (
+                                            <>
+                                                <View style={{ backgroundColor: colors.bgLight, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', marginBottom: isDuplicateTime ? 8 : 12, borderWidth: 1, borderColor: isDuplicateTime ? colors.error : colors.stroke, width: '100%', flexDirection: 'row', gap: 6 }}>
+                                                    <Text style={[textStyles.h1, { color: isDuplicateTime ? colors.error : colors.primary, fontSize: 32, fontWeight: '800', letterSpacing: 0.5 }]}>
+                                                        {String(selectedHour).padStart(2, '0')}
+                                                    </Text>
+                                                    <Text style={[textStyles.h1, { color: isDuplicateTime ? colors.error : colors.primary, fontSize: 30, fontWeight: '800' }]}>:</Text>
+                                                    <Text style={[textStyles.h1, { color: isDuplicateTime ? colors.error : colors.primary, fontSize: 32, fontWeight: '800', letterSpacing: 0.5 }]}>
+                                                        {String(selectedMinute).padStart(2, '0')}
+                                                    </Text>
+                                                    <View style={{ backgroundColor: isDuplicateTime ? colors.error : colors.primary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, marginLeft: 8 }}>
+                                                        <Text style={[textStyles.label, { color: colors.onPrimary, fontSize: 13, fontWeight: '800' }]}>
+                                                            {selectedAmPm}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+
+                                                {/* Duplicate Alert Banner */}
+                                                {isDuplicateTime && (
+                                                    <View style={{ width: '100%', backgroundColor: colors.error + '18', borderWidth: 1, borderColor: colors.error, borderRadius: 12, padding: 8, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                        <MaterialIcons name="error-outline" size={16} color={colors.error} />
+                                                        <Text style={[textStyles.body, { color: colors.error, fontSize: 11, fontWeight: '600', flex: 1 }]}>
+                                                            Time is already assigned to another dispense slot.
+                                                        </Text>
+                                                    </View>
+                                                )}
+                                            </>
+                                        );
+                                    })()}
+
+                                    {/* AM / PM Switcher */}
+                                    <View style={{ flexDirection: 'row', gap: 8, width: '100%', marginBottom: 12 }}>
+                                        {(['AM', 'PM'] as const).map((period) => {
+                                            const isSelected = selectedAmPm === period;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={period}
+                                                    onPress={() => setSelectedAmPm(period)}
+                                                    activeOpacity={0.7}
+                                                    style={{
+                                                        flex: 1,
+                                                        height: 36,
+                                                        borderRadius: 12,
+                                                        backgroundColor: isSelected ? colors.primary : colors.cardFill,
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        borderWidth: 1,
+                                                        borderColor: isSelected ? colors.primary : colors.stroke,
+                                                    }}
+                                                >
+                                                    <Text style={[textStyles.label, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 13, fontWeight: '700' }]}>
+                                                        {period}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+
+                                    {/* Hours Grid (4 columns x 3 rows) */}
+                                    <View style={{ width: '100%', marginBottom: 12 }}>
+                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6, textTransform: 'uppercase' }]}>
+                                            Hour
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'space-between' }}>
+                                            {Array.from({ length: 12 }).map((_, i) => {
+                                                const h = i + 1;
+                                                const isSelected = selectedHour === h;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={h}
+                                                        onPress={() => setSelectedHour(h)}
+                                                        activeOpacity={0.7}
+                                                        style={{
+                                                            width: '23%',
+                                                            height: 34,
+                                                            borderRadius: 10,
+                                                            backgroundColor: isSelected ? colors.primary : colors.cardFill,
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            borderWidth: 1,
+                                                            borderColor: isSelected ? colors.primary : colors.stroke,
+                                                        }}
+                                                    >
+                                                        <Text style={[textStyles.body, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 13, fontWeight: isSelected ? '700' : '600' }]}>
+                                                            {String(h).padStart(2, '0')}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+
+                                    {/* Minutes Grid (4 columns x 3 rows: 5-minute intervals only) */}
+                                    <View style={{ width: '100%', marginBottom: 16 }}>
+                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6, textTransform: 'uppercase' }]}>
+                                            Minute (5-min intervals)
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'space-between' }}>
+                                            {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => {
+                                                const isSelected = selectedMinute === m;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={m}
+                                                        onPress={() => setSelectedMinute(m)}
+                                                        activeOpacity={0.7}
+                                                        style={{
+                                                            width: '23%',
+                                                            height: 32,
+                                                            borderRadius: 10,
+                                                            backgroundColor: isSelected ? colors.primary : colors.cardFill,
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            borderWidth: 1,
+                                                            borderColor: isSelected ? colors.primary : colors.stroke,
+                                                        }}
+                                                    >
+                                                        <Text style={[textStyles.body, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 12, fontWeight: isSelected ? '700' : '600' }]}>
+                                                            :{String(m).padStart(2, '0')}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+
+                                    {/* Action buttons */}
+                                    <View style={{ flexDirection: 'row', gap: 10, width: '100%' }}>
+                                        <TouchableOpacity
+                                            style={{
+                                                flex: 1,
+                                                paddingVertical: 12,
+                                                borderRadius: 14,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                                backgroundColor: colors.cardFill,
+                                            }}
+                                            onPress={() => setScheduleModalView('schedule')}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 14 }]}>Cancel</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={{
+                                                flex: 1,
+                                                paddingVertical: 12,
+                                                borderRadius: 14,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                backgroundColor: colors.primary,
+                                            }}
+                                            onPress={() => {
+                                                const candidateTime = `${String(selectedHour).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')} ${selectedAmPm}`;
+                                                if (activeTimeIdx !== null) {
+                                                    const isDuplicate = tempTimes.some((t, i) => i !== activeTimeIdx && t.trim().toUpperCase() === candidateTime);
+                                                    if (isDuplicate) {
+                                                        showSnackbar(`"${candidateTime}" is already assigned to another dispense time.`, 'error');
+                                                        return;
+                                                    }
+                                                    const updated = [...tempTimes];
+                                                    updated[activeTimeIdx] = candidateTime;
+                                                    setTempTimes(updated);
+                                                }
+                                                setScheduleModalView('schedule');
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 14, fontWeight: '700' }]}>Set Time</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            )}
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 

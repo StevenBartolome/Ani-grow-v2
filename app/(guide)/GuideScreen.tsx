@@ -1091,153 +1091,6 @@ export default function GuideScreen() {
         }
     };
 
-    // ─── Debug Test Push Notification Handlers ─────────────────────────────────
-    const getBothSpeciesGuideData = async () => {
-        let farmName = 'Farm';
-        if (farmId) {
-            const { data: farmData } = await supabase.from('farms').select('name').eq('id', farmId).single();
-            if (farmData?.name) farmName = farmData.name;
-        }
-
-        // Fetch active batches for this farm or fallback to DEMO_BATCHES
-        const { data: batchesData } = await supabase
-            .from('batches')
-            .select('id, farm_id, name, animal_type, arrival_date, age_at_arrival_days, housings(name, farm_id)')
-            .in('status', ['active']);
-
-        const farmBatches = (batchesData || []).filter((b: any) => b.farm_id === farmId || b.housings?.farm_id === farmId);
-        const pigBatch = farmBatches.find((b: any) => b.animal_type === 'pig') || DEMO_BATCHES.find(b => b.animal_type === 'pig');
-        const chickenBatch = farmBatches.find((b: any) => b.animal_type === 'chicken') || DEMO_BATCHES.find(b => b.animal_type === 'chicken');
-
-        const calculateDay = (arrDate?: string, ageAtArr: number = 1) => {
-            if (!arrDate) return 1;
-            const arr = new Date(arrDate.split('T')[0]);
-            const today = new Date();
-            arr.setHours(0, 0, 0, 0);
-            today.setHours(0, 0, 0, 0);
-            const diff = Math.floor((today.getTime() - arr.getTime()) / (1000 * 60 * 60 * 24));
-            return Math.max(1, diff + (ageAtArr || 1));
-        };
-
-        const getSpeciesInfo = async (type: 'pig' | 'chicken', batchItem: any) => {
-            const day = calculateDay(batchItem?.arrival_date, batchItem?.age_at_arrival_days);
-            const phases = await getEffectiveRoadmap(farmId, type, batchItem?.id);
-            const phase = phases.find(p => day >= p.dayStart && day <= p.dayEnd) || phases[phases.length - 1];
-            const sorted = sortActionsByDay(phase.fullGuideActions || []);
-            const matched = sorted.filter(act => isDayMatching(act.dayTag, day));
-            let coreAction = matched.length > 0
-                ? matched[0].action
-                : (phase.todayAction || phase.actionable || 'Follow standard feeding and hygiene protocol.');
-            coreAction = coreAction.replace(/^Action:\s*/i, '').trim();
-
-            let focus = (phase.todayAction || phase.actionable || 'Follow daily SOP care').replace(/^Action:\s*/i, '').trim();
-
-            return {
-                batchName: batchItem?.name || (type === 'pig' ? 'Swine Cohort' : 'Poultry Cohort'),
-                day,
-                phase,
-                coreAction,
-                focus,
-            };
-        };
-
-        const pigInfo = await getSpeciesInfo('pig', pigBatch);
-        const chickenInfo = await getSpeciesInfo('chicken', chickenBatch);
-
-        return { farmName, pigInfo, chickenInfo };
-    };
-
-    const triggerTestDailyBriefing = async () => {
-        try {
-            const { farmName, pigInfo, chickenInfo } = await getBothSpeciesGuideData();
-            const taskSummary = `Pigs (Day ${pigInfo.day}): ${pigInfo.coreAction}\n\nChickens (Day ${chickenInfo.day}): ${chickenInfo.coreAction}`;
-
-            await createNotification({
-                farmId: farmId || 'demo-farm',
-                farmName,
-                title: 'Good Morning! Daily Briefing',
-                message: `Good morning! Check your farm and today's SOP focus:\n\n${taskSummary}\n\nTap to check your farm and view Guide.`,
-                type: 'info',
-                category: 'ai_suggestion',
-                actionUrl: '/(guide)/GuideScreen',
-            });
-
-            Alert.alert('Push Notification Sent', 'Daily briefing push notification for both species dispatched successfully.');
-        } catch (err: any) {
-            Alert.alert('Error', err?.message || 'Failed to dispatch test notification.');
-        }
-    };
-
-    const triggerTestCurrentGuideAlert = async () => {
-        try {
-            const { farmName, pigInfo, chickenInfo } = await getBothSpeciesGuideData();
-            const message = `Pigs (Day ${pigInfo.day}, ${pigInfo.phase.name}):\n${pigInfo.coreAction}\n\nChickens (Day ${chickenInfo.day}, ${chickenInfo.phase.name}):\n${chickenInfo.coreAction}\n\nTap to view Guide.`;
-
-            await createNotification({
-                farmId: farmId || 'demo-farm',
-                farmName,
-                title: "Guide Action: Today's SOP",
-                message,
-                type: 'info',
-                category: 'ai_suggestion',
-                actionUrl: '/(guide)/GuideScreen',
-            });
-
-            Alert.alert('Push Notification Sent', "Today's Guide SOP push notification for both species dispatched successfully.");
-        } catch (err: any) {
-            Alert.alert('Error', err?.message || 'Failed to dispatch test notification.');
-        }
-    };
-
-    const triggerTestPhaseTransitionAlert = async () => {
-        try {
-            const { farmName, pigInfo, chickenInfo } = await getBothSpeciesGuideData();
-            const message = `Pigs (Day ${pigInfo.day}, ${pigInfo.phase.name}):\nTarget Temp: ${pigInfo.phase.targetTemp} | Target Weight: ${pigInfo.phase.targetWeight}\nFocus: ${pigInfo.focus}\n\nChickens (Day ${chickenInfo.day}, ${chickenInfo.phase.name}):\nTarget Temp: ${chickenInfo.phase.targetTemp} | Target Weight: ${chickenInfo.phase.targetWeight}\nFocus: ${chickenInfo.focus}\n\nTap to view Guide.`;
-
-            await createNotification({
-                farmId: farmId || 'demo-farm',
-                farmName,
-                title: 'Guide: Growth Phase Milestones',
-                message,
-                type: 'info',
-                category: 'ai_suggestion',
-                actionUrl: '/(guide)/GuideScreen',
-            });
-
-            Alert.alert('Push Notification Sent', 'Phase transition push notification for both species dispatched successfully.');
-        } catch (err: any) {
-            Alert.alert('Error', err?.message || 'Failed to dispatch test notification.');
-        }
-    };
-
-    const handleTestPushNotification = () => {
-        Alert.alert(
-            'Test Push Notification',
-            'Choose a notification scenario to test (delivers for both Chickens & Pigs):',
-            [
-                {
-                    text: 'Daily Briefing (Accurate Focus)',
-                    onPress: () => {
-                        triggerTestDailyBriefing();
-                    },
-                },
-                {
-                    text: 'Current Batch Guide Alert',
-                    onPress: () => {
-                        triggerTestCurrentGuideAlert();
-                    },
-                },
-                {
-                    text: 'Phase Transition Alert',
-                    onPress: () => {
-                        triggerTestPhaseTransitionAlert();
-                    },
-                },
-                { text: 'Cancel', style: 'cancel' },
-            ]
-        );
-    };
-
     if (isBatchLoading && !batchesLoadedRef.current) {
         return (
             <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top }}>
@@ -1912,7 +1765,7 @@ export default function GuideScreen() {
                     <View>
                         {/* 1. Header Section */}
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                            <View style={{ flex: 1, marginRight: 10 }}>
+                            <View style={{ flex: 1 }}>
                                 <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]}>
                                     Actionable Guide
                                 </Text>
@@ -1920,34 +1773,6 @@ export default function GuideScreen() {
                                     Track growth timelines and best practices
                                 </Text>
                             </View>
-
-                            {/* Debugging Button for Push Notification */}
-                            <TouchableOpacity
-                                activeOpacity={0.7}
-                                onPress={handleTestPushNotification}
-                                style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    gap: 5,
-                                    paddingHorizontal: 12,
-                                    paddingVertical: 7,
-                                    borderRadius: 10,
-                                    backgroundColor: '#EF4444',
-                                    borderWidth: 1,
-                                    borderColor: '#DC2626',
-                                    marginTop: 4,
-                                    elevation: 2,
-                                    shadowColor: '#EF4444',
-                                    shadowOffset: { width: 0, height: 2 },
-                                    shadowOpacity: 0.25,
-                                    shadowRadius: 3,
-                                }}
-                            >
-                                <MaterialIcons name="notifications-active" size={16} color="#FFFFFF" />
-                                <Text style={{ fontSize: 12, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
-                                    Test Push
-                                </Text>
-                            </TouchableOpacity>
                         </View>
 
                         {/* 2. Sliding Animal Type Pill Switcher */}

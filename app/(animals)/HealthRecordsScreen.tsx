@@ -2477,44 +2477,6 @@ export default function HealthRecordsScreen() {
     const pigColor = (colors as any).pig ?? '#E67E22';
     const chickenColor = (colors as any).chicken ?? '#F1C40F';
 
-    const handleTestHealthPush = () => {
-        Alert.alert(
-            'Test Health Push Notification',
-            'Choose a health alert event to test delivery:',
-            [
-                {
-                    text: 'Mortality Alert',
-                    onPress: async () => {
-                        await createNotification({
-                            farmId: farmId || 'demo-farm',
-                            title: 'Mortality Recorded',
-                            message: 'Mortality report filed:\n• 2 heads reported in Pen A (Swine)\n• 1 head reported in Coop 1 (Broiler)\n\nTap to inspect Health Records.',
-                            type: 'error',
-                            category: 'health_alert',
-                            actionUrl: '/(animals)/HealthRecordsScreen',
-                        });
-                        Alert.alert('Push Sent', 'Mortality push alert sent successfully.');
-                    },
-                },
-                {
-                    text: 'Scheduled Vet Consultation',
-                    onPress: async () => {
-                        await createNotification({
-                            farmId: farmId || 'demo-farm',
-                            title: 'Vet Consultation Today',
-                            message: 'Dr. Santos scheduled routine herd inspection for Swine Bay & Poultry Brooder today.',
-                            type: 'info',
-                            category: 'health_alert',
-                            actionUrl: '/(animals)/HealthRecordsScreen',
-                        });
-                        Alert.alert('Push Sent', 'Vet consultation push alert sent successfully.');
-                    },
-                },
-                { text: 'Cancel', style: 'cancel' },
-            ]
-        );
-    };
-
     if (!housingId) {
         return (
             <View style={[styles.safeArea, { paddingTop: insets.top }]}>
@@ -2522,42 +2484,13 @@ export default function HealthRecordsScreen() {
                     {/* Header */}
                     <Header />
 
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: hPad, marginBottom: 14, paddingTop: 2 }}>
-                        <View style={{ flex: 1, marginRight: 10 }}>
-                            <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]}>
-                                Health Records
-                            </Text>
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]}>
-                                Select a housing to record vaccinations & treatments
-                            </Text>
-                        </View>
-
-                        <TouchableOpacity
-                            activeOpacity={0.7}
-                            onPress={handleTestHealthPush}
-                            style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                                paddingHorizontal: 12,
-                                paddingVertical: 7,
-                                borderRadius: 10,
-                                backgroundColor: '#EF4444',
-                                borderWidth: 1,
-                                borderColor: '#DC2626',
-                                elevation: 2,
-                                shadowColor: '#EF4444',
-                                shadowOffset: { width: 0, height: 2 },
-                                shadowOpacity: 0.25,
-                                shadowRadius: 3,
-                                marginTop: 4,
-                            }}
-                        >
-                            <MaterialIcons name="notifications-active" size={14} color="#FFFFFF" />
-                            <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
-                                Test Push
-                            </Text>
-                        </TouchableOpacity>
+                    <View style={{ paddingHorizontal: hPad, marginBottom: 14, paddingTop: 2 }}>
+                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]}>
+                            Health Records
+                        </Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]}>
+                            Select a housing to record vaccinations & treatments
+                        </Text>
                     </View>
 
                     <ScrollView

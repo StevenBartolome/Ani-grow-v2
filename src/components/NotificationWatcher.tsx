@@ -163,6 +163,7 @@ export function NotificationWatcher() {
             title: string;
             message: string;
             actionUrl?: string;
+            skipLocalPush?: boolean;
         }) => {
             const farmName = getFarmName(input.farmId);
             const userCanReceive = canUserViewNotification(input.category, input.actionUrl, hasPermission, role);
@@ -175,7 +176,7 @@ export function NotificationWatcher() {
                 type: input.type,
                 category: input.category,
                 actionUrl: input.actionUrl,
-                skipLocalPush: !userCanReceive,
+                skipLocalPush: input.skipLocalPush || !userCanReceive,
             });
         },
         [getFarmName, hasPermission, role]
@@ -374,9 +375,10 @@ export function NotificationWatcher() {
                                 farmId: sch.farm_id,
                                 category: 'feed_alert',
                                 type: 'info',
-                                title: 'Upcoming Feed',
+                                title: 'Upcoming Feed Dispense',
                                 message: `${feederName} is scheduled to dispense ${kg} kg in 1 hour (at ${t}).`,
                                 actionUrl: '/(devices)/ManageFeedsScreen',
+                                skipLocalPush: true, // OS level push is pre-scheduled by notificationScheduler at exact hour:minute
                             });
                             await markAlerted(key);
                         }
@@ -413,6 +415,7 @@ export function NotificationWatcher() {
                         title: 'Vet Visit Today',
                         message: `Scheduled consultation${housing} is scheduled for today. ${rec.notes ? `Note: ${rec.notes}` : ''}`,
                         actionUrl: '/(animals)/HealthRecordsScreen',
+                        skipLocalPush: true, // OS level push is pre-scheduled by notificationScheduler
                     });
                     await markAlerted(key);
                 }
@@ -464,6 +467,7 @@ export function NotificationWatcher() {
                             title: 'Vaccination Due',
                             message: `Vaccination '${sch.vaccine_name}'${housingLabel} is due today.`,
                             actionUrl: '/(health)/VaccineScreen',
+                            skipLocalPush: true, // OS level push is pre-scheduled by notificationScheduler
                         });
                         await markAlerted(key);
                     }
@@ -760,6 +764,7 @@ export function NotificationWatcher() {
                     title: 'Good Morning! Daily Briefing',
                     message: fullMessage,
                     actionUrl: '/(guide)/GuideScreen',
+                    skipLocalPush: true, // OS level push is pre-scheduled by notificationScheduler
                 });
             }
             await markAlerted(dayKey);

@@ -139,9 +139,15 @@ export async function scheduleDailyMorningBriefing(farmIds: string[]): Promise<v
             taskSummary = `Daily SOP:\n${defaultInfo.coreAction}`;
         }
 
-        const identifier = `daily-morning-briefing-${primaryFarmId}`;
-        await Notifications.cancelScheduledNotificationAsync(identifier);
+        // Cancel existing briefing notifications first
+        const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
+        for (const notif of allScheduled) {
+            if (notif.identifier.startsWith('daily-morning-briefing-')) {
+                await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+            }
+        }
 
+        const identifier = `daily-morning-briefing-${primaryFarmId}`;
         await Notifications.scheduleNotificationAsync({
             identifier,
             content: {
@@ -182,10 +188,17 @@ export async function scheduleUpcomingVetVisits(farmIds: string[]): Promise<void
 
         if (!records) return;
 
+        // Cancel previous vet visit notifications to prevent duplicates
+        const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
+        for (const notif of allScheduled) {
+            if (notif.identifier.startsWith('vet-visit-')) {
+                await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+            }
+        }
+
         for (const rec of records as any[]) {
             if (!rec.followup_date) continue;
             const identifier = `vet-visit-${rec.id}`;
-            await Notifications.cancelScheduledNotificationAsync(identifier);
 
             // Create target trigger date for 7:00 AM on followup_date
             const [year, month, day] = rec.followup_date.split('-').map(Number);
@@ -235,10 +248,17 @@ export async function scheduleUpcomingVaccinations(farmIds: string[]): Promise<v
 
         if (!schedules) return;
 
+        // Cancel previous vaccination notifications to prevent duplicates
+        const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
+        for (const notif of allScheduled) {
+            if (notif.identifier.startsWith('vaccine-due-')) {
+                await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+            }
+        }
+
         for (const sch of schedules as any[]) {
             if (!sch.scheduled_date) continue;
             const identifier = `vaccine-due-${sch.id}`;
-            await Notifications.cancelScheduledNotificationAsync(identifier);
 
             const [year, month, day] = sch.scheduled_date.split('-').map(Number);
             const triggerDate = new Date(year, month - 1, day, DEFAULT_MORNING_HOUR, DEFAULT_MORNING_MINUTE, 0);
@@ -283,6 +303,14 @@ export async function scheduleFeedDispenseReminders(farmIds: string[]): Promise<
 
         if (!schedules) return;
 
+        // Cancel previous feed dispense scheduled notifications to prevent duplicate push banners
+        const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
+        for (const notif of allScheduled) {
+            if (notif.identifier.startsWith('feed-dispense-1hr-')) {
+                await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+            }
+        }
+
         for (const sch of schedules as any[]) {
             const times: string[] = sch.dispense_times || [];
             const feederName = sch.devices?.name || 'Feeder';
@@ -290,7 +318,6 @@ export async function scheduleFeedDispenseReminders(farmIds: string[]): Promise<
 
             for (const t of times) {
                 const identifier = `feed-dispense-1hr-${sch.id}-${t.replace(':', '')}`;
-                await Notifications.cancelScheduledNotificationAsync(identifier);
 
                 const [hour, min] = t.split(':').map(Number);
                 let alarmHour = hour - 1;

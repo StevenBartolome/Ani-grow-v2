@@ -347,97 +347,17 @@ export default function DevicesScreen() {
         ? liveDevices
         : liveDevices.filter(d => d.type === activeFilter);
 
-    const handleTestDevicePush = () => {
-        Alert.alert(
-            'Test Device Push Notification',
-            'Choose a device event to test delivery:',
-            [
-                {
-                    text: 'Device Offline Alert',
-                    onPress: async () => {
-                        await createNotification({
-                            farmId: farmId || 'demo-farm',
-                            title: 'Device Offline',
-                            message: 'AniFeed Feeder 1 went offline. Please check power and network connectivity.',
-                            type: 'error',
-                            category: 'device_alert',
-                            actionUrl: '/(devices)/DevicesScreen',
-                        });
-                        Alert.alert('Push Sent', 'Device offline push alert sent.');
-                    },
-                },
-                {
-                    text: 'Feed Dispensed Alert',
-                    onPress: async () => {
-                        await createNotification({
-                            farmId: farmId || 'demo-farm',
-                            title: 'Feed Dispensed',
-                            message: 'Feeder dispensed 1.25 kg of feed successfully.\n\nTap to view Dispense Records.',
-                            type: 'success',
-                            category: 'feed_alert',
-                            actionUrl: '/(devices)/DispenseRecordsScreen',
-                        });
-                        Alert.alert('Push Sent', 'Feed dispensed push alert sent.');
-                    },
-                },
-                {
-                    text: 'Low Feed Stock Alert',
-                    onPress: async () => {
-                        await createNotification({
-                            farmId: farmId || 'demo-farm',
-                            title: 'Low Stock Alert',
-                            message: 'Starter Mash has only 4.10 kg remaining in stock.\n\nTap to manage Feed Inventory.',
-                            type: 'warning',
-                            category: 'feed_alert',
-                            actionUrl: '/(devices)/ManageFeedsScreen',
-                        });
-                        Alert.alert('Push Sent', 'Low feed stock push alert sent.');
-                    },
-                },
-                { text: 'Cancel', style: 'cancel' },
-            ]
-        );
-    };
-
     return (
         <View style={[styles.safeArea, { paddingTop: insets.top }]}>
             <View style={styles.container}>
                 {/* Top Nav / Logo Row */}
                 <Header />
 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: hPad, paddingTop: 4, marginBottom: 12 }}>
-                    <View style={{ flex: 1, marginRight: 12, marginTop: 2 }}>
-                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]}>Device Monitor</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]}>
-                            Real-time control center
-                        </Text>
-                    </View>
-
-                    <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={handleTestDevicePush}
-                        style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 4,
-                            paddingHorizontal: 12,
-                            paddingVertical: 7,
-                            borderRadius: 10,
-                            backgroundColor: '#EF4444',
-                            borderWidth: 1,
-                            borderColor: '#DC2626',
-                            elevation: 2,
-                            shadowColor: '#EF4444',
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.25,
-                            shadowRadius: 3,
-                        }}
-                    >
-                        <MaterialIcons name="notifications-active" size={14} color="#FFFFFF" />
-                        <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
-                            Test Push
-                        </Text>
-                    </TouchableOpacity>
+                <View style={{ paddingHorizontal: hPad, paddingTop: 4, marginBottom: 12 }}>
+                    <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]}>Device Monitor</Text>
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]}>
+                        Real-time control center
+                    </Text>
                 </View>
 
                 {/* Filters Row */}

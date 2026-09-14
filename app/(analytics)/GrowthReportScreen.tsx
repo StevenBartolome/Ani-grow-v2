@@ -1484,59 +1484,6 @@ export default function GrowthReportScreen() {
     const batchesOptions = filteredBatches.map(b => b.name);
     const selectedBatchOptionStr = selectedBatch ? selectedBatch.name : 'No Batch Selected';
 
-    const handleTestGrowthPush = () => {
-        Alert.alert(
-            'Test Growth Analytics Push',
-            'Select which growth notification to simulate:',
-            [
-                {
-                    text: 'Growth Target Optimal',
-                    onPress: async () => {
-                        try {
-                            const bName = selectedBatch?.name || 'Batch Alpha';
-                            const speciesStr = animalType === 'pig' ? 'Pigs' : 'Chickens';
-                            await createNotification({
-                                farmId: farmId || 'demo-farm',
-                                farmName: farmName || 'Farm',
-                                title: `${speciesStr} Growth Target Met`,
-                                message: `Batch ${bName}: Current average weight is on track (+5% vs standard growth curve).\nFeed conversion ratio and ADG are within optimal targets.`,
-                                type: 'success',
-                                category: 'weight_alert',
-                                actionUrl: `/(analytics)/GrowthReportScreen?type=${animalType}&batchId=${selectedBatch?.id || ''}`,
-                            });
-                            Alert.alert('Push Notification Sent', 'Growth target push notification sent successfully.');
-                        } catch (e: any) {
-                            Alert.alert('Error', e?.message || 'Failed to dispatch test notification.');
-                        }
-                    },
-                },
-                {
-                    text: 'Underweight Cohort Alert',
-                    onPress: async () => {
-                        try {
-                            const bName = selectedBatch?.name || 'Batch Alpha';
-                            const hName = selectedHousing?.name || 'House 1';
-                            const speciesStr = animalType === 'pig' ? 'Pigs' : 'Chickens';
-                            await createNotification({
-                                farmId: farmId || 'demo-farm',
-                                farmName: farmName || 'Farm',
-                                title: `Underweight ${speciesStr} Alert`,
-                                message: `Batch ${bName} (${hName}): 18% of weighed animals are underweight.\nConsider checking feeder spacing, pen crowding, or feed formulation.`,
-                                type: 'warning',
-                                category: 'weight_alert',
-                                actionUrl: `/(analytics)/GrowthReportScreen?type=${animalType}&batchId=${selectedBatch?.id || ''}`,
-                            });
-                            Alert.alert('Push Notification Sent', 'Underweight alert push notification sent successfully.');
-                        } catch (e: any) {
-                            Alert.alert('Error', e?.message || 'Failed to dispatch test notification.');
-                        }
-                    },
-                },
-                { text: 'Cancel', style: 'cancel' },
-            ]
-        );
-    };
-
     return (
         <SafeAreaView style={styles.safeArea}>
             {/* Header */}
@@ -1548,31 +1495,6 @@ export default function GrowthReportScreen() {
                     {animalType === 'pig' ? 'Pigs' : 'Chickens'} Growth
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={handleTestGrowthPush}
-                        style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 4,
-                            paddingHorizontal: 8,
-                            paddingVertical: 6,
-                            borderRadius: 8,
-                            backgroundColor: '#EF4444',
-                            borderWidth: 1,
-                            borderColor: '#DC2626',
-                            elevation: 2,
-                            shadowColor: '#EF4444',
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.25,
-                            shadowRadius: 3,
-                        }}
-                    >
-                        <MaterialIcons name="notifications-active" size={13} color="#FFFFFF" />
-                        <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
-                            Test Push
-                        </Text>
-                    </TouchableOpacity>
                     <PrintReportButton
                         buildReport={buildGrowthReport}
                         emptyMessage="Select a batch with recorded weigh-ins first."

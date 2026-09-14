@@ -659,138 +659,6 @@ export default function NotificationScreen() {
         );
     };
 
-    const scheduleDelayedTestPush = async (seconds: number, label: string) => {
-        try {
-            await createNotification({
-                farmId: farmId || 'demo-farm',
-                title: 'Good Morning! Daily Briefing',
-                message: `Good morning! Check your farm and today's SOP focus:\n\nPigs (Day 14): Schedule core vaccinations.\n\nChickens (Day 12): Administer Gumboro vaccine.\n\nTap to check your farm and view Guide.`,
-                type: 'info',
-                category: 'ai_suggestion',
-                actionUrl: '/(guide)/GuideScreen',
-                skipLocalPush: true,
-            });
-
-            if (Platform.OS !== 'web') {
-                await Notifications.scheduleNotificationAsync({
-                    content: {
-                        title: 'Good Morning! Daily Briefing',
-                        body: "Good morning! Check your farm and today's SOP focus (Pigs Day 14, Chickens Day 12). Tap to view Guide.",
-                        sound: true,
-                        data: {
-                            actionUrl: '/(guide)/GuideScreen',
-                            farmId: farmId || 'demo-farm',
-                        },
-                    },
-                    trigger: {
-                        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-                        seconds: Math.max(1, seconds),
-                        repeats: false,
-                    } as any,
-                });
-            }
-
-            Alert.alert(
-                `Push Alarm Set (${label})`,
-                `Test push notification will arrive in ${label}. You can now press Home and completely close/swipe away the app to test background banner delivery.`
-            );
-        } catch (err: any) {
-            Alert.alert('Error', err?.message || 'Failed to schedule delayed test notification.');
-        }
-    };
-
-    const handleTestPushNotification = () => {
-        Alert.alert(
-            'Test Push Notification',
-            'Select a notification event (use timed options to test with app fully closed):',
-            [
-                {
-                    text: '⏱ Test in 5s (Close app now)',
-                    onPress: () => scheduleDelayedTestPush(5, '5 seconds'),
-                },
-                {
-                    text: '⏱ Test in 30s (Close app now)',
-                    onPress: () => scheduleDelayedTestPush(30, '30 seconds'),
-                },
-                {
-                    text: '⏱ Test in 1 Min (Close app now)',
-                    onPress: () => scheduleDelayedTestPush(60, '1 minute'),
-                },
-                {
-                    text: 'Daily Briefing (Morning Greeting)',
-                    onPress: async () => {
-                        await createNotification({
-                            farmId: farmId || 'demo-farm',
-                            title: 'Good Morning! Daily Briefing',
-                            message: `Good morning! Check your farm and today's SOP focus:\n\nPigs (Day 14): Schedule core vaccinations.\n\nChickens (Day 12): Administer Gumboro vaccine.\n\nTap to check your farm and view Guide.`,
-                            type: 'info',
-                            category: 'ai_suggestion',
-                            actionUrl: '/(guide)/GuideScreen',
-                        });
-                        Alert.alert('Push Sent', 'Daily Briefing push notification sent.');
-                    },
-                },
-                {
-                    text: 'Device Offline Alert',
-                    onPress: async () => {
-                        await createNotification({
-                            farmId: farmId || 'demo-farm',
-                            title: 'Device Offline',
-                            message: 'AniFeed Feeder 1 went offline. Please check power and network connectivity.',
-                            type: 'error',
-                            category: 'device_alert',
-                            actionUrl: '/(devices)/DevicesScreen',
-                        });
-                        Alert.alert('Push Sent', 'Device offline push notification sent.');
-                    },
-                },
-                {
-                    text: 'Feed Low Stock Alert',
-                    onPress: async () => {
-                        await createNotification({
-                            farmId: farmId || 'demo-farm',
-                            title: 'Low Stock Alert',
-                            message: 'Starter Mash has only 3.20 kg remaining in stock.\n\nTap to view Feed Inventory.',
-                            type: 'warning',
-                            category: 'feed_alert',
-                            actionUrl: '/(devices)/ManageFeedsScreen',
-                        });
-                        Alert.alert('Push Sent', 'Low stock push notification sent.');
-                    },
-                },
-                {
-                    text: 'Vaccination Due Alert',
-                    onPress: async () => {
-                        await createNotification({
-                            farmId: farmId || 'demo-farm',
-                            title: 'Vaccination Due',
-                            message: 'Newcastle Disease + Bronchitis eye drops due today for Broiler Flock Alpha (Coop 1).',
-                            type: 'warning',
-                            category: 'health_alert',
-                            actionUrl: '/(health)/VaccineScreen',
-                        });
-                        Alert.alert('Push Sent', 'Vaccination due push notification sent.');
-                    },
-                },
-                {
-                    text: 'Weighing Complete',
-                    onPress: async () => {
-                        await createNotification({
-                            farmId: farmId || 'demo-farm',
-                            title: 'Weighing Complete',
-                            message: 'Weighing session for Pen A finished. 32 animal(s) recorded with average 18.5 kg.',
-                            type: 'success',
-                            category: 'weight_alert',
-                            actionUrl: '/(weighing)/WeighingSessionsScreen',
-                        });
-                        Alert.alert('Push Sent', 'Weighing complete push notification sent.');
-                    },
-                },
-                { text: 'Cancel', style: 'cancel' },
-            ]
-        );
-    };
-
     return (
         <SafeAreaView style={notificationStyles.safeArea}>
             <View style={notificationStyles.container}>
@@ -801,38 +669,12 @@ export default function NotificationScreen() {
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                         Notifications
                     </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <TouchableOpacity
-                            activeOpacity={0.7}
-                            onPress={handleTestPushNotification}
-                            style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                                paddingHorizontal: 10,
-                                paddingVertical: 6,
-                                borderRadius: 8,
-                                backgroundColor: '#EF4444',
-                                borderWidth: 1,
-                                borderColor: '#DC2626',
-                                elevation: 2,
-                                shadowColor: '#EF4444',
-                                shadowOffset: { width: 0, height: 2 },
-                                shadowOpacity: 0.25,
-                                shadowRadius: 3,
-                            }}
-                        >
-                            <MaterialIcons name="notifications-active" size={14} color="#FFFFFF" />
-                            <Text style={{ fontSize: 11, fontFamily: 'Poppins-Bold', color: '#FFFFFF' }}>
-                                Test Push
-                            </Text>
-                        </TouchableOpacity>
-
-                        {unreadCount > 0 && (
+                    <View style={{ width: 44, height: 44, alignItems: 'flex-end', justifyContent: 'center' }}>
+                        {unreadCount > 0 ? (
                             <TouchableOpacity onPress={markAllAsRead} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                                 <MaterialIcons name="done-all" size={24} color={colors.primary} />
                             </TouchableOpacity>
-                        )}
+                        ) : null}
                     </View>
                 </View>
 
