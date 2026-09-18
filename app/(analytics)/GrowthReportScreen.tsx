@@ -2,9 +2,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ActivityIndicator, Alert, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Platform, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LineChart } from 'react-native-chart-kit';
 
 import { BackButton } from '@/components/BackButton';
@@ -76,6 +76,8 @@ function getOrdinal(n: number): string {
 }
 
 export default function GrowthReportScreen() {
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useAnalyticsStyles();
@@ -1485,13 +1487,13 @@ export default function GrowthReportScreen() {
     const selectedBatchOptionStr = selectedBatch ? selectedBatch.name : 'No Batch Selected';
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
             <View style={animalStyles.headerTopRow}>
                 <View style={{ width: 44, height: 44, justifyContent: 'center' }}>
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 16, flex: 1, textAlign: 'center', marginHorizontal: 4 }]} numberOfLines={1}>
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 16, flex: 1, textAlign: 'center', marginHorizontal: 4 }]}>
                     {animalType === 'pig' ? 'Pigs' : 'Chickens'} Growth
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -2605,6 +2607,6 @@ export default function GrowthReportScreen() {
                 requireConfirm={false}
                 enableSearch={false}
             />
-        </SafeAreaView>
+        </View>
     );
 }

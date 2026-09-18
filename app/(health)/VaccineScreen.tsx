@@ -26,10 +26,11 @@ import {
     View,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ActionModal from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
+import { CalendarPickerModal } from '@/components/CalendarPickerModal';
 import { SelectionModal } from '@/components/SelectionModal';
 import { useFormDraft } from '@/hooks/useFormDraft';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
@@ -124,6 +125,8 @@ export default function VaccineScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useVaccineStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router = useRouter();
 
     const primaryFarmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
@@ -482,40 +485,14 @@ export default function VaccineScreen() {
 
     // Date Modal Calendar Handlers
     const openDatePickerModal = () => {
-        const initDate = schDate ? new Date(schDate + 'T00:00:00') : new Date();
-        setCalYear(initDate.getFullYear());
-        setCalMonth(initDate.getMonth());
         setShowSchModal(false);
         setDateModalVisible(true);
     };
 
-    const prevCalMonth = () => {
-        if (calMonth === 0) {
-            setCalMonth(11);
-            setCalYear(y => y - 1);
-        } else {
-            setCalMonth(m => m - 1);
-        }
+    const closeDatePickerModal = () => {
+        setDateModalVisible(false);
+        setShowSchModal(true);
     };
-
-    const nextCalMonth = () => {
-        if (calMonth === 11) {
-            setCalMonth(0);
-            setCalYear(y => y + 1);
-        } else {
-            setCalMonth(m => m + 1);
-        }
-    };
-
-    const firstDayIndex = new Date(calYear, calMonth, 1).getDay();
-    const daysInCalMonth = new Date(calYear, calMonth + 1, 0).getDate();
-    const calCells: (number | null)[] = [
-        ...Array(firstDayIndex).fill(null),
-        ...Array.from({ length: daysInCalMonth }, (_, i) => i + 1),
-    ];
-    while (calCells.length % 7 !== 0) calCells.push(null);
-
-    const selectedCalDate = schDate ? new Date(schDate + 'T00:00:00') : null;
 
     // Page Calendar Handlers
     const prevPageCalMonth = () => {
@@ -615,7 +592,7 @@ export default function VaccineScreen() {
     const isSaveDisabled = savingSch || !schVaccineId || !schDate;
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
 
                 {/* Header */}
@@ -1483,7 +1460,7 @@ export default function VaccineScreen() {
                                         >
                                             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                                                 <MaterialIcons name="calendar-today" size={18} color={colors.primary} style={{ marginRight: 12 }} />
-                                                <Text style={[textStyles.body, { color: schDate ? colors.text : colors.textGrey }]} numberOfLines={1}>
+                                                <Text style={[textStyles.body, { color: schDate ? colors.text : colors.textGrey, fontSize: 13, flex: 1 }]}>
                                                     {dateDisplayValue}
                                                 </Text>
                                             </View>
@@ -1647,176 +1624,16 @@ export default function VaccineScreen() {
             />
 
             {/* ── Single Active Calendar Modal (Transitions back seamlessly to Add Schedule) ── */}
-            <Modal
+            <CalendarPickerModal
                 visible={dateModalVisible}
-                transparent
-                animationType="fade"
-                onRequestClose={() => {
-                    setDateModalVisible(false);
-                    setShowSchModal(true);
+                onClose={closeDatePickerModal}
+                onSelect={(dateStr) => {
+                    setSchDate(dateStr);
+                    closeDatePickerModal();
                 }}
-            >
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                    <View style={{
-                        backgroundColor: colors.surface,
-                        width: '100%',
-                        maxWidth: 340,
-                        borderRadius: 24,
-                        padding: 24,
-                        overflow: 'hidden',
-                    }}>
-                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 14, fontSize: 18 }]}>
-                            Select Scheduled Date
-                        </Text>
-
-                        {/* Month & Year Navigation */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                            <TouchableOpacity
-                                onPress={prevCalMonth}
-                                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}
-                            >
-                                <MaterialIcons name="chevron-left" size={22} color={colors.text} />
-                            </TouchableOpacity>
-                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text }}>
-                                {MONTH_NAMES[calMonth]} {calYear}
-                            </Text>
-                            <TouchableOpacity
-                                onPress={nextCalMonth}
-                                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}
-                            >
-                                <MaterialIcons name="chevron-right" size={22} color={colors.text} />
-                            </TouchableOpacity>
-                        </View>
-
-                        {/* Day-of-week headers */}
-                        <View style={{ flexDirection: 'row', marginBottom: 8 }}>
-                            {DAY_NAMES.map(d => (
-                                <View key={d} style={{ flex: 1, alignItems: 'center' }}>
-                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 11, color: colors.textGrey }}>{d}</Text>
-                                </View>
-                            ))}
-                        </View>
-
-                        {/* Calendar grid */}
-                        {Array.from({ length: calCells.length / 7 }, (_, row) => (
-                            <View key={row} style={{ flexDirection: 'row', marginBottom: 4 }}>
-                                {calCells.slice(row * 7, row * 7 + 7).map((day, col) => {
-                                    if (day === null) {
-                                        return <View key={col} style={{ flex: 1, height: 36 }} />;
-                                    }
-
-                                    const isSelected = selectedCalDate &&
-                                        selectedCalDate.getFullYear() === calYear &&
-                                        selectedCalDate.getMonth() === calMonth &&
-                                        selectedCalDate.getDate() === day;
-                                    const isToday = todayObj.getFullYear() === calYear &&
-                                        todayObj.getMonth() === calMonth &&
-                                        todayObj.getDate() === day;
-                                    const dots = getDateScheduleDots(calYear, calMonth, day);
-
-                                    return (
-                                        <View key={col} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                                            <TouchableOpacity
-                                                onPress={() => {
-                                                    const mm = String(calMonth + 1).padStart(2, '0');
-                                                    const dd = String(day).padStart(2, '0');
-                                                    setSchDate(`${calYear}-${mm}-${dd}`);
-                                                    setDateModalVisible(false);
-                                                    setShowSchModal(true);
-                                                }}
-                                                activeOpacity={0.75}
-                                                style={{
-                                                    width: 36,
-                                                    height: 36,
-                                                    borderRadius: 18,
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    backgroundColor: isSelected ? colors.primary : isToday ? colors.primary + '18' : dots.length > 0 ? colors.cardFill : 'transparent',
-                                                    borderWidth: isToday && !isSelected ? 1.5 : 0,
-                                                    borderColor: colors.primary,
-                                                }}
-                                            >
-                                                <Text style={{
-                                                    fontFamily: isSelected || isToday ? 'Poppins-SemiBold' : 'Poppins-Regular',
-                                                    fontSize: 12,
-                                                    color: isSelected ? '#fff' : isToday ? colors.primary : colors.text,
-                                                    marginBottom: dots.length > 0 ? 2 : 0,
-                                                }}>
-                                                    {day}
-                                                </Text>
-                                                {dots.length > 0 && (
-                                                    <View style={{ flexDirection: 'row', gap: 2, alignItems: 'center', justifyContent: 'center' }}>
-                                                        {dots.map((dotColor, dotIdx) => (
-                                                            <View
-                                                                key={dotIdx}
-                                                                style={{
-                                                                    width: 4,
-                                                                    height: 4,
-                                                                    borderRadius: 2,
-                                                                    backgroundColor: isSelected ? '#FFF' : dotColor,
-                                                                }}
-                                                            />
-                                                        ))}
-                                                    </View>
-                                                )}
-                                            </TouchableOpacity>
-                                        </View>
-                                    );
-                                })}
-                            </View>
-                        ))}
-
-                        {/* Legend / Dots guide */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.stroke }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#EF4444' }} />
-                                <Text style={{ fontSize: 10, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>Overdue</Text>
-                            </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#F97316' }} />
-                                <Text style={{ fontSize: 10, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>Due Soon</Text>
-                            </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#3B82F6' }} />
-                                <Text style={{ fontSize: 10, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>Pending</Text>
-                            </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' }} />
-                                <Text style={{ fontSize: 10, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>Done</Text>
-                            </View>
-                        </View>
-
-                        {/* Action Buttons: Cancel & Today */}
-                        <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-                            <TouchableOpacity
-                                onPress={() => {
-                                    setDateModalVisible(false);
-                                    setShowSchModal(true);
-                                }}
-                                style={{ flex: 1, paddingVertical: 14, borderRadius: 30, backgroundColor: colors.cardFill, alignItems: 'center' }}
-                            >
-                                <Text style={[textStyles.h3, { fontSize: 13, color: colors.textGrey }]}>
-                                    Cancel
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={() => {
-                                    const mm = String(todayObj.getMonth() + 1).padStart(2, '0');
-                                    const dd = String(todayObj.getDate()).padStart(2, '0');
-                                    setSchDate(`${todayObj.getFullYear()}-${mm}-${dd}`);
-                                    setDateModalVisible(false);
-                                    setShowSchModal(true);
-                                }}
-                                style={{ flex: 1, paddingVertical: 14, borderRadius: 30, backgroundColor: colors.primary, alignItems: 'center' }}
-                            >
-                                <Text style={[textStyles.h3, { fontSize: 13, color: colors.onPrimary }]}>
-                                    Today
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
+                title="Select Scheduled Date"
+                selectedDate={schDate || undefined}
+            />
 
             {/* ── Delete Confirmation ActionModal (Same exact modal as ManageHousingsScreen) ── */}
             <ActionModal
@@ -1846,6 +1663,6 @@ export default function VaccineScreen() {
                 type={snackType}
                 onDismiss={() => setSnackVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

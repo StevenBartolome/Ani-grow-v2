@@ -29,6 +29,7 @@ interface MenuItem {
 
 export default function AnalyticsScreen() {
     const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { refreshProfile } = useAuth();
     const { colors, isDark } = useTheme();
     const textStyles = useTextStyles();
@@ -89,7 +90,7 @@ export default function AnalyticsScreen() {
     ];
 
     return (
-        <View style={[styles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top }]}>
+        <View style={[styles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 <Header />
 

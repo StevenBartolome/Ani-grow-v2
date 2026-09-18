@@ -14,7 +14,7 @@ import {
     Platform,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import ActionModal, { ActionModalType } from '@/components/ActionModal';
@@ -85,6 +85,8 @@ function mortalityRate(estimated: number, totalDeceased: number): string {
 
 export default function MortalityRecordsScreen() {
     const { housingId, batchId } = useLocalSearchParams<{ housingId: string; batchId: string }>();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const textStyles = useTextStyles();
     const { colors } = useTheme();
     const { profile } = useAuth();
@@ -357,17 +359,17 @@ export default function MortalityRecordsScreen() {
     // ── Loading ───────────────────────────────────────────────────────────────
     if (isLoading) {
         return (
-            <SafeAreaView style={{ flex: 1, backgroundColor: colors.bgLight }}>
+            <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke }}>
                     <BackButton fallbackRoute="/(animals)/AnimalsScreen" />
                 </View>
                 <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 60 }} />
-            </SafeAreaView>
+            </View>
         );
     }
 
     return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bgLight }}>
+        <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }}>
 
             {/* Header */}
             <View style={{
@@ -742,7 +744,7 @@ export default function MortalityRecordsScreen() {
                 type={snackType}
                 onDismiss={() => setSnackVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }
 

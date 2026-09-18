@@ -1,9 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import { AniWeighIcon } from '@/components/AniWeighIcon';
@@ -132,6 +132,8 @@ export default function WeighingSessionsScreen() {
     const textStyles = useTextStyles();
     const styles = useAnalyticsStyles();
     const animalStyles = useAnimalStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router = useRouter();
 
     const { profile } = useAuth();
@@ -615,12 +617,12 @@ export default function WeighingSessionsScreen() {
     }, [selectedBatch, selectedHousing, animalType, resolvedRange, rangeTotal, rangeAvgG, rangeMinG, rangeMaxG, rangeFeedGrams, rangeUnder, rangeNormal, rangeOver, dayGroups, previousBatch, previousBatchStats, currentBatchStats, farmName]);
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={animalStyles.headerTopRow}>
                 <View style={{ width: 44, height: 44 }}>
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 16, flex: 1, textAlign: 'center' }]} numberOfLines={1}>
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 16, flex: 1, textAlign: 'center' }]}>
                     Weighing History
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -988,6 +990,6 @@ export default function WeighingSessionsScreen() {
             )}
 
             <Snackbar visible={snackbar.visible} message={snackbar.message} type={snackbar.type} onDismiss={() => setSnackbar(s => ({ ...s, visible: false }))} />
-        </SafeAreaView>
+        </View>
     );
 }

@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect, useRef } from 'react';
-import { ScrollView, TouchableOpacity, View, TextInput, ActivityIndicator } from 'react-native';
+import { ScrollView, TouchableOpacity, View, TextInput, ActivityIndicator, Platform } from 'react-native';
 import { Text } from '@/components/Text';
 import { MaterialIcons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
@@ -25,6 +25,8 @@ type VerificationMethod = 'email' | 'sms' | 'authenticator';
 export default function ChangeEmailScreen() {
     const styles = useSettingsSubPageStyles();
     const textStyles = useTextStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors } = useTheme();
     const router = useRouter();
     const { profile, getMFAFactors, verifyMFA, refreshProfile } = useAuth();
@@ -303,7 +305,7 @@ export default function ChangeEmailScreen() {
 
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -646,6 +648,6 @@ export default function ChangeEmailScreen() {
                 type={snackbarType}
                 onDismiss={() => setSnackbarVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

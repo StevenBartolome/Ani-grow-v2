@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { ActivityIndicator, Alert, Animated, AppState, AppStateStatus, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Animated, AppState, AppStateStatus, Platform, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -182,6 +182,7 @@ const DeviceCard = ({
 
 export default function DevicesScreen() {
     const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useDevicesStyles();
@@ -348,7 +349,7 @@ export default function DevicesScreen() {
         : liveDevices.filter(d => d.type === activeFilter);
 
     return (
-        <View style={[styles.safeArea, { paddingTop: insets.top }]}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 {/* Top Nav / Logo Row */}
                 <Header />

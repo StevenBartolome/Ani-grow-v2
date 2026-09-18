@@ -1,9 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LineChart } from 'react-native-chart-kit';
 
 import { BackButton } from '@/components/BackButton';
@@ -57,6 +57,8 @@ export default function FeedReportScreen() {
     const styles = useAnalyticsStyles();
     const animalStyles = useAnimalStyles();
     const deviceStyles = useDevicesStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router = useRouter();
     const { width } = useWindowDimensions();
     const hPad = width >= 900 ? Math.round(width * 0.12) : width >= 600 ? Math.round(width * 0.07) : 20;
@@ -586,7 +588,7 @@ export default function FeedReportScreen() {
     }, [selectedHousing, activeBatch, batchAgeDays, animalType, headCount, timeframe, totalDispenses, reportData, totalConsumption, feedAnalysis, farmName]);
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
             <View style={animalStyles.headerTopRow}>
                 <View style={{ width: 44, height: 44, justifyContent: 'center' }}>
@@ -1127,6 +1129,6 @@ export default function FeedReportScreen() {
                 requireConfirm={false}
                 enableSearch={false}
             />
-        </SafeAreaView>
+        </View>
     );
 }

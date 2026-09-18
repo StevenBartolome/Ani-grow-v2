@@ -3,7 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, RefreshControl, ScrollView, Switch, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
@@ -127,6 +127,8 @@ export default function AniWeighScreen() {
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const { colors } = useTheme();
     const textStyles = useTextStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const aniweighStyles = useAniWeighStyles();
     const router = useRouter();
     const params = useLocalSearchParams<{ deviceId?: string; status?: string }>();
@@ -135,7 +137,7 @@ export default function AniWeighScreen() {
 
     if (systemConfig?.featureFlags && !systemConfig.featureFlags.weighingEnabled) {
         return (
-            <SafeAreaView style={[aniweighStyles.safeArea, { backgroundColor: colors.bgLight, justifyContent: 'center', alignItems: 'center' }]}>
+            <View style={[aniweighStyles.safeArea, { backgroundColor: colors.bgLight, justifyContent: 'center', alignItems: 'center', paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
                 <MaterialIcons name="block" size={64} color={colors.textGrey} />
                 <Text style={[textStyles.h2, { color: colors.text, marginTop: 20 }]}>Weighing Module Disabled</Text>
                 <Text style={[textStyles.body, { textAlign: 'center', marginTop: 10, color: colors.textGrey, paddingHorizontal: 40 }]}>
@@ -144,7 +146,7 @@ export default function AniWeighScreen() {
                 <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/(devices)/DevicesScreen' as any)} style={{ marginTop: 30, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 8 }}>
                     <Text style={{ color: '#fff', fontWeight: 'bold' }}>Go Back</Text>
                 </TouchableOpacity>
-            </SafeAreaView>
+            </View>
         );
     }
 
@@ -1465,7 +1467,7 @@ export default function AniWeighScreen() {
     );
 
     return (
-        <SafeAreaView style={[aniweighStyles.safeArea, { backgroundColor: colors.bgLight }]}>
+        <View style={[aniweighStyles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
             <View style={aniweighStyles.header}>
                 <View style={{ width: 44, height: 44 }}>
@@ -2932,6 +2934,6 @@ export default function AniWeighScreen() {
             </Modal>
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
-        </SafeAreaView>
+        </View>
     );
 }

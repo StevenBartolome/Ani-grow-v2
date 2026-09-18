@@ -1,10 +1,20 @@
 import { StyleSheet, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createTheme } from '@/constants/theme';
 import { useTheme } from '@/context/ThemeContext';
 
 export const useFloatingNavBarStyles = () => {
     const { colors } = useTheme();
+    const insets = useSafeAreaInsets();
     const theme = createTheme(colors);
+
+    // If the device has a bottom navigation bar / insets (e.g. Android 3-button navigation or iOS home indicator),
+    // float above it safely with slight padding. If insets.bottom is 0 (gesture nav / no 3-button bar), use standard compact float.
+    const bottomPadding = insets.bottom > 0
+        ? insets.bottom + (Platform.OS === 'ios' ? 6 : 10)
+        : (Platform.OS === 'ios' ? 24 : 16);
+
+    const totalHeight = 130 + insets.bottom;
 
     return StyleSheet.create({
         wrapper: {
@@ -12,16 +22,16 @@ export const useFloatingNavBarStyles = () => {
             bottom: 0,
             left: 0,
             right: 0,
-            height: 140,
+            height: totalHeight,
             justifyContent: 'flex-end',
-            paddingBottom: Platform.OS === 'ios' ? 30 : 24,
+            paddingBottom: bottomPadding,
         },
         gradient: {
             position: 'absolute',
             bottom: 0,
             left: 0,
             right: 0,
-            height: 140,
+            height: totalHeight,
         },
         container: {
             alignSelf: 'center',

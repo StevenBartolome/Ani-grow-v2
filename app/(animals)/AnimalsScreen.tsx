@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ActivityIndicator, Animated, ScrollView, TouchableOpacity, View, RefreshControl } from 'react-native';
+import { ActivityIndicator, Animated, Platform, ScrollView, TouchableOpacity, View, RefreshControl } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -152,6 +152,7 @@ const HousingCard = ({
 
 export default function AnimalsScreen() {
     const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useAnimalStyles();
@@ -321,7 +322,7 @@ export default function AnimalsScreen() {
     const chickenColor = (colors as any).chicken ?? '#F1C40F';
 
     return (
-        <View style={[styles.safeArea, { paddingTop: insets.top }]}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 {/* Header */}
                 <Header />

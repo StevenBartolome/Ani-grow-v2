@@ -3,7 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
 import { ActivityIndicator, Modal, RefreshControl, ScrollView, TouchableOpacity, View, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnimalIcon } from '@/components/AnimalIcon';
 import ActionModal, { ActionModalType } from '@/components/ActionModal';
@@ -47,6 +47,8 @@ export default function AnimalDetailsScreen() {
     const textStyles = useTextStyles();
     const { colors } = useTheme();
     const styles = useAnimalStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
 
@@ -836,7 +838,7 @@ export default function AnimalDetailsScreen() {
 
     if (isLoading) {
         return (
-            <SafeAreaView style={styles.safeArea}>
+            <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
                 <View style={styles.headerTopRow}>
                     <View style={{ width: 44, height: 44 }}><BackButton fallbackRoute="/(animals)/AnimalsScreen" /></View>
                     <View style={{ flex: 1 }} />
@@ -845,13 +847,13 @@ export default function AnimalDetailsScreen() {
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                     <ActivityIndicator size="large" color={colors.primary} />
                 </View>
-            </SafeAreaView>
+            </View>
         );
     }
 
     if (!housing) {
         return (
-            <SafeAreaView style={styles.safeArea}>
+            <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
                 <View style={styles.headerTopRow}>
                     <View style={{ width: 44, height: 44 }}><BackButton fallbackRoute="/(animals)/AnimalsScreen" /></View>
                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Housing</Text>
@@ -860,17 +862,17 @@ export default function AnimalDetailsScreen() {
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                     <Text style={[textStyles.body, { color: colors.textGrey }]}>Housing not found.</Text>
                 </View>
-            </SafeAreaView>
+            </View>
         );
     }
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.headerTopRow}>
                 <View style={{ width: 44, height: 44 }}>
                     <BackButton fallbackRoute="/(animals)/AnimalsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]} numberOfLines={1}>
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
                     {housing.name}
                 </Text>
                 <View style={{ width: 44, height: 44 }} />
@@ -1986,7 +1988,7 @@ export default function AnimalDetailsScreen() {
             />
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
-        </SafeAreaView>
+        </View>
     );
 }
 

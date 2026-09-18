@@ -14,7 +14,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
 import { AniFeedIcon } from '@/components/AniFeedIcon';
 import { AniWeighIcon } from '@/components/AniWeighIcon';
@@ -320,6 +320,8 @@ function PermissionCategoryRow({ category, permissions, onBatchChange, onToggle,
 export default function InviteCodesScreen() {
     const { colors }    = useTheme();
     const textStyles    = useTextStyles();
+    const insets        = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile }   = useAuth();
     const farmId        = (profile as any)?.farm_id;
     const userId        = (profile as any)?.id;
@@ -530,7 +532,7 @@ export default function InviteCodesScreen() {
     const expiredCodes = codes.filter(c => c.status === 'expired');
 
     return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bgLight }}>
+        <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }}>
             {/* Header */}
             <View style={{
                 flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -689,6 +691,6 @@ export default function InviteCodesScreen() {
                     </Animated.View>
                 </View>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 }

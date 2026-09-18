@@ -2,9 +2,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { getNextDispenseInfo } from '@/components/FeedScheduleModal';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Modal, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 
 import { useAuth } from '@/context/AuthContext';
@@ -101,6 +101,8 @@ export default function AniFeedScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const anifeedStyles = useAniFeedStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router = useRouter();
     const params = useLocalSearchParams<{ deviceId?: string; status?: string }>();
     const deviceId = params.deviceId ?? '';
@@ -108,7 +110,7 @@ export default function AniFeedScreen() {
 
     if (systemConfig?.featureFlags && !systemConfig.featureFlags.feedingEnabled) {
         return (
-            <SafeAreaView style={[anifeedStyles.safeArea, { backgroundColor: colors.bgLight, justifyContent: 'center', alignItems: 'center' }]}>
+            <View style={[anifeedStyles.safeArea, { backgroundColor: colors.bgLight, justifyContent: 'center', alignItems: 'center', paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
                 <MaterialIcons name="block" size={64} color={colors.textGrey} />
                 <Text style={[textStyles.h2, { color: colors.text, marginTop: 20 }]}>Feeding Module Disabled</Text>
                 <Text style={[textStyles.body, { textAlign: 'center', marginTop: 10, color: colors.textGrey, paddingHorizontal: 40 }]}>
@@ -117,7 +119,7 @@ export default function AniFeedScreen() {
                 <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/(devices)/DevicesScreen' as any)} style={{ marginTop: 30, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 8 }}>
                     <Text style={{ color: '#fff', fontWeight: 'bold' }}>Go Back</Text>
                 </TouchableOpacity>
-            </SafeAreaView>
+            </View>
         );
     }
 
@@ -542,7 +544,7 @@ export default function AniFeedScreen() {
     };
 
     return (
-        <SafeAreaView style={[anifeedStyles.safeArea, { backgroundColor: colors.bgLight }]}>
+        <View style={[anifeedStyles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
             <View style={anifeedStyles.header}>
                 <View style={{ width: 44, height: 44 }}>
@@ -1177,6 +1179,6 @@ export default function AniFeedScreen() {
                 type={snackbarType}
                 onDismiss={() => setSnackbarVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

@@ -4,6 +4,7 @@ import { useLocalSearchParams } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     ActivityIndicator,
+    Platform,
     RefreshControl,
     ScrollView,
     TouchableOpacity,
@@ -11,7 +12,7 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LineChart } from 'react-native-chart-kit';
 
 import { BackButton } from '@/components/BackButton';
@@ -84,6 +85,8 @@ export default function PredictionReportScreen() {
     const textStyles = useTextStyles();
     const styles = useAnalyticsStyles();
     const animalStyles = useAnimalStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { width } = useWindowDimensions();
     const hPad = width >= 900 ? Math.round(width * 0.12) : width >= 600 ? Math.round(width * 0.07) : 20;
 
@@ -761,7 +764,7 @@ export default function PredictionReportScreen() {
 
     // ─── Render ──────────────────────────────────────────────────────────────
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
             <View style={animalStyles.headerTopRow}>
                 <View style={{ width: 44, height: 44, justifyContent: 'center' }}>
@@ -1583,6 +1586,6 @@ export default function PredictionReportScreen() {
                 requireConfirm={false}
                 enableSearch={false}
             />
-        </SafeAreaView>
+        </View>
     );
 }

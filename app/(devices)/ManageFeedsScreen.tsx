@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, Modal, TextInput, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
@@ -101,6 +101,8 @@ export default function ManageFeedsScreen() {
     const textStyles = useTextStyles();
     const { colors } = useTheme();
     const deviceStyles = useDevicesStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
 
@@ -493,7 +495,7 @@ export default function ManageFeedsScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 <View style={styles.header}>
                     <View style={{ width: 44, height: 44 }}>
@@ -1295,7 +1297,7 @@ export default function ManageFeedsScreen() {
                                         color={tempDateStarted ? colors.primary : colors.icon}
                                         style={{ width: 24, textAlign: 'center' }}
                                     />
-                                    <Text style={[textStyles.body, { flex: 1, marginLeft: 12, color: tempDateStarted ? colors.text : colors.textLight }]} numberOfLines={1}>
+                                    <Text style={[textStyles.body, { flex: 1, marginLeft: 12, color: tempDateStarted ? colors.text : colors.textLight, fontSize: 13 }]}>
                                         {tempDateStarted ? new Date(tempDateStarted + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select Date'}
                                     </Text>
                                     {tempDateStarted ? (
@@ -1329,6 +1331,7 @@ export default function ManageFeedsScreen() {
                                     zIndex: 10,
                                     backgroundColor: colors.surface,
                                     top: -10,
+                                    maxWidth: '80%',
                                 }}>
                                     <Text style={[textStyles.body, {
                                         color: colors.textGrey,
@@ -1354,7 +1357,7 @@ export default function ManageFeedsScreen() {
                                         color={tempExpiryDate ? colors.primary : colors.icon}
                                         style={{ width: 24, textAlign: 'center' }}
                                     />
-                                    <Text style={[textStyles.body, { flex: 1, marginLeft: 12, color: tempExpiryDate ? colors.text : colors.textLight }]} numberOfLines={1}>
+                                    <Text style={[textStyles.body, { flex: 1, marginLeft: 12, color: tempExpiryDate ? colors.text : colors.textLight, fontSize: 13 }]}>
                                         {tempExpiryDate ? new Date(tempExpiryDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select Date'}
                                     </Text>
                                     {tempExpiryDate ? (
@@ -1532,6 +1535,6 @@ export default function ManageFeedsScreen() {
             />
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
-        </SafeAreaView>
+        </View>
     );
 }

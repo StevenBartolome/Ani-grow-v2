@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ActivityIndicator, Platform, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -17,6 +17,8 @@ const LANGUAGES = [
 export default function LanguageScreen() {
     const languageStyles = useSettingsSubPageStyles();
     const textStyles = useTextStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors, language, setLanguage } = useTheme();
     const router = useRouter();
 
@@ -39,7 +41,7 @@ export default function LanguageScreen() {
     };
 
     return (
-        <SafeAreaView style={languageStyles.safeArea}>
+        <View style={[languageStyles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={languageStyles.container}>
                 {/* Header */}
                 <View style={languageStyles.header}>
@@ -176,6 +178,6 @@ export default function LanguageScreen() {
                     </View>
                 </View>
             )}
-        </SafeAreaView>
+        </View>
     );
 }

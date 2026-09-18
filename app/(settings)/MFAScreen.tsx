@@ -11,7 +11,7 @@ import {
   Animated
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useTextStyles } from '@/constants/textStyles';
@@ -123,6 +123,8 @@ export default function MFAScreen() {
   const styles = useSettingsSubPageStyles();
   const { colors } = useTheme();
   const textStyles = useTextStyles();
+  const insets = useSafeAreaInsets();
+  const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
   const { user, enrollMFA, verifyMFA, getMFAFactors, unenrollMFA } = useAuth();
 
   const [step, setStep] = useState<'status' | 'enroll' | 'verify'>('status');
@@ -331,7 +333,7 @@ export default function MFAScreen() {
   const isEnabled = factors.some(f => f.status === 'verified');
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -555,7 +557,7 @@ export default function MFAScreen() {
         onConfirm={confirmDisableMFA}
         onCancel={() => setDisableModalVisible(false)}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 

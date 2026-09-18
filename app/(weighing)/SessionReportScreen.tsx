@@ -1,9 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { BackButton } from '@/components/BackButton';
@@ -48,6 +48,8 @@ export default function SessionReportScreen() {
     const textStyles = useTextStyles();
     const styles = useAnalyticsStyles();
     const animalStyles = useAnimalStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router = useRouter();
     const { hasPermission, profile } = useAuth();
     const [farmName, setFarmName] = useState<string>((profile as any)?.farm_name ?? (profile as any)?.farmName ?? '');
@@ -133,17 +135,17 @@ export default function SessionReportScreen() {
 
     if (isLoading && !refreshing) {
         return (
-            <SafeAreaView style={[styles.safeArea, { alignItems: 'center', justifyContent: 'center' }]}>
+            <View style={[styles.safeArea, { paddingTop: insets.top, alignItems: 'center', justifyContent: 'center' }]}>
                 <ActivityIndicator size="large" color={colors.primary} />
-            </SafeAreaView>
+            </View>
         );
     }
 
     if (!session) {
         return (
-            <SafeAreaView style={[styles.safeArea, { alignItems: 'center', justifyContent: 'center', padding: 24 }]}>
+            <View style={[styles.safeArea, { paddingTop: insets.top, alignItems: 'center', justifyContent: 'center', padding: 24 }]}>
                 <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center' }]}>This session report could not be found.</Text>
-            </SafeAreaView>
+            </View>
         );
     }
 
@@ -240,7 +242,7 @@ export default function SessionReportScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={animalStyles.headerTopRow}>
                 <View style={{ width: 44, height: 44 }}>
                     <BackButton fallbackRoute="/(weighing)/WeighingSessionsScreen" />
@@ -370,6 +372,6 @@ export default function SessionReportScreen() {
                     </TouchableOpacity>
                 </View>
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }

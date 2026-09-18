@@ -173,6 +173,7 @@ function timeAgo(date: Date | string | null | undefined): string {
 
 export default function HomeScreen() {
     const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile, hasPermission, refreshProfile, role } = useAuth();
     const homeStyles = useHomeStyles();
     const textStyles = useTextStyles();
@@ -986,7 +987,7 @@ export default function HomeScreen() {
     const showMortality = hasPermission('health:view');
 
     return (
-        <View style={[homeStyles.safeArea, { paddingTop: insets.top }]}>
+        <View style={[homeStyles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={homeStyles.container}>
 
                 {/* ── Header ─────────────────────────────────────────────────── */}
