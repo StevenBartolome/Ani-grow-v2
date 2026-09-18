@@ -11,6 +11,7 @@ import ActionModal, { ActionModalType } from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import { SelectionModal } from '@/components/SelectionModal';
+import FeedScheduleModal from '@/components/FeedScheduleModal';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -276,6 +277,46 @@ export default function AniWeighScreen() {
 
     const showSnackbar = (msg: string, type: SnackbarType = 'success') => {
         setSnackbarMessage(msg); setSnackbarType(type); setSnackbarVisible(true);
+    };
+
+    // ─── Feed Schedule (feeder) ──────────────────────────────────────
+    // Board1 (this device) is now the board that actually checks the
+    // schedule and triggers the feeder's actuator (see board1.ino's
+    // checkFeederSchedule()), so schedule control lives here instead of
+    // on the feeder's own screen. A farm can have more than one feeder
+    // (one per housing/pen is normal), so this fetches every "anifeed"
+    // device on the farm and, if there's more than one, asks which to
+    // configure before opening the schedule editor.
+    const [feederDevices, setFeederDevices] = useState<{ id: string; name: string; animalType: string }[]>([]);
+    const [feederPickerVisible, setFeederPickerVisible] = useState(false);
+    const [feedScheduleDeviceId, setFeedScheduleDeviceId] = useState<string | null>(null);
+    const [feedScheduleAnimalType, setFeedScheduleAnimalType] = useState<string>('pig');
+    const [feedScheduleModalVisible, setFeedScheduleModalVisible] = useState(false);
+
+    const openFeedSchedule = async () => {
+        if (!farmId) return;
+        const { data } = await supabase
+            .from('devices')
+            .select('id, name, housings(animal_type)')
+            .eq('farm_id', farmId)
+            .eq('type', 'anifeed');
+        const devices = (data ?? []).map((d: any) => ({
+            id: d.id as string,
+            name: d.name as string,
+            animalType: d.housings?.animal_type ?? 'pig',
+        }));
+        setFeederDevices(devices);
+        if (devices.length === 0) {
+            showSnackbar('No feeder (AniFeed) device found on this farm — add one first.', 'error');
+            return;
+        }
+        if (devices.length === 1) {
+            setFeedScheduleDeviceId(devices[0].id);
+            setFeedScheduleAnimalType(devices[0].animalType);
+            setFeedScheduleModalVisible(true);
+            return;
+        }
+        setFeederPickerVisible(true);
     };
 
     // ─── Stats-only refresh (used by realtime callback) ──────────
@@ -1370,6 +1411,59 @@ export default function AniWeighScreen() {
         );
     };
 
+    const renderFeedScheduleButton = () => (
+        <TouchableOpacity
+            onPress={openFeedSchedule}
+            activeOpacity={0.7}
+            style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: colors.surface,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.stroke,
+                paddingVertical: 9,
+                paddingHorizontal: 12,
+                marginBottom: 12,
+            }}
+        >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}>
+                <View style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 8,
+                    backgroundColor: colors.secondary + '18',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                }}>
+                    <MaterialIcons name="edit-calendar" size={15} color={colors.secondary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 13 }]}>Feed Schedule</Text>
+                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>
+                        Configure the feeder's dispense times
+                    </Text>
+                </View>
+            </View>
+
+            <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 2,
+                backgroundColor: colors.secondary + '15',
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 8,
+            }}>
+                <Text style={[textStyles.label, { color: colors.secondary, fontSize: 11 }]}>
+                    Edit
+                </Text>
+                <MaterialIcons name="chevron-right" size={14} color={colors.secondary} />
+            </View>
+        </TouchableOpacity>
+    );
+
     return (
         <SafeAreaView style={[aniweighStyles.safeArea, { backgroundColor: colors.bgLight }]}>
             {/* Header */}
@@ -1554,8 +1648,9 @@ export default function AniWeighScreen() {
                             )}
                         </TouchableOpacity>
 
-                        {/* Weighing Reminder Card on Pre-gate view */}
+                        {/* Feed Schedule + Weighing Reminder on Pre-gate view */}
                         <View style={{ marginTop: 12 }}>
+                            {renderFeedScheduleButton()}
                             {renderWeighingReminderCard()}
                         </View>
                     </View>
@@ -1643,7 +1738,8 @@ export default function AniWeighScreen() {
                         </ScrollView>
                     </View>
 
-                    {/* Weighing Reminder Card */}
+                    {/* Feed Schedule + Weighing Reminder */}
+                    {renderFeedScheduleButton()}
                     {renderWeighingReminderCard()}
 
                     {/* Live Scaling */}
@@ -2233,6 +2329,37 @@ export default function AniWeighScreen() {
                     enableSearch={editTarget === 'Housing'}
                 />
             )}
+
+            {/* Feeder picker — only shown when the farm has more than one AniFeed device */}
+            <SelectionModal
+                visible={feederPickerVisible}
+                onClose={() => setFeederPickerVisible(false)}
+                onSelect={(val) => {
+                    const picked = feederDevices.find(d => d.name === val);
+                    if (picked) {
+                        setFeedScheduleDeviceId(picked.id);
+                        setFeedScheduleAnimalType(picked.animalType);
+                        setFeederPickerVisible(false);
+                        setFeedScheduleModalVisible(true);
+                    }
+                }}
+                title="Choose a Feeder"
+                description="This farm has more than one feeder — pick which one to configure."
+                icon="edit-calendar"
+                options={feederDevices.map(d => d.name)}
+                selectedValue=""
+                enableSearch={feederDevices.length > 5}
+            />
+
+            {/* Feed Schedule modal — moved here from AniFeedScreen (see openFeedSchedule) */}
+            <FeedScheduleModal
+                visible={feedScheduleModalVisible}
+                onClose={() => setFeedScheduleModalVisible(false)}
+                deviceId={feedScheduleDeviceId ?? ''}
+                farmId={farmId}
+                animalType={feedScheduleAnimalType}
+                showSnackbar={showSnackbar}
+            />
 
             {/* Weighing Reminder Configuration Modal */}
             <Modal visible={reminderModalVisible} transparent animationType="fade">

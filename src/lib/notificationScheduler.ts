@@ -161,10 +161,11 @@ export async function scheduleDailyMorningBriefing(farmIds: string[]): Promise<v
                 },
             },
             trigger: {
-                type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+                // CALENDAR triggers are iOS-only — DAILY is the cross-platform
+                // equivalent for "repeat every day at this hour/minute".
+                type: Notifications.SchedulableTriggerInputTypes.DAILY,
                 hour: DEFAULT_MORNING_HOUR,
                 minute: DEFAULT_MORNING_MINUTE,
-                repeats: true,
             } as any,
         });
     } catch (err) {
@@ -337,10 +338,11 @@ export async function scheduleFeedDispenseReminders(farmIds: string[]): Promise<
                         },
                     },
                     trigger: {
-                        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+                        // CALENDAR triggers are iOS-only — DAILY is the
+                        // cross-platform equivalent for a daily repeating alarm.
+                        type: Notifications.SchedulableTriggerInputTypes.DAILY,
                         hour: alarmHour,
                         minute: alarmMin,
-                        repeats: true,
                     } as any,
                 });
             }
