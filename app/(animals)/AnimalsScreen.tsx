@@ -125,13 +125,19 @@ const HousingCard = ({
                         {housing.name}
                     </Text>
                     <View style={{ gap: 4 }}>
-                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                            Live heads:{' '}
-                            <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
-                                {housing.current_count}
-                                {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
+                        {housing.active_batch_name ? (
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                Live heads:{' '}
+                                <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
+                                    {housing.current_count}
+                                    {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
+                                </Text>
                             </Text>
-                        </Text>
+                        ) : (
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                No batch yet
+                            </Text>
+                        )}
 
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                             <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
@@ -349,6 +355,50 @@ export default function AnimalsScreen() {
                         />
                     }
                 >
+                    {/* Target Weights Banner Card */}
+                    <View style={{ paddingHorizontal: (styles.sectionTitleRow as any)?.paddingHorizontal ?? 20, marginBottom: 16 }}>
+                        <TouchableOpacity
+                            activeOpacity={0.8}
+                            style={[
+                                styles.deviceCard,
+                                {
+                                    backgroundColor: colors.surface,
+                                    borderColor: colors.stroke,
+                                    padding: 16,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 14,
+                                }
+                            ]}
+                            onPress={() => router.push('/(animals)/TargetWeightScreen' as any)}
+                        >
+                            <View style={{
+                                width: 44,
+                                height: 44,
+                                borderRadius: 22,
+                                backgroundColor: colors.primary + '1A',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                            }}>
+                                <MaterialIcons name="scale" size={24} color={colors.primary} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 15, fontFamily: 'Poppins-SemiBold' }]}>
+                                        Target Weights & Growth
+                                    </Text>
+                                    <View style={{ backgroundColor: colors.primary + '20', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
+                                        <Text style={{ color: colors.primary, fontSize: 10, fontFamily: 'Poppins-Bold' }}>AUTO</Text>
+                                    </View>
+                                </View>
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 3 }]}>
+                                    Manage weekly underweight & overweight ranges
+                                </Text>
+                            </View>
+                            <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                        </TouchableOpacity>
+                    </View>
+
                     <View style={[styles.sectionTitleRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }]}>
                         <View>
                             <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Housings</Text>

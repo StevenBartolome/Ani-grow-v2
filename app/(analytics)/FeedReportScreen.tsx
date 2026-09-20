@@ -76,7 +76,7 @@ export default function FeedReportScreen() {
     }, [currentFarm?.name]);
 
     // Route search params
-    const { type } = useLocalSearchParams();
+    const { type, batchId: requestedBatchId, housingId: requestedHousingId } = useLocalSearchParams<{ type?: string; batchId?: string; housingId?: string }>();
     const initialType = typeof type === 'string'
         ? (type.toLowerCase().includes('chicken') ? 'chicken' : 'pig')
         : 'pig';
@@ -84,8 +84,14 @@ export default function FeedReportScreen() {
     // State Variables
     const [animalType, setAnimalType] = useState<'pig' | 'chicken'>(initialType);
     const [allHousings, setAllHousings] = useState<HousingInfo[]>([]);
-    const [selectedHousingId, setSelectedHousingId] = useState<string | null>(null);
+    const [selectedHousingId, setSelectedHousingId] = useState<string | null>(
+        typeof requestedHousingId === 'string' ? requestedHousingId : null
+    );
     const [allBatches, setAllBatches] = useState<BatchInfo[]>([]);
+    const [selectedBatchId, setSelectedBatchId] = useState<string | null>(
+        typeof requestedBatchId === 'string' ? requestedBatchId : null
+    );
+    const [batchModalVisible, setBatchModalVisible] = useState(false);
     const [reportData, setReportData] = useState<FeedItemBreakdown[]>([]);
     const [totalDispenses, setTotalDispenses] = useState<number>(0);
     const [timeframe, setTimeframe] = useState<'This Week' | 'This Month'>('This Week');
@@ -113,11 +119,34 @@ export default function FeedReportScreen() {
         return allHousings.find(h => h.id === selectedHousingId) ?? null;
     }, [allHousings, selectedHousingId]);
 
-    // Active batch in the selected housing
-    const activeBatch = useMemo(() => {
-        if (!selectedHousingId) return null;
-        return allBatches.find(b => b.housing_id === selectedHousingId) || null;
+    // Filtered batches based on selected housing
+    const filteredBatches = useMemo(() => {
+        if (!selectedHousingId) return [];
+        return allBatches.filter(b => b.housing_id === selectedHousingId);
     }, [allBatches, selectedHousingId]);
+
+    const selectedBatch = useMemo(() => {
+        if (!selectedBatchId || selectedBatchId === 'all') return null;
+        return filteredBatches.find(b => b.id === selectedBatchId) ?? null;
+    }, [filteredBatches, selectedBatchId]);
+
+    const batchesOptions = useMemo(() => {
+        if (filteredBatches.length === 0) return [];
+        return ['All Batches', ...filteredBatches.map(b => b.name)];
+    }, [filteredBatches]);
+
+    const selectedBatchOptionStr = useMemo(() => {
+        if (selectedBatchId === 'all') return 'All Batches';
+        if (selectedBatch) return selectedBatch.name;
+        if (filteredBatches.length > 0) return filteredBatches[0].name;
+        return 'No Batches';
+    }, [selectedBatchId, selectedBatch, filteredBatches]);
+
+    // Active batch in the selected housing (either selected batch, or first batch if all/none)
+    const activeBatch = useMemo(() => {
+        if (selectedBatch) return selectedBatch;
+        return filteredBatches.length > 0 ? filteredBatches[0] : null;
+    }, [selectedBatch, filteredBatches]);
 
     // Calculate current age of the batch in days
     const batchAgeDays = useMemo(() => {
@@ -129,7 +158,13 @@ export default function FeedReportScreen() {
         return (activeBatch.age_at_arrival_days || 0) + diffDays;
     }, [activeBatch]);
 
-    const headCount = activeBatch?.current_count || selectedHousing?.current_count || 0;
+    const headCount = useMemo(() => {
+        if (selectedBatch) return selectedBatch.current_count;
+        if (filteredBatches.length > 0) {
+            return filteredBatches.reduce((sum, b) => sum + (b.current_count || 0), 0);
+        }
+        return selectedHousing?.current_count || 0;
+    }, [selectedBatch, filteredBatches, selectedHousing]);
 
     // ─── Fetch Housings & Batches ────────────────────────────────
     const fetchHousingsAndBatches = useCallback(async () => {
@@ -156,12 +191,27 @@ export default function FeedReportScreen() {
             if (housingsRes.error) throw housingsRes.error;
             if (batchesRes.error) throw batchesRes.error;
 
-            setAllHousings((housingsRes.data || []) as HousingInfo[]);
-            setAllBatches((batchesRes.data || []) as BatchInfo[]);
+            const hData = (housingsRes.data || []) as HousingInfo[];
+            const bData = (batchesRes.data || []) as BatchInfo[];
+
+            setAllHousings(hData);
+            setAllBatches(bData);
+
+            if (typeof requestedBatchId === 'string') {
+                const reqB = bData.find(b => b.id === requestedBatchId);
+                if (reqB) {
+                    const reqH = hData.find(h => h.id === reqB.housing_id);
+                    if (reqH) {
+                        setAnimalType(reqH.animal_type === 'chicken' ? 'chicken' : 'pig');
+                        setSelectedHousingId(reqH.id);
+                    }
+                    setSelectedBatchId(reqB.id);
+                }
+            }
         } catch (err) {
             console.error('[FeedReportScreen] error loading housings and batches:', err);
         }
-    }, [farmId]);
+    }, [farmId, requestedBatchId]);
 
     useEffect(() => {
         fetchHousingsAndBatches();
@@ -175,8 +225,10 @@ export default function FeedReportScreen() {
         if (targetHousings.length > 0) {
             const nextHousingId = targetHousings[0].id;
             setSelectedHousingId(nextHousingId);
+            setSelectedBatchId(null);
         } else {
             setSelectedHousingId(null);
+            setSelectedBatchId(null);
             setReportData([]);
             setChartData(null);
             setTotalDispenses(0);
@@ -186,20 +238,47 @@ export default function FeedReportScreen() {
     const handleSelectHousing = useCallback((housingId: string) => {
         if (housingId === selectedHousingId) return;
         setSelectedHousingId(housingId);
+        setSelectedBatchId(null);
         setChartTooltip(null);
     }, [selectedHousingId]);
 
-    // ─── Resolve selected housing when animal type or housings change ─
+    const handleSelectBatch = useCallback((batchOption: string) => {
+        setChartTooltip(null);
+        if (batchOption === 'All Batches') {
+            setSelectedBatchId('all');
+        } else {
+            const matched = filteredBatches.find(b => b.name === batchOption);
+            if (matched) {
+                setSelectedBatchId(matched.id);
+            }
+        }
+    }, [filteredBatches]);
+
+    // ─── Resolve selected housing & batch when animal type or housings change ─
     useEffect(() => {
         if (filteredHousings.length > 0) {
             const exists = filteredHousings.some(h => h.id === selectedHousingId);
             if (!exists) {
                 setSelectedHousingId(filteredHousings[0].id);
+                setSelectedBatchId(null);
             }
         } else {
             setSelectedHousingId(null);
+            setSelectedBatchId(null);
         }
     }, [animalType, filteredHousings, selectedHousingId]);
+
+    useEffect(() => {
+        if (filteredBatches.length > 0) {
+            setSelectedBatchId(prev => {
+                if (prev === 'all') return 'all';
+                const exists = filteredBatches.some(b => b.id === prev);
+                return exists ? prev : filteredBatches[0].id;
+            });
+        } else {
+            setSelectedBatchId(null);
+        }
+    }, [filteredBatches]);
 
     // ─── Fetch Feed Consumption (Dispense Records) ───────────────
     const fetchConsumption = useCallback(async () => {
@@ -222,13 +301,14 @@ export default function FeedReportScreen() {
                 startDate.setDate(now.getDate() - 30);
             }
 
-            const { data, error } = await supabase
+            let query = supabase
                 .from('dispense_records')
                 .select(`
                     id,
                     grams_dispensed,
                     dispensed_at,
                     feed_id,
+                    batch_id,
                     status,
                     triggered_by,
                     feeds (
@@ -243,6 +323,12 @@ export default function FeedReportScreen() {
                 .eq('status', 'success')
                 .gte('dispensed_at', startDate.toISOString())
                 .order('dispensed_at', { ascending: true });
+
+            if (selectedBatchId && selectedBatchId !== 'all') {
+                query = query.eq('batch_id', selectedBatchId);
+            }
+
+            const { data, error } = await query;
 
             if (error) throw error;
 
@@ -362,7 +448,7 @@ export default function FeedReportScreen() {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedHousingId, timeframe]);
+    }, [selectedHousingId, selectedBatchId, timeframe]);
 
     useEffect(() => {
         fetchConsumption();
@@ -372,7 +458,7 @@ export default function FeedReportScreen() {
     useEffect(() => {
         if (!farmId) return;
         const channel = supabase
-            .channel(`realtime-feed-report-${farmId}-${selectedHousingId || 'all'}`)
+            .channel(`realtime-feed-report-${farmId}-${selectedHousingId || 'all'}-${selectedBatchId || 'all'}`)
             .on(
                 'postgres_changes',
                 {
@@ -390,7 +476,7 @@ export default function FeedReportScreen() {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [farmId, selectedHousingId, fetchConsumption]);
+    }, [farmId, selectedHousingId, selectedBatchId, fetchConsumption]);
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -555,7 +641,7 @@ export default function FeedReportScreen() {
             subtitle: `${selectedHousing.name} · ${animalType === 'pig' ? 'Pigs' : 'Chickens'} · ${timeframe}`,
             meta: [
                 { label: 'Housing', value: selectedHousing.name },
-                { label: 'Batch', value: activeBatch ? `${activeBatch.name} (Day ${batchAgeDays ?? 'N/A'})` : 'No Batch' },
+                { label: 'Batch', value: selectedBatch ? `${selectedBatch.name} (Day ${batchAgeDays ?? 'N/A'})` : (selectedBatchId === 'all' ? 'All Batches' : (activeBatch ? `${activeBatch.name} (Day ${batchAgeDays ?? 'N/A'})` : 'No Batch')) },
                 { label: 'Animal Type', value: animalType === 'pig' ? 'Pig' : 'Chicken' },
                 { label: 'Head Count', value: `${headCount} heads` },
                 { label: 'Report Period', value: timeframe },
@@ -585,7 +671,7 @@ export default function FeedReportScreen() {
                 },
             ],
         };
-    }, [selectedHousing, activeBatch, batchAgeDays, animalType, headCount, timeframe, totalDispenses, reportData, totalConsumption, feedAnalysis, farmName]);
+    }, [selectedHousing, selectedBatch, selectedBatchId, activeBatch, batchAgeDays, animalType, headCount, timeframe, totalDispenses, reportData, totalConsumption, feedAnalysis, farmName]);
 
     return (
         <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
@@ -634,47 +720,71 @@ export default function FeedReportScreen() {
                     style={{ marginBottom: 16 }}
                 />
 
-                {/* House Selection Dropdown */}
-                <View style={{ marginBottom: 20 }}>
-                    <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
-                        Select a house
-                    </Text>
-                    <TouchableOpacity
-                        activeOpacity={filteredHousings.length > 0 ? 0.8 : 1}
-                        disabled={filteredHousings.length === 0}
-                        style={[
-                            animalStyles.dropdownContainer,
-                            {
-                                backgroundColor: colors.surface,
-                                borderWidth: 1,
-                                borderColor: colors.stroke,
-                                elevation: 1,
-                                shadowColor: colors.shadow,
-                                shadowOffset: { width: 0, height: 2 },
-                                shadowOpacity: 0.5,
-                                shadowRadius: 4,
-                                paddingVertical: 14,
-                                borderRadius: 14,
-                                opacity: filteredHousings.length > 0 ? 1 : 0.6,
-                            }
-                        ]}
-                        onPress={() => setHousingModalVisible(true)}
-                    >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                            <MaterialIcons name="home" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
-                            <View style={{ flex: 1 }}>
-                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]}>
+                {/* Filters Dropdown (House & Batch beside each other) */}
+                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+                    {/* House Filter Dropdown */}
+                    <View style={{ flex: 1 }}>
+                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
+                            Select a House
+                        </Text>
+                        <TouchableOpacity
+                            activeOpacity={filteredHousings.length > 0 ? 0.8 : 1}
+                            disabled={filteredHousings.length === 0}
+                            style={[
+                                animalStyles.dropdownContainer,
+                                {
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 14,
+                                    opacity: filteredHousings.length > 0 ? 1 : 0.6,
+                                }
+                            ]}
+                            onPress={() => setHousingModalVisible(true)}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                <MaterialIcons name="home" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
+                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
                                     {selectedHousingOptionStr}
                                 </Text>
-                                {activeBatch && (
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 1 }}>
-                                        {activeBatch.name} · {headCount} heads {batchAgeDays !== null ? `· Day ${batchAgeDays}` : ''}
-                                    </Text>
-                                )}
                             </View>
-                        </View>
-                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
-                    </TouchableOpacity>
+                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Batch Filter Dropdown */}
+                    <View style={{ flex: 1 }}>
+                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
+                            Select a Batch
+                        </Text>
+                        <TouchableOpacity
+                            activeOpacity={filteredBatches.length > 0 ? 0.8 : 1}
+                            disabled={filteredBatches.length === 0}
+                            style={[
+                                animalStyles.dropdownContainer,
+                                {
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 14,
+                                    opacity: filteredBatches.length > 0 ? 1 : 0.6,
+                                }
+                            ]}
+                            onPress={() => setBatchModalVisible(true)}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                <MaterialIcons name="layers" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
+                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                                    {selectedBatchOptionStr}
+                                </Text>
+                            </View>
+                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {isLoading ? (
@@ -691,6 +801,15 @@ export default function FeedReportScreen() {
                             There are no active houses registered for {animalType === 'pig' ? 'pigs' : 'chickens'} on this farm yet.
                         </Text>
                     </View>
+                ) : filteredBatches.length === 0 ? (
+                    /* Empty Batches State */
+                    <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
+                        <MaterialIcons name="layers" size={48} color={colors.textGrey} />
+                        <Text style={[textStyles.h3, { color: colors.text, marginTop: 16, textAlign: 'center' }]}>No Active Batches</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
+                            There are no batches currently registered in {selectedHousing?.name ?? 'this house'}.
+                        </Text>
+                    </View>
                 ) : reportData.length === 0 ? (
                     /* Empty Feed Logs State */
                     <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
@@ -699,7 +818,7 @@ export default function FeedReportScreen() {
                         </View>
                         <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center' }]}>No Feed Logs</Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
-                            No successful feed dispense records were found for {selectedHousing?.name} in {timeframe.toLowerCase()}.
+                            No successful feed dispense records were found for {selectedBatch ? selectedBatch.name : selectedHousing?.name} in {timeframe.toLowerCase()}.
                         </Text>
                     </View>
                 ) : (
@@ -1086,14 +1205,15 @@ export default function FeedReportScreen() {
                             title="AniBot Feeding Advice"
                             category="feed_report"
                             farmId={farmId}
-                            subKey={activeBatch?.id ? `${activeBatch.id}_${animalType}` : (selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType)}
+                            subKey={selectedHousingId ? `${selectedHousingId}_${selectedBatchId || 'all'}_${animalType}` : animalType}
                             staticContent={getBotAnalysis()}
                             context={{
                                 type: 'feed',
                                 animalType,
                                 housingName: selectedHousing?.name,
                                 data: {
-                                    batchId: activeBatch?.id,
+                                    batchId: selectedBatchId !== 'all' ? (selectedBatch?.id || activeBatch?.id) : null,
+                                    batchName: selectedBatch?.name ?? (selectedBatchId === 'all' ? 'All Batches' : activeBatch?.name ?? null),
                                     housingId: selectedHousingId,
                                     totalConsumption,
                                     totalDispenses,
@@ -1111,6 +1231,7 @@ export default function FeedReportScreen() {
                 )}
             </ScrollView>
 
+            {/* House Selection Modal */}
             <SelectionModal
                 visible={housingModalVisible}
                 onClose={() => setHousingModalVisible(false)}
@@ -1126,6 +1247,23 @@ export default function FeedReportScreen() {
                 icon="home"
                 options={housingsOptions}
                 selectedValue={selectedHousingOptionStr}
+                requireConfirm={false}
+                enableSearch={false}
+            />
+
+            {/* Batch Selection Modal */}
+            <SelectionModal
+                visible={batchModalVisible}
+                onClose={() => setBatchModalVisible(false)}
+                onSelect={(val) => {
+                    handleSelectBatch(val);
+                    setBatchModalVisible(false);
+                }}
+                title="Select Batch"
+                description="Filter feed consumption by a specific batch or view all."
+                icon="layers"
+                options={batchesOptions}
+                selectedValue={selectedBatchOptionStr}
                 requireConfirm={false}
                 enableSearch={false}
             />

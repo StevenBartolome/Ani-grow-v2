@@ -927,13 +927,19 @@ const HealthHousingCard = ({
                         {housing.name}
                     </Text>
                     <View style={{ gap: 4 }}>
-                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                            Live heads:{' '}
-                            <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
-                                {housing.current_count}
-                                {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
+                        {housing.active_batch_name ? (
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                Live heads:{' '}
+                                <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
+                                    {housing.current_count}
+                                    {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
+                                </Text>
                             </Text>
-                        </Text>
+                        ) : (
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                No batch yet
+                            </Text>
+                        )}
 
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                             <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>

@@ -406,7 +406,7 @@ export default function FarmsScreen() {
             <Modal visible={internalAddModalOpen} transparent animationType="none" onRequestClose={() => setAddModalOpen(false)}>
                 <KeyboardAvoidingView
                     style={{ flex: 1 }}
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 >
                     <Animated.View style={{ flex: 1, backgroundColor: '#00000060', opacity: addFadeAnim }}>
                         <Pressable

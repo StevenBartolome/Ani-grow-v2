@@ -31,6 +31,7 @@ import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { Header } from '@/components/Header';
 import { supabase } from '@/lib/supabase';
 import { categoryPriority } from '@/lib/notify';
+import { isDeviceOnline } from '@/lib/deviceStatus';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -291,8 +292,8 @@ export default function HomeScreen() {
                     .eq('is_read', false)
                     .order('created_at', { ascending: false })
                     .limit(20),
-                // Devices
-                supabase.from('devices').select('id, type, status').in('farm_id', activeFarmIds),
+                // Devices (query live status + last_seen heartbeat)
+                supabase.from('devices').select('id, type, status, last_seen').in('farm_id', activeFarmIds),
                 // Housings
                 supabase
                     .from('housings')
@@ -378,8 +379,9 @@ export default function HomeScreen() {
                 const scales = deviceRes.data.filter((d: any) => d.type === 'aniweigh' || d.type === 'scale');
                 feederIds = feeders.map((d: any) => d.id);
                 scaleIds = scales.map((d: any) => d.id);
-                nextActiveFeeders = { online: feeders.filter((d: any) => d.status === 'online').length, total: feeders.length };
-                nextActiveScales = { online: scales.filter((d: any) => d.status === 'online').length, total: scales.length };
+                const isDevOnline = (d: any) => isDeviceOnline(d.status, d.last_seen);
+                nextActiveFeeders = { online: feeders.filter(isDevOnline).length, total: feeders.length };
+                nextActiveScales = { online: scales.filter(isDevOnline).length, total: scales.length };
                 setActiveFeeders(nextActiveFeeders);
                 setActiveScales(nextActiveScales);
             }
@@ -954,7 +956,7 @@ export default function HomeScreen() {
                         backgroundColor: activeScales.total === 0 ? colors.textGrey : (isOnline ? '#10B981' : colors.error),
                     }} />
                     <Text style={[textStyles.body, {
-                        color: activeFeeders.total === 0 ? colors.textGrey : (isOnline ? '#10B981' : colors.error),
+                        color: activeScales.total === 0 ? colors.textGrey : (isOnline ? '#10B981' : colors.error),
                         fontSize: 10,
                         fontFamily: 'Poppins-SemiBold',
                     }]}>

@@ -67,6 +67,7 @@ export default function RecentLogsScreen() {
     type StatusFilter = 'all' | 'underweight' | 'normal' | 'overweight';
     type AnimalFilter = 'all' | 'Pig' | 'Chicken';
 
+    const [deviceName, setDeviceName] = useState<string | null>(null);
     const [logs, setLogs] = useState<WeighLogEntry[]>([]);
     const [housingOptions, setHousingOptions] = useState<HousingOption[]>([]);
     const [loading, setLoading] = useState(true);
@@ -78,6 +79,8 @@ export default function RecentLogsScreen() {
     const [showFilters, setShowFilters] = useState(true);
     const [page, setPage] = useState(1);
     const pageSize = 10;
+
+    const isSpecificDevice = Boolean(deviceId && deviceId !== 'undefined');
 
     const fetchLogs = useCallback(async () => {
         if (!farmId) { setLoading(false); return; }
@@ -101,8 +104,16 @@ export default function RecentLogsScreen() {
                 const hId = d.housing_id ?? null;
                 const hName = (d.housings as any)?.name ?? 'Unassigned';
                 deviceMap[d.id] = { name: d.name, housingId: hId, housingName: hName };
-                if (hId && !housingMap[hId]) housingMap[hId] = hName;
+                if (isSpecificDevice) {
+                    if (d.id === deviceId && hId && !housingMap[hId]) housingMap[hId] = hName;
+                } else {
+                    if (hId && !housingMap[hId]) housingMap[hId] = hName;
+                }
             });
+
+            if (isSpecificDevice && deviceMap[deviceId as string]) {
+                setDeviceName(deviceMap[deviceId as string].name);
+            }
 
             // Keep ref in sync so realtime callback always has the latest map
             deviceMapRef.current = deviceMap;
@@ -112,8 +123,8 @@ export default function RecentLogsScreen() {
 
             // Determine which device IDs to query
             const allFarmDeviceIds = Object.keys(deviceMap);
-            // If we came from a specific device screen, scope to that device but still show its housing
-            const targetDeviceIds = deviceId ? [deviceId as string] : allFarmDeviceIds;
+            // If we came from a specific device screen, scope strictly to that device
+            const targetDeviceIds = isSpecificDevice ? [deviceId as string] : allFarmDeviceIds;
 
             const { data, error } = await supabase
                 .from('weigh_sessions')
@@ -246,7 +257,7 @@ export default function RecentLogsScreen() {
                 <View style={{ alignItems: 'center' }}>
                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>Weight Logs</Text>
                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
-                        {isFiltered ? `${filteredLogs.length} of ${logs.length} entries` : `${logs.length} entries`}
+                        {deviceName ? `${deviceName} · ` : ''}{isFiltered ? `${filteredLogs.length} of ${logs.length} entries` : `${logs.length} entries`}
                     </Text>
                 </View>
                 <TouchableOpacity

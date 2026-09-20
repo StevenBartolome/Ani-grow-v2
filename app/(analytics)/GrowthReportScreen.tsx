@@ -69,10 +69,40 @@ interface WeighingSessionEnvelope {
     completed_at: string | null;
 }
 
+interface PointDetail {
+    label: string;
+    underweight: number;
+    normal: number;
+    overweight: number;
+    total: number;
+}
+
+interface ChartTooltipItem {
+    label: string;
+    count: number;
+    color: string;
+}
+
+interface ChartTooltipState {
+    x: number;
+    y: number;
+    label: string;
+    items: ChartTooltipItem[];
+}
+
 function getOrdinal(n: number): string {
     const s = ['th', 'st', 'nd', 'rd'];
     const v = n % 100;
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function formatAdg(grams: number | null, unitSuffix: 'd' | 'day' = 'd'): string {
+    if (grams === null || grams === undefined) return `0 ${unitSuffix === 'd' ? 'g/d' : 'g/day'}`;
+    if (Math.abs(grams) >= 1000) {
+        const kg = grams / 1000;
+        return `${kg.toFixed(2)} ${unitSuffix === 'd' ? 'kg/d' : 'kg/day'}`;
+    }
+    return `${Math.round(grams)} ${unitSuffix === 'd' ? 'g/d' : 'g/day'}`;
 }
 
 export default function GrowthReportScreen() {
@@ -132,9 +162,9 @@ export default function GrowthReportScreen() {
     const [batchModalVisible, setBatchModalVisible] = useState(false);
 
     // Tooltip state for Growth chart
-    const [growthTooltip, setGrowthTooltip] = useState<{ x: number; y: number; value: number; label: string } | null>(null);
+    const [growthTooltip, setGrowthTooltip] = useState<ChartTooltipState | null>(null);
     // Tooltip state for Comparison chart
-    const [compTooltip, setCompTooltip] = useState<{ x: number; y: number; value: number; label: string } | null>(null);
+    const [compTooltip, setCompTooltip] = useState<ChartTooltipState | null>(null);
 
     const lastLoadedBatchIdRef = useRef<string | null>(null);
     const animalTypeRef = useRef(animalType);
@@ -566,8 +596,9 @@ export default function GrowthReportScreen() {
             const firstAvg = firstEntry.weights.reduce((a, b) => a + b, 0) / firstEntry.weights.length / 1000;
             const lastAvg = lastEntry.weights.reduce((a, b) => a + b, 0) / lastEntry.weights.length / 1000;
             const daysElapsed = Math.max(1, Math.round((new Date(lastDateStr).getTime() - new Date(firstDateStr).getTime()) / (1000 * 60 * 60 * 24)));
-            const adg = (lastAvg - firstAvg) / daysElapsed;
-            adgFormatted = `${adg.toFixed(3)} kg/day (${daysElapsed} days)`;
+            const adgKg = (lastAvg - firstAvg) / daysElapsed;
+            const adgGrams = adgKg * 1000;
+            adgFormatted = `${formatAdg(adgGrams, 'day')} (${daysElapsed} days)`;
         }
 
         const arrivalLabel = selectedBatch.arrival_date
@@ -980,12 +1011,14 @@ export default function GrowthReportScreen() {
         }
 
         // Tab context narrative
+        const cohortType = animalType === 'pig' ? 'herd' : 'flock';
+        const animalLabel = animalType === 'pig' ? 'pig' : 'bird';
         let tabContextText = '';
         if (selectedTab === 'Normal') {
             tabContextText = `${latest.normalCount} of ${latest.totalCount} animals (${latest.normalPct}%) are on target, demonstrating healthy skeletal and muscle development.`;
         } else if (selectedTab === 'Underweight') {
             if (latest.underweightCount === 0) {
-                tabContextText = 'No animals are classified as underweight in the latest session. Flock vigor is optimal.';
+                tabContextText = `No animals are classified as underweight in the latest session. ${animalType === 'pig' ? 'Herd' : 'Flock'} vigor is optimal.`;
             } else {
                 tabContextText = `${latest.underweightCount} animal${latest.underweightCount === 1 ? ' is' : 's are'} (${latest.underweightPct}%) tracking below target weight. Ensure unhindered feeder access and check for bullying.`;
             }
@@ -996,14 +1029,21 @@ export default function GrowthReportScreen() {
                 tabContextText = `${latest.overweightCount} animal${latest.overweightCount === 1 ? ' is' : 's are'} (${latest.overweightPct}%) exceeding the upper threshold, showing strong appetite and rapid flesh development.`;
             }
         } else {
-            tabContextText = `Average bird weight increased from ${first.avgWeightKg.toFixed(2)} kg (initial) to ${latest.avgWeightKg.toFixed(2)} kg (latest) across ${sessionStatsList.length} recorded session${sessionStatsList.length === 1 ? '' : 's'}.`;
+            tabContextText = `Average ${animalLabel} weight increased from ${first.avgWeightKg.toFixed(2)} kg (initial) to ${latest.avgWeightKg.toFixed(2)} kg (latest) across ${sessionStatsList.length} recorded session${sessionStatsList.length === 1 ? '' : 's'}.`;
         }
 
         let narrative = '';
+        const recentGainGrams = Math.round(recentGainKg * 1000);
+        const recentGainDisplay = Math.abs(recentGainGrams) >= 1000
+            ? `+${recentGainKg.toFixed(2)} kg`
+            : `+${recentGainKg.toFixed(2)} kg (+${recentGainGrams} g)`;
+
         if (sessionStatsList.length === 1) {
             narrative = `Initial baseline recorded at ${first.avgWeightKg.toFixed(2)} kg across ${first.totalCount} weigh logs on ${first.dateLabel}. Average Daily Gain (ADG) and trajectory rates will calculate automatically once a subsequent session is logged.`;
         } else if (prev) {
-            narrative = `Between ${prev.dateLabel} and ${latest.dateLabel} (${recentDays} days), the flock gained an average of +${recentGainKg.toFixed(2)} kg (+${Math.round(recentGainKg * 1000)} g), equating to an Average Daily Gain (ADG) of ${recentAdgGrams} g/day. Lifetime flock ADG is ${overallAdgGrams} g/day over ${totalDays} total days.`;
+            const formattedRecentAdg = formatAdg(recentAdgGrams, 'day');
+            const formattedOverallAdg = formatAdg(overallAdgGrams, 'day');
+            narrative = `Between ${prev.dateLabel} and ${latest.dateLabel} (${recentDays} days), the ${cohortType} gained an average of ${recentGainDisplay}, equating to an Average Daily Gain (ADG) of ${formattedRecentAdg}. Lifetime ${cohortType} ADG is ${formattedOverallAdg} over ${totalDays} total days.`;
         }
 
         return {
@@ -1132,7 +1172,7 @@ export default function GrowthReportScreen() {
     const lineChartData = useMemo(() => {
         // No sessions → blank state
         if (weighSessions.length === 0) {
-            return { labels: [] as string[], datasets: [{ data: [0] }], hasRealData: false, noData: true };
+            return { labels: [] as string[], datasets: [{ data: [0] }], hasRealData: false, noData: true, details: [] as PointDetail[] };
         }
 
         if (timeframe === 'Days') {
@@ -1166,6 +1206,11 @@ export default function GrowthReportScreen() {
                 const overFinal    = [arrivalVal, dayCounts.overweight];
                 const zeroAnchor2  = { data: [0, 0], color: () => 'transparent', strokeWidth: 0, withDots: false };
 
+                const details: PointDetail[] = [
+                    { label: 'Arrival', underweight: 0, normal: 0, overweight: 0, total: 0 },
+                    { label: todayLabel, ...dayCounts },
+                ];
+
                 // Check if selected filter has any data
                 const hasFilterData = selectedTab === 'All'
                     ? dayCounts.total > 0
@@ -1174,19 +1219,19 @@ export default function GrowthReportScreen() {
                     : dayCounts.overweight > 0;
 
                 if (!hasFilterData && selectedTab !== 'All') {
-                    return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true };
+                    return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true, details: [] as PointDetail[] };
                 }
 
                 if (selectedTab === 'All') {
                     return {
                         labels,
                         datasets: [
-                            { data: normalFinal,  color: () => colors.primary,    strokeWidth: 3 },
-                            { data: underFinal,   color: () => colors.secondary,  strokeWidth: 3 },
-                            { data: overFinal,    color: () => OVERWEIGHT_COLOR,  strokeWidth: 3 },
+                            { data: normalFinal,  color: () => colors.primary,    strokeWidth: 3, key: 'Normal', label: 'Normal' },
+                            { data: underFinal,   color: () => colors.secondary,  strokeWidth: 3, key: 'Underweight', label: 'Underweight' },
+                            { data: overFinal,    color: () => OVERWEIGHT_COLOR,  strokeWidth: 3, key: 'Overweight', label: 'Overweight' },
                             zeroAnchor2,
                         ],
-                        hasRealData: true, noData: false
+                        hasRealData: true, noData: false, details
                     };
                 }
 
@@ -1196,13 +1241,13 @@ export default function GrowthReportScreen() {
 
                 return {
                     labels,
-                    datasets: [{ data: currentData, color: () => activeColor, strokeWidth: 3 }, zeroAnchor2],
-                    hasRealData: true, noData: false
+                    datasets: [{ data: currentData, color: () => activeColor, strokeWidth: 3, key: selectedTab, label: selectedTab }, zeroAnchor2],
+                    hasRealData: true, noData: false, details
                 };
             }
 
             // ── Multiple recording dates ──
-            const datesToUse = sortedDates.slice(-5);
+            const datesToUse = sortedDates.slice(-30);
             const labels = ['Arrival', ...datesToUse.map(d => {
                 const parts = d.split('-');
                 return parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
@@ -1219,11 +1264,21 @@ export default function GrowthReportScreen() {
 
             const zeroAnchorN = { data: Array(labels.length).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false };
 
+            const details: PointDetail[] = [
+                { label: 'Arrival', underweight: 0, normal: 0, overweight: 0, total: 0 },
+                ...datesToUse.map(d => {
+                    const c = dateMap.get(d)!;
+                    const parts = d.split('-');
+                    const lbl = parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
+                    return { label: lbl, ...c };
+                })
+            ];
+
             // Check if filter has any real data
             if (selectedTab !== 'All') {
                 const arr = selectedTab === 'Underweight' ? underCounts : selectedTab === 'Normal' ? normalCounts : overCounts;
                 if (arr.every(v => v === 0)) {
-                    return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true };
+                    return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true, details: [] as PointDetail[] };
                 }
             }
 
@@ -1231,12 +1286,12 @@ export default function GrowthReportScreen() {
                 return {
                     labels,
                     datasets: [
-                        { data: normalFinal, color: () => colors.primary,   strokeWidth: 3 },
-                        { data: underFinal,  color: () => colors.secondary, strokeWidth: 3 },
-                        { data: overFinal,   color: () => OVERWEIGHT_COLOR, strokeWidth: 3 },
+                        { data: normalFinal, color: () => colors.primary,   strokeWidth: 3, key: 'Normal', label: 'Normal' },
+                        { data: underFinal,  color: () => colors.secondary, strokeWidth: 3, key: 'Underweight', label: 'Underweight' },
+                        { data: overFinal,   color: () => OVERWEIGHT_COLOR, strokeWidth: 3, key: 'Overweight', label: 'Overweight' },
                         zeroAnchorN,
                     ],
-                    hasRealData: true, noData: false
+                    hasRealData: true, noData: false, details
                 };
             }
 
@@ -1246,8 +1301,8 @@ export default function GrowthReportScreen() {
 
             return {
                 labels,
-                datasets: [{ data: currentData, color: () => activeColor, strokeWidth: 3 }, zeroAnchorN],
-                hasRealData: true, noData: false
+                datasets: [{ data: currentData, color: () => activeColor, strokeWidth: 3, key: selectedTab, label: selectedTab }, zeroAnchorN],
+                hasRealData: true, noData: false, details
             };
 
         } else {
@@ -1278,7 +1333,7 @@ export default function GrowthReportScreen() {
             const sortedWeeks = Array.from(weekMap.keys()).sort();
 
             if (sortedWeeks.length === 0) {
-                return { labels: [] as string[], datasets: [{ data: [0] }], hasRealData: false, noData: true };
+                return { labels: [] as string[], datasets: [{ data: [0] }], hasRealData: false, noData: true, details: [] as PointDetail[] };
             }
 
             // ── Single week: pad with Arrival ──
@@ -1294,23 +1349,28 @@ export default function GrowthReportScreen() {
                 const overFinal   = [arrivalVal, weekCounts.overweight];
                 const zeroAnchorW = { data: [0, 0], color: () => 'transparent', strokeWidth: 0, withDots: false };
 
+                const details: PointDetail[] = [
+                    { label: 'Arrival', underweight: 0, normal: 0, overweight: 0, total: 0 },
+                    { label: `W${todayWeek}`, ...weekCounts },
+                ];
+
                 if (selectedTab !== 'All') {
                     const hasData = selectedTab === 'Underweight' ? weekCounts.underweight > 0
                         : selectedTab === 'Normal' ? weekCounts.normal > 0
                         : weekCounts.overweight > 0;
-                    if (!hasData) return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true };
+                    if (!hasData) return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true, details: [] as PointDetail[] };
                 }
 
                 if (selectedTab === 'All') {
                     return {
                         labels,
                         datasets: [
-                            { data: normalFinal, color: () => colors.primary,   strokeWidth: 3 },
-                            { data: underFinal,  color: () => colors.secondary, strokeWidth: 3 },
-                            { data: overFinal,   color: () => OVERWEIGHT_COLOR, strokeWidth: 3 },
+                            { data: normalFinal, color: () => colors.primary,   strokeWidth: 3, key: 'Normal', label: 'Normal' },
+                            { data: underFinal,  color: () => colors.secondary, strokeWidth: 3, key: 'Underweight', label: 'Underweight' },
+                            { data: overFinal,   color: () => OVERWEIGHT_COLOR, strokeWidth: 3, key: 'Overweight', label: 'Overweight' },
                             zeroAnchorW,
                         ],
-                        hasRealData: true, noData: false
+                        hasRealData: true, noData: false, details
                     };
                 }
 
@@ -1320,13 +1380,13 @@ export default function GrowthReportScreen() {
 
                 return {
                     labels,
-                    datasets: [{ data: currentData, color: () => activeColor, strokeWidth: 3 }, zeroAnchorW],
-                    hasRealData: true, noData: false
+                    datasets: [{ data: currentData, color: () => activeColor, strokeWidth: 3, key: selectedTab, label: selectedTab }, zeroAnchorW],
+                    hasRealData: true, noData: false, details
                 };
             }
 
             // ── Multiple weeks ──
-            const weeksToUse = sortedWeeks.slice(-5);
+            const weeksToUse = sortedWeeks.slice(-30);
             const labels = ['Arrival', ...weeksToUse.map(w => `W${w}`)];
             const normalCounts = weeksToUse.map(w => weekMap.get(w)!.normal);
             const underCounts  = weeksToUse.map(w => weekMap.get(w)!.underweight);
@@ -1338,10 +1398,15 @@ export default function GrowthReportScreen() {
 
             const zeroAnchorWW = { data: Array(labels.length).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false };
 
+            const details: PointDetail[] = [
+                { label: 'Arrival', underweight: 0, normal: 0, overweight: 0, total: 0 },
+                ...weeksToUse.map(w => ({ label: `W${w}`, ...weekMap.get(w)! }))
+            ];
+
             if (selectedTab !== 'All') {
                 const arr = selectedTab === 'Underweight' ? underCounts : selectedTab === 'Normal' ? normalCounts : overCounts;
                 if (arr.every(v => v === 0)) {
-                    return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true };
+                    return { labels: [], datasets: [{ data: [0] }], hasRealData: true, noData: true, details: [] as PointDetail[] };
                 }
             }
 
@@ -1349,12 +1414,12 @@ export default function GrowthReportScreen() {
                 return {
                     labels,
                     datasets: [
-                        { data: normalFinal, color: () => colors.primary,   strokeWidth: 3 },
-                        { data: underFinal,  color: () => colors.secondary, strokeWidth: 3 },
-                        { data: overFinal,   color: () => OVERWEIGHT_COLOR, strokeWidth: 3 },
+                        { data: normalFinal, color: () => colors.primary,   strokeWidth: 3, key: 'Normal', label: 'Normal' },
+                        { data: underFinal,  color: () => colors.secondary, strokeWidth: 3, key: 'Underweight', label: 'Underweight' },
+                        { data: overFinal,   color: () => OVERWEIGHT_COLOR, strokeWidth: 3, key: 'Overweight', label: 'Overweight' },
                         zeroAnchorWW,
                     ],
-                    hasRealData: true, noData: false
+                    hasRealData: true, noData: false, details
                 };
             }
 
@@ -1364,8 +1429,8 @@ export default function GrowthReportScreen() {
 
             return {
                 labels,
-                datasets: [{ data: currentData, color: () => activeColor, strokeWidth: 3 }, zeroAnchorWW],
-                hasRealData: true, noData: false
+                datasets: [{ data: currentData, color: () => activeColor, strokeWidth: 3, key: selectedTab, label: selectedTab }, zeroAnchorWW],
+                hasRealData: true, noData: false, details
             };
         }
     }, [weighSessions, selectedTab, timeframe, colors, activeColor, OVERWEIGHT_COLOR, selectedBatch]);
@@ -1373,27 +1438,28 @@ export default function GrowthReportScreen() {
     // ─── Comparison Chart: Counts Comparison ─────────────────────────
     const comparisonChartData = useMemo(() => {
         if (weighSessions.length === 0) {
-            return { noData: true, labels: [] as string[], datasets: [{ data: [0] }] };
+            return { noData: true, labels: [] as string[], datasets: [{ data: [0] }], details: [] as PointDetail[] };
         }
 
         if (timeframe === 'Days') {
-            const dateMap = new Map<string, { underweight: number; normal: number; overweight: number }>();
+            const dateMap = new Map<string, { underweight: number; normal: number; overweight: number; total: number }>();
             weighSessions.forEach(s => {
                 const key = s.recorded_at.slice(0, 10);
                 if (!dateMap.has(key)) {
-                    dateMap.set(key, { underweight: 0, normal: 0, overweight: 0 });
+                    dateMap.set(key, { underweight: 0, normal: 0, overweight: 0, total: 0 });
                 }
                 const counts = dateMap.get(key)!;
+                counts.total += 1;
                 if (s.status === 'underweight') counts.underweight += 1;
                 else if (s.status === 'overweight') counts.overweight += 1;
                 else counts.normal += 1;
             });
             const sortedDates = Array.from(dateMap.keys()).sort();
             if (sortedDates.length < 2) {
-                return { noData: true, labels: [] as string[], datasets: [{ data: [0] }] };
+                return { noData: true, labels: [] as string[], datasets: [{ data: [0] }], details: [] as PointDetail[] };
             }
 
-            const daysToUse = sortedDates.slice(-6);
+            const daysToUse = sortedDates.slice(-30);
             const labels = daysToUse.map(d => {
                 const parts = d.split('-');
                 return parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
@@ -1403,18 +1469,26 @@ export default function GrowthReportScreen() {
             const underweightCounts = daysToUse.map(d => dateMap.get(d)!.underweight);
             const overweightCounts = daysToUse.map(d => dateMap.get(d)!.overweight);
 
+            const details: PointDetail[] = daysToUse.map(d => {
+                const c = dateMap.get(d)!;
+                const parts = d.split('-');
+                const lbl = parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
+                return { label: lbl, ...c };
+            });
+
             return {
                 noData: false,
                 labels,
                 datasets: [
-                    { data: normalCounts, color: () => colors.primary, strokeWidth: 3 },
-                    { data: underweightCounts, color: () => colors.secondary, strokeWidth: 3 },
-                    { data: overweightCounts, color: () => OVERWEIGHT_COLOR, strokeWidth: 3 },
+                    { data: normalCounts, color: () => colors.primary, strokeWidth: 3, key: 'Normal', label: 'Normal' },
+                    { data: underweightCounts, color: () => colors.secondary, strokeWidth: 3, key: 'Underweight', label: 'Underweight' },
+                    { data: overweightCounts, color: () => OVERWEIGHT_COLOR, strokeWidth: 3, key: 'Overweight', label: 'Overweight' },
                 ],
+                details,
             };
         } else {
             const arrival = selectedBatch?.arrival_date ? new Date(selectedBatch.arrival_date) : null;
-            const weekMap = new Map<number, { underweight: number; normal: number; overweight: number }>();
+            const weekMap = new Map<number, { underweight: number; normal: number; overweight: number; total: number }>();
             weighSessions.forEach(s => {
                 const recorded = new Date(s.recorded_at);
                 let weekIdx = 0;
@@ -1426,33 +1500,40 @@ export default function GrowthReportScreen() {
                     weekIdx = Math.floor((recorded.getTime() - new Date(startYear, 0, 1).getTime()) / (1000 * 60 * 60 * 24 * 7));
                 }
                 if (!weekMap.has(weekIdx)) {
-                    weekMap.set(weekIdx, { underweight: 0, normal: 0, overweight: 0 });
+                    weekMap.set(weekIdx, { underweight: 0, normal: 0, overweight: 0, total: 0 });
                 }
                 const counts = weekMap.get(weekIdx)!;
+                counts.total += 1;
                 if (s.status === 'underweight') counts.underweight += 1;
                 else if (s.status === 'overweight') counts.overweight += 1;
                 else counts.normal += 1;
             });
             const sortedWeeks = Array.from(weekMap.keys()).sort();
             if (sortedWeeks.length < 2) {
-                return { noData: true, labels: [] as string[], datasets: [{ data: [0] }] };
+                return { noData: true, labels: [] as string[], datasets: [{ data: [0] }], details: [] as PointDetail[] };
             }
 
-            const weeksToUse = sortedWeeks.slice(-6);
+            const weeksToUse = sortedWeeks.slice(-30);
             const labels = weeksToUse.map(w => `W${w}`);
             
             const normalCounts = weeksToUse.map(w => weekMap.get(w)!.normal);
             const underweightCounts = weeksToUse.map(w => weekMap.get(w)!.underweight);
             const overweightCounts = weeksToUse.map(w => weekMap.get(w)!.overweight);
 
+            const details: PointDetail[] = weeksToUse.map(w => ({
+                label: `W${w}`,
+                ...weekMap.get(w)!
+            }));
+
             return {
                 noData: false,
                 labels,
                 datasets: [
-                    { data: normalCounts, color: () => colors.primary, strokeWidth: 3 },
-                    { data: underweightCounts, color: () => colors.secondary, strokeWidth: 3 },
-                    { data: overweightCounts, color: () => OVERWEIGHT_COLOR, strokeWidth: 3 },
+                    { data: normalCounts, color: () => colors.primary, strokeWidth: 3, key: 'Normal', label: 'Normal' },
+                    { data: underweightCounts, color: () => colors.secondary, strokeWidth: 3, key: 'Underweight', label: 'Underweight' },
+                    { data: overweightCounts, color: () => OVERWEIGHT_COLOR, strokeWidth: 3, key: 'Overweight', label: 'Overweight' },
                 ],
+                details,
             };
         }
     }, [weighSessions, timeframe, colors, selectedBatch, OVERWEIGHT_COLOR]);
@@ -1478,6 +1559,92 @@ export default function GrowthReportScreen() {
             insight += `The growth distribution is within healthy parameters with a strong majority of normal-weight animals. Continue with the current feeding schedule and micro-climate control.`;
         }
         return insight;
+    };
+
+    const renderChartTooltip = (tooltip: ChartTooltipState | null, chartWidth: number) => {
+        if (!tooltip || !tooltip.items || tooltip.items.length === 0) return null;
+        const { x, y, label, items } = tooltip;
+        const tipW = 156;
+        const tipH = 34 + items.length * 22;
+        const offsetX = Math.max(6, Math.min(x - tipW / 2, chartWidth - tipW - 6));
+        const offsetY = y - tipH - 10 < 0 ? y + 10 : y - tipH - 10;
+
+        return (
+            <View
+                pointerEvents="none"
+                style={{
+                    position: 'absolute',
+                    left: offsetX,
+                    top: offsetY,
+                    backgroundColor: '#182232',
+                    borderRadius: 12,
+                    paddingHorizontal: 12,
+                    paddingVertical: 9,
+                    width: tipW,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.35,
+                    shadowRadius: 8,
+                    elevation: 10,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.12)',
+                    zIndex: 999,
+                }}
+            >
+                <Text
+                    style={{
+                        fontFamily: 'Poppins-SemiBold',
+                        fontSize: 11,
+                        color: '#94A3B8',
+                        marginBottom: 4,
+                    }}
+                >
+                    {label}
+                </Text>
+                {items.map((item, idx) => (
+                    <View
+                        key={idx}
+                        style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginTop: idx > 0 ? 4 : 0,
+                        }}
+                    >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
+                            <View
+                                style={{
+                                    width: 7,
+                                    height: 7,
+                                    borderRadius: 3.5,
+                                    backgroundColor: item.color,
+                                }}
+                            />
+                            <Text
+                                style={{
+                                    fontFamily: 'Poppins-Medium',
+                                    fontSize: 11,
+                                    color: '#FFFFFF',
+                                }}
+                                numberOfLines={1}
+                            >
+                                {item.label}
+                            </Text>
+                        </View>
+                        <Text
+                            style={{
+                                fontFamily: 'Poppins-Bold',
+                                fontSize: 11,
+                                color: '#FFFFFF',
+                                marginLeft: 8,
+                            }}
+                        >
+                            {item.count} {item.count === 1 ? 'log' : 'logs'}
+                        </Text>
+                    </View>
+                ))}
+            </View>
+        );
     };
 
     const housingsOptions = filteredHousings.map(h => h.name);
@@ -1628,7 +1795,10 @@ export default function GrowthReportScreen() {
                                         <TouchableOpacity
                                             key={category}
                                             activeOpacity={0.7}
-                                            onPress={() => setSelectedTab(category)}
+                                            onPress={() => {
+                                                setSelectedTab(category);
+                                                setGrowthTooltip(null);
+                                            }}
                                             style={[
                                                 deviceStyles.filterChip,
                                                 isSelected && { backgroundColor: tabColor, borderColor: tabColor }
@@ -1848,7 +2018,11 @@ export default function GrowthReportScreen() {
                                 {(['Days', 'Weeks'] as const).map(tf => (
                                     <TouchableOpacity
                                         key={tf}
-                                        onPress={() => setTimeframe(tf)}
+                                        onPress={() => {
+                                            setTimeframe(tf);
+                                            setGrowthTooltip(null);
+                                            setCompTooltip(null);
+                                        }}
                                         style={{
                                             paddingHorizontal: 12,
                                             paddingVertical: 6,
@@ -1887,104 +2061,131 @@ export default function GrowthReportScreen() {
                                             {selectedTab === 'All' ? 'No weigh sessions recorded yet for this batch.' : `No ${selectedTab.toLowerCase()} animals recorded yet.`}
                                         </Text>
                                     </View>
-                                ) : (
-                                <>
-                                <LineChart
-                                    data={lineChartData}
-                                    width={width - (hPad * 2) - 18}
-                                    height={240}
-                                    yAxisLabel=""
-                                    yAxisSuffix=""
-                                    fromZero
-                                    withDots={true}
-                                    withInnerLines={true}
-                                    withOuterLines={false}
-                                    withVerticalLines={false}
-                                    withHorizontalLines={true}
-                                    onDataPointClick={({ x, y, value, index, dataset }) => {
-                                        // skip transparent anchor dataset
-                                        if (value === 0 && index === 0) return;
-                                        const label = lineChartData.labels?.[index] ?? `#${index + 1}`;
-                                        setGrowthTooltip(prev =>
-                                            prev && prev.x === x && prev.y === y ? null : { x, y, value, label }
-                                        );
-                                    }}
-                                    decorator={() => {
-                                        if (!growthTooltip) return null;
-                                        const { x, y, value, label } = growthTooltip;
-                                        const tipW = 72;
-                                        const tipH = 36;
-                                        const offsetX = x + tipW + 8 > (width - hPad * 2 - 18) ? x - tipW - 6 : x - tipW / 2;
-                                        const offsetY = y - tipH - 10 < 0 ? y + 8 : y - tipH - 8;
-                                        return (
-                                            <>
-                                                <View style={{
-                                                    position: 'absolute',
-                                                    left: offsetX,
-                                                    top: offsetY,
-                                                    backgroundColor: colors.text,
-                                                    borderRadius: 8,
-                                                    paddingHorizontal: 10,
-                                                    paddingVertical: 5,
-                                                    width: tipW,
-                                                    alignItems: 'center',
-                                                    shadowColor: '#000',
-                                                    shadowOffset: { width: 0, height: 2 },
-                                                    shadowOpacity: 0.25,
-                                                    shadowRadius: 4,
-                                                    elevation: 6,
-                                                }}>
-                                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.surface }}>{Math.round(value)} logs</Text>
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.surface, opacity: 0.75 }}>{label}</Text>
+                                ) : (() => {
+                                    const baseChartWidth = width - (hPad * 2) - 18;
+                                    const pointSpacing = 68;
+                                    const growthChartWidth = Math.max(baseChartWidth, (lineChartData.labels?.length || 0) * pointSpacing);
+                                    const isGrowthScrollable = growthChartWidth > baseChartWidth;
+
+                                    return (
+                                        <>
+                                            {isGrowthScrollable && (
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 16, marginBottom: 6 }}>
+                                                    <MaterialIcons name="swipe" size={14} color={colors.textGrey} />
+                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Scroll for full timeline</Text>
                                                 </View>
-                                            </>
-                                        );
-                                    }}
-                                    chartConfig={{
-                                        backgroundColor: colors.surface,
-                                        backgroundGradientFrom: colors.surface,
-                                        backgroundGradientTo: colors.surface,
-                                        decimalPlaces: 0,
-                                        color: (opacity = 1) => colors.stroke,
-                                        labelColor: (opacity = 1) => colors.textGrey,
-                                        strokeWidth: 3,
-                                        fillShadowGradientFrom: activeColor,
-                                        fillShadowGradientFromOpacity: 0.2,
-                                        fillShadowGradientTo: activeColor,
-                                        fillShadowGradientToOpacity: 0.05,
-                                        style: {
-                                            borderRadius: 16
-                                        },
-                                        propsForDots: {
-                                            r: "5",
-                                            strokeWidth: "2",
-                                            stroke: colors.surface,
-                                        }
-                                    }}
-                                    bezier
-                                    style={{
-                                        borderRadius: 16,
-                                    }}
-                                />
-                                {/* Chart legend */}
-                                {selectedTab === 'All' && (
-                                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 14, paddingBottom: 10, paddingLeft: 16, flexWrap: 'wrap' }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }} />
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Normal</Text>
-                                        </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.secondary }} />
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Underweight</Text>
-                                        </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#EF4444' }} />
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Overweight</Text>
-                                        </View>
-                                    </View>
-                                )}
-                                </>
-                                )}
+                                            )}
+                                            <ScrollView
+                                                horizontal
+                                                showsHorizontalScrollIndicator={false}
+                                                contentContainerStyle={{ minWidth: baseChartWidth }}
+                                            >
+                                                <LineChart
+                                                    data={lineChartData}
+                                                    width={growthChartWidth}
+                                                    height={240}
+                                                    yAxisLabel=""
+                                                    yAxisSuffix=""
+                                                    fromZero
+                                                    withDots={true}
+                                                    withInnerLines={true}
+                                                    withOuterLines={false}
+                                                    withVerticalLines={false}
+                                                    withHorizontalLines={true}
+                                                    onDataPointClick={({ x, y, value, index, dataset }) => {
+                                                        // skip transparent anchor dataset
+                                                        if (value === 0 && index === 0) return;
+                                                        const detail = (lineChartData as any).details?.[index];
+                                                        const label = detail?.label ?? lineChartData.labels?.[index] ?? `#${index + 1}`;
+                                                        const clickedVal = Math.round(value);
+                                                        const clickedKey = (dataset as any)?.key;
+
+                                                        const items: ChartTooltipItem[] = [];
+                                                        if (selectedTab === 'All') {
+                                                            if (detail) {
+                                                                if (detail.underweight === clickedVal && clickedVal > 0) {
+                                                                    items.push({ label: 'Underweight', count: detail.underweight, color: colors.secondary });
+                                                                }
+                                                                if (detail.normal === clickedVal && clickedVal > 0) {
+                                                                    items.push({ label: 'Normal', count: detail.normal, color: colors.primary });
+                                                                }
+                                                                if (detail.overweight === clickedVal && clickedVal > 0) {
+                                                                    items.push({ label: 'Overweight', count: detail.overweight, color: OVERWEIGHT_COLOR });
+                                                                }
+                                                            }
+                                                            if (items.length === 0 && clickedKey && detail) {
+                                                                const count = clickedKey === 'Underweight' ? detail.underweight : clickedKey === 'Overweight' ? detail.overweight : detail.normal;
+                                                                const color = clickedKey === 'Underweight' ? colors.secondary : clickedKey === 'Overweight' ? OVERWEIGHT_COLOR : colors.primary;
+                                                                if (count > 0) items.push({ label: clickedKey, count, color });
+                                                            }
+                                                            if (items.length === 0 && clickedVal > 0) {
+                                                                items.push({ label: clickedKey || 'Normal', count: clickedVal, color: colors.primary });
+                                                            }
+                                                        } else if (selectedTab === 'Underweight') {
+                                                            const count = detail ? detail.underweight : clickedVal;
+                                                            if (count > 0) items.push({ label: 'Underweight', count, color: colors.secondary });
+                                                        } else if (selectedTab === 'Normal') {
+                                                            const count = detail ? detail.normal : clickedVal;
+                                                            if (count > 0) items.push({ label: 'Normal', count, color: colors.primary });
+                                                        } else if (selectedTab === 'Overweight') {
+                                                            const count = detail ? detail.overweight : clickedVal;
+                                                            if (count > 0) items.push({ label: 'Overweight', count, color: OVERWEIGHT_COLOR });
+                                                        }
+
+                                                        if (items.length === 0) return;
+
+                                                        setGrowthTooltip(prev =>
+                                                            prev && Math.abs(prev.x - x) < 5 && Math.abs(prev.y - y) < 5 ? null : { x, y, label, items }
+                                                        );
+                                                    }}
+                                                    decorator={() => renderChartTooltip(growthTooltip, growthChartWidth)}
+                                                    chartConfig={{
+                                                        backgroundColor: colors.surface,
+                                                        backgroundGradientFrom: colors.surface,
+                                                        backgroundGradientTo: colors.surface,
+                                                        decimalPlaces: 0,
+                                                        color: (opacity = 1) => colors.stroke,
+                                                        labelColor: (opacity = 1) => colors.textGrey,
+                                                        strokeWidth: 3,
+                                                        fillShadowGradientFrom: activeColor,
+                                                        fillShadowGradientFromOpacity: 0.2,
+                                                        fillShadowGradientTo: activeColor,
+                                                        fillShadowGradientToOpacity: 0.05,
+                                                        style: {
+                                                            borderRadius: 16
+                                                        },
+                                                        propsForDots: {
+                                                            r: "5",
+                                                            strokeWidth: "2",
+                                                            stroke: colors.surface,
+                                                        }
+                                                    }}
+                                                    bezier
+                                                    style={{
+                                                        borderRadius: 16,
+                                                    }}
+                                                />
+                                            </ScrollView>
+                                            {/* Chart legend */}
+                                            {selectedTab === 'All' && (
+                                                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 14, paddingBottom: 10, paddingLeft: 16, flexWrap: 'wrap' }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }} />
+                                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Normal</Text>
+                                                    </View>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.secondary }} />
+                                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Underweight</Text>
+                                                    </View>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#EF4444' }} />
+                                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Overweight</Text>
+                                                    </View>
+                                                </View>
+                                            )}
+                                        </>
+                                    );
+                                })()}
                             </View>
                         </View>
 
@@ -2047,10 +2248,10 @@ export default function GrowthReportScreen() {
                                     <View style={{ flex: 1, backgroundColor: colors.bgLight, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: colors.stroke }}>
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Recent ADG</Text>
                                         <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.primary, marginTop: 2 }}>
-                                            {growthExplanation.recentAdgGrams !== null ? `${growthExplanation.recentAdgGrams} g/d` : `${growthExplanation.overallAdgGrams} g/d`}
+                                            {growthExplanation.recentAdgGrams !== null ? formatAdg(growthExplanation.recentAdgGrams, 'd') : formatAdg(growthExplanation.overallAdgGrams, 'd')}
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey }}>
-                                            {growthExplanation.recentAdgGrams !== null ? `Last ${growthExplanation.recentDays} days` : 'Flock Lifetime'}
+                                            {growthExplanation.recentAdgGrams !== null ? `Last ${growthExplanation.recentDays} days` : `${animalType === 'pig' ? 'Herd' : 'Flock'} Lifetime`}
                                         </Text>
                                     </View>
 
@@ -2360,94 +2561,116 @@ export default function GrowthReportScreen() {
                                         At least 2 recording sessions are needed to compare historical shifts.
                                     </Text>
                                 </View>
-                            ) : (
-                                <>
-                                    <LineChart
-                                        data={comparisonChartData}
-                                        width={width - (hPad * 2) - 18}
-                                        height={200}
-                                        yAxisLabel=""
-                                        yAxisSuffix=""
-                                        fromZero={true}
-                                        withDots={true}
-                                        withInnerLines={true}
-                                        withOuterLines={false}
-                                        withVerticalLines={false}
-                                        withHorizontalLines={true}
-                                        onDataPointClick={({ x, y, value, index }) => {
-                                            const label = comparisonChartData.labels?.[index] ?? `#${index + 1}`;
-                                            setCompTooltip(prev =>
-                                                prev && prev.x === x && prev.y === y ? null : { x, y, value, label }
-                                            );
-                                        }}
-                                        decorator={() => {
-                                            if (!compTooltip) return null;
-                                            const { x, y, value, label } = compTooltip;
-                                            const tipW = 72;
-                                            const tipH = 36;
-                                            const offsetX = x + tipW + 8 > (width - hPad * 2 - 18) ? x - tipW - 6 : x - tipW / 2;
-                                            const offsetY = y - tipH - 10 < 0 ? y + 8 : y - tipH - 8;
-                                            return (
-                                                <View style={{
-                                                    position: 'absolute',
-                                                    left: offsetX,
-                                                    top: offsetY,
-                                                    backgroundColor: colors.text,
-                                                    borderRadius: 8,
-                                                    paddingHorizontal: 10,
-                                                    paddingVertical: 5,
-                                                    width: tipW,
-                                                    alignItems: 'center',
-                                                    shadowColor: '#000',
-                                                    shadowOffset: { width: 0, height: 2 },
-                                                    shadowOpacity: 0.25,
-                                                    shadowRadius: 4,
-                                                    elevation: 6,
-                                                }}>
-                                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.surface }}>{Math.round(value)} logs</Text>
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.surface, opacity: 0.75 }}>{label}</Text>
-                                                </View>
-                                            );
-                                        }}
-                                        chartConfig={{
-                                            backgroundColor: colors.surface,
-                                            backgroundGradientFrom: colors.surface,
-                                            backgroundGradientTo: colors.surface,
-                                            decimalPlaces: 0,
-                                            color: (opacity = 1) => colors.stroke,
-                                            labelColor: (opacity = 1) => colors.textGrey,
-                                            strokeWidth: 2,
-                                            fillShadowGradientFrom: colors.primary,
-                                            fillShadowGradientFromOpacity: 0.08,
-                                            fillShadowGradientTo: colors.primary,
-                                            fillShadowGradientToOpacity: 0.01,
-                                            style: { borderRadius: 16 },
-                                            propsForDots: {
-                                                r: '4',
-                                                strokeWidth: '2',
-                                                stroke: colors.surface,
-                                            }
-                                        }}
-                                        bezier
-                                        style={{ borderRadius: 16 }}
-                                    />
-                                    {/* Comparison legend */}
-                                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, paddingBottom: 10, paddingLeft: 16 }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }} />
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Normal</Text>
+                            ) : (() => {
+                                const baseChartWidth = width - (hPad * 2) - 18;
+                                const pointSpacing = 68;
+                                const compChartWidth = Math.max(baseChartWidth, (comparisonChartData.labels?.length || 0) * pointSpacing);
+                                const isCompScrollable = compChartWidth > baseChartWidth;
+
+                                return (
+                                    <>
+                                        {isCompScrollable && (
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 16, marginBottom: 6 }}>
+                                                <MaterialIcons name="swipe" size={14} color={colors.textGrey} />
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Scroll for full timeline</Text>
+                                            </View>
+                                        )}
+                                        <ScrollView
+                                            horizontal
+                                            showsHorizontalScrollIndicator={false}
+                                            contentContainerStyle={{ minWidth: baseChartWidth }}
+                                        >
+                                            <LineChart
+                                                data={comparisonChartData}
+                                                width={compChartWidth}
+                                                height={200}
+                                                yAxisLabel=""
+                                                yAxisSuffix=""
+                                                fromZero={true}
+                                                withDots={true}
+                                                withInnerLines={true}
+                                                withOuterLines={false}
+                                                withVerticalLines={false}
+                                                withHorizontalLines={true}
+                                                onDataPointClick={({ x, y, value, index, dataset }) => {
+                                                    const detail = (comparisonChartData as any).details?.[index];
+                                                    const label = detail?.label ?? comparisonChartData.labels?.[index] ?? `#${index + 1}`;
+                                                    const clickedVal = Math.round(value);
+                                                    const clickedKey = (dataset as any)?.key;
+
+                                                    const items: ChartTooltipItem[] = [];
+                                                    if (detail) {
+                                                        if (detail.underweight === clickedVal && clickedVal > 0) {
+                                                            items.push({ label: 'Underweight', count: detail.underweight, color: colors.secondary });
+                                                        }
+                                                        if (detail.normal === clickedVal && clickedVal > 0) {
+                                                            items.push({ label: 'Normal', count: detail.normal, color: colors.primary });
+                                                        }
+                                                        if (detail.overweight === clickedVal && clickedVal > 0) {
+                                                            items.push({ label: 'Overweight', count: detail.overweight, color: OVERWEIGHT_COLOR });
+                                                        }
+                                                    }
+
+                                                    if (items.length === 0 && clickedKey && detail) {
+                                                        const count = clickedKey === 'Underweight' ? detail.underweight : clickedKey === 'Overweight' ? detail.overweight : detail.normal;
+                                                        const color = clickedKey === 'Underweight' ? colors.secondary : clickedKey === 'Overweight' ? OVERWEIGHT_COLOR : colors.primary;
+                                                        if (count > 0) {
+                                                            items.push({ label: clickedKey, count, color });
+                                                        }
+                                                    }
+
+                                                    if (items.length === 0 && clickedVal > 0) {
+                                                        items.push({ label: clickedKey || 'Normal', count: clickedVal, color: colors.primary });
+                                                    }
+
+                                                    if (items.length === 0) return;
+
+                                                    setCompTooltip(prev =>
+                                                        prev && Math.abs(prev.x - x) < 5 && Math.abs(prev.y - y) < 5 ? null : { x, y, label, items }
+                                                    );
+                                                }}
+                                                decorator={() => renderChartTooltip(compTooltip, compChartWidth)}
+                                                chartConfig={{
+                                                    backgroundColor: colors.surface,
+                                                    backgroundGradientFrom: colors.surface,
+                                                    backgroundGradientTo: colors.surface,
+                                                    decimalPlaces: 0,
+                                                    color: (opacity = 1) => colors.stroke,
+                                                    labelColor: (opacity = 1) => colors.textGrey,
+                                                    strokeWidth: 2,
+                                                    fillShadowGradientFrom: colors.primary,
+                                                    fillShadowGradientFromOpacity: 0.08,
+                                                    fillShadowGradientTo: colors.primary,
+                                                    fillShadowGradientToOpacity: 0.01,
+                                                    style: { borderRadius: 16 },
+                                                    propsForDots: {
+                                                        r: '4',
+                                                        strokeWidth: '2',
+                                                        stroke: colors.surface,
+                                                    }
+                                                }}
+                                                bezier
+                                                style={{ borderRadius: 16 }}
+                                            />
+                                        </ScrollView>
+                                        {/* Comparison legend */}
+                                        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, paddingBottom: 10, paddingLeft: 16 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }} />
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Normal</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.secondary }} />
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Underweight</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: OVERWEIGHT_COLOR }} />
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Overweight</Text>
+                                            </View>
                                         </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.secondary }} />
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Underweight</Text>
-                                        </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: OVERWEIGHT_COLOR }} />
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Overweight</Text>
-                                        </View>
-                                    </View>
-                                </>
-                            )}
+                                    </>
+                                );
+                            })()}
                         </View>
 
                         {/* Status Comparison Descriptive Narrative Card */}

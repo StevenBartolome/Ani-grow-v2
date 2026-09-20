@@ -23,6 +23,8 @@ interface DispenseRecord {
     deviceName: string;
     housingId: string | null;
     housingName: string;
+    batchId: string | null;
+    batchName: string | null;
 }
 
 interface HousingOption { id: string; name: string }
@@ -63,6 +65,7 @@ export default function DispenseRecordsScreen() {
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const { deviceId } = useLocalSearchParams<{ deviceId?: string }>();
 
+    const [deviceName, setDeviceName] = useState<string | null>(null);
     const [records, setRecords] = useState<DispenseRecord[]>([]);
     const [housingOptions, setHousingOptions] = useState<HousingOption[]>([]);
     const [loading, setLoading] = useState(true);
@@ -71,6 +74,8 @@ export default function DispenseRecordsScreen() {
     const [filterStatus, setFilterStatus] = useState<StatusFilter>('all');
     const [filterHousingId, setFilterHousingId] = useState<string>('all');
     const [showFilters, setShowFilters] = useState(true);
+
+    const isSpecificDevice = Boolean(deviceId && deviceId !== 'undefined');
 
     const fetchRecords = useCallback(async () => {
         if (!farmId) { setLoading(false); return; }
@@ -90,17 +95,25 @@ export default function DispenseRecordsScreen() {
                 const hId = d.housing_id ?? null;
                 const hName = (d.housings as any)?.name ?? 'Unassigned';
                 deviceMap[d.id] = { name: d.name, housingId: hId, housingName: hName };
-                if (hId && !housingMap[hId]) housingMap[hId] = hName;
+                if (isSpecificDevice) {
+                    if (d.id === deviceId && hId && !housingMap[hId]) housingMap[hId] = hName;
+                } else {
+                    if (hId && !housingMap[hId]) housingMap[hId] = hName;
+                }
             });
+
+            if (isSpecificDevice && deviceMap[deviceId as string]) {
+                setDeviceName(deviceMap[deviceId as string].name);
+            }
 
             setHousingOptions(Object.entries(housingMap).map(([id, name]) => ({ id, name })));
 
             // Scope to specific device if provided, else all farm devices
-            const targetIds = deviceId ? [deviceId as string] : Object.keys(deviceMap);
+            const targetIds = isSpecificDevice ? [deviceId as string] : Object.keys(deviceMap);
 
             const { data, error } = await supabase
                 .from('dispense_records')
-                .select('id, grams_dispensed, status, dispensed_at, device_id, housing_id, housings(id, name)')
+                .select('id, grams_dispensed, status, dispensed_at, device_id, housing_id, batch_id, housings(id, name), batches(id, name)')
                 .in('device_id', targetIds)
                 .order('dispensed_at', { ascending: false })
                 .limit(300);
@@ -114,8 +127,8 @@ export default function DispenseRecordsScreen() {
                 const recordHousingId: string | null = (r.housings as any)?.id ?? r.housing_id ?? null;
                 const recordHousingName: string = (r.housings as any)?.name ?? dev?.housingName ?? 'Unassigned';
 
-                // Also register this housing in the filter options
-                if (recordHousingId && !housingMap[recordHousingId]) {
+                // Also register this housing in the filter options if viewing all devices
+                if (!isSpecificDevice && recordHousingId && !housingMap[recordHousingId]) {
                     housingMap[recordHousingId] = recordHousingName;
                 }
 
@@ -128,10 +141,12 @@ export default function DispenseRecordsScreen() {
                     deviceName: dev?.name ?? 'Unknown Device',
                     housingId: recordHousingId,
                     housingName: recordHousingName,
+                    batchId: r.batch_id ?? null,
+                    batchName: (r.batches as any)?.name ?? null,
                 };
             });
 
-            // Rebuild housing options from actual record data (not just device current state)
+            // Rebuild housing options from actual record data
             setHousingOptions(Object.entries(housingMap).map(([id, name]) => ({ id, name })));
             setRecords(mapped);
         } catch (err) {
@@ -214,7 +229,7 @@ export default function DispenseRecordsScreen() {
                 <View style={{ alignItems: 'center' }}>
                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>Dispense Records</Text>
                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
-                        {isFiltered ? `${filteredRecords.length} of ${records.length} records` : `${records.length} records`}
+                        {deviceName ? `${deviceName} · ` : ''}{isFiltered ? `${filteredRecords.length} of ${records.length} records` : `${records.length} records`}
                     </Text>
                 </View>
                 <TouchableOpacity
@@ -461,11 +476,27 @@ export default function DispenseRecordsScreen() {
 
                                                     {/* Housing + device info */}
                                                     <View style={{ flex: 1, minWidth: 0 }}>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                                                             <MaterialIcons name="home" size={12} color={colors.textGrey} />
                                                             <Text style={{ fontFamily: 'Poppins-Medium', color: colors.text, fontSize: 12.5, flexShrink: 1 }} numberOfLines={1}>
                                                                 {record.housingName}
                                                             </Text>
+                                                            {record.batchName && (
+                                                                <View style={{
+                                                                    flexDirection: 'row',
+                                                                    alignItems: 'center',
+                                                                    gap: 3,
+                                                                    paddingHorizontal: 6,
+                                                                    paddingVertical: 1,
+                                                                    borderRadius: 6,
+                                                                    backgroundColor: '#D9770618',
+                                                                }}>
+                                                                    <MaterialIcons name="layers" size={10} color="#D97706" />
+                                                                    <Text style={{ fontFamily: 'Poppins-Medium', color: '#D97706', fontSize: 10 }}>
+                                                                        {record.batchName}
+                                                                    </Text>
+                                                                </View>
+                                                            )}
                                                         </View>
                                                         <Text style={{ fontFamily: 'Poppins-Regular', color: colors.textGrey, fontSize: 10.5, marginTop: 1 }} numberOfLines={1}>
                                                             {record.deviceName}

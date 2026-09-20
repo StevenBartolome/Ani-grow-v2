@@ -1358,214 +1358,217 @@ export default function VaccineScreen() {
 
             {/* ── Main Add Schedule Modal (Same exact structure & design as ManageHousingsScreen) ── */}
             <Modal visible={showSchModal} transparent animationType="fade" onRequestClose={handleCloseSchModal}>
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        style={{ width: '100%', maxWidth: 340, maxHeight: '90%' }}
-                    >
-                        <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 24, overflow: 'hidden' }}>
-                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
-                                {/* Top Icon */}
-                                <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
-                                    <MaterialIcons name="event" size={32} color={colors.primary} />
-                                </View>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={handleCloseSchModal}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                    />
+                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden' }}>
+                        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+                            {/* Top Icon */}
+                            <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                <MaterialIcons name="event" size={32} color={colors.primary} />
+                            </View>
 
-                                {/* Title & Subtitle */}
-                                <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
-                                    Add Vaccine Schedule
-                                </Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
-                                    Enter details for this vaccination schedule.
-                                </Text>
+                            {/* Title & Subtitle */}
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
+                                Add Vaccine Schedule
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                Enter details for this vaccination schedule.
+                            </Text>
 
-                                {/* Pill-Shaped Form Fields */}
-                                <View style={{ width: '100%', gap: 14 }}>
+                            {/* Pill-Shaped Form Fields */}
+                            <View style={{ width: '100%', gap: 14 }}>
 
-                                    {/* Vaccine Pill Selector */}
-                                    <View style={{ width: '100%' }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.8}
-                                            style={{
-                                                flexDirection: 'row',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                                borderRadius: 30,
-                                                paddingHorizontal: 16,
-                                                height: 58,
-                                                backgroundColor: colors.surface,
-                                            }}
-                                            onPress={() => {
-                                                setShowSchModal(false);
-                                                setVaccineModalVisible(true);
-                                            }}
-                                        >
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                                                <MaterialIcons name="vaccines" size={20} color={colors.primary} style={{ marginRight: 12 }} />
-                                                <Text style={[textStyles.body, { color: schVaccineName ? colors.text : colors.textGrey }]} numberOfLines={1}>
-                                                    {schVaccineName || 'Select Vaccine *'}
-                                                </Text>
-                                            </View>
-                                            <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
-                                        </TouchableOpacity>
-                                    </View>
-
-                                    {/* Housing Pill Selector */}
-                                    <View style={{ width: '100%' }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.8}
-                                            style={{
-                                                flexDirection: 'row',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                                borderRadius: 30,
-                                                paddingHorizontal: 16,
-                                                height: 58,
-                                                backgroundColor: colors.surface,
-                                            }}
-                                            onPress={() => {
-                                                setShowSchModal(false);
-                                                setHousingModalVisible(true);
-                                            }}
-                                        >
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                                                <MaterialIcons name="home" size={20} color={colors.primary} style={{ marginRight: 12 }} />
-                                                <Text style={[textStyles.body, { color: schHousingName ? colors.text : colors.textGrey }]} numberOfLines={1}>
-                                                    {schHousingName || 'Housing / Pen (optional)'}
-                                                </Text>
-                                            </View>
-                                            <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
-                                        </TouchableOpacity>
-                                    </View>
-
-                                    {/* Scheduled Date Pill Selector */}
-                                    <View style={{ width: '100%' }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.8}
-                                            style={{
-                                                flexDirection: 'row',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                                borderRadius: 30,
-                                                paddingHorizontal: 16,
-                                                height: 58,
-                                                backgroundColor: colors.surface,
-                                            }}
-                                            onPress={openDatePickerModal}
-                                        >
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                                                <MaterialIcons name="calendar-today" size={18} color={colors.primary} style={{ marginRight: 12 }} />
-                                                <Text style={[textStyles.body, { color: schDate ? colors.text : colors.textGrey, fontSize: 13, flex: 1 }]}>
-                                                    {dateDisplayValue}
-                                                </Text>
-                                            </View>
-                                            <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
-                                        </TouchableOpacity>
-                                    </View>
-
-                                    {/* Repeat Every (days) Pill Input */}
-                                    <View style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        borderWidth: 1.5,
-                                        borderColor: colors.stroke,
-                                        borderRadius: 30,
-                                        paddingHorizontal: 16,
-                                        height: 58,
-                                        backgroundColor: colors.surface,
-                                    }}>
-                                        <MaterialIcons name="repeat" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
-                                        <TextInput
-                                            value={schInterval}
-                                            onChangeText={(t) => {
-                                                const clean = t.replace(/[^0-9]/g, '');
-                                                setSchInterval(clean);
-                                            }}
-                                            placeholder="Repeat Every (days) — optional"
-                                            placeholderTextColor={colors.textGrey}
-                                            keyboardType="number-pad"
-                                            maxLength={4}
-                                            style={[textStyles.body, { flex: 1, color: colors.text, fontSize: 14, padding: 0 }]}
-                                        />
-                                        {schInterval ? (
-                                            <TouchableOpacity onPress={() => setSchInterval('')}>
-                                                <MaterialIcons name="close" size={18} color={colors.textGrey} />
-                                            </TouchableOpacity>
-                                        ) : null}
-                                    </View>
-
-                                    {/* Notes / Instructions Pill Input */}
-                                    <View style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        borderWidth: 1.5,
-                                        borderColor: colors.stroke,
-                                        borderRadius: 30,
-                                        paddingHorizontal: 16,
-                                        height: 58,
-                                        backgroundColor: colors.surface,
-                                        marginBottom: 10,
-                                    }}>
-                                        <MaterialIcons name="notes" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
-                                        <TextInput
-                                            value={schNotes}
-                                            onChangeText={setSchNotes}
-                                            placeholder="Notes / instructions — optional"
-                                            placeholderTextColor={colors.textGrey}
-                                            style={[textStyles.body, { flex: 1, color: colors.text, fontSize: 14, padding: 0 }]}
-                                        />
-                                    </View>
-                                </View>
-
-                                {/* Bottom Action Buttons */}
-                                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                {/* Vaccine Pill Selector */}
+                                <View style={{ width: '100%' }}>
                                     <TouchableOpacity
+                                        activeOpacity={0.8}
                                         style={{
-                                            flex: 1,
-                                            backgroundColor: colors.cardFill,
-                                            paddingVertical: 14,
-                                            borderRadius: 30,
-                                            alignItems: 'center',
-                                        }}
-                                        onPress={handleCloseSchModal}
-                                        activeOpacity={0.7}
-                                    >
-                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={{
-                                            flex: 1,
-                                            backgroundColor: isSaveDisabled ? colors.cardFill : colors.primary,
-                                            paddingVertical: 14,
-                                            borderRadius: 30,
-                                            alignItems: 'center',
                                             flexDirection: 'row',
-                                            justifyContent: 'center',
-                                            gap: 6,
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                            borderRadius: 30,
+                                            paddingHorizontal: 16,
+                                            height: 58,
+                                            backgroundColor: colors.surface,
                                         }}
-                                        onPress={handleAddSchedule}
-                                        disabled={isSaveDisabled}
-                                        activeOpacity={isSaveDisabled ? 1 : 0.7}
+                                        onPress={() => {
+                                            setShowSchModal(false);
+                                            setVaccineModalVisible(true);
+                                        }}
                                     >
-                                        {savingSch ? (
-                                            <ActivityIndicator size="small" color="#FFF" />
-                                        ) : (
-                                            <Text style={[textStyles.h3, { color: isSaveDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>
-                                                Save
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                            <MaterialIcons name="vaccines" size={20} color={colors.primary} style={{ marginRight: 12 }} />
+                                            <Text style={[textStyles.body, { color: schVaccineName ? colors.text : colors.textGrey }]} numberOfLines={1}>
+                                                {schVaccineName || 'Select Vaccine *'}
                                             </Text>
-                                        )}
+                                        </View>
+                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
                                     </TouchableOpacity>
                                 </View>
-                            </ScrollView>
-                        </View>
-                    </KeyboardAvoidingView>
-                </View>
+
+                                {/* Housing Pill Selector */}
+                                <View style={{ width: '100%' }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                            borderRadius: 30,
+                                            paddingHorizontal: 16,
+                                            height: 58,
+                                            backgroundColor: colors.surface,
+                                        }}
+                                        onPress={() => {
+                                            setShowSchModal(false);
+                                            setHousingModalVisible(true);
+                                        }}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                            <MaterialIcons name="home" size={20} color={colors.primary} style={{ marginRight: 12 }} />
+                                            <Text style={[textStyles.body, { color: schHousingName ? colors.text : colors.textGrey }]} numberOfLines={1}>
+                                                {schHousingName || 'Housing / Pen (optional)'}
+                                            </Text>
+                                        </View>
+                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Scheduled Date Pill Selector */}
+                                <View style={{ width: '100%' }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                            borderRadius: 30,
+                                            paddingHorizontal: 16,
+                                            height: 58,
+                                            backgroundColor: colors.surface,
+                                        }}
+                                        onPress={openDatePickerModal}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                            <MaterialIcons name="calendar-today" size={18} color={colors.primary} style={{ marginRight: 12 }} />
+                                            <Text style={[textStyles.body, { color: schDate ? colors.text : colors.textGrey, fontSize: 13, flex: 1 }]}>
+                                                {dateDisplayValue}
+                                            </Text>
+                                        </View>
+                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Repeat Every (days) Pill Input */}
+                                <View style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    borderWidth: 1.5,
+                                    borderColor: colors.stroke,
+                                    borderRadius: 30,
+                                    paddingHorizontal: 16,
+                                    height: 58,
+                                    backgroundColor: colors.surface,
+                                }}>
+                                    <MaterialIcons name="repeat" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
+                                    <TextInput
+                                        value={schInterval}
+                                        onChangeText={(t) => {
+                                            const clean = t.replace(/[^0-9]/g, '');
+                                            setSchInterval(clean);
+                                        }}
+                                        placeholder="Repeat Every (days) — optional"
+                                        placeholderTextColor={colors.textGrey}
+                                        keyboardType="number-pad"
+                                        maxLength={4}
+                                        style={[textStyles.body, { flex: 1, color: colors.text, fontSize: 14, padding: 0 }]}
+                                    />
+                                    {schInterval ? (
+                                        <TouchableOpacity onPress={() => setSchInterval('')}>
+                                            <MaterialIcons name="close" size={18} color={colors.textGrey} />
+                                        </TouchableOpacity>
+                                    ) : null}
+                                </View>
+
+                                {/* Notes / Instructions Pill Input */}
+                                <View style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    borderWidth: 1.5,
+                                    borderColor: colors.stroke,
+                                    borderRadius: 30,
+                                    paddingHorizontal: 16,
+                                    height: 58,
+                                    backgroundColor: colors.surface,
+                                    marginBottom: 10,
+                                }}>
+                                    <MaterialIcons name="notes" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
+                                    <TextInput
+                                        value={schNotes}
+                                        onChangeText={setSchNotes}
+                                        placeholder="Notes / instructions — optional"
+                                        placeholderTextColor={colors.textGrey}
+                                        style={[textStyles.body, { flex: 1, color: colors.text, fontSize: 14, padding: 0 }]}
+                                    />
+                                </View>
+                            </View>
+
+                            {/* Bottom Action Buttons */}
+                            <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: colors.cardFill,
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center',
+                                    }}
+                                    onPress={handleCloseSchModal}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: isSaveDisabled ? colors.cardFill : colors.primary,
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center',
+                                        flexDirection: 'row',
+                                        justifyContent: 'center',
+                                        gap: 6,
+                                    }}
+                                    onPress={handleAddSchedule}
+                                    disabled={isSaveDisabled}
+                                    activeOpacity={isSaveDisabled ? 1 : 0.7}
+                                >
+                                    {savingSch ? (
+                                        <ActivityIndicator size="small" color="#FFF" />
+                                    ) : (
+                                        <Text style={[textStyles.h3, { color: isSaveDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>
+                                            Save
+                                        </Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* ── Selection Modal: Vaccine (Native AniGrow SelectionModal) ── */}

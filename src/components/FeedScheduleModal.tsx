@@ -296,12 +296,20 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                 }
             }}
         >
-            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={{ width: '100%', maxWidth: 360, maxHeight: '90%' }}
-                >
-                    <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 22, overflow: 'hidden', position: 'relative' }}>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+            >
+                <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={() => {
+                        Keyboard.dismiss();
+                        setView('schedule');
+                        onClose();
+                    }}
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                />
+                <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden', position: 'relative' }}>
                         {/* Close button */}
                         <TouchableOpacity
                             style={{ position: 'absolute', top: 16, right: 16, padding: 6, zIndex: 10 }}
@@ -813,7 +821,6 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                         )}
                     </View>
                 </KeyboardAvoidingView>
-            </View>
         </Modal>
     );
 }

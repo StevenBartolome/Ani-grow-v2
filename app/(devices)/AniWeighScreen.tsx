@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Platform, RefreshControl, ScrollView, Switch, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Modal, Platform, RefreshControl, ScrollView, Switch, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,7 +9,6 @@ import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import ActionModal, { ActionModalType } from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
-import FloatingLabelInput from '@/components/FloatingLabelInput';
 import { SelectionModal } from '@/components/SelectionModal';
 import FeedScheduleModal from '@/components/FeedScheduleModal';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
@@ -29,6 +28,12 @@ import {
     WeighingReminderConfig,
     ReminderMode,
 } from '@/lib/weighingReminders';
+import {
+    fetchTargetWeights,
+    getStandardForWeek,
+    GrowthStandard,
+    AnimalType as StandardAnimalType,
+} from '@/constants/growthStandards';
 
 interface DeviceInfo {
     name: string;
@@ -162,12 +167,36 @@ export default function AniWeighScreen() {
     const [statsExpanded, setStatsExpanded] = useState(false);
     const [farmHousings, setFarmHousings] = useState<{ id: string; name: string; animal_type: string; farm_id?: string }[]>([]);
 
-    // Range settings modal
+    // Range settings modal (Read-Only)
     const [rangeSettingsVisible, setRangeSettingsVisible] = useState(false);
-    const [tempUnderweight, setTempUnderweight] = useState('0.8');
-    const [tempOverweight, setTempOverweight] = useState('1.5');
     const [rangeUnit, setRangeUnit] = useState<'kg' | 'g'>('kg');
-    const [tempRangeUnit, setTempRangeUnit] = useState<'kg' | 'g'>('kg');
+    const [activeRearingWeek, setActiveRearingWeek] = useState<number>(1);
+    const [activeWeekStandard, setActiveWeekStandard] = useState<GrowthStandard | null>(null);
+
+    // Range modal animation
+    const rangeBackdropAnim = useRef(new Animated.Value(0)).current;
+    const rangeSheetAnim = useRef(new Animated.Value(300)).current;
+
+    useEffect(() => {
+        if (rangeSettingsVisible) {
+            Animated.parallel([
+                Animated.timing(rangeBackdropAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
+                Animated.spring(rangeSheetAnim, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 180 }),
+            ]).start();
+        }
+    }, [rangeSettingsVisible]);
+
+    const closeRangeModal = (callback?: () => void) => {
+        Animated.parallel([
+            Animated.timing(rangeBackdropAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
+            Animated.timing(rangeSheetAnim, { toValue: 300, duration: 220, useNativeDriver: true }),
+        ]).start(() => {
+            setRangeSettingsVisible(false);
+            rangeSheetAnim.setValue(300);
+            rangeBackdropAnim.setValue(0);
+            callback?.();
+        });
+    };
 
     // Edit modal
     const [editModalVisible, setEditModalVisible] = useState(false);
@@ -410,6 +439,7 @@ export default function AniWeighScreen() {
                 setIsConnected(getDeviceDisplayStatus(info.status, info.lastSeen) === 'online');
 
                 // Fetch batches for this housing if assigned
+                let currentBatchList: any[] = [];
                 if (info.housingId) {
                     const { data: batchesData } = await supabase
                         .from('batches')
@@ -419,10 +449,11 @@ export default function AniWeighScreen() {
                         .order('created_at', { ascending: false });
                     
                     if (batchesData) {
-                        setHousingBatches(batchesData as any[]);
+                        currentBatchList = batchesData as any[];
+                        setHousingBatches(currentBatchList);
                         setSelectedBatchId(prev => {
-                            const stillExists = (batchesData as any[]).some(b => b.id === prev);
-                            return stillExists ? prev : (batchesData[0]?.id ?? null);
+                            const stillExists = currentBatchList.some(b => b.id === prev);
+                            return stillExists ? prev : (currentBatchList[0]?.id ?? null);
                         });
                     } else {
                         setHousingBatches([]);
@@ -433,23 +464,78 @@ export default function AniWeighScreen() {
                     setSelectedBatchId(null);
                 }
 
-                // Fetch weight threshold for this device + animal type
-                const { data: threshData } = await supabase
-                    .from('weight_thresholds')
-                    .select('*')
-                    .eq('device_id', deviceId)
-                    .eq('animal_type', info.animalType.toLowerCase())
-                    .maybeSingle();
+                // Determine active batch to resolve rearing week from harvest/arrival date
+                const activeBatch = currentBatchList.find(b => b.id === selectedBatchId) || currentBatchList[0] || null;
+                let resolvedWeek = 1;
+                if (activeBatch?.arrival_date) {
+                    const arr = new Date(activeBatch.arrival_date);
+                    const now = new Date();
+                    arr.setHours(0, 0, 0, 0);
+                    now.setHours(0, 0, 0, 0);
+                    const diffDays = Math.floor((now.getTime() - arr.getTime()) / (1000 * 60 * 60 * 24));
+                    const ageDays = Math.max(0, diffDays) + (activeBatch.age_at_arrival_days || 0);
+                    resolvedWeek = Math.max(1, Math.ceil(ageDays / 7));
+                }
+                setActiveRearingWeek(resolvedWeek);
 
-                if (threshData) {
-                    const t = threshData as any;
-                    setThreshold({ id: t.id, underweightMaxGrams: t.underweight_max_grams, normalMinGrams: t.normal_min_grams, normalMaxGrams: t.normal_max_grams, overweightMinGrams: t.overweight_min_grams });
-                    const ukg = (t.underweight_max_grams / 1000).toFixed(2);
-                    const okg = (t.overweight_min_grams / 1000).toFixed(2);
-                    setTempUnderweight(ukg);
-                    setTempOverweight(okg);
-                    setRangeUnit('kg');
-                    setTempRangeUnit('kg');
+                // Automatically resolve standards from Target Weight Standards
+                const effectiveAnimal: StandardAnimalType = (info.animalType === 'Pig' || info.animalType === 'Piglet') ? 'pig' : 'chicken';
+                const farmStds = await fetchTargetWeights(farmId, effectiveAnimal);
+                const weekStd = getStandardForWeek(effectiveAnimal, resolvedWeek, farmStds);
+                setActiveWeekStandard(weekStd);
+
+                const finalUnder = Math.round(weekStd.underweight_max_grams);
+                const finalOver = Math.round(weekStd.overweight_min_grams);
+
+                // Automatically update weight_thresholds in Supabase and sync to device
+                try {
+                    const threshPayload = {
+                        device_id: deviceId,
+                        farm_id: farmId || null,
+                        animal_type: info.animalType.toLowerCase(),
+                        underweight_max_grams: finalUnder,
+                        normal_min_grams: finalUnder + 1,
+                        normal_max_grams: finalOver - 1,
+                        overweight_min_grams: finalOver,
+                        updated_at: new Date().toISOString(),
+                    };
+
+                    const { data: existingThresh } = await supabase
+                        .from('weight_thresholds')
+                        .select('id')
+                        .eq('device_id', deviceId)
+                        .eq('animal_type', info.animalType.toLowerCase())
+                        .maybeSingle();
+
+                    let thresholdId: string | null = null;
+                    if (existingThresh?.id) {
+                        thresholdId = existingThresh.id;
+                        await supabase.from('weight_thresholds').update(threshPayload).eq('id', thresholdId);
+                    } else {
+                        const { data: newThresh } = await supabase.from('weight_thresholds').insert(threshPayload).select('id').single();
+                        thresholdId = (newThresh as any)?.id ?? null;
+                    }
+
+                    setThreshold({
+                        id: thresholdId,
+                        underweightMaxGrams: finalUnder,
+                        normalMinGrams: finalUnder + 1,
+                        normalMaxGrams: finalOver - 1,
+                        overweightMinGrams: finalOver,
+                    });
+
+                    if (d.unique_code) {
+                        syncThresholdToDevice(d.unique_code, finalUnder / 1000, finalOver / 1000).catch(console.warn);
+                    }
+                } catch (threshErr) {
+                    console.warn('[AniWeigh] Auto-updating threshold error:', threshErr);
+                    setThreshold({
+                        id: null,
+                        underweightMaxGrams: finalUnder,
+                        normalMinGrams: finalUnder + 1,
+                        normalMaxGrams: finalOver - 1,
+                        overweightMinGrams: finalOver,
+                    });
                 }
 
                 // Fetch recent sessions for this device and selected batch
@@ -930,13 +1016,8 @@ export default function AniWeighScreen() {
         }
     };
 
-    // ─── Range settings ───────────────────────────────────────────
+    // ─── Range settings (Read-Only) ────────────────────────────────
     const openRangeSettings = () => {
-        const uVal = threshold ? (rangeUnit === 'kg' ? threshold.underweightMaxGrams / 1000 : threshold.underweightMaxGrams).toFixed(2) : '0.8';
-        const oVal = threshold ? (rangeUnit === 'kg' ? threshold.overweightMinGrams / 1000  : threshold.overweightMinGrams).toFixed(2) : '1.5';
-        setTempUnderweight(uVal);
-        setTempOverweight(oVal);
-        setTempRangeUnit(rangeUnit);
         setRangeSettingsVisible(true);
     };
 
@@ -1133,50 +1214,6 @@ export default function AniWeighScreen() {
         if (controlAction === 'stop') handleStopDevice();
         else if (controlAction === 'reset') handleResetDevice();
         setControlAction(null);
-    };
-
-    const handleSaveRanges = async () => {
-        const under = parseFloat(tempUnderweight);
-        const over  = parseFloat(tempOverweight);
-        if (isNaN(under) || isNaN(over) || under >= over) {
-            showSnackbar('Underweight max must be less than overweight min.', 'error');
-            return;
-        }
-        const toGrams = (v: number) => Math.round(tempRangeUnit === 'kg' ? v * 1000 : v);
-        const underGrams = toGrams(under);
-        const overGrams  = toGrams(over);
-        const payload = {
-            device_id: deviceId,
-            farm_id: farmId,
-            animal_type: animalType.toLowerCase(),
-            underweight_max_grams: underGrams,
-            normal_min_grams: underGrams + 1,
-            normal_max_grams: overGrams - 1,
-            overweight_min_grams: overGrams,
-            updated_at: new Date().toISOString(),
-        };
-        try {
-            if (threshold?.id) {
-                const { error } = await supabase.from('weight_thresholds').update(payload).eq('id', threshold.id);
-                if (error) throw error;
-                setThreshold(prev => prev ? { ...prev, underweightMaxGrams: underGrams, normalMinGrams: underGrams + 1, normalMaxGrams: overGrams - 1, overweightMinGrams: overGrams } : null);
-            } else {
-                const { data, error } = await supabase.from('weight_thresholds').insert(payload).select('id').single();
-                if (error) throw error;
-                setThreshold({ id: (data as any)?.id ?? null, underweightMaxGrams: underGrams, normalMinGrams: underGrams + 1, normalMaxGrams: overGrams - 1, overweightMinGrams: overGrams });
-            }
-            setRangeUnit(tempRangeUnit);
-            setRangeSettingsVisible(false);
-            showSnackbar(`Weight range updated (${tempRangeUnit}).`);
-
-            // Synchronize with physical device (underGrams and overGrams divided by 1000 as board uses kg)
-            const underKg = underGrams / 1000;
-            const overKg = overGrams / 1000;
-            await syncThresholdToDevice(deviceUniqueCode, underKg, overKg);
-        } catch (err) {
-            console.error('[handleSaveRanges] error:', err);
-            showSnackbar('Failed to save weight range.', 'error');
-        }
     };
 
     // ─── Edit modal (Housing / Animal Type / Batch) ─────────────────────
@@ -2274,47 +2311,234 @@ export default function AniWeighScreen() {
                 isLoading={isFinishingSession}
             />
 
-            {/* Range settings modal */}
-            <Modal visible={rangeSettingsVisible} transparent animationType="fade">
-                <View style={[aniweighStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
-                    <View style={[aniweighStyles.modalContent, { backgroundColor: colors.surface, maxWidth: 340, padding: 24, borderRadius: 24, alignItems: 'center' }]}>
-                        <View style={[aniweighStyles.iconContainer, { backgroundColor: colors.primary + '1A' }]}>
-                            <MaterialIcons name="tune" size={32} color={colors.primary} />
-                        </View>
-                        <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
-                            Weight Range ({isPigMode ? 'Pig' : 'Chicken'})
-                        </Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 16 }]}>
-                            Set weight thresholds for segregation status.
-                        </Text>
-
-                        <TouchableOpacity
-                            activeOpacity={0.7}
-                            style={[aniweighStyles.unitToggle, { backgroundColor: colors.bgLight, borderColor: colors.stroke, marginBottom: 24, alignSelf: 'center', position: 'relative', top: 0, right: 0 }]}
-                            onPress={() => setTempRangeUnit(tempRangeUnit === 'kg' ? 'g' : 'kg')}
+            {/* Range settings modal — Read Only */}
+            <Modal
+                visible={rangeSettingsVisible}
+                transparent
+                animationType="none"
+                onRequestClose={() => closeRangeModal()}
+            >
+                <Animated.View
+                    style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)', opacity: rangeBackdropAnim }}
+                >
+                    <TouchableOpacity
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        activeOpacity={1}
+                        onPress={() => closeRangeModal()}
+                    />
+                    <Animated.View style={{ transform: [{ translateY: rangeSheetAnim }] }}>
+                        <ScrollView
+                            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+                            contentContainerStyle={{ padding: 24, paddingBottom: Math.max(insets.bottom + 8, 24) }}
+                            showsVerticalScrollIndicator={false}
+                            bounces={false}
                         >
-                            <Text style={[textStyles.label, { color: tempRangeUnit === 'kg' ? colors.primary : colors.textGrey, paddingHorizontal: 12, paddingVertical: 4 }]}>KG</Text>
-                            <View style={{ width: 1, height: 16, backgroundColor: colors.stroke }} />
-                            <Text style={[textStyles.label, { color: tempRangeUnit === 'g' ? colors.primary : colors.textGrey, paddingHorizontal: 12, paddingVertical: 4 }]}>GRAMS</Text>
-                        </TouchableOpacity>
+                            {/* Handle bar */}
+                            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginBottom: 20 }} />
 
-                        <View style={{ width: '100%', marginBottom: 0 }}>
-                            <FloatingLabelInput label={`Underweight Max (${tempRangeUnit})`} icon="scale" value={tempUnderweight} onChangeText={setTempUnderweight} keyboardType="numeric" backgroundColor={colors.surface} />
-                        </View>
-                        <View style={{ width: '100%', marginBottom: 8 }}>
-                            <FloatingLabelInput label={`Overweight Min (${tempRangeUnit})`} icon="scale" value={tempOverweight} onChangeText={setTempOverweight} keyboardType="numeric" backgroundColor={colors.surface} />
-                        </View>
+                            {/* Header row */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                    <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center' }}>
+                                        <MaterialIcons name="monitor-weight" size={22} color={colors.primary} />
+                                    </View>
+                                    <View>
+                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 17 }]}>Weight Range</Text>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 1 }]}>
+                                            {isPigMode ? 'Pig' : 'Chicken'}
+                                        </Text>
+                                    </View>
+                                </View>
+                                {/* Unit toggle */}
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    style={{
+                                        flexDirection: 'row', alignItems: 'center',
+                                        backgroundColor: colors.bgLight, borderRadius: 8,
+                                        borderWidth: 1, borderColor: colors.stroke,
+                                        overflow: 'hidden',
+                                    }}
+                                    onPress={() => setRangeUnit(rangeUnit === 'kg' ? 'g' : 'kg')}
+                                >
+                                    <Text style={[textStyles.label, { color: rangeUnit === 'kg' ? colors.primary : colors.textGrey, paddingHorizontal: 10, paddingVertical: 5, fontSize: 12 }]}>KG</Text>
+                                    <View style={{ width: 1, height: 14, backgroundColor: colors.stroke }} />
+                                    <Text style={[textStyles.label, { color: rangeUnit === 'g' ? colors.primary : colors.textGrey, paddingHorizontal: 10, paddingVertical: 5, fontSize: 12 }]}>GRAMS</Text>
+                                </TouchableOpacity>
+                            </View>
 
-                        <View style={[aniweighStyles.actionContainer, { width: '100%' }]}>
-                            <TouchableOpacity style={[aniweighStyles.btn, { backgroundColor: colors.cardFill }]} onPress={() => setRangeSettingsVisible(false)} activeOpacity={0.7}>
-                                <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                            {/* Week Benchmark card */}
+                            <View style={{
+                                backgroundColor: colors.primary + '10',
+                                borderRadius: 14,
+                                padding: 14,
+                                marginTop: 16,
+                                marginBottom: 12,
+                                borderWidth: 1,
+                                borderColor: colors.primary + '30',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                            }}>
+                                <View>
+                                    <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, letterSpacing: 0.5 }]}>REARING WEEK</Text>
+                                    <Text style={[textStyles.h1, { color: colors.primary, fontSize: 28, lineHeight: 34 }]}>
+                                        Week {activeRearingWeek}
+                                    </Text>
+                                </View>
+                                <View style={{ alignItems: 'flex-end' }}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, letterSpacing: 0.5 }]}>TARGET WEIGHT</Text>
+                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>
+                                        {activeWeekStandard
+                                            ? rangeUnit === 'kg'
+                                                ? `${(activeWeekStandard.target_weight_grams / 1000).toFixed(2)} kg`
+                                                : `${Math.round(activeWeekStandard.target_weight_grams)} g`
+                                            : '—'
+                                        }
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {/* Segregation zones */}
+                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, letterSpacing: 0.5, marginBottom: 8 }]}>SEGREGATION ZONES</Text>
+                            <View style={{ gap: 8 }}>
+                                {/* Underweight */}
+                                <View style={{
+                                    backgroundColor: colors.warning + '15',
+                                    borderRadius: 12,
+                                    padding: 14,
+                                    borderWidth: 1,
+                                    borderColor: colors.warning + '35',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                        <MaterialIcons name="arrow-downward" size={18} color={colors.warning} />
+                                        <Text style={[textStyles.h3, { color: colors.warning, fontSize: 14 }]}>Underweight</Text>
+                                    </View>
+                                    <Text style={[textStyles.h3, { color: colors.warning, fontSize: 14 }]}>
+                                        {'< '}
+                                        {threshold
+                                            ? rangeUnit === 'kg'
+                                                ? `${(threshold.underweightMaxGrams / 1000).toFixed(2)} kg`
+                                                : `${Math.round(threshold.underweightMaxGrams)} g`
+                                            : '—'
+                                        }
+                                    </Text>
+                                </View>
+
+                                {/* Normal */}
+                                <View style={{
+                                    backgroundColor: colors.success + '15',
+                                    borderRadius: 12,
+                                    padding: 14,
+                                    borderWidth: 1,
+                                    borderColor: colors.success + '35',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                        <MaterialIcons name="check-circle" size={18} color={colors.success} />
+                                        <Text style={[textStyles.h3, { color: colors.success, fontSize: 14 }]}>Normal Range</Text>
+                                    </View>
+                                    <Text style={[textStyles.h3, { color: colors.success, fontSize: 14 }]}>
+                                        {threshold
+                                            ? rangeUnit === 'kg'
+                                                ? `${(threshold.underweightMaxGrams / 1000).toFixed(2)} – ${(threshold.overweightMinGrams / 1000).toFixed(2)} kg`
+                                                : `${Math.round(threshold.underweightMaxGrams)} – ${Math.round(threshold.overweightMinGrams)} g`
+                                            : '—'
+                                        }
+                                    </Text>
+                                </View>
+
+                                {/* Overweight */}
+                                <View style={{
+                                    backgroundColor: colors.error + '15',
+                                    borderRadius: 12,
+                                    padding: 14,
+                                    borderWidth: 1,
+                                    borderColor: colors.error + '35',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                        <MaterialIcons name="arrow-upward" size={18} color={colors.error} />
+                                        <Text style={[textStyles.h3, { color: colors.error, fontSize: 14 }]}>Overweight</Text>
+                                    </View>
+                                    <Text style={[textStyles.h3, { color: colors.error, fontSize: 14 }]}>
+                                        {'> '}
+                                        {threshold
+                                            ? rangeUnit === 'kg'
+                                                ? `${(threshold.overweightMinGrams / 1000).toFixed(2)} kg`
+                                                : `${Math.round(threshold.overweightMinGrams)} g`
+                                            : '—'
+                                        }
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {/* Info note */}
+                            <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'flex-start',
+                                gap: 8,
+                                backgroundColor: colors.bgLight,
+                                borderRadius: 10,
+                                padding: 12,
+                                marginTop: 14,
+                                borderWidth: 1,
+                                borderColor: colors.stroke,
+                            }}>
+                                <MaterialIcons name="info-outline" size={16} color={colors.textGrey} style={{ marginTop: 1 }} />
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, flex: 1, lineHeight: 18 }]}>
+                                    Weight ranges are automatically set each time the device is opened, based on the active batch rearing week and your farm's target weight standards.
+                                </Text>
+                            </View>
+
+                            {/* Manage standards link */}
+                            <TouchableOpacity
+                                onPress={() => {
+                                    closeRangeModal(() => router.push('/(animals)/TargetWeightScreen' as any));
+                                }}
+                                activeOpacity={0.7}
+                                style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                    marginTop: 12,
+                                    paddingVertical: 12,
+                                    borderRadius: 12,
+                                    borderWidth: 1,
+                                    borderColor: colors.primary + '50',
+                                    backgroundColor: colors.primary + '08',
+                                }}
+                            >
+                                <MaterialIcons name="open-in-new" size={16} color={colors.primary} />
+                                <Text style={[textStyles.label, { color: colors.primary, fontSize: 13 }]}>
+                                    Manage Target Weight Standards
+                                </Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={[aniweighStyles.btn, { backgroundColor: colors.primary }]} onPress={handleSaveRanges} activeOpacity={0.7}>
-                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Save</Text>
+
+                            {/* Close */}
+                            <TouchableOpacity
+                                style={{
+                                    marginTop: 12,
+                                    paddingVertical: 14,
+                                    borderRadius: 12,
+                                    backgroundColor: colors.cardFill,
+                                    alignItems: 'center',
+                                }}
+                                onPress={() => closeRangeModal()}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 15 }]}>Close</Text>
                             </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
+                        </ScrollView>
+                    </Animated.View>
+                </Animated.View>
             </Modal>
 
             {/* Edit Animal Type / Housing */}

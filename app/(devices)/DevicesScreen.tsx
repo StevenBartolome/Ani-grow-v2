@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { ActivityIndicator, Alert, Animated, AppState, AppStateStatus, Platform, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -263,21 +264,52 @@ export default function DevicesScreen() {
         try {
             const { data, error } = await supabase
                 .from('devices')
-                .select('id, name, unique_code, type, status, last_seen, housings(animal_type)')
+                .select('id, name, unique_code, type, status, last_seen, housing_id, housings(id, animal_type)')
                 .eq('farm_id', farmId)
                 .order('name', { ascending: true });
             if (error) throw error;
 
-            const mapped: RegisteredDevice[] = (data ?? []).map((d: any) => ({
-                id: d.id,
-                name: d.name,
-                unique_code: d.unique_code ?? '',
-                status: d.status ?? 'offline',
-                lastSeen: d.last_seen ?? null,
-                type: d.type === 'anifeed' ? 'AniFeed' : 'AniWeigh',
-                animalType: d.housings?.animal_type === 'pig' ? 'Pig' :
-                    d.housings?.animal_type === 'chicken' ? 'Chicken' : undefined,
-            }));
+            const devicesList = data ?? [];
+
+            // Read temp_animal_type overrides from AsyncStorage in parallel
+            const tempTypeEntries = await Promise.all(
+                devicesList.map(async (d: any) => {
+                    try {
+                        const temp = await AsyncStorage.getItem(`temp_animal_type_${d.id}`);
+                        return [d.id, temp] as [string, string | null];
+                    } catch (_) {
+                        return [d.id, null] as [string, string | null];
+                    }
+                })
+            );
+            const tempTypeMap = new Map(tempTypeEntries);
+
+            const mapped: RegisteredDevice[] = devicesList.map((d: any) => {
+                const housingObj = Array.isArray(d.housings) ? d.housings[0] : d.housings;
+                const dbType = housingObj?.animal_type?.toLowerCase();
+                const tempType = tempTypeMap.get(d.id);
+
+                let resolvedType: 'Pig' | 'Chicken' | undefined = undefined;
+                if (tempType === 'Pig' || tempType === 'Piglet') {
+                    resolvedType = 'Pig';
+                } else if (tempType === 'Chicken' || tempType === 'Chicks' || tempType === 'Chicks (with caution: must be in crate)') {
+                    resolvedType = 'Chicken';
+                } else if (dbType === 'pig') {
+                    resolvedType = 'Pig';
+                } else if (dbType === 'chicken') {
+                    resolvedType = 'Chicken';
+                }
+
+                return {
+                    id: d.id,
+                    name: d.name,
+                    unique_code: d.unique_code ?? '',
+                    status: d.status ?? 'offline',
+                    lastSeen: d.last_seen ?? null,
+                    type: d.type === 'anifeed' ? 'AniFeed' : 'AniWeigh',
+                    animalType: resolvedType,
+                };
+            });
             setDevices(mapped);
             devicesLoadedRef.current = true;
 
@@ -319,6 +351,7 @@ export default function DevicesScreen() {
         const channel = supabase
             .channel(`devices-live-sync-${farmId}-${Date.now()}`)
             .on('postgres_changes', { event: '*', schema: 'public', table: 'devices', filter: `farm_id=eq.${farmId}` }, triggerSync)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'housings', filter: `farm_id=eq.${farmId}` }, triggerSync)
             .subscribe();
 
         return () => {
