@@ -27,6 +27,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
+import { getStandardForWeek } from '@/constants/growthStandards';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
 import { useAnimalStyles } from '@/styles/animalStyles';
 
@@ -38,6 +39,8 @@ interface HousingInfo {
     animal_type: string;
     status: string;
     current_count: number;
+    farm_id?: string;
+    farms?: { id?: string; name?: string } | null;
 }
 
 interface BatchInfo {
@@ -49,14 +52,31 @@ interface BatchInfo {
     age_at_arrival_days: number;
     status: string;
     housing_id: string;
+    housings?: {
+        farm_id?: string;
+        farms?: { id?: string; name?: string } | null;
+    } | null;
 }
 
 interface WeighSession {
     id: string;
     net_weight_grams: number;
     status: 'underweight' | 'normal' | 'overweight';
+    animal_type?: 'pig' | 'chicken';
     recorded_at: string;
     batch_id: string;
+    weighing_session_id?: string | null;
+}
+
+interface WeighingSessionEnvelope {
+    id: string;
+    farm_day: number | null;
+    weigh_mode: string;
+    expected_quantity: number;
+    completed_quantity: number;
+    status: string;
+    created_at: string;
+    completed_at: string | null;
 }
 
 interface HealthRecord {
@@ -72,6 +92,12 @@ const HARVEST_TARGET_KG: Record<string, number> = {
     pig: 95,      // Market-ready finisher pig (synced with web)
     chicken: 2.2, // Market-ready broiler chicken (synced with web)
 };
+
+function getOrdinal(n: number): string {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 function formatDate(d: Date | null | undefined): string {
     if (!d || !(d instanceof Date) || isNaN(d.getTime())) return '—';
@@ -116,6 +142,7 @@ export default function PredictionReportScreen() {
     const [allBatches, setAllBatches] = useState<BatchInfo[]>([]);
     const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
     const [weighSessions, setWeighSessions] = useState<WeighSession[]>([]);
+    const [weighingSessionEnvelopes, setWeighingSessionEnvelopes] = useState<WeighingSessionEnvelope[]>([]);
     const [healthRecords, setHealthRecords] = useState<HealthRecord[]>([]);
     const [timeframe, setTimeframe] = useState<'30 Days' | '60 Days'>('30 Days');
 
@@ -144,7 +171,7 @@ export default function PredictionReportScreen() {
 
     const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId) ?? null;
 
-    // ─── Data Fetching ───────────────────────────────────────────────────────
+    // ─── Data Fetching (Synchronized with GrowthReportScreen) ─────────────────
     const fetchReportMetadata = useCallback(async () => {
         if (!farmId) {
             setIsLoading(false);
@@ -155,13 +182,13 @@ export default function PredictionReportScreen() {
             const [housingsRes, batchesRes, farmRes] = await Promise.all([
                 supabase
                     .from('housings')
-                    .select('id, name, animal_type, status, current_count')
+                    .select('id, name, animal_type, status, current_count, farm_id, farms(id, name)')
                     .eq('farm_id', farmId)
                     .eq('status', 'Active')
                     .order('name', { ascending: true }),
                 supabase
                     .from('batches')
-                    .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id)')
+                    .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id, farms(id, name))')
                     .eq('housings.farm_id', farmId)
                     .eq('status', 'active') // sold/completed batches shouldn't clutter this picker
                     .order('arrival_date', { ascending: false }),
@@ -198,13 +225,24 @@ export default function PredictionReportScreen() {
                 setSelectedHousingId(requestedBatch.housing_id);
                 setSelectedBatchId(requestedBatch.id);
 
-                const [reqWeighRes, reqHealthRes] = await Promise.all([
-                    supabase.from('weigh_sessions').select('id, net_weight_grams, status, recorded_at, batch_id')
-                        .eq('batch_id', requestedBatch.id).order('recorded_at', { ascending: true }),
-                    supabase.from('health_records').select('id, record_type, affected_count, record_date')
-                        .eq('batch_id', requestedBatch.id).is('deleted_at', null),
+                const [reqWeighRes, reqEnvRes, reqHealthRes] = await Promise.all([
+                    supabase.from('weigh_sessions')
+                        .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id, weighing_session_id')
+                        .eq('batch_id', requestedBatch.id)
+                        .neq('status', 'invalid')
+                        .order('recorded_at', { ascending: true }),
+                    supabase.from('weighing_sessions')
+                        .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
+                        .eq('batch_id', requestedBatch.id)
+                        .eq('status', 'completed')
+                        .order('created_at', { ascending: true }),
+                    supabase.from('health_records')
+                        .select('id, record_type, affected_count, record_date')
+                        .eq('batch_id', requestedBatch.id)
+                        .is('deleted_at', null),
                 ]);
                 setWeighSessions((reqWeighRes.data || []) as WeighSession[]);
+                setWeighingSessionEnvelopes((reqEnvRes.data || []) as WeighingSessionEnvelope[]);
                 setHealthRecords((reqHealthRes.data || []) as HealthRecord[]);
                 lastLoadedBatchIdRef.current = requestedBatch.id;
                 setIsLoading(false);
@@ -221,12 +259,19 @@ export default function PredictionReportScreen() {
                     const targetBatchId = filteredB[0].id;
                     setSelectedBatchId(targetBatchId);
 
-                    const [weighRes, healthRes] = await Promise.all([
+                    const [weighRes, envRes, healthRes] = await Promise.all([
                         supabase
                             .from('weigh_sessions')
-                            .select('id, net_weight_grams, status, recorded_at, batch_id')
+                            .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id, weighing_session_id')
                             .eq('batch_id', targetBatchId)
+                            .neq('status', 'invalid')
                             .order('recorded_at', { ascending: true }),
+                        supabase
+                            .from('weighing_sessions')
+                            .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
+                            .eq('batch_id', targetBatchId)
+                            .eq('status', 'completed')
+                            .order('created_at', { ascending: true }),
                         supabase
                             .from('health_records')
                             .select('id, record_type, affected_count, record_date')
@@ -235,11 +280,13 @@ export default function PredictionReportScreen() {
                     ]);
 
                     setWeighSessions((weighRes.data || []) as WeighSession[]);
+                    setWeighingSessionEnvelopes((envRes.data || []) as WeighingSessionEnvelope[]);
                     setHealthRecords((healthRes.data || []) as HealthRecord[]);
                     lastLoadedBatchIdRef.current = targetBatchId;
                 } else {
                     setSelectedBatchId(null);
                     setWeighSessions([]);
+                    setWeighingSessionEnvelopes([]);
                     setHealthRecords([]);
                     lastLoadedBatchIdRef.current = null;
                 }
@@ -247,6 +294,7 @@ export default function PredictionReportScreen() {
                 setSelectedHousingId(null);
                 setSelectedBatchId(null);
                 setWeighSessions([]);
+                setWeighingSessionEnvelopes([]);
                 setHealthRecords([]);
                 lastLoadedBatchIdRef.current = null;
             }
@@ -261,12 +309,19 @@ export default function PredictionReportScreen() {
         setIsDataLoading(true);
         lastLoadedBatchIdRef.current = batchId;
         try {
-            const [weighRes, healthRes] = await Promise.all([
+            const [weighRes, envRes, healthRes] = await Promise.all([
                 supabase
                     .from('weigh_sessions')
-                    .select('id, net_weight_grams, status, recorded_at, batch_id')
+                    .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id, weighing_session_id')
                     .eq('batch_id', batchId)
+                    .neq('status', 'invalid')
                     .order('recorded_at', { ascending: true }),
+                supabase
+                    .from('weighing_sessions')
+                    .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
+                    .eq('batch_id', batchId)
+                    .eq('status', 'completed')
+                    .order('created_at', { ascending: true }),
                 supabase
                     .from('health_records')
                     .select('id, record_type, affected_count, record_date')
@@ -275,6 +330,7 @@ export default function PredictionReportScreen() {
             ]);
 
             setWeighSessions((weighRes.data || []) as WeighSession[]);
+            setWeighingSessionEnvelopes((envRes.data || []) as WeighingSessionEnvelope[]);
             setHealthRecords((healthRes.data || []) as HealthRecord[]);
         } catch (err) {
             console.error('[PredictionReportScreen] error fetching batch data:', err);
@@ -286,6 +342,7 @@ export default function PredictionReportScreen() {
     const handleSwitchAnimalType = useCallback((type: 'pig' | 'chicken') => {
         if (type === animalType) return;
         setAnimalType(type);
+        setForecastTooltip(null);
         const targetHousings = allHousings.filter(h => h.animal_type === type);
         if (targetHousings.length > 0) {
             const nextHousingId = targetHousings[0].id;
@@ -298,6 +355,7 @@ export default function PredictionReportScreen() {
             } else {
                 setSelectedBatchId(null);
                 setWeighSessions([]);
+                setWeighingSessionEnvelopes([]);
                 setHealthRecords([]);
                 lastLoadedBatchIdRef.current = null;
             }
@@ -305,6 +363,7 @@ export default function PredictionReportScreen() {
             setSelectedHousingId(null);
             setSelectedBatchId(null);
             setWeighSessions([]);
+            setWeighingSessionEnvelopes([]);
             setHealthRecords([]);
             lastLoadedBatchIdRef.current = null;
         }
@@ -313,6 +372,7 @@ export default function PredictionReportScreen() {
     const handleSelectHousing = useCallback((housingId: string) => {
         if (housingId === selectedHousingId) return;
         setSelectedHousingId(housingId);
+        setForecastTooltip(null);
         const targetBatches = allBatches.filter(b => b.housing_id === housingId);
         if (targetBatches.length > 0) {
             const nextBatchId = targetBatches[0].id;
@@ -321,6 +381,7 @@ export default function PredictionReportScreen() {
         } else {
             setSelectedBatchId(null);
             setWeighSessions([]);
+            setWeighingSessionEnvelopes([]);
             setHealthRecords([]);
             lastLoadedBatchIdRef.current = null;
         }
@@ -329,6 +390,7 @@ export default function PredictionReportScreen() {
     const handleSelectBatch = useCallback((batchId: string) => {
         if (batchId === selectedBatchId) return;
         setSelectedBatchId(batchId);
+        setForecastTooltip(null);
         fetchBatchData(batchId);
     }, [selectedBatchId, fetchBatchData]);
 
@@ -342,7 +404,7 @@ export default function PredictionReportScreen() {
         } else {
             setSelectedHousingId(null);
         }
-    }, [animalType, allHousings, selectedHousingId]);
+    }, [animalType, allHousings, selectedHousingId, filteredHousings]);
 
     // Auto-resolve batch when housing changes as a fallback
     useEffect(() => {
@@ -362,6 +424,7 @@ export default function PredictionReportScreen() {
             }
         } else {
             setWeighSessions([]);
+            setWeighingSessionEnvelopes([]);
             setHealthRecords([]);
             lastLoadedBatchIdRef.current = null;
         }
@@ -379,6 +442,18 @@ export default function PredictionReportScreen() {
                     event: '*',
                     schema: 'public',
                     table: 'weigh_sessions',
+                    filter: `batch_id=eq.${selectedBatchId}`,
+                },
+                () => {
+                    fetchBatchData(selectedBatchId);
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'weighing_sessions',
                     filter: `batch_id=eq.${selectedBatchId}`,
                 },
                 () => {
@@ -411,43 +486,215 @@ export default function PredictionReportScreen() {
         setRefreshing(false);
     }, [fetchReportMetadata, selectedBatchId, fetchBatchData]);
 
-    // ─── Prediction Computations (Synced with Web logic) ─────────────────────
-    const latestAvgWeightKg = useMemo(() => {
-        if (weighSessions.length === 0) return null;
-        const sorted = [...weighSessions].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
-        const latestDateStr = sorted[sorted.length - 1].recorded_at.slice(0, 10);
-        const latestBatchWeighs = sorted.filter(s => s.recorded_at.slice(0, 10) === latestDateStr);
-        const recordsToUse = latestBatchWeighs.length > 0 ? latestBatchWeighs : sorted.slice(-5);
-        const total = recordsToUse.reduce((s, w) => s + (w.net_weight_grams || 0), 0);
-        return total / recordsToUse.length / 1000;
-    }, [weighSessions]);
+    // ─── Current Age (Day Calculation synchronized with GrowthReportScreen) ───
+    const currentAgeDays = useMemo(() => {
+        if (!selectedBatch?.arrival_date) return null;
+        const arrival = new Date(selectedBatch.arrival_date);
+        const now = new Date();
+        arrival.setHours(0, 0, 0, 0);
+        now.setHours(0, 0, 0, 0);
+        const diff = Math.floor((now.getTime() - arrival.getTime()) / (1000 * 60 * 60 * 24));
+        return Math.max(0, diff) + (selectedBatch.age_at_arrival_days || 0);
+    }, [selectedBatch]);
 
-    const dailyGainKg = useMemo(() => {
-        if (weighSessions.length < 2) return null;
-        const sorted = [...weighSessions].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
-        const first = sorted[0];
-        const last = sorted[sorted.length - 1];
-        const days = (new Date(last.recorded_at).getTime() - new Date(first.recorded_at).getTime()) / (1000 * 60 * 60 * 24);
-        if (days < 1) return null;
-        const firstDate = first.recorded_at.slice(0, 10);
-        const lastDate = last.recorded_at.slice(0, 10);
-        const firstLogs = sorted.filter(s => s.recorded_at.slice(0, 10) === firstDate);
-        const lastLogs = sorted.filter(s => s.recorded_at.slice(0, 10) === lastDate);
-        const firstAvg = firstLogs.reduce((acc, s) => acc + (s.net_weight_grams || 0), 0) / firstLogs.length / 1000;
-        const lastAvg = lastLogs.reduce((acc, s) => acc + (s.net_weight_grams || 0), 0) / lastLogs.length / 1000;
-        const diffKg = lastAvg - firstAvg;
-        return Math.max(0.01, diffKg / days);
-    }, [weighSessions]);
+    // ─── Session Breakdown (Synchronized with GrowthReportScreen) ──────────────
+    const sessionItems = useMemo(() => {
+        if (weighSessions.length === 0) return [];
+
+        const completedEnvelopes = weighingSessionEnvelopes.filter(env => env.status === 'completed');
+        if (completedEnvelopes.length > 0) {
+            return completedEnvelopes.map((env, idx) => {
+                const num = idx + 1;
+                const ordinal = getOrdinal(num);
+                let dateLabel = env.created_at ? env.created_at.slice(0, 10) : '';
+                try {
+                    const d = new Date(env.created_at);
+                    if (!isNaN(d.getTime())) {
+                        dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    }
+                } catch (_) {}
+
+                const isLatest = idx === completedEnvelopes.length - 1;
+                const dayPart = env.farm_day !== null ? ` (Day ${env.farm_day})` : '';
+                const latestPart = isLatest ? ' · Latest' : '';
+                const label = `${ordinal} Session · ${dateLabel}${dayPart}${latestPart}`;
+
+                return {
+                    id: env.id,
+                    ordinal,
+                    index: num,
+                    dateLabel,
+                    farmDay: env.farm_day,
+                    label,
+                    isLatest,
+                    sessionIds: [env.id],
+                    dateKeys: [env.created_at ? env.created_at.slice(0, 10) : ''],
+                };
+            });
+        }
+
+        const dateMap = new Map<string, typeof weighSessions>();
+        weighSessions.forEach(s => {
+            if (!s.recorded_at) return;
+            const dateKey = s.recorded_at.slice(0, 10);
+            if (!dateMap.has(dateKey)) {
+                dateMap.set(dateKey, []);
+            }
+            dateMap.get(dateKey)!.push(s);
+        });
+
+        const sortedDates = Array.from(dateMap.keys()).sort();
+        return sortedDates.map((dateKey, idx) => {
+            const num = idx + 1;
+            const ordinal = getOrdinal(num);
+            let dateLabel = dateKey;
+            try {
+                const d = new Date(dateKey);
+                if (!isNaN(d.getTime())) {
+                    dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                }
+            } catch (_) {}
+
+            let farmDay: number | null = null;
+            if (selectedBatch?.arrival_date) {
+                try {
+                    const arr = new Date(selectedBatch.arrival_date);
+                    const cur = new Date(dateKey);
+                    arr.setHours(0, 0, 0, 0);
+                    cur.setHours(0, 0, 0, 0);
+                    const diffDays = Math.floor((cur.getTime() - arr.getTime()) / 86400000);
+                    farmDay = Math.max(0, diffDays) + (selectedBatch.age_at_arrival_days || 0);
+                } catch (_) {}
+            }
+
+            const isLatest = idx === sortedDates.length - 1;
+            const dayPart = farmDay !== null ? ` (Day ${farmDay})` : '';
+            const latestPart = isLatest ? ' · Latest' : '';
+            const label = `${ordinal} Session · ${dateLabel}${dayPart}${latestPart}`;
+
+            return {
+                id: dateKey,
+                ordinal,
+                index: num,
+                dateLabel,
+                farmDay,
+                label,
+                isLatest,
+                sessionIds: [] as string[],
+                dateKeys: [dateKey],
+            };
+        });
+    }, [weighSessions, weighingSessionEnvelopes, selectedBatch]);
+
+    const sessionStatsList = useMemo(() => {
+        if (sessionItems.length === 0 || weighSessions.length === 0) return [];
+
+        return sessionItems.map(item => {
+            const matchingSessions = weighSessions.filter(s => {
+                if (s.weighing_session_id && item.sessionIds?.includes(s.weighing_session_id)) {
+                    return true;
+                }
+                const dk = s.recorded_at ? s.recorded_at.slice(0, 10) : '';
+                return item.dateKeys?.includes(dk);
+            });
+
+            const totalCount = matchingSessions.length;
+            const totalWeightGrams = matchingSessions.reduce((sum, s) => sum + (s.net_weight_grams || 0), 0);
+            const avgWeightKg = totalCount > 0 ? (totalWeightGrams / totalCount) / 1000 : 0;
+
+            return {
+                ...item,
+                totalCount,
+                avgWeightKg,
+            };
+        });
+    }, [sessionItems, weighSessions]);
+
+    // ─── Standard Growth Benchmark Fallback ──────────────────────────────────
+    const currentWeekNumber = useMemo(() => {
+        const safeAge = Math.max(1, currentAgeDays || (animalType === 'pig' ? 60 : 20));
+        return Math.max(1, Math.min(24, Math.ceil(safeAge / 7)));
+    }, [currentAgeDays, animalType]);
+
+    const benchmarkWeightKg = useMemo(() => {
+        const std = getStandardForWeek(animalType, currentWeekNumber);
+        return (std.target_weight_grams || 0) / 1000;
+    }, [animalType, currentWeekNumber]);
+
+    const benchmarkAdgKg = useMemo(() => {
+        const currentStd = getStandardForWeek(animalType, currentWeekNumber);
+        const nextStd = getStandardForWeek(animalType, Math.min(24, currentWeekNumber + 1));
+        const weeklyDiffGrams = (nextStd.target_weight_grams || 0) - (currentStd.target_weight_grams || 0);
+        if (weeklyDiffGrams > 0) {
+            return weeklyDiffGrams / 7 / 1000;
+        }
+        return animalType === 'pig' ? 0.75 : 0.065;
+    }, [animalType, currentWeekNumber]);
+
+    // ─── Live Weight Computations ────────────────────────────────────────────
+    const latestSession = useMemo(() => {
+        return sessionStatsList.length > 0 ? sessionStatsList[sessionStatsList.length - 1] : null;
+    }, [sessionStatsList]);
+
+    const latestAvgWeightKg = useMemo(() => {
+        if (latestSession && latestSession.avgWeightKg > 0) {
+            return latestSession.avgWeightKg;
+        }
+        if (weighSessions.length > 0) {
+            const total = weighSessions.reduce((sum, w) => sum + (w.net_weight_grams || 0), 0);
+            return total / weighSessions.length / 1000;
+        }
+        return null;
+    }, [latestSession, weighSessions]);
+
+    const effectiveBaseWeightKg = useMemo(() => {
+        return latestAvgWeightKg ?? benchmarkWeightKg;
+    }, [latestAvgWeightKg, benchmarkWeightKg]);
+
+    // ─── Robust Average Daily Gain (ADG) Computation ────────────────────────
+    const { dailyGainKg, isBenchmarkGain } = useMemo(() => {
+        if (sessionStatsList.length >= 2) {
+            const first = sessionStatsList[0];
+            const latest = sessionStatsList[sessionStatsList.length - 1];
+
+            let totalDays = 1;
+            if (first.farmDay !== null && latest.farmDay !== null && latest.farmDay > first.farmDay) {
+                totalDays = latest.farmDay - first.farmDay;
+            } else {
+                try {
+                    const d1 = new Date(first.dateKeys[0]);
+                    const d2 = new Date(latest.dateKeys[0]);
+                    const diff = Math.round((d2.getTime() - d1.getTime()) / 86400000);
+                    if (diff > 0) totalDays = diff;
+                } catch (_) {}
+            }
+
+            const totalGainKg = latest.avgWeightKg - first.avgWeightKg;
+            const rawAdgKg = totalDays > 0 ? totalGainKg / totalDays : 0;
+            const minRealistic = animalType === 'pig' ? 0.20 : 0.020;
+            const maxRealistic = animalType === 'pig' ? 1.50 : 0.150;
+
+            // If we have distinct dates with physiologically plausible positive gain:
+            if (totalDays >= 2 && rawAdgKg >= minRealistic && rawAdgKg <= maxRealistic) {
+                return { dailyGainKg: rawAdgKg, isBenchmarkGain: false };
+            }
+        }
+
+        // Fallback to industry standard ADG for current rearing week
+        return { dailyGainKg: benchmarkAdgKg, isBenchmarkGain: true };
+    }, [sessionStatsList, animalType, benchmarkAdgKg]);
 
     // Harvest target matching web (95 kg for pig, 2.2 kg for chicken)
-    const harvestTargetKg = animalType === 'pig' ? 95 : 2.2;
+    const harvestTargetKg = HARVEST_TARGET_KG[animalType] || (animalType === 'pig' ? 95 : 2.2);
 
+    // ─── Days to Harvest Calculation ────────────────────────────────────────
     const daysToHarvest = useMemo(() => {
-        if (!latestAvgWeightKg || !dailyGainKg || dailyGainKg <= 0) return null;
-        const remaining = harvestTargetKg - latestAvgWeightKg;
-        if (remaining <= 0) return 0;
-        return Math.ceil(remaining / dailyGainKg);
-    }, [latestAvgWeightKg, dailyGainKg, harvestTargetKg]);
+        const remainingKg = harvestTargetKg - effectiveBaseWeightKg;
+        if (remainingKg <= 0) return 0;
+        const effectiveGain = Math.max(animalType === 'pig' ? 0.35 : 0.03, dailyGainKg);
+        const calcDays = Math.ceil(remainingKg / effectiveGain);
+        return calcDays;
+    }, [harvestTargetKg, effectiveBaseWeightKg, dailyGainKg, animalType]);
 
     const estimatedHarvestDate = useMemo(() => {
         if (daysToHarvest === null) return null;
@@ -455,16 +702,6 @@ export default function PredictionReportScreen() {
         d.setDate(d.getDate() + daysToHarvest);
         return d;
     }, [daysToHarvest]);
-
-    const currentAgeDays = useMemo(() => {
-        if (!selectedBatch || !selectedBatch.arrival_date) return null;
-        const arrival = new Date(selectedBatch.arrival_date);
-        const now = new Date();
-        arrival.setHours(0, 0, 0, 0);
-        now.setHours(0, 0, 0, 0);
-        const diff = Math.floor((now.getTime() - arrival.getTime()) / (1000 * 60 * 60 * 24));
-        return Math.max(0, diff + (selectedBatch.age_at_arrival_days || 0));
-    }, [selectedBatch]);
 
     const totalDeceased = useMemo(() => {
         return healthRecords
@@ -478,7 +715,7 @@ export default function PredictionReportScreen() {
         return ((alive / selectedBatch.estimated_count) * 100).toFixed(1);
     }, [selectedBatch, totalDeceased]);
 
-    // Forecast chart data matching web
+    // ─── Forecast chart data matching web ────────────────────────────────────
     const forecastChartData = useMemo(() => {
         const totalDays = timeframe === '30 Days' ? 30 : 60;
         const stepDays = 5;
@@ -488,8 +725,8 @@ export default function PredictionReportScreen() {
         const projectedData: number[] = [];
         const targetLine: number[] = [];
 
-        const baseWeight = latestAvgWeightKg ?? (animalType === 'pig' ? 25 : 0.05);
-        const gainPerDay = dailyGainKg ?? (animalType === 'pig' ? 0.65 : 0.05);
+        const baseWeight = effectiveBaseWeightKg;
+        const gainPerDay = dailyGainKg;
 
         for (let i = 0; i <= stepCount; i++) {
             const d = new Date();
@@ -529,7 +766,7 @@ export default function PredictionReportScreen() {
             projectedData,
             targetLine,
         };
-    }, [latestAvgWeightKg, dailyGainKg, timeframe, colors, harvestTargetKg, animalType]);
+    }, [effectiveBaseWeightKg, dailyGainKg, timeframe, colors, harvestTargetKg]);
 
     // ─── Feed Stage ─────────────────────────────────────────────────────────
     const currentFeedStage = useMemo(() => {
@@ -558,22 +795,23 @@ export default function PredictionReportScreen() {
 
     // ─── Factor Analysis (What is happening & what to expect) ───────────────
     const factorAnalysis = useMemo(() => {
-        if (!selectedBatch || latestAvgWeightKg === null) return null;
+        if (!selectedBatch) return null;
 
-        const gainGrams = dailyGainKg !== null ? Math.round(dailyGainKg * 1000) : null;
-        const isTargetMet = latestAvgWeightKg >= harvestTargetKg;
-        const remainingKg = Math.max(0, harvestTargetKg - latestAvgWeightKg);
+        const currentWeightKg = effectiveBaseWeightKg;
+        const gainGrams = Math.round(dailyGainKg * 1000);
+        const isTargetMet = currentWeightKg >= harvestTargetKg;
+        const remainingKg = Math.max(0, harvestTargetKg - currentWeightKg);
 
         // 1. Growth & Gain factor
         let growthHeading = isTargetMet ? 'Market-Ready Weight Reached' : 'Active Growth Velocity';
         let growthText = '';
         if (isTargetMet) {
-            growthText = `The cohort has achieved an average of ${latestAvgWeightKg.toFixed(2)} kg, fulfilling the commercial harvest standard of ${harvestTargetKg} kg. Animals are in prime selling condition. Continuing feed without harvest increases feed conversion cost (FCR) with diminishing daily returns.`;
-        } else if (dailyGainKg !== null && dailyGainKg > 0) {
+            growthText = `The cohort has achieved an average of ${currentWeightKg.toFixed(2)} kg, fulfilling the commercial harvest standard of ${harvestTargetKg} kg. Animals are in prime selling condition. Continuing feed without harvest increases feed conversion cost (FCR) with diminishing daily returns.`;
+        } else if (dailyGainKg > 0) {
             const weeklyGainKg = (dailyGainKg * 7).toFixed(2);
-            growthText = `Animals are gaining approximately ${gainGrams} g/day (+${weeklyGainKg} kg/week). With ${remainingKg.toFixed(2)} kg remaining to reach ${harvestTargetKg} kg, the flock is following an active, healthy growth curve.`;
+            growthText = `Animals are gaining approximately ${gainGrams} g/day (+${weeklyGainKg} kg/week)${isBenchmarkGain ? ' based on standard breed growth curves' : ' based on recent weighings'}. With ${remainingKg.toFixed(2)} kg remaining to reach ${harvestTargetKg} kg, the cohort is following an active, healthy growth curve.`;
         } else {
-            growthText = `Current average weight is ${latestAvgWeightKg.toFixed(2)} kg. Record additional weigh sessions across separate days to calculate the active daily growth rate.`;
+            growthText = `Current average weight is ${currentWeightKg.toFixed(2)} kg. Record additional weigh sessions across separate days to calculate the active daily growth rate.`;
         }
 
         // 2. Feed & Nutrition factor
@@ -593,19 +831,19 @@ export default function PredictionReportScreen() {
 
         // 3. Health & Uniformity factor
         const survNum = survivalRate ? parseFloat(survivalRate) : 100;
-        let healthHeading = survNum >= 95 ? 'Strong Flock Uniformity & Health' : 'Flock Health & Uniformity';
+        let healthHeading = survNum >= 95 ? 'Strong Cohort Uniformity & Health' : 'Cohort Health & Uniformity';
         let healthText = '';
         if (survNum >= 95) {
-            healthText = `Flock survival rate is excellent at ${survivalRate}% with ${selectedBatch.current_count} active animals. High survival correlates with even flock uniformity, meaning the vast majority of birds will hit target harvest weight together for single-haul selling.`;
+            healthText = `${animalType === 'pig' ? 'Herd' : 'Flock'} survival rate is excellent at ${survivalRate}% with ${selectedBatch.current_count} active animals. High survival correlates with even uniformity, meaning the vast majority of animals will hit target harvest weight together for single-haul selling.`;
         } else {
-            healthText = `Survival rate is ${survivalRate}%. Monitor bird activity at feeders and check water lines. Slower-growing birds may benefit from temporary segregation or additional feeder space.`;
+            healthText = `Survival rate is ${survivalRate}%. Monitor animal activity at feeders and check water lines. Slower-growing animals may benefit from temporary segregation or additional feeder space.`;
         }
 
         // 4. Housing & Environment factor
         let envHeading = animalType === 'chicken' ? 'Ventilation & Heat Management' : 'Barn Climate & Comfort';
         let envText = '';
         if (animalType === 'chicken') {
-            if (latestAvgWeightKg >= 2.0) {
+            if (currentWeightKg >= 2.0) {
                 envText = 'Heavy finisher broilers generate significant body heat. Ensure ventilation fans or tunnel airflow are running at capacity during peak heat hours. Keep drinking water cool to encourage constant hydration.';
             } else {
                 envText = 'Maintain stable house temperature and draft-free conditions to minimize energy spent on thermal regulation.';
@@ -617,7 +855,7 @@ export default function PredictionReportScreen() {
         // Actionable recommendation
         let actionRecommendation = '';
         if (isTargetMet || daysToHarvest === 0) {
-            actionRecommendation = 'Harvest Window Open: The flock has met commercial weight. Plan harvest and market transport within the next 2–5 days to maximize feed-to-profit conversion.';
+            actionRecommendation = 'Harvest Window Open: The cohort has met commercial weight. Plan harvest and market transport within the next 2–5 days to maximize feed-to-profit conversion.';
         } else if (daysToHarvest !== null && daysToHarvest <= 7) {
             actionRecommendation = `Approaching Target: Market harvest projected in ~${daysToHarvest} days. Review withdrawal times for any treatments and prepare shipping logistics.`;
         } else if (daysToHarvest !== null) {
@@ -638,40 +876,31 @@ export default function PredictionReportScreen() {
             actionRecommendation,
             isTargetMet,
         };
-    }, [selectedBatch, latestAvgWeightKg, dailyGainKg, harvestTargetKg, currentAgeDays, currentFeedStage, animalType, survivalRate, daysToHarvest, estimatedHarvestDate]);
+    }, [selectedBatch, effectiveBaseWeightKg, dailyGainKg, isBenchmarkGain, harvestTargetKg, currentAgeDays, currentFeedStage, animalType, survivalRate, daysToHarvest, estimatedHarvestDate]);
 
     // ─── Confidence score based on data quality ──────────────────────────────
     const confidencePct = useMemo(() => {
-        if (weighSessions.length === 0) return 0;
+        if (weighSessions.length === 0) return 65; // standard benchmark projection
         // More weigh sessions = higher confidence (caps at 95%)
-        const base = Math.min(95, 50 + weighSessions.length * 5);
-        // Deduct if very few data points
-        if (weighSessions.length < 3) return Math.max(40, base - 20);
+        const base = Math.min(95, 60 + sessionStatsList.length * 10);
         return base;
-    }, [weighSessions]);
+    }, [weighSessions, sessionStatsList]);
 
     // ─── AI Insight text ────────────────────────────────────────────────────
     const getInsightText = () => {
         if (!selectedBatch) return 'Select a batch to view AI predictions.';
-        if (weighSessions.length === 0) {
-            return `No weight measurements recorded for "${selectedBatch.name}" yet. Connect an AniWeigh scale and record weights to enable growth predictions.`;
-        }
-        if (dailyGainKg === null || dailyGainKg <= 0) {
-            return `Only one weigh-in recorded for "${selectedBatch.name}". Record at least 2 weigh sessions on separate days to calculate the daily growth rate and generate harvest projections.`;
-        }
-
+        const currentStr = effectiveBaseWeightKg.toFixed(2);
         const gainStr = dailyGainKg.toFixed(3);
-        const currentStr = latestAvgWeightKg!.toFixed(2);
 
-        let insight = `"${selectedBatch.name}" is averaging ${currentStr} kg at ${dailyGainKg > 0 ? `${gainStr} kg/day` : 'an unknown daily gain'}. `;
+        let insight = `"${selectedBatch.name}" is tracking at an average weight of ${currentStr} kg with an estimated gain of ${gainStr} kg/day (${isBenchmarkGain ? 'breed standard' : 'actual recorded ADG'}). `;
 
         if (daysToHarvest === 0) {
-            insight += `This batch has already reached the ${harvestTargetKg} kg harvest target — consider scheduling harvest soon.`;
+            insight += `This batch has reached or exceeded the ${harvestTargetKg} kg market harvest target — schedule harvest or sales preparation soon.`;
         } else if (daysToHarvest !== null) {
             const harvestDateStr = estimatedHarvestDate
                 ? estimatedHarvestDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                 : '—';
-            insight += `At this rate, the batch is projected to reach the ${harvestTargetKg} kg harvest target in ${daysToHarvest} days (around ${harvestDateStr}). `;
+            insight += `Projected to reach the ${harvestTargetKg} kg harvest target in approximately ${daysToHarvest} days (around ${harvestDateStr}). `;
         }
 
         if (survivalRate !== null) {
@@ -692,14 +921,14 @@ export default function PredictionReportScreen() {
         if (!selectedBatch) return null;
 
         const growthStats: ReportStat[] = [
-            { label: 'Avg Weight (Latest)', value: latestAvgWeightKg !== null ? `${latestAvgWeightKg.toFixed(2)} kg` : '—' },
-            { label: 'Daily Gain', value: dailyGainKg !== null ? `${dailyGainKg.toFixed(3)} kg/day` : '—' },
+            { label: 'Avg Weight', value: `${effectiveBaseWeightKg.toFixed(2)} kg` },
+            { label: 'Daily Gain', value: `${dailyGainKg.toFixed(3)} kg/day (${isBenchmarkGain ? 'Benchmark' : 'Actual'})` },
             { label: 'Harvest Target', value: `${harvestTargetKg} kg` },
             { label: 'Prediction Confidence', value: `${confidencePct}%` },
         ];
 
         const harvestStats: ReportStat[] = [
-            { label: 'Days To Harvest', value: daysToHarvest !== null ? String(daysToHarvest) : 'Not enough data', accent: daysToHarvest === 0 ? 'good' : undefined },
+            { label: 'Days To Harvest', value: daysToHarvest !== null ? (daysToHarvest === 0 ? 'Ready' : `${daysToHarvest} days`) : 'Calculating...', accent: daysToHarvest === 0 ? 'good' : undefined },
             { label: 'Estimated Harvest Date', value: formatDate(estimatedHarvestDate) },
             { label: 'Survival Rate', value: survivalRate !== null ? `${survivalRate}%` : '—', accent: survivalRate !== null ? (parseFloat(survivalRate) < 90 ? 'warn' : 'good') : undefined },
             { label: 'Recorded Deaths', value: String(totalDeceased), accent: totalDeceased > 0 ? 'bad' : undefined },
@@ -748,12 +977,12 @@ export default function PredictionReportScreen() {
                     table: {
                         headers: ['Timeline Milestone', 'Projected Weight', 'Target Weight', 'Variance to Target'],
                         rows: projectionRows,
-                        note: weighSessions.length < 2 ? 'Projection requires at least 2 weigh-ins on separate days for an accurate growth rate.' : undefined,
+                        note: isBenchmarkGain ? 'Projection utilizes standard commercial breed growth curves and targets.' : undefined,
                     },
                 },
             ],
         };
-    }, [selectedBatch, selectedHousing, animalType, currentAgeDays, latestAvgWeightKg, dailyGainKg, harvestTargetKg, confidencePct, daysToHarvest, estimatedHarvestDate, survivalRate, totalDeceased, forecastChartData, timeframe, currentFeedStage, farmName, weighSessions]);
+    }, [selectedBatch, selectedHousing, animalType, currentAgeDays, effectiveBaseWeightKg, dailyGainKg, isBenchmarkGain, harvestTargetKg, confidencePct, daysToHarvest, estimatedHarvestDate, survivalRate, totalDeceased, forecastChartData, timeframe, currentFeedStage, farmName, profile, managedFarms, selectedFarmIds, activeFarmIds, farmId]);
 
     const activeColor = animalType === 'pig' ? (colors.pig ?? '#EC4899') : (colors.chicken ?? '#F97316');
 
@@ -921,10 +1150,14 @@ export default function PredictionReportScreen() {
                                     <AniWeighIcon size={16} />
                                 </View>
                                 <Text style={[textStyles.h1, { fontSize: 22, color: activeColor }]}>
-                                    {latestAvgWeightKg !== null ? `${latestAvgWeightKg.toFixed(2)} kg` : '—'}
+                                    {latestAvgWeightKg !== null ? `${latestAvgWeightKg.toFixed(2)} kg` : `${effectiveBaseWeightKg.toFixed(2)} kg`}
                                 </Text>
                                 <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
-                                    Latest {weighSessions.length > 0 ? `(${Math.min(5, weighSessions.length)} sessions)` : '(no data)'}
+                                    {latestSession
+                                        ? `${latestSession.ordinal} Session${latestSession.farmDay !== null ? ` (Day ${latestSession.farmDay})` : ''}`
+                                        : weighSessions.length > 0
+                                            ? `Across ${weighSessions.length} logs`
+                                            : `Breed standard (Day ${currentAgeDays ?? 1})`}
                                 </Text>
                             </View>
 
@@ -941,9 +1174,11 @@ export default function PredictionReportScreen() {
                                     <MaterialIcons name="trending-up" size={16} color="#27AE60" />
                                 </View>
                                 <Text style={[textStyles.h1, { fontSize: 22, color: '#27AE60' }]}>
-                                    {dailyGainKg !== null ? `${dailyGainKg.toFixed(3)} kg` : '—'}
+                                    {`${dailyGainKg.toFixed(3)} kg`}
                                 </Text>
-                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>Per animal / day</Text>
+                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
+                                    {isBenchmarkGain ? 'Breed standard / day' : 'Actual recorded ADG'}
+                                </Text>
                             </View>
 
                             {/* Days to Harvest */}
