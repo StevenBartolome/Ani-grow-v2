@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Modal, Platform, RefreshControl, ScrollView, Switch, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Modal, Platform, RefreshControl, ScrollView, Switch, TextInput, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -42,7 +42,7 @@ interface DeviceInfo {
     weighingActive: boolean;
     housingId: string | null;
     housingName: string;
-    animalType: 'Pig' | 'Piglet' | 'Chicken' | 'Chicks (with caution: must be in crate)';
+    animalType: 'Pig' | 'Piglet' | 'Chicken' | 'Chicks' | 'Chicks (with caution: must be in crate)';
 }
 
 interface WeightThreshold {
@@ -162,6 +162,7 @@ export default function AniWeighScreen() {
     // Ref so realtime callback always has the latest deviceInfo without stale closure
     const deviceInfoRef = useRef<DeviceInfo | null>(null);
     const [threshold, setThreshold] = useState<WeightThreshold | null>(null);
+    const thresholdRef = useRef<WeightThreshold | null>(null);
     const [weightLogs, setWeightLogs] = useState<WeighLogEntry[]>([]);
     const [segregationStats, setSegregationStats] = useState<SegregationStats>({ total: 0, underweight: { count: 0, percentage: 0 }, normal: { count: 0, percentage: 0 }, overweight: { count: 0, percentage: 0 } });
     const [statsExpanded, setStatsExpanded] = useState(false);
@@ -253,6 +254,12 @@ export default function AniWeighScreen() {
 
     const [housingBatches, setHousingBatches] = useState<{ id: string; name: string; current_count: number; arrival_date: string; age_at_arrival_days: number }[]>([]);
     const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+
+    // ─── Chicks per Tray Settings (Batch / Tray Weighing) ───────────
+    const [chicksPerTray, setChicksPerTray] = useState<number>(20);
+    const chicksPerTrayRef = useRef<number>(20);
+    const [chicksPerTrayModalVisible, setChicksPerTrayModalVisible] = useState(false);
+    const [tempChicksPerTray, setTempChicksPerTray] = useState<string>('20');
 
     // ─── Mandatory pre-weighing gate ──────────────────────────────
     // The live scale view (Live Scaling card, Start/Stop/Tare/Reset) only
@@ -430,8 +437,18 @@ export default function AniWeighScreen() {
                 };
 
                 const tempType = await AsyncStorage.getItem(`temp_animal_type_${deviceId}`);
-                if (tempType === 'Pig' || tempType === 'Piglet' || tempType === 'Chicken' || tempType === 'Chicks (with caution: must be in crate)') {
-                    info.animalType = tempType;
+                if (tempType === 'Pig' || tempType === 'Piglet' || tempType === 'Chicken' || tempType === 'Chicks' || tempType === 'Chicks (with caution: must be in crate)') {
+                    info.animalType = (tempType.includes('Chicks') ? 'Chicks' : tempType) as any;
+                }
+
+                // Load chicks per tray configuration if available
+                const savedTrayCount = await AsyncStorage.getItem(`chicks_per_tray_${deviceId}`);
+                if (savedTrayCount) {
+                    const count = parseInt(savedTrayCount, 10);
+                    if (!isNaN(count) && count > 0) {
+                        setChicksPerTray(count);
+                        chicksPerTrayRef.current = count;
+                    }
                 }
 
                 setDeviceInfo(info);
@@ -516,26 +533,30 @@ export default function AniWeighScreen() {
                         thresholdId = (newThresh as any)?.id ?? null;
                     }
 
-                    setThreshold({
+                    const threshObj: WeightThreshold = {
                         id: thresholdId,
                         underweightMaxGrams: finalUnder,
                         normalMinGrams: finalUnder + 1,
                         normalMaxGrams: finalOver - 1,
                         overweightMinGrams: finalOver,
-                    });
+                    };
+                    setThreshold(threshObj);
+                    thresholdRef.current = threshObj;
 
                     if (d.unique_code) {
                         syncThresholdToDevice(d.unique_code, finalUnder / 1000, finalOver / 1000).catch(console.warn);
                     }
                 } catch (threshErr) {
                     console.warn('[AniWeigh] Auto-updating threshold error:', threshErr);
-                    setThreshold({
+                    const fallbackThresh: WeightThreshold = {
                         id: null,
                         underweightMaxGrams: finalUnder,
                         normalMinGrams: finalUnder + 1,
                         normalMaxGrams: finalOver - 1,
                         overweightMinGrams: finalOver,
-                    });
+                    };
+                    setThreshold(fallbackThresh);
+                    thresholdRef.current = fallbackThresh;
                 }
 
                 // Fetch recent sessions for this device and selected batch
@@ -903,9 +924,26 @@ export default function AniWeighScreen() {
                     const uiBatch  = selectedBatchId ?? null;
                     if (rowBatch !== uiBatch && uiBatch !== null) return;
 
+                    const info = deviceInfoRef.current;
+                    const isChicks = info?.animalType === 'Chicks';
+                    const countInTray = isChicks ? (chicksPerTrayRef.current || 20) : 1;
+
+                    let entryWeightG = row.net_weight_grams;
+                    let entryStatus = row.status ?? 'normal';
+
+                    if (isChicks && countInTray > 1) {
+                        entryWeightG = Math.round(row.net_weight_grams / countInTray);
+                        const curThresh = thresholdRef.current;
+                        if (curThresh) {
+                            if (entryWeightG <= curThresh.underweightMaxGrams) entryStatus = 'underweight';
+                            else if (entryWeightG >= curThresh.overweightMinGrams) entryStatus = 'overweight';
+                            else entryStatus = 'normal';
+                        }
+                    }
+
                     // 1. Update live-scale display immediately
-                    setLiveWeightG(row.net_weight_grams);
-                    setLiveStatus(row.status);
+                    setLiveWeightG(entryWeightG);
+                    setLiveStatus(entryStatus);
                     setLiveFlash(true);
                     setTimeout(() => setLiveFlash(false), 600);
 
@@ -915,23 +953,23 @@ export default function AniWeighScreen() {
                     if (sampleProgressStaleTimeoutRef.current) clearTimeout(sampleProgressStaleTimeoutRef.current);
                     setSampleProgress(null);
 
-                    // 2. Prepend new entry directly into logs — no extra fetch needed.
-                    //    Using deviceInfoRef avoids stale closure issues.
-                    const info = deviceInfoRef.current;
-                    const newEntry: WeighLogEntry = {
-                        id: row.id,
-                        weight_g: row.net_weight_grams,
-                        status: row.status ?? 'normal',
-                        timestamp: row.recorded_at
-                            ? new Date(row.recorded_at).getTime()
-                            : Date.now(),
-                        animal: row.animal_type === 'pig' ? 'Pig' : 'Chicken',
-                        housingId: info?.housingId ?? null,
-                        housingName: info?.housingName ?? 'Unassigned',
-                        deviceId: row.device_id,
-                        deviceName: info?.name ?? 'AniWeigh',
-                    };
-                    setWeightLogs(prev => [newEntry, ...prev].slice(0, 8));
+                    // 2. Prepend new entry directly into logs — expand into individual logs if tray
+                    const baseTs = row.recorded_at ? new Date(row.recorded_at).getTime() : Date.now();
+                    const newEntries: WeighLogEntry[] = [];
+                    for (let i = 0; i < countInTray; i++) {
+                        newEntries.push({
+                            id: countInTray > 1 ? `${row.id}-${i}` : row.id,
+                            weight_g: entryWeightG,
+                            status: entryStatus,
+                            timestamp: baseTs - i * 10,
+                            animal: row.animal_type === 'pig' ? 'Pig' : 'Chicken',
+                            housingId: info?.housingId ?? null,
+                            housingName: info?.housingName ?? 'Unassigned',
+                            deviceId: row.device_id,
+                            deviceName: info?.name ?? 'AniWeigh',
+                        });
+                    }
+                    setWeightLogs(prev => [...newEntries, ...prev].slice(0, 16));
 
                     // 3. Refresh only today's stats counter — do NOT call fetchAll()
                     //    because fetchAll re-fetches logs from DB and would overwrite
@@ -946,7 +984,7 @@ export default function AniWeighScreen() {
                     if (session && row.weighing_session_id === session.id) {
                         setActiveSession(prev => {
                             if (!prev) return prev;
-                            const updated = { ...prev, completed_quantity: prev.completed_quantity + 1 };
+                            const updated = { ...prev, completed_quantity: prev.completed_quantity + countInTray };
                             activeSessionRef.current = updated;
                             return updated;
                         });
@@ -1224,7 +1262,7 @@ export default function AniWeighScreen() {
 
     const getEditOptions = (): string[] => {
         if (editTarget === 'Animal Type') {
-            return ['Pig', 'Piglet', 'Chicken', 'Chicks (with caution: must be in crate)'];
+            return ['Pig', 'Piglet', 'Chicken', 'Chicks'];
         }
         if (editTarget === 'Housing') {
             const searchType = (animalType === 'Pig' || animalType === 'Piglet') ? 'pig' : 'chicken';
@@ -1242,30 +1280,77 @@ export default function AniWeighScreen() {
         setEditModalVisible(false);
         try {
             if (editTarget === 'Animal Type') {
-                const selectedType = val as 'Pig' | 'Piglet' | 'Chicken' | 'Chicks (with caution: must be in crate)';
+                const selectedType = (val.includes('Chicks') ? 'Chicks' : val) as 'Pig' | 'Piglet' | 'Chicken' | 'Chicks';
                 
                 await AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
+
+                // Unassign housing and clear batch in DB so it won't interfere across animal categories
+                if (deviceId) {
+                    await supabase.from('devices').update({ housing_id: null }).eq('id', deviceId);
+                }
+
                 setDeviceInfo(prev => {
-                    const updated = prev ? { ...prev, animalType: selectedType } as DeviceInfo : null;
+                    const updated = prev ? {
+                        ...prev,
+                        animalType: selectedType,
+                        housingId: null,
+                        housingName: 'Unassigned',
+                    } as DeviceInfo : null;
                     deviceInfoRef.current = updated;
                     return updated;
                 });
-                showSnackbar(`Category set to ${selectedType}.`);
+
+                setHousingBatches([]);
+                setSelectedBatchId(null);
+                setGateHousingId(null);
+                setGateBatchId(null);
+                setGateBatches([]);
+
+                showSnackbar(`Category set to ${selectedType}. Housing and batch unassigned.`);
 
                 // Map category selection to Board sequences
                 let modeCode = "PIGLET";
                 if (selectedType === 'Pig') modeCode = "PIG";
                 else if (selectedType === 'Piglet') modeCode = "PIGLET";
                 else if (selectedType === 'Chicken') modeCode = "CHICKEN";
-                else if (selectedType === 'Chicks (with caution: must be in crate)') modeCode = "CHICK";
+                else if (selectedType === 'Chicks') modeCode = "CHICK";
 
                 await syncModeToDevice(deviceUniqueCode, modeCode);
             } else if (editTarget === 'Housing') {
-                setPendingEditVal(val);
-                setModalType('confirmation');
-                setModalTitle(`Update Housing?`);
-                setModalMessage(`Change this device's housing to "${val}"?`);
-                setModalVisible(true);
+                const selectedHousing = farmHousings.find(h => h.name === val);
+                if (selectedHousing) {
+                    if (deviceId) {
+                        await supabase.from('devices').update({ housing_id: selectedHousing.id }).eq('id', deviceId);
+                    }
+                    setDeviceInfo(prev => {
+                        const updated = prev ? {
+                            ...prev,
+                            housingId: selectedHousing.id,
+                            housingName: selectedHousing.name,
+                        } as DeviceInfo : null;
+                        deviceInfoRef.current = updated;
+                        return updated;
+                    });
+
+                    // Fetch and set batches for newly selected housing
+                    const { data: batchesData } = await supabase
+                        .from('batches')
+                        .select('id, name, current_count, arrival_date, age_at_arrival_days')
+                        .eq('housing_id', selectedHousing.id)
+                        .eq('status', 'active')
+                        .order('created_at', { ascending: false });
+
+                    if (batchesData && batchesData.length > 0) {
+                        const bList = batchesData as any[];
+                        setHousingBatches(bList);
+                        setSelectedBatchId(bList[0].id);
+                    } else {
+                        setHousingBatches([]);
+                        setSelectedBatchId(null);
+                    }
+
+                    showSnackbar(`Housing updated to "${val}".`);
+                }
             } else if (editTarget === 'Batch') {
                 const selected = housingBatches.find(b => b.name === val);
                 if (selected) {
@@ -1503,6 +1588,91 @@ export default function AniWeighScreen() {
         </TouchableOpacity>
     );
 
+    const MAX_CHICKS_PER_TRAY = 100;
+
+    const handleSaveChicksPerTray = async (val: number) => {
+        if (val < 1) {
+            showSnackbar('Number of chicks must be at least 1.', 'error');
+            return;
+        }
+        if (val > MAX_CHICKS_PER_TRAY) {
+            showSnackbar(`Maximum capacity is ${MAX_CHICKS_PER_TRAY} chicks per tray.`, 'error');
+            return;
+        }
+        setChicksPerTray(val);
+        chicksPerTrayRef.current = val;
+        if (deviceId) {
+            await AsyncStorage.setItem(`chicks_per_tray_${deviceId}`, val.toString());
+        }
+        setChicksPerTrayModalVisible(false);
+        showSnackbar(`Chicks per tray set to ${val}.`);
+    };
+
+    const renderChicksPerTrayButton = () => {
+        if (deviceInfo?.animalType !== 'Chicks') return null;
+        const currentBatch = housingBatches.find(b => b.id === selectedBatchId) || housingBatches[0];
+        const totalCount = currentBatch?.current_count ?? 0;
+        const totalTrays = totalCount > 0 ? Math.ceil(totalCount / chicksPerTray) : null;
+
+        return (
+            <TouchableOpacity
+                onPress={() => {
+                    setTempChicksPerTray(chicksPerTray.toString());
+                    setChicksPerTrayModalVisible(true);
+                }}
+                activeOpacity={0.7}
+                style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    backgroundColor: colors.surface,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: colors.stroke,
+                    paddingVertical: 9,
+                    paddingHorizontal: 12,
+                    marginBottom: 12,
+                }}
+            >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}>
+                    <View style={{
+                        width: 26,
+                        height: 26,
+                        borderRadius: 8,
+                        backgroundColor: colors.primary + '18',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}>
+                        <MaterialIcons name="inventory-2" size={15} color={colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 13 }]}>Chicks per Tray</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>
+                            {totalTrays
+                                ? `${chicksPerTray} chicks/tray · ${totalTrays} tray weighs (${totalCount} total)`
+                                : `${chicksPerTray} chicks per tray`}
+                        </Text>
+                    </View>
+                </View>
+
+                <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 2,
+                    backgroundColor: colors.primary + '15',
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 8,
+                }}>
+                    <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, fontWeight: '700' }]}>
+                        {chicksPerTray} pcs
+                    </Text>
+                    <MaterialIcons name="chevron-right" size={14} color={colors.primary} />
+                </View>
+            </TouchableOpacity>
+        );
+    };
+
     return (
         <View style={[aniweighStyles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
@@ -1690,6 +1860,7 @@ export default function AniWeighScreen() {
                         {/* Feed Schedule + Weighing Reminder on Pre-gate view */}
                         <View style={{ marginTop: 12 }}>
                             {renderFeedScheduleButton()}
+                            {renderChicksPerTrayButton()}
                             {renderWeighingReminderCard()}
                         </View>
                     </View>
@@ -1779,6 +1950,7 @@ export default function AniWeighScreen() {
 
                     {/* Feed Schedule + Weighing Reminder */}
                     {renderFeedScheduleButton()}
+                    {renderChicksPerTrayButton()}
                     {renderWeighingReminderCard()}
 
                     {/* Live Scaling */}
@@ -2551,7 +2723,13 @@ export default function AniWeighScreen() {
                     description={`Select a new ${editTarget.toLowerCase()} for this device.`}
                     icon="edit"
                     options={getEditOptions()}
-                    selectedValue={editTarget === 'Animal Type' ? animalType : housing}
+                    selectedValue={
+                        editTarget === 'Animal Type'
+                            ? animalType
+                            : editTarget === 'Housing'
+                            ? housing
+                            : (housingBatches.find(b => b.id === selectedBatchId)?.name ?? '')
+                    }
                     enableSearch={editTarget === 'Housing'}
                 />
             )}
@@ -2586,6 +2764,210 @@ export default function AniWeighScreen() {
                 animalType={feedScheduleAnimalType}
                 showSnackbar={showSnackbar}
             />
+
+            {/* Chicks per Tray Configuration Modal */}
+            <Modal visible={chicksPerTrayModalVisible} transparent animationType="fade">
+                <View style={[aniweighStyles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.55)', padding: 16, justifyContent: 'center', alignItems: 'center' }]}>
+                    <View style={{
+                        width: '100%',
+                        maxWidth: 400,
+                        backgroundColor: colors.surface,
+                        borderRadius: 24,
+                        borderWidth: 1,
+                        borderColor: colors.stroke,
+                        padding: 20,
+                        overflow: 'hidden',
+                        shadowColor: '#000',
+                        shadowOpacity: 0.18,
+                        shadowRadius: 20,
+                        shadowOffset: { width: 0, height: 8 },
+                        elevation: 10,
+                    }}>
+                        {/* Header */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                <View style={{
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: 12,
+                                    backgroundColor: colors.primary + '18',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}>
+                                    <MaterialIcons name="inventory-2" size={20} color={colors.primary} />
+                                </View>
+                                <View>
+                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>Chicks per Tray</Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Tray capacity configuration</Text>
+                                </View>
+                            </View>
+                            <TouchableOpacity onPress={() => setChicksPerTrayModalVisible(false)} style={{ padding: 6 }}>
+                                <MaterialIcons name="close" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginBottom: 16, lineHeight: 18 }]}>
+                            Set how many chicks are placed in each crate or tray. Each tray weighing will calculate individual chick averages and log individual records.
+                        </Text>
+
+                        {/* Quick preset buttons */}
+                        <Text style={[textStyles.label, { color: colors.text, marginBottom: 8, fontSize: 12 }]}>Quick Select</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                            {[10, 15, 20, 25, 30, 50].map((preset) => {
+                                const isSelected = parseInt(tempChicksPerTray, 10) === preset;
+                                return (
+                                    <TouchableOpacity
+                                        key={preset}
+                                        onPress={() => setTempChicksPerTray(preset.toString())}
+                                        style={{
+                                            paddingHorizontal: 14,
+                                            paddingVertical: 8,
+                                            borderRadius: 10,
+                                            backgroundColor: isSelected ? colors.primary : colors.bgLight,
+                                            borderWidth: 1,
+                                            borderColor: isSelected ? colors.primary : colors.stroke,
+                                        }}
+                                    >
+                                        <Text style={[textStyles.label, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 13, fontWeight: '700' }]}>
+                                            {preset}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+
+                        {/* Custom Input */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <Text style={[textStyles.label, { color: colors.text, fontSize: 12 }]}>Number of Chicks in Tray</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Max: {MAX_CHICKS_PER_TRAY} pcs</Text>
+                        </View>
+                        <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            backgroundColor: colors.bgLight,
+                            borderWidth: 1,
+                            borderColor: colors.stroke,
+                            borderRadius: 12,
+                            paddingHorizontal: 12,
+                            marginBottom: 16,
+                        }}>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    const cur = parseInt(tempChicksPerTray, 10) || 1;
+                                    if (cur > 1) setTempChicksPerTray((cur - 1).toString());
+                                }}
+                                style={{ padding: 10 }}
+                            >
+                                <MaterialIcons name="remove" size={20} color={colors.primary} />
+                            </TouchableOpacity>
+
+                            <TextInput
+                                value={tempChicksPerTray}
+                                onChangeText={(t) => {
+                                    const cleaned = t.replace(/[^0-9]/g, '');
+                                    if (!cleaned) {
+                                        setTempChicksPerTray('');
+                                        return;
+                                    }
+                                    const num = parseInt(cleaned, 10);
+                                    if (num > MAX_CHICKS_PER_TRAY) {
+                                        setTempChicksPerTray(MAX_CHICKS_PER_TRAY.toString());
+                                    } else {
+                                        setTempChicksPerTray(cleaned);
+                                    }
+                                }}
+                                keyboardType="number-pad"
+                                maxLength={3}
+                                style={{
+                                    flex: 1,
+                                    textAlign: 'center',
+                                    fontSize: 18,
+                                    fontWeight: '700',
+                                    color: colors.text,
+                                    paddingVertical: 10,
+                                }}
+                            />
+
+                            <TouchableOpacity
+                                onPress={() => {
+                                    const cur = parseInt(tempChicksPerTray, 10) || 0;
+                                    if (cur < MAX_CHICKS_PER_TRAY) {
+                                        setTempChicksPerTray((cur + 1).toString());
+                                    }
+                                }}
+                                style={{ padding: 10 }}
+                            >
+                                <MaterialIcons name="add" size={20} color={colors.primary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Breakdown summary */}
+                        {(() => {
+                            const currentBatch = housingBatches.find(b => b.id === selectedBatchId) || housingBatches[0];
+                            const totalCount = currentBatch?.current_count ?? 0;
+                            const trayNum = Math.max(1, Math.min(MAX_CHICKS_PER_TRAY, parseInt(tempChicksPerTray, 10) || 1));
+                            const totalTrays = totalCount > 0 ? Math.ceil(totalCount / trayNum) : 0;
+                            return (
+                                <View style={{
+                                    backgroundColor: colors.primary + '10',
+                                    borderWidth: 1,
+                                    borderColor: colors.primary + '30',
+                                    borderRadius: 12,
+                                    padding: 12,
+                                    marginBottom: 18,
+                                }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Batch Size:</Text>
+                                        <Text style={[textStyles.label, { color: colors.text, fontSize: 12, fontWeight: '700' }]}>
+                                            {totalCount > 0 ? `${totalCount} chicks` : 'No active batch'}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Chicks per Tray:</Text>
+                                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 12, fontWeight: '700' }]}>
+                                            {trayNum} chicks
+                                        </Text>
+                                    </View>
+                                    {totalCount > 0 && (
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: colors.primary + '20', paddingTop: 6, marginTop: 2 }}>
+                                            <Text style={[textStyles.body, { color: colors.text, fontSize: 12, fontWeight: '600' }]}>Estimated Weigh Sessions:</Text>
+                                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 12, fontWeight: '700' }]}>
+                                                {totalTrays} tray weighs
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+                            );
+                        })()}
+
+                        {/* Save Button */}
+                        <TouchableOpacity
+                            onPress={() => {
+                                const parsed = parseInt(tempChicksPerTray, 10);
+                                if (!parsed || parsed < 1) {
+                                    showSnackbar('Please enter at least 1 chick.', 'error');
+                                    return;
+                                }
+                                if (parsed > MAX_CHICKS_PER_TRAY) {
+                                    showSnackbar(`Maximum capacity is ${MAX_CHICKS_PER_TRAY} chicks per tray.`, 'error');
+                                    return;
+                                }
+                                handleSaveChicksPerTray(parsed);
+                            }}
+                            activeOpacity={0.85}
+                            style={{
+                                height: 48,
+                                borderRadius: 24,
+                                backgroundColor: colors.primary,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                            }}
+                        >
+                            <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 14 }]}>Save Tray Capacity</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Weighing Reminder Configuration Modal */}
             <Modal visible={reminderModalVisible} transparent animationType="fade">
