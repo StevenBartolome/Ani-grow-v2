@@ -3,12 +3,13 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Alert,
+    Platform,
     RefreshControl,
     ScrollView,
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/context/AuthContext';
 import { BackButton } from '@/components/BackButton';
@@ -22,6 +23,8 @@ export default function SettingsScreen() {
     const { profile, signOut, refreshProfile } = useAuth();
     const settingsStyles = useSettingsStyles();
     const textStyles = useTextStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors, isDark, themeMode, setThemeMode, language } = useTheme();
     const router = useRouter();
 
@@ -68,7 +71,7 @@ export default function SettingsScreen() {
     };
 
     return (
-        <SafeAreaView style={settingsStyles.safeArea}>
+        <View style={[settingsStyles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={settingsStyles.container}>
 
                 {/* Header */}
@@ -399,6 +402,6 @@ export default function SettingsScreen() {
             />
 
 
-        </SafeAreaView>
+        </View>
     );
 }

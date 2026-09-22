@@ -13,6 +13,7 @@ import { Header } from '@/components/Header';
 
 import { BackButton } from '@/components/BackButton';
 import { AIInsightCard } from '@/components/AIInsightCard';
+import { CalendarPickerModal } from '@/components/CalendarPickerModal';
 import { useFormDraft } from '@/hooks/useFormDraft';
 import ActionModal from '@/components/ActionModal';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
@@ -278,172 +279,6 @@ const LabeledField = ({ label, value, color }: { label: string; value: string; c
 
 // ─── DatePickerField ──────────────────────────────────────────────────────────
 
-const MONTH_NAMES = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
-];
-const DAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-
-function CalendarPickerOverlay({
-    visible, value, onChange, onClose, colors, label,
-}: {
-    visible: boolean; value: string; onChange: (d: string) => void;
-    onClose: () => void; colors: any; label: string;
-}) {
-    if (!visible) return null;
-    const today = new Date();
-    const initDate = value ? new Date(value + 'T00:00:00') : today;
-    const [viewYear, setViewYear] = useState(initDate.getFullYear());
-    const [viewMonth, setViewMonth] = useState(initDate.getMonth());
-
-    useEffect(() => {
-        if (visible) {
-            const d = value ? new Date(value + 'T00:00:00') : today;
-            setViewYear(d.getFullYear());
-            setViewMonth(d.getMonth());
-        }
-    }, [visible, value]);
-
-    const prevMonth = () => {
-        if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
-        else setViewMonth(m => m - 1);
-    };
-    const nextMonth = () => {
-        if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
-        else setViewMonth(m => m + 1);
-    };
-
-    // Build calendar grid
-    const firstDay = new Date(viewYear, viewMonth, 1).getDay();
-    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-    const cells: (number | null)[] = [
-        ...Array(firstDay).fill(null),
-        ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-    ];
-    // Pad to complete last row
-    while (cells.length % 7 !== 0) cells.push(null);
-
-    const selectedDate = value ? new Date(value + 'T00:00:00') : null;
-    const isSelected = (day: number) =>
-        selectedDate &&
-        selectedDate.getFullYear() === viewYear &&
-        selectedDate.getMonth() === viewMonth &&
-        selectedDate.getDate() === day;
-    const isToday = (day: number) =>
-        today.getFullYear() === viewYear &&
-        today.getMonth() === viewMonth &&
-        today.getDate() === day;
-
-    const handleDayPress = (day: number) => {
-        const mm = String(viewMonth + 1).padStart(2, '0');
-        const dd = String(day).padStart(2, '0');
-        onChange(`${viewYear}-${mm}-${dd}`);
-        onClose();
-    };
-
-    return (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', zIndex: 1000, elevation: 25 }]}>
-            <TouchableOpacity
-                activeOpacity={1}
-                style={StyleSheet.absoluteFill}
-                onPress={onClose}
-            />
-            <View style={{
-                backgroundColor: colors.surface,
-                borderTopLeftRadius: 28, borderTopRightRadius: 28,
-                paddingBottom: 32, paddingHorizontal: 20,
-                width: '100%', zIndex: 1001, elevation: 30,
-            }}>
-                {/* Handle */}
-                <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 16 }} />
-
-                {/* Title */}
-                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: 20 }}>
-                    {label}
-                </Text>
-
-                {/* Month / Year nav */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                    <TouchableOpacity
-                        onPress={prevMonth}
-                        style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}
-                    >
-                        <MaterialIcons name="chevron-left" size={24} color={colors.text} />
-                    </TouchableOpacity>
-                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.text }}>
-                        {MONTH_NAMES[viewMonth]} {viewYear}
-                    </Text>
-                    <TouchableOpacity
-                        onPress={nextMonth}
-                        style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}
-                    >
-                        <MaterialIcons name="chevron-right" size={24} color={colors.text} />
-                    </TouchableOpacity>
-                </View>
-
-                {/* Day-of-week headers */}
-                <View style={{ flexDirection: 'row', marginBottom: 8 }}>
-                    {DAY_NAMES.map(d => (
-                        <View key={d} style={{ flex: 1, alignItems: 'center' }}>
-                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.textGrey }}>{d}</Text>
-                        </View>
-                    ))}
-                </View>
-
-                {/* Calendar grid */}
-                {Array.from({ length: cells.length / 7 }, (_, row) => (
-                    <View key={row} style={{ flexDirection: 'row', marginBottom: 4 }}>
-                        {cells.slice(row * 7, row * 7 + 7).map((day, col) => {
-                            const sel = day !== null && isSelected(day);
-                            const tod = day !== null && isToday(day);
-                            return (
-                                <View key={col} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                                    {day !== null ? (
-                                        <TouchableOpacity
-                                            onPress={() => handleDayPress(day)}
-                                            activeOpacity={0.75}
-                                            style={{
-                                                width: 38, height: 38, borderRadius: 19,
-                                                alignItems: 'center', justifyContent: 'center',
-                                                backgroundColor: sel ? colors.primary : tod ? colors.primary + '18' : 'transparent',
-                                                borderWidth: tod && !sel ? 1.5 : 0,
-                                                borderColor: colors.primary,
-                                            }}
-                                        >
-                                            <Text style={{
-                                                fontFamily: sel ? 'Poppins-SemiBold' : 'Poppins-Regular',
-                                                fontSize: 14,
-                                                color: sel ? '#fff' : tod ? colors.primary : colors.text,
-                                            }}>
-                                                {day}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ) : <View style={{ width: 38, height: 38 }} />}
-                                </View>
-                            );
-                        })}
-                    </View>
-                ))}
-
-                {/* Today shortcut */}
-                <TouchableOpacity
-                    onPress={() => {
-                        const mm = String(today.getMonth() + 1).padStart(2, '0');
-                        const dd = String(today.getDate()).padStart(2, '0');
-                        onChange(`${today.getFullYear()}-${mm}-${dd}`);
-                        onClose();
-                    }}
-                    style={{ marginTop: 12, paddingVertical: 13, borderRadius: 14, backgroundColor: colors.primary + '15', alignItems: 'center' }}
-                >
-                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.primary }}>
-                        Today
-                    </Text>
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
-}
-
 function DatePickerField({
     label, value, onPress, required,
 }: { label: string; value: string; onPress: () => void; required?: boolean }) {
@@ -453,7 +288,7 @@ function DatePickerField({
     const bg = hasValue ? colors.primary + '0A' : colors.cardFill;
 
     const displayValue = hasValue
-        ? new Date(value + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        ? new Date(value + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
         : '';
 
     return (
@@ -471,9 +306,9 @@ function DatePickerField({
                     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                 }}
             >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 6 }}>
                     <MaterialIcons name="calendar-today" size={18} color={hasValue ? colors.primary : colors.textGrey} />
-                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 14, color: hasValue ? colors.text : colors.textGrey }} numberOfLines={1}>
+                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 13, color: hasValue ? colors.text : colors.textGrey, flex: 1 }}>
                         {displayValue || 'Select date…'}
                     </Text>
                 </View>
@@ -1092,13 +927,19 @@ const HealthHousingCard = ({
                         {housing.name}
                     </Text>
                     <View style={{ gap: 4 }}>
-                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                            Live heads:{' '}
-                            <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
-                                {housing.current_count}
-                                {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
+                        {housing.active_batch_name ? (
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                Live heads:{' '}
+                                <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
+                                    {housing.current_count}
+                                    {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
+                                </Text>
                             </Text>
-                        </Text>
+                        ) : (
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                No batch yet
+                            </Text>
+                        )}
 
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                             <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
@@ -1272,6 +1113,7 @@ const HealthRecordCardItem = ({
 
 export default function HealthRecordsScreen() {
     const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { width } = useWindowDimensions();
     const hPad = width >= 900 ? Math.round(width * 0.12) : width >= 600 ? Math.round(width * 0.07) : 20;
     const { housingId, batchId: paramBatchId } = useLocalSearchParams<{ housingId: string; batchId: string }>();
@@ -1544,6 +1386,26 @@ export default function HealthRecordsScreen() {
         value: string;
         onChange: (d: string) => void;
     } | null>(null);
+
+    const openAddCalendar = (label: string, value: string, onChange: (d: string) => void) => {
+        setActiveAddCalendar({ label, value, onChange });
+        setAddVisible(false);
+    };
+
+    const closeAddCalendar = () => {
+        setActiveAddCalendar(null);
+        setAddVisible(true);
+    };
+
+    const openEditCalendar = (label: string, value: string, onChange: (d: string) => void) => {
+        setActiveEditCalendar({ label, value, onChange });
+        setEditVisible(false);
+    };
+
+    const closeEditCalendar = () => {
+        setActiveEditCalendar(null);
+        setEditVisible(true);
+    };
 
     // ── Add Modal Swipe Gesture (Header only) ──
     const closeAddModalRef = useRef<() => void>(undefined);
@@ -2479,7 +2341,7 @@ export default function HealthRecordsScreen() {
 
     if (!housingId) {
         return (
-            <View style={[styles.safeArea, { paddingTop: insets.top }]}>
+            <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
                 <View style={styles.container}>
                     {/* Header */}
                     <Header />
@@ -2615,16 +2477,20 @@ export default function HealthRecordsScreen() {
 
     // ─────────────────────────────────────────────────────────────────────────
     return (
-        <View style={[styles.safeArea, { paddingTop: insets.top }]}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
 
             {/* ── Header ── */}
             <View style={[styles.headerTopRow, { gap: 8 }]}>
                 <BackButton fallbackRoute="/(animals)/AnimalsScreen" />
-                <View style={{ flex: 1, marginLeft: 8 }}>
-                    <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]} numberOfLines={1}>
+                <View style={{ flex: 1, marginHorizontal: 6, justifyContent: 'center' }}>
+                    <Text
+                        style={[textStyles.h1, { color: colors.text, fontSize: 20, fontFamily: 'Poppins-Bold', lineHeight: 25 }]}
+                    >
                         Health Records
                     </Text>
-                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]} numberOfLines={1}>
+                    <Text
+                        style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 1, fontFamily: 'Poppins-Regular', lineHeight: 16 }]}
+                    >
                         {activeBatch ? `${activeBatch.name} · ${activeBatch.animal_type}` : 'Veterinary logs & biosecurity tracking'}
                     </Text>
                 </View>
@@ -3405,11 +3271,7 @@ export default function HealthRecordsScreen() {
                                         <DatePickerField
                                             label="DATE RECORDED"
                                             value={addDate}
-                                            onPress={() => setActiveAddCalendar({
-                                                label: 'Date Recorded',
-                                                value: addDate,
-                                                onChange: setAddDate,
-                                            })}
+                                            onPress={() => openAddCalendar('Date Recorded', addDate, setAddDate)}
                                             required
                                         />
                                     </View>
@@ -3417,11 +3279,7 @@ export default function HealthRecordsScreen() {
                                         <DatePickerField
                                             label="FOLLOW-UP DATE"
                                             value={addFollowup}
-                                            onPress={() => setActiveAddCalendar({
-                                                label: 'Follow-up Date',
-                                                value: addFollowup,
-                                                onChange: setAddFollowup,
-                                            })}
+                                            onPress={() => openAddCalendar('Follow-up Date', addFollowup, setAddFollowup)}
                                         />
                                     </View>
                                 </View>
@@ -3430,11 +3288,7 @@ export default function HealthRecordsScreen() {
                                     <DatePickerField
                                         label="DATE RECORDED"
                                         value={addDate}
-                                        onPress={() => setActiveAddCalendar({
-                                            label: 'Date Recorded',
-                                            value: addDate,
-                                            onChange: setAddDate,
-                                        })}
+                                        onPress={() => openAddCalendar('Date Recorded', addDate, setAddDate)}
                                         required
                                     />
                                 </View>
@@ -3567,16 +3421,6 @@ export default function HealthRecordsScreen() {
                         onClose={() => setMedicationPickerVisible(false)}
                         colors={colors}
                     />
-                    {activeAddCalendar && (
-                        <CalendarPickerOverlay
-                            visible={true}
-                            label={activeAddCalendar.label}
-                            value={activeAddCalendar.value}
-                            onChange={activeAddCalendar.onChange}
-                            onClose={() => setActiveAddCalendar(null)}
-                            colors={colors}
-                        />
-                    )}
                 </View>
             </Modal>
 
@@ -3824,11 +3668,7 @@ export default function HealthRecordsScreen() {
                                         <DatePickerField
                                             label="DATE RECORDED"
                                             value={editDate}
-                                            onPress={() => setActiveEditCalendar({
-                                                label: 'Date Recorded',
-                                                value: editDate,
-                                                onChange: setEditDate,
-                                            })}
+                                            onPress={() => openEditCalendar('Date Recorded', editDate, setEditDate)}
                                             required
                                         />
                                     </View>
@@ -3836,11 +3676,7 @@ export default function HealthRecordsScreen() {
                                         <DatePickerField
                                             label="FOLLOW-UP DATE"
                                             value={editFollowup}
-                                            onPress={() => setActiveEditCalendar({
-                                                label: 'Follow-up Date',
-                                                value: editFollowup,
-                                                onChange: setEditFollowup,
-                                            })}
+                                            onPress={() => openEditCalendar('Follow-up Date', editFollowup, setEditFollowup)}
                                         />
                                     </View>
                                 </View>
@@ -3849,11 +3685,7 @@ export default function HealthRecordsScreen() {
                                     <DatePickerField
                                         label="DATE RECORDED"
                                         value={editDate}
-                                        onPress={() => setActiveEditCalendar({
-                                            label: 'Date Recorded',
-                                            value: editDate,
-                                            onChange: setEditDate,
-                                        })}
+                                        onPress={() => openEditCalendar('Date Recorded', editDate, setEditDate)}
                                         required
                                     />
                                 </View>
@@ -3986,16 +3818,6 @@ export default function HealthRecordsScreen() {
                         onClose={() => setEditMedicationPickerVisible(false)}
                         colors={colors}
                     />
-                    {activeEditCalendar && (
-                        <CalendarPickerOverlay
-                            visible={true}
-                            label={activeEditCalendar.label}
-                            value={activeEditCalendar.value}
-                            onChange={activeEditCalendar.onChange}
-                            onClose={() => setActiveEditCalendar(null)}
-                            colors={colors}
-                        />
-                    )}
                 </View>
             </Modal>
 
@@ -4171,6 +3993,32 @@ export default function HealthRecordsScreen() {
                     />
                 </View>
             </Modal>
+
+            {activeAddCalendar && (
+                <CalendarPickerModal
+                    visible={true}
+                    onClose={closeAddCalendar}
+                    onSelect={(d) => {
+                        activeAddCalendar.onChange(d);
+                        closeAddCalendar();
+                    }}
+                    title={activeAddCalendar.label}
+                    selectedDate={activeAddCalendar.value || undefined}
+                />
+            )}
+
+            {activeEditCalendar && (
+                <CalendarPickerModal
+                    visible={true}
+                    onClose={closeEditCalendar}
+                    onSelect={(d) => {
+                        activeEditCalendar.onChange(d);
+                        closeEditCalendar();
+                    }}
+                    title={activeEditCalendar.label}
+                    selectedDate={activeEditCalendar.value || undefined}
+                />
+            )}
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
         </View>

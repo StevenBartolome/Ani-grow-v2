@@ -27,7 +27,7 @@ import {
     View,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
@@ -50,6 +50,8 @@ export default function FarmsScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useSettingsSubPageStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router = useRouter();
 
     const {
@@ -230,7 +232,7 @@ export default function FarmsScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
 
                 {/* ── Header ──────────────────────────────────────────────── */}
@@ -404,7 +406,7 @@ export default function FarmsScreen() {
             <Modal visible={internalAddModalOpen} transparent animationType="none" onRequestClose={() => setAddModalOpen(false)}>
                 <KeyboardAvoidingView
                     style={{ flex: 1 }}
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 >
                     <Animated.View style={{ flex: 1, backgroundColor: '#00000060', opacity: addFadeAnim }}>
                         <Pressable
@@ -668,6 +670,6 @@ export default function FarmsScreen() {
                 type={snackbarType}
                 onDismiss={() => setSnackbarVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

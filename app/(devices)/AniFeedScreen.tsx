@@ -2,9 +2,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { getNextDispenseInfo } from '@/components/FeedScheduleModal';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Modal, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 
 import { useAuth } from '@/context/AuthContext';
@@ -40,6 +40,7 @@ interface FeedScheduleInfo {
     timesPerDay: number;
     gramsPerDispense: number;
     feedId: string | null;
+    batchId?: string | null;
     feedBrand: string;
     dispenseTimes: string[];
     feedStockKg?: number | null;
@@ -53,6 +54,7 @@ interface DispenseLogEntry {
     amountGrams: number;
     timestamp: number;
     housingName: string;
+    batchName?: string | null;
 }
 
 function formatLogTime(timestamp: number): string {
@@ -101,6 +103,8 @@ export default function AniFeedScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const anifeedStyles = useAniFeedStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router = useRouter();
     const params = useLocalSearchParams<{ deviceId?: string; status?: string }>();
     const deviceId = params.deviceId ?? '';
@@ -108,7 +112,7 @@ export default function AniFeedScreen() {
 
     if (systemConfig?.featureFlags && !systemConfig.featureFlags.feedingEnabled) {
         return (
-            <SafeAreaView style={[anifeedStyles.safeArea, { backgroundColor: colors.bgLight, justifyContent: 'center', alignItems: 'center' }]}>
+            <View style={[anifeedStyles.safeArea, { backgroundColor: colors.bgLight, justifyContent: 'center', alignItems: 'center', paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
                 <MaterialIcons name="block" size={64} color={colors.textGrey} />
                 <Text style={[textStyles.h2, { color: colors.text, marginTop: 20 }]}>Feeding Module Disabled</Text>
                 <Text style={[textStyles.body, { textAlign: 'center', marginTop: 10, color: colors.textGrey, paddingHorizontal: 40 }]}>
@@ -117,7 +121,7 @@ export default function AniFeedScreen() {
                 <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/(devices)/DevicesScreen' as any)} style={{ marginTop: 30, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 8 }}>
                     <Text style={{ color: '#fff', fontWeight: 'bold' }}>Go Back</Text>
                 </TouchableOpacity>
-            </SafeAreaView>
+            </View>
         );
     }
 
@@ -136,6 +140,8 @@ export default function AniFeedScreen() {
     // Options for edit modals (fetched from farm)
     const [farmHousings, setFarmHousings] = useState<{ id: string; name: string; animal_type: string }[]>([]);
     const [farmFeeds, setFarmFeeds] = useState<{ id: string; name: string; brand: string; animal_type: string; stock_kg?: number | null; expiry_date?: string | null }[]>([]);
+    const [housingBatches, setHousingBatches] = useState<{ id: string; name: string; current_count: number; arrival_date: string; age_at_arrival_days: number }[]>([]);
+    const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
 
     // Live per-sensor test — two sources feeding the same display:
     // 1. liveSensorsLan — polled directly over LAN every 1.5s, near-instant
@@ -153,9 +159,9 @@ export default function AniFeedScreen() {
     // Feed Details Modal
     const [feedDetailsModalVisible, setFeedDetailsModalVisible] = useState(false);
 
-    // Edit field modal (Housing, Brand, AnimalType)
+    // Edit field modal (Housing, Brand, AnimalType, Batch)
     const [editModalVisible, setEditModalVisible] = useState(false);
-    const [editTarget, setEditTarget] = useState<'Housing' | 'Brand' | 'AnimalType' | null>(null);
+    const [editTarget, setEditTarget] = useState<'Housing' | 'Brand' | 'AnimalType' | 'Batch' | null>(null);
 
     // Action confirm modal
     const [modalVisible, setModalVisible] = useState(false);
@@ -189,14 +195,14 @@ export default function AniFeedScreen() {
                     .single(),
                 supabase
                     .from('feed_schedules')
-                    .select('id, times_per_day, grams_per_dispense, feed_id, dispense_times, feeds(name, brand, stock_kg, expiry_date)')
+                    .select('id, times_per_day, grams_per_dispense, feed_id, batch_id, dispense_times, feeds(name, brand, stock_kg, expiry_date)')
                     .eq('device_id', deviceId as string)
                     .order('created_at', { ascending: false })
                     .limit(1)
                     .maybeSingle(),
                 supabase
                     .from('dispense_records')
-                    .select('id, grams_dispensed, status, dispensed_at, housing_id, housings(name)')
+                    .select('id, grams_dispensed, status, dispensed_at, housing_id, batch_id, housings(name), batches(name)')
                     .eq('device_id', deviceId as string)
                     .order('dispensed_at', { ascending: false })
                     .limit(3),
@@ -211,14 +217,17 @@ export default function AniFeedScreen() {
                     .eq('farm_id', farmId),
             ]);
 
+            let activeHousingId: string | null = null;
+
             if (deviceResult.data) {
                 const d = deviceResult.data as any;
                 if (d.unique_code) setDeviceUniqueCode(d.unique_code);
+                activeHousingId = d.housing_id ?? null;
                 const info: DeviceInfo = {
                     name: d.name,
                     status: d.status,
                     lastSeen: d.last_seen ?? null,
-                    housingId: d.housing_id ?? null,
+                    housingId: activeHousingId,
                     housingName: d.housings?.name ?? 'Unassigned',
                     animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
                     farmId: d.farm_id ?? null,
@@ -248,11 +257,41 @@ export default function AniFeedScreen() {
                     timesPerDay: s.times_per_day,
                     gramsPerDispense: s.grams_per_dispense,
                     feedId: s.feed_id ?? null,
+                    batchId: s.batch_id ?? null,
                     feedBrand: wholeFeedName,
                     dispenseTimes: s.dispense_times ?? ['08:00', '12:00', '18:00'],
                     feedStockKg: s.feeds?.stock_kg ?? null,
                     feedExpiryDate: s.feeds?.expiry_date ?? null,
                 });
+            }
+
+            // Fetch active batches for this housing if assigned
+            if (activeHousingId) {
+                const { data: batchesData } = await supabase
+                    .from('batches')
+                    .select('id, name, current_count, arrival_date, age_at_arrival_days')
+                    .eq('housing_id', activeHousingId)
+                    .eq('status', 'active')
+                    .order('created_at', { ascending: false });
+
+                if (batchesData && batchesData.length > 0) {
+                    const bList = batchesData as any[];
+                    setHousingBatches(bList);
+                    const schedBatchId = (scheduleResult.data as any)?.batch_id;
+                    setSelectedBatchId(prev => {
+                        if (schedBatchId && bList.some(b => b.id === schedBatchId)) {
+                            return schedBatchId;
+                        }
+                        const stillExists = bList.some(b => b.id === prev);
+                        return stillExists ? prev : bList[0].id;
+                    });
+                } else {
+                    setHousingBatches([]);
+                    setSelectedBatchId(null);
+                }
+            } else {
+                setHousingBatches([]);
+                setSelectedBatchId(null);
             }
 
             if (logsResult.data && logsResult.data.length > 0) {
@@ -265,9 +304,13 @@ export default function AniFeedScreen() {
                     // Use the housing recorded on this specific dispense event,
                     // NOT the device's current housing (which may have changed).
                     housingName: (r.housings as any)?.name ?? 'Unassigned',
+                    batchName: (r.batches as any)?.name ?? null,
                 }));
                 setDispenseLogs(mapped);
                 setLastDispensed(`${formatLogTime(mapped[0].timestamp)} (${mapped[0].amount})`);
+            } else {
+                setDispenseLogs([]);
+                setLastDispensed(null);
             }
 
             if (housingsResult.data) setFarmHousings(housingsResult.data as any);
@@ -444,7 +487,7 @@ export default function AniFeedScreen() {
     };
 
     // ─── Edit modal ───────────────────────────────────────────────
-    const openEditModal = (target: 'Housing' | 'Brand' | 'AnimalType') => {
+    const openEditModal = (target: 'Housing' | 'Brand' | 'AnimalType' | 'Batch') => {
         setEditTarget(target);
         setEditModalVisible(true);
     };
@@ -455,6 +498,9 @@ export default function AniFeedScreen() {
             return farmHousings
                 .filter(h => h.animal_type === animalType.toLowerCase())
                 .map(h => h.name);
+        }
+        if (editTarget === 'Batch') {
+            return housingBatches.map(b => b.name);
         }
         if (editTarget === 'Brand') {
             // Only show feeds that match the feeder's animal type — never mix pig and chicken feeds
@@ -474,6 +520,8 @@ export default function AniFeedScreen() {
                 await supabase.from('devices').update({ housing_id: null }).eq('id', deviceId as string);
                 await AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
                 setDeviceInfo(prev => prev ? { ...prev, housingId: null, housingName: 'Unassigned', animalType: selectedType } : null);
+                setHousingBatches([]);
+                setSelectedBatchId(null);
                 showSnackbar(`Animal type set to ${selectedType}. Please reassign a housing.`);
             } else if (editTarget === 'Housing') {
                 const h = farmHousings.find(h => h.name === val);
@@ -481,7 +529,43 @@ export default function AniFeedScreen() {
                 await supabase.from('devices').update({ housing_id: h.id }).eq('id', deviceId as string);
                 await AsyncStorage.removeItem(`temp_animal_type_${deviceId}`);
                 setDeviceInfo(prev => prev ? { ...prev, housingId: h.id, housingName: h.name, animalType: h.animal_type === 'pig' ? 'Pig' : 'Chicken' } : null);
+
+                // Fetch batches for newly assigned housing
+                const { data: batchesData } = await supabase
+                    .from('batches')
+                    .select('id, name, current_count, arrival_date, age_at_arrival_days')
+                    .eq('housing_id', h.id)
+                    .eq('status', 'active')
+                    .order('created_at', { ascending: false });
+
+                if (batchesData && batchesData.length > 0) {
+                    const bList = batchesData as any[];
+                    setHousingBatches(bList);
+                    const nextBatchId = bList[0].id;
+                    setSelectedBatchId(nextBatchId);
+                    if (schedule?.id) {
+                        await supabase.from('feed_schedules').update({ housing_id: h.id, batch_id: nextBatchId }).eq('id', schedule.id);
+                        setSchedule(prev => prev ? { ...prev, batchId: nextBatchId } : null);
+                    }
+                } else {
+                    setHousingBatches([]);
+                    setSelectedBatchId(null);
+                    if (schedule?.id) {
+                        await supabase.from('feed_schedules').update({ housing_id: h.id, batch_id: null }).eq('id', schedule.id);
+                        setSchedule(prev => prev ? { ...prev, batchId: null } : null);
+                    }
+                }
                 showSnackbar('Housing updated.');
+            } else if (editTarget === 'Batch') {
+                const selected = housingBatches.find(b => b.name === val);
+                if (selected) {
+                    setSelectedBatchId(selected.id);
+                    if (schedule?.id) {
+                        await supabase.from('feed_schedules').update({ batch_id: selected.id }).eq('id', schedule.id);
+                        setSchedule(prev => prev ? { ...prev, batchId: selected.id } : null);
+                    }
+                    showSnackbar(`Feeding batch set to "${selected.name}".`);
+                }
             } else if (editTarget === 'Brand') {
                 // Find feed using an exact match of the formatted option string
                 const f = farmFeeds.find(fd => {
@@ -506,6 +590,8 @@ export default function AniFeedScreen() {
                     const payload = {
                         device_id: deviceId as string,
                         farm_id: farmId,
+                        housing_id: deviceInfo?.housingId ?? null,
+                        batch_id: selectedBatchId ?? null,
                         animal_type: animalType.toLowerCase(),
                         feed_id: f.id,
                         times_per_day: 3, // default
@@ -520,6 +606,7 @@ export default function AniFeedScreen() {
                         timesPerDay: 3,
                         gramsPerDispense: 1000,
                         feedId: f.id,
+                        batchId: selectedBatchId ?? null,
                         feedBrand: wholeFeedName,
                         dispenseTimes: ['08:00', '12:00', '18:00'],
                         feedStockKg: f.stock_kg ?? null,
@@ -542,7 +629,7 @@ export default function AniFeedScreen() {
     };
 
     return (
-        <SafeAreaView style={[anifeedStyles.safeArea, { backgroundColor: colors.bgLight }]}>
+        <View style={[anifeedStyles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
             <View style={anifeedStyles.header}>
                 <View style={{ width: 44, height: 44 }}>
@@ -641,6 +728,18 @@ export default function AniFeedScreen() {
                                     <Text style={[textStyles.label, { color: colors.info, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{housing}</Text>
                                     <MaterialIcons name="arrow-drop-down" size={16} color={colors.info} />
                                 </TouchableOpacity>
+                                {deviceInfo?.housingId && (
+                                    <TouchableOpacity
+                                        style={[anifeedStyles.tag, { backgroundColor: colors.warning + '1A', paddingRight: 6 }]}
+                                        onPress={() => openEditModal('Batch')}
+                                    >
+                                        <MaterialIcons name="layers" size={14} color={colors.warning} />
+                                        <Text style={[textStyles.label, { color: colors.warning, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>
+                                            {housingBatches.find(b => b.id === selectedBatchId)?.name ?? (housingBatches.length > 0 ? 'Select Batch' : 'No Batch')}
+                                        </Text>
+                                        <MaterialIcons name="arrow-drop-down" size={16} color={colors.warning} />
+                                    </TouchableOpacity>
+                                )}
                             </View>
                         </ScrollView>
                     </View>
@@ -960,14 +1059,15 @@ export default function AniFeedScreen() {
                         variant="orange"
                         category="feed_device"
                         farmId={farmId}
-                        subKey={deviceId ? `${deviceId}_${(schedule as any)?.batch_id || deviceInfo?.housingId || 'general'}_${(deviceInfo?.animalType || 'general').toLowerCase()}` : ''}
+                        subKey={deviceId ? `${deviceId}_${selectedBatchId || (schedule as any)?.batch_id || deviceInfo?.housingId || 'general'}_${(deviceInfo?.animalType || 'general').toLowerCase()}` : ''}
                         context={{
                             type: 'feed',
                             animalType: deviceInfo?.animalType ?? 'livestock',
                             housingName: deviceInfo?.housingName ?? '',
                             data: {
                                 deviceId,
-                                batchId: (schedule as any)?.batch_id ?? null,
+                                batchId: selectedBatchId || (schedule as any)?.batch_id || null,
+                                batchName: housingBatches.find(b => b.id === (selectedBatchId || (schedule as any)?.batch_id))?.name ?? null,
                                 housingId: deviceInfo?.housingId ?? null,
                                 feedBrand: schedule?.feedBrand ?? null,
                                 timesPerDay: schedule?.timesPerDay ?? null,
@@ -978,6 +1078,7 @@ export default function AniFeedScreen() {
                                     amountGrams: l.amountGrams,
                                     status: l.status,
                                     time: new Date(l.timestamp).toISOString(),
+                                    batchName: l.batchName ?? null,
                                 })),
                             },
                         }}
@@ -985,7 +1086,17 @@ export default function AniFeedScreen() {
 
                     {/* Recent Logs */}
                     <View style={anifeedStyles.logsSection}>
-                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 18, marginBottom: 12 }]}>Recent Logs</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 18 }]}>Recent Logs</Text>
+                            {deviceInfo?.name ? (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.secondary + '14', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+                                    <AniFeedIcon size={12} />
+                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.secondary }}>
+                                        {deviceInfo.name}
+                                    </Text>
+                                </View>
+                            ) : null}
+                        </View>
                         {dispenseLogs.length === 0 ? (
                             <View style={{ alignItems: 'center', paddingVertical: 24 }}>
                                 <MaterialIcons name="history" size={32} color={colors.textGrey} />
@@ -1009,9 +1120,17 @@ export default function AniFeedScreen() {
                                             {/* Top row */}
                                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                                                 <View style={{ flex: 1, marginRight: 12 }}>
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
-                                                        <MaterialIcons name="home" size={13} color={colors.textGrey} />
-                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginLeft: 3 }]} numberOfLines={1}>{log.housingName}</Text>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 5 }}>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                                            <MaterialIcons name="home" size={13} color={colors.textGrey} />
+                                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginLeft: 3 }]} numberOfLines={1}>{log.housingName}</Text>
+                                                        </View>
+                                                        {log.batchName ? (
+                                                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.warning + '18', paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 6 }}>
+                                                                <MaterialIcons name="layers" size={11} color={colors.warning} />
+                                                                <Text style={[textStyles.label, { color: colors.warning, fontSize: 11, marginLeft: 3, fontWeight: '600' }]} numberOfLines={1}>{log.batchName}</Text>
+                                                            </View>
+                                                        ) : null}
                                                     </View>
                                                     <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: statusColor + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
                                                         <MaterialIcons name={statusIcon} size={11} color={statusColor} />
@@ -1072,28 +1191,36 @@ export default function AniFeedScreen() {
                 onCancel={() => setModalVisible(false)}
             />
 
-            {/* Edit Housing / Brand / AnimalType modal */}
+            {/* Edit Housing / Brand / AnimalType / Batch modal */}
             {editTarget && (
                 <SelectionModal
                     visible={editModalVisible}
                     onClose={() => setEditModalVisible(false)}
                     onSelect={handleEditConfirm}
-                    title={editTarget === 'AnimalType' ? 'Animal Type' : editTarget === 'Brand' ? 'Select Feed' : `Edit ${editTarget}`}
+                    title={
+                        editTarget === 'AnimalType' ? 'Animal Type'
+                        : editTarget === 'Brand' ? 'Select Feed'
+                        : editTarget === 'Batch' ? 'Select Batch'
+                        : `Edit ${editTarget}`
+                    }
                     description={
                         editTarget === 'AnimalType'
                             ? 'Select the animal type for this feeder.'
                             : editTarget === 'Brand'
                             ? `Showing feeds registered for ${animalType}s only.`
+                            : editTarget === 'Batch'
+                            ? `Select the active batch in ${housing} to receive dispensed feed.`
                             : `Select a new ${editTarget.toLowerCase()} for this device.`
                     }
-                    icon="edit"
+                    icon={editTarget === 'Batch' ? 'layers' : editTarget === 'Housing' ? 'home' : 'edit'}
                     options={getEditOptions()}
                     selectedValue={
                         editTarget === 'Housing' ? housing
                         : editTarget === 'AnimalType' ? animalType
+                        : editTarget === 'Batch' ? (housingBatches.find(b => b.id === selectedBatchId)?.name ?? '')
                         : brand
                     }
-                    enableSearch={editTarget !== 'AnimalType'}
+                    enableSearch={editTarget !== 'AnimalType' && editTarget !== 'Batch'}
                 />
             )}
 
@@ -1177,6 +1304,6 @@ export default function AniFeedScreen() {
                 type={snackbarType}
                 onDismiss={() => setSnackbarVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

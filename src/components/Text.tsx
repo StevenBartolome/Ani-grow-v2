@@ -95,13 +95,7 @@ interface CustomTextProps extends TextProps {
 
 export function Text({ children, translate = true, style, ...props }: CustomTextProps) {
   const { language } = useTheme();
-  
-  let authContext: any = null;
-  try {
-    authContext = useAuth();
-  } catch (e) {
-    // AuthProvider not loaded/ready yet (e.g. initial setup)
-  }
+  const authContext = useAuth();
   const profile = authContext?.profile;
 
   const [translatedChildren, setTranslatedChildren] = useState<React.ReactNode>(children);

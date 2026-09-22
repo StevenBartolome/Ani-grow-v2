@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Platform,
     Pressable,
     RefreshControl,
     ScrollView,
@@ -11,7 +12,7 @@ import {
     View,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
@@ -98,6 +99,8 @@ function fmtDate(d: string) {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function VetDashboardScreen() {
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile } = useAuth();
     const homeStyles = useHomeStyles();
     const textStyles = useTextStyles();
@@ -475,7 +478,7 @@ export default function VetDashboardScreen() {
 
     // ── Render ────────────────────────────────────────────────────────────────
     return (
-        <SafeAreaView style={homeStyles.safeArea}>
+        <View style={[homeStyles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={homeStyles.container}>
 
                 <Header />
@@ -770,6 +773,6 @@ export default function VetDashboardScreen() {
             </View>
 
             <FloatingNavBar />
-        </SafeAreaView>
+        </View>
     );
 }

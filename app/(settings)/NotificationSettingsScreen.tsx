@@ -13,7 +13,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -33,6 +33,8 @@ import {
 export default function NotificationSettingsScreen() {
     const styles = useSettingsSubPageStyles();
     const textStyles = useTextStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors } = useTheme();
     const { user, profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
@@ -165,7 +167,7 @@ export default function NotificationSettingsScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -244,6 +246,6 @@ export default function NotificationSettingsScreen() {
                     </ScrollView>
                 )}
             </View>
-        </SafeAreaView>
+        </View>
     );
 }

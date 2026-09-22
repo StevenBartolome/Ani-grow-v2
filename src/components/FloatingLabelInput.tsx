@@ -4,11 +4,14 @@ import { AnimalIcon } from './AnimalIcon';
 import {
   Animated,
   Pressable,
+  StyleProp,
   StyleSheet,
+  Text,
   TextInput,
   TextInputProps,
   TouchableOpacity,
   View,
+  ViewStyle,
 } from 'react-native';
 
 import { useTextStyles } from '@/constants/textStyles';
@@ -20,7 +23,9 @@ interface FloatingLabelInputProps extends TextInputProps {
   icon?: keyof typeof MaterialIcons.glyphMap | 'pig' | 'chicken';
   isPassword?: boolean;
   error?: string;
+  helperText?: string;
   backgroundColor?: string;
+  containerStyle?: StyleProp<ViewStyle>;
 }
 
 export default function FloatingLabelInput({
@@ -28,9 +33,11 @@ export default function FloatingLabelInput({
   icon,
   isPassword,
   error,
+  helperText,
   value,
   onChangeText,
   backgroundColor,
+  containerStyle,
   ...rest
 }: FloatingLabelInputProps) {
 
@@ -70,7 +77,7 @@ export default function FloatingLabelInput({
   const borderColor = error ? colors.error : (isFocused ? colors.primary : colors.stroke);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
 
       <Pressable
         onPress={() => inputRef.current?.focus()}
@@ -163,6 +170,10 @@ export default function FloatingLabelInput({
         <Animated.Text style={[textStyles.label, { color: colors.error, marginTop: 4, marginLeft: 16, fontSize: 12 }]}>
           {error}
         </Animated.Text>
+      ) : helperText ? (
+        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 4, marginLeft: 16, fontSize: 11 }]}>
+          {helperText}
+        </Text>
       ) : null}
 
     </View>

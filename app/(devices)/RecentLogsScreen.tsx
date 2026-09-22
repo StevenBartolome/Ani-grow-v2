@@ -2,9 +2,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import { AnimalIcon } from '@/components/AnimalIcon';
@@ -57,6 +57,8 @@ export default function RecentLogsScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useDevicesStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
@@ -65,6 +67,7 @@ export default function RecentLogsScreen() {
     type StatusFilter = 'all' | 'underweight' | 'normal' | 'overweight';
     type AnimalFilter = 'all' | 'Pig' | 'Chicken';
 
+    const [deviceName, setDeviceName] = useState<string | null>(null);
     const [logs, setLogs] = useState<WeighLogEntry[]>([]);
     const [housingOptions, setHousingOptions] = useState<HousingOption[]>([]);
     const [loading, setLoading] = useState(true);
@@ -76,6 +79,8 @@ export default function RecentLogsScreen() {
     const [showFilters, setShowFilters] = useState(true);
     const [page, setPage] = useState(1);
     const pageSize = 10;
+
+    const isSpecificDevice = Boolean(deviceId && deviceId !== 'undefined');
 
     const fetchLogs = useCallback(async () => {
         if (!farmId) { setLoading(false); return; }
@@ -99,8 +104,16 @@ export default function RecentLogsScreen() {
                 const hId = d.housing_id ?? null;
                 const hName = (d.housings as any)?.name ?? 'Unassigned';
                 deviceMap[d.id] = { name: d.name, housingId: hId, housingName: hName };
-                if (hId && !housingMap[hId]) housingMap[hId] = hName;
+                if (isSpecificDevice) {
+                    if (d.id === deviceId && hId && !housingMap[hId]) housingMap[hId] = hName;
+                } else {
+                    if (hId && !housingMap[hId]) housingMap[hId] = hName;
+                }
             });
+
+            if (isSpecificDevice && deviceMap[deviceId as string]) {
+                setDeviceName(deviceMap[deviceId as string].name);
+            }
 
             // Keep ref in sync so realtime callback always has the latest map
             deviceMapRef.current = deviceMap;
@@ -110,8 +123,8 @@ export default function RecentLogsScreen() {
 
             // Determine which device IDs to query
             const allFarmDeviceIds = Object.keys(deviceMap);
-            // If we came from a specific device screen, scope to that device but still show its housing
-            const targetDeviceIds = deviceId ? [deviceId as string] : allFarmDeviceIds;
+            // If we came from a specific device screen, scope strictly to that device
+            const targetDeviceIds = isSpecificDevice ? [deviceId as string] : allFarmDeviceIds;
 
             const { data, error } = await supabase
                 .from('weigh_sessions')
@@ -234,7 +247,7 @@ export default function RecentLogsScreen() {
     }, [filterStatus, filterAnimal, filterHousingId, housingOptions]);
 
     return (
-        <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgLight }]}>
+        <View style={[styles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
 
             {/* ── Header ─────────────────────────────────────────────── */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14 }}>
@@ -244,7 +257,7 @@ export default function RecentLogsScreen() {
                 <View style={{ alignItems: 'center' }}>
                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>Weight Logs</Text>
                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
-                        {isFiltered ? `${filteredLogs.length} of ${logs.length} entries` : `${logs.length} entries`}
+                        {deviceName ? `${deviceName} · ` : ''}{isFiltered ? `${filteredLogs.length} of ${logs.length} entries` : `${logs.length} entries`}
                     </Text>
                 </View>
                 <TouchableOpacity
@@ -614,6 +627,6 @@ export default function RecentLogsScreen() {
                     </>
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }

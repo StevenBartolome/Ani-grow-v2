@@ -620,6 +620,7 @@ const GuideTaskCardItem = ({
 
 export default function GuideScreen() {
     const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const textStyles = useTextStyles();
     const { colors, isDark } = useTheme();
     const { profile } = useAuth();
@@ -1093,7 +1094,7 @@ export default function GuideScreen() {
 
     if (isBatchLoading && !batchesLoadedRef.current) {
         return (
-            <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top }}>
+            <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }}>
                 <Header />
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                     <ActivityIndicator size="large" color={colors.primary} />
@@ -1107,7 +1108,7 @@ export default function GuideScreen() {
     }
 
     return (
-        <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top }}>
+        <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }}>
             {/* Fixed App Header */}
             <Header />
 

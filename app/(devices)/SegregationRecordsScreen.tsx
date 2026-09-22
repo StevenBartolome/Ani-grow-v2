@@ -1,9 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import { AniWeighIcon } from '@/components/AniWeighIcon';
@@ -40,6 +40,8 @@ export default function SegregationRecordsScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useAniWeighStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { deviceId } = useLocalSearchParams();
 
     const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
@@ -181,7 +183,7 @@ export default function SegregationRecordsScreen() {
     };
 
     return (
-        <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgLight }]}>
+        <View style={[styles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.header}>
                 <View style={{ width: 44, height: 44 }}>
                     <BackButton fallbackRoute="/(devices)/DevicesScreen" />
@@ -227,6 +229,6 @@ export default function SegregationRecordsScreen() {
                     stats.map(renderStatsCard)
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }

@@ -28,6 +28,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Modal,
+    Platform,
     Pressable,
     RefreshControl,
     ScrollView,
@@ -35,7 +36,7 @@ import {
     View,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ActionModal, { ActionModalType } from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
@@ -95,6 +96,8 @@ export default function DeviceSettingsScreen() {
     const textStyles   = useTextStyles();
     const styles       = useSettingsSubPageStyles();
     const deviceStyles = useDevicesStyles();
+    const insets       = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router       = useRouter();
     const params       = useLocalSearchParams<{ deviceId?: string; type?: string }>();
     const deviceId     = params.deviceId || '';
@@ -395,11 +398,11 @@ export default function DeviceSettingsScreen() {
     // ── Loading ───────────────────────────────────────────────────────────────
     if (loading) {
         return (
-            <SafeAreaView style={styles.safeArea}>
+            <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                     <ActivityIndicator size="large" color={colors.primary} />
                 </View>
-            </SafeAreaView>
+            </View>
         );
     }
 
@@ -412,7 +415,7 @@ export default function DeviceSettingsScreen() {
     const liveStatus = device ? getDeviceDisplayStatus(device.status, device.last_seen) : 'offline';
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
 
                 {/* ── Header ──────────────────────────────────────────────── */}
@@ -886,6 +889,6 @@ export default function DeviceSettingsScreen() {
                 type={snackbarType}
                 onDismiss={() => setSnackbarVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

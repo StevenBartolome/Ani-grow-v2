@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, ScrollView, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
@@ -22,6 +22,8 @@ export default function AddDeviceScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useDevicesStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router = useRouter();
 
     // When opened from an existing device's cloud icon, these params are passed
@@ -192,7 +194,7 @@ export default function AddDeviceScreen() {
     };
 
     return (
-        <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgLight }]}>
+        <View style={[styles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
             <View style={styles.headerTopRow}>
                 <View style={{ width: 44, height: 44 }}>
@@ -523,6 +525,6 @@ export default function AddDeviceScreen() {
                 type={snackbarType}
                 onDismiss={() => setSnackbarVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

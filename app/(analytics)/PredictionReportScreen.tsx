@@ -4,6 +4,7 @@ import { useLocalSearchParams } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     ActivityIndicator,
+    Platform,
     RefreshControl,
     ScrollView,
     TouchableOpacity,
@@ -11,7 +12,7 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LineChart } from 'react-native-chart-kit';
 
 import { BackButton } from '@/components/BackButton';
@@ -84,6 +85,8 @@ export default function PredictionReportScreen() {
     const textStyles = useTextStyles();
     const styles = useAnalyticsStyles();
     const animalStyles = useAnimalStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { width } = useWindowDimensions();
     const hPad = width >= 900 ? Math.round(width * 0.12) : width >= 600 ? Math.round(width * 0.07) : 20;
 
@@ -478,8 +481,8 @@ export default function PredictionReportScreen() {
     // Forecast chart data matching web
     const forecastChartData = useMemo(() => {
         const totalDays = timeframe === '30 Days' ? 30 : 60;
-        const stepCount = 6;
-        const stepDays = Math.round(totalDays / stepCount);
+        const stepDays = 5;
+        const stepCount = Math.round(totalDays / stepDays);
 
         const labels: string[] = [];
         const projectedData: number[] = [];
@@ -491,7 +494,7 @@ export default function PredictionReportScreen() {
         for (let i = 0; i <= stepCount; i++) {
             const d = new Date();
             d.setDate(d.getDate() + i * stepDays);
-            labels.push(i === 0 ? 'Today' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            labels.push(i === 0 ? 'Today' : `${d.getMonth() + 1}/${d.getDate()}`);
             const projWeight = Math.max(0, baseWeight + i * stepDays * gainPerDay);
             projectedData.push(parseFloat(projWeight.toFixed(2)));
             targetLine.push(harvestTargetKg);
@@ -761,7 +764,7 @@ export default function PredictionReportScreen() {
 
     // ─── Render ──────────────────────────────────────────────────────────────
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
             <View style={animalStyles.headerTopRow}>
                 <View style={{ width: 44, height: 44, justifyContent: 'center' }}>
@@ -1147,89 +1150,118 @@ export default function PredictionReportScreen() {
                                     borderColor: colors.stroke,
                                     width: '100%',
                                 }}>
-                                    <LineChart
-                                        data={forecastChartData}
-                                        width={width - hPad * 2 - 18}
-                                        height={240}
-                                        yAxisLabel=""
-                                        yAxisSuffix="kg"
-                                        withDots={true}
-                                        withInnerLines={true}
-                                        withOuterLines={false}
-                                        withVerticalLines={false}
-                                        withHorizontalLines={true}
-                                        onDataPointClick={({ x, y, value, index }) => {
-                                            if (value === 0 && index === 0) return;
-                                            const pt = forecastChartData.detailedPoints?.[index];
-                                            const label = pt ? pt.label : forecastChartData.labels?.[index] ?? `#${index + 1}`;
-                                            setForecastTooltip(prev =>
-                                                prev && prev.x === x && prev.y === y ? null : { x, y, value, label }
-                                            );
-                                        }}
-                                        decorator={() => {
-                                            if (!forecastTooltip) return null;
-                                            const { x, y, value, label } = forecastTooltip;
-                                            const tipW = 96;
-                                            const tipH = 46;
-                                            const offsetX = x + tipW + 8 > (width - hPad * 2 - 18) ? x - tipW - 6 : x - tipW / 2;
-                                            const offsetY = y - tipH - 10 < 0 ? y + 8 : y - tipH - 8;
-                                            const isTargetMet = value >= harvestTargetKg;
-                                            return (
-                                                <View style={{
-                                                    position: 'absolute',
-                                                    left: offsetX,
-                                                    top: offsetY,
-                                                    backgroundColor: colors.text,
-                                                    borderRadius: 8,
-                                                    paddingHorizontal: 8,
-                                                    paddingVertical: 5,
-                                                    width: tipW,
-                                                    alignItems: 'center',
-                                                    shadowColor: '#000',
-                                                    shadowOffset: { width: 0, height: 2 },
-                                                    shadowOpacity: 0.25,
-                                                    shadowRadius: 4,
-                                                    elevation: 6,
-                                                }}>
-                                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.surface }}>
-                                                        {value.toFixed(2)} kg
-                                                    </Text>
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 8, color: colors.surface, opacity: 0.8, textAlign: 'center' }}>
-                                                        {label}
-                                                    </Text>
-                                                    <Text style={{
-                                                        fontFamily: 'Poppins-Medium',
-                                                        fontSize: 8,
-                                                        color: isTargetMet ? '#34D399' : '#FBBF24',
-                                                        marginTop: 1,
-                                                    }}>
-                                                        {isTargetMet ? 'Goal Met' : `${(harvestTargetKg - value).toFixed(2)}kg to goal`}
-                                                    </Text>
+                                {(() => {
+                                    const baseChartWidth = width - hPad * 2 - 18;
+                                    const pointSpacing = 68;
+                                    const forecastChartWidth = Math.max(baseChartWidth, forecastChartData.labels.length * pointSpacing);
+                                    const isScrollable = forecastChartWidth > baseChartWidth;
+
+                                    return (
+                                        <>
+                                            {isScrollable && (
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 16, marginBottom: 6 }}>
+                                                    <MaterialIcons name="swipe" size={14} color={colors.textGrey} />
+                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Scroll for full timeline</Text>
                                                 </View>
-                                            );
-                                        }}
-                                        chartConfig={{
-                                            backgroundColor: colors.surface,
-                                            backgroundGradientFrom: colors.surface,
-                                            backgroundGradientTo: colors.surface,
-                                            decimalPlaces: 1,
-                                            color: (opacity = 1) => colors.stroke,
-                                            labelColor: (opacity = 1) => colors.textGrey,
-                                            strokeWidth: 3,
-                                            fillShadowGradientFrom: colors.prediction ?? '#8B5CF6',
-                                            fillShadowGradientFromOpacity: 0.2,
-                                            fillShadowGradientTo: colors.prediction ?? '#8B5CF6',
-                                            fillShadowGradientToOpacity: 0.04,
-                                            style: { borderRadius: 16 },
-                                            propsForDots: {
-                                                r: '4',
-                                                strokeWidth: '2',
-                                                stroke: colors.surface,
-                                            },
-                                        }}
-                                        bezier
-                                        style={{ borderRadius: 16 }}
-                                    />
+                                            )}
+                                            <ScrollView
+                                                horizontal
+                                                showsHorizontalScrollIndicator={false}
+                                                contentContainerStyle={{ minWidth: baseChartWidth }}
+                                            >
+                                                <LineChart
+                                                    data={forecastChartData}
+                                                    width={forecastChartWidth}
+                                                    height={240}
+                                                    yAxisLabel=""
+                                                    yAxisSuffix="kg"
+                                                    withDots={true}
+                                                    withInnerLines={true}
+                                                    withOuterLines={false}
+                                                    withVerticalLines={false}
+                                                    withHorizontalLines={true}
+                                                    onDataPointClick={({ x, y, value, index }) => {
+                                                        if (value === 0 && index === 0) return;
+                                                        const pt = forecastChartData.detailedPoints?.[index];
+                                                        const label = pt ? pt.label : forecastChartData.labels?.[index] ?? `#${index + 1}`;
+                                                        setForecastTooltip(prev =>
+                                                            prev && Math.abs(prev.x - x) < 5 && Math.abs(prev.y - y) < 5 ? null : { x, y, value, label }
+                                                        );
+                                                    }}
+                                                    decorator={() => {
+                                                        if (!forecastTooltip) return null;
+                                                        const { x, y, value, label } = forecastTooltip;
+                                                        const tipW = 126;
+                                                        const tipH = 58;
+                                                        const offsetX = Math.max(6, Math.min(x - tipW / 2, forecastChartWidth - tipW - 6));
+                                                        const offsetY = y - tipH - 10 < 0 ? y + 10 : y - tipH - 10;
+                                                        const isTargetMet = value >= harvestTargetKg;
+                                                        return (
+                                                            <View
+                                                                pointerEvents="none"
+                                                                style={{
+                                                                    position: 'absolute',
+                                                                    left: offsetX,
+                                                                    top: offsetY,
+                                                                    backgroundColor: '#182232',
+                                                                    borderRadius: 12,
+                                                                    paddingHorizontal: 10,
+                                                                    paddingVertical: 7,
+                                                                    width: tipW,
+                                                                    alignItems: 'center',
+                                                                    shadowColor: '#000',
+                                                                    shadowOffset: { width: 0, height: 4 },
+                                                                    shadowOpacity: 0.35,
+                                                                    shadowRadius: 8,
+                                                                    elevation: 10,
+                                                                    borderWidth: 1,
+                                                                    borderColor: 'rgba(255, 255, 255, 0.12)',
+                                                                    zIndex: 999,
+                                                                }}
+                                                            >
+                                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 13, color: '#FFFFFF' }}>
+                                                                    {value.toFixed(2)} kg
+                                                                </Text>
+                                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: '#94A3B8', textAlign: 'center' }}>
+                                                                    {label}
+                                                                </Text>
+                                                                <Text style={{
+                                                                    fontFamily: 'Poppins-SemiBold',
+                                                                    fontSize: 9,
+                                                                    color: isTargetMet ? '#34D399' : '#FBBF24',
+                                                                    marginTop: 2,
+                                                                }}>
+                                                                    {isTargetMet ? 'Goal Met' : `${(harvestTargetKg - value).toFixed(2)}kg to goal`}
+                                                                </Text>
+                                                            </View>
+                                                        );
+                                                    }}
+                                                    chartConfig={{
+                                                        backgroundColor: colors.surface,
+                                                        backgroundGradientFrom: colors.surface,
+                                                        backgroundGradientTo: colors.surface,
+                                                        decimalPlaces: 1,
+                                                        color: (opacity = 1) => colors.stroke,
+                                                        labelColor: (opacity = 1) => colors.textGrey,
+                                                        strokeWidth: 3,
+                                                        fillShadowGradientFrom: (colors as any).prediction ?? '#8B5CF6',
+                                                        fillShadowGradientFromOpacity: 0.2,
+                                                        fillShadowGradientTo: (colors as any).prediction ?? '#8B5CF6',
+                                                        fillShadowGradientToOpacity: 0.04,
+                                                        style: { borderRadius: 16 },
+                                                        propsForDots: {
+                                                            r: '4',
+                                                            strokeWidth: '2',
+                                                            stroke: colors.surface,
+                                                        },
+                                                    }}
+                                                    bezier
+                                                    style={{ borderRadius: 16 }}
+                                                />
+                                            </ScrollView>
+                                        </>
+                                    );
+                                })()}
                                     {/* Legend */}
                                     <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 8, paddingLeft: 16, paddingBottom: 6 }}>
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -1583,6 +1615,6 @@ export default function PredictionReportScreen() {
                 requireConfirm={false}
                 enableSearch={false}
             />
-        </SafeAreaView>
+        </View>
     );
 }

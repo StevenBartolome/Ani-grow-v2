@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
@@ -43,6 +43,8 @@ export default function ManageHousingsScreen() {
     const textStyles = useTextStyles();
     const { colors } = useTheme();
     const deviceStyles = useDevicesStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
 
@@ -345,7 +347,7 @@ export default function ManageHousingsScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 <View style={styles.header}>
                     <View style={{ width: 44, height: 44 }}>
@@ -454,130 +456,133 @@ export default function ManageHousingsScreen() {
             </View>
 
             {/* Add / Edit Modal */}
-            <Modal visible={editModalVisible} transparent animationType="fade">
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        style={{ width: '100%', maxWidth: 340, maxHeight: '90%' }}
-                    >
-                        <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 24, overflow: 'hidden' }}>
-                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
-                                <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
-                                    <MaterialIcons name={editingHousingId ? 'edit' : 'add-home'} size={32} color={colors.primary} />
-                                </View>
-                                <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
-                                    {editingHousingId ? 'Edit Housing' : 'Add Housing'}
-                                </Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
-                                    Enter the details for this housing location.
-                                </Text>
+            <Modal visible={editModalVisible} transparent animationType="fade" onRequestClose={() => setEditModalVisible(false)}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={() => setEditModalVisible(false)}
+                    />
+                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden' }}>
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ alignItems: 'center' }}>
+                            <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                <MaterialIcons name={editingHousingId ? 'edit' : 'add-home'} size={32} color={colors.primary} />
+                            </View>
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
+                                {editingHousingId ? 'Edit Housing' : 'Add Housing'}
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                Enter the details for this housing location.
+                            </Text>
 
-                                <View style={{ width: '100%' }}>
-                                    <FloatingLabelInput label="Housing Name" icon="home" value={tempHousingName} onChangeText={setTempHousingName} backgroundColor={colors.surface} />
-                                </View>
+                            <View style={{ width: '100%' }}>
+                                <FloatingLabelInput label="Housing Name" icon="home" value={tempHousingName} onChangeText={setTempHousingName} backgroundColor={colors.surface} />
+                            </View>
 
-                                <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                                    <View style={{ flex: 1 }}>
-                                        <FloatingLabelInput
-                                            label="Capacity (heads)"
-                                            icon="format-list-numbered"
-                                            value={tempCapacity}
-                                            onChangeText={t => {
-                                                const clean = t.replace(/[^0-9]/g, '');
-                                                setTempCapacity(clean);
-                                                validateCapacity(clean, tempHousingType);
-                                            }}
-                                            keyboardType="numeric"
-                                            backgroundColor={colors.surface}
-                                            error={capacityError ?? undefined}
-                                        />
-                                    </View>
-
-                                    <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const current = parseInt(tempCapacity || '0', 10);
-                                                const maxCap = tempHousingType === 'Pigs' ? 100 : 500;
-                                                const next = Math.min(maxCap, current + 1);
-                                                setTempCapacity(String(next));
-                                                validateCapacity(String(next), tempHousingType);
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const current = parseInt(tempCapacity || '0', 10);
-                                                const next = Math.max(0, current - 1);
-                                                setTempCapacity(String(next));
-                                                validateCapacity(String(next), tempHousingType);
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-
-                                <View style={{ width: '100%', marginBottom: 28 }}>
-                                    <TouchableOpacity
-                                        activeOpacity={0.8}
-                                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30, paddingHorizontal: 16, height: 58, backgroundColor: colors.surface }}
-                                        onPress={() => { setEditModalVisible(false); setHousingTypeModalVisible(true); }}
-                                    >
-                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                            <AnimalIcon type={tempHousingType === 'Pigs' ? 'pig' : 'chicken'} size={20} color={colors.icon} style={{ marginRight: 12 }} />
-                                            <Text style={[textStyles.body, { color: colors.text }]}>{tempHousingType}</Text>
-                                        </View>
-                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
-                                    </TouchableOpacity>
-                                </View>
-
-                                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
-                                    <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditModalVisible(false)} activeOpacity={0.7}>
-                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={{
-                                            flex: 1,
-                                            backgroundColor: isSaveDisabled ? colors.cardFill : colors.primary,
-                                            paddingVertical: 14,
-                                            borderRadius: 30,
-                                            alignItems: 'center'
+                            <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                    <FloatingLabelInput
+                                        label="Capacity (heads)"
+                                        icon="format-list-numbered"
+                                        value={tempCapacity}
+                                        onChangeText={t => {
+                                            const clean = t.replace(/[^0-9]/g, '');
+                                            setTempCapacity(clean);
+                                            validateCapacity(clean, tempHousingType);
                                         }}
-                                        onPress={handleSaveClick}
-                                        disabled={isSaveDisabled}
-                                        activeOpacity={isSaveDisabled ? 1 : 0.7}
+                                        keyboardType="numeric"
+                                        backgroundColor={colors.surface}
+                                        error={capacityError ?? undefined}
+                                    />
+                                </View>
+
+                                <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const current = parseInt(tempCapacity || '0', 10);
+                                            const maxCap = tempHousingType === 'Pigs' ? 100 : 500;
+                                            const next = Math.min(maxCap, current + 1);
+                                            setTempCapacity(String(next));
+                                            validateCapacity(String(next), tempHousingType);
+                                        }}
                                     >
-                                        <Text style={[textStyles.h3, { color: isSaveDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Save</Text>
+                                        <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const current = parseInt(tempCapacity || '0', 10);
+                                            const next = Math.max(0, current - 1);
+                                            setTempCapacity(String(next));
+                                            validateCapacity(String(next), tempHousingType);
+                                        }}
+                                    >
+                                        <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
                                     </TouchableOpacity>
                                 </View>
-                            </ScrollView>
-                        </View>
-                    </KeyboardAvoidingView>
-                </View>
+                            </View>
+
+                            <View style={{ width: '100%', marginBottom: 28 }}>
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30, paddingHorizontal: 16, height: 58, backgroundColor: colors.surface }}
+                                    onPress={() => { setEditModalVisible(false); setHousingTypeModalVisible(true); }}
+                                >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <AnimalIcon type={tempHousingType === 'Pigs' ? 'pig' : 'chicken'} size={20} color={colors.icon} style={{ marginRight: 12 }} />
+                                        <Text style={[textStyles.body, { color: colors.text }]}>{tempHousingType}</Text>
+                                    </View>
+                                    <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditModalVisible(false)} activeOpacity={0.7}>
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: isSaveDisabled ? colors.cardFill : colors.primary,
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center'
+                                    }}
+                                    onPress={handleSaveClick}
+                                    disabled={isSaveDisabled}
+                                    activeOpacity={isSaveDisabled ? 1 : 0.7}
+                                >
+                                    <Text style={[textStyles.h3, { color: isSaveDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Save</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             <SelectionModal
@@ -613,6 +618,6 @@ export default function ManageHousingsScreen() {
             />
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
-        </SafeAreaView>
+        </View>
     );
 }

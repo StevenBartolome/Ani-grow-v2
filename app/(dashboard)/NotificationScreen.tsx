@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -408,6 +408,8 @@ export default function NotificationScreen() {
     const router = useRouter();
     const notificationStyles = useNotificationStyles();
     const textStyles = useTextStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors } = useTheme();
     const { profile, hasPermission, role } = useAuth();
     const { activeFarmIds } = useFarmFilter();
@@ -660,7 +662,7 @@ export default function NotificationScreen() {
     };
 
     return (
-        <SafeAreaView style={notificationStyles.safeArea}>
+        <View style={[notificationStyles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={notificationStyles.container}>
                 <View style={notificationStyles.header}>
                     <View style={{ width: 44, height: 44 }}>
@@ -712,6 +714,6 @@ export default function NotificationScreen() {
                     />
                 )}
             </View>
-        </SafeAreaView>
+        </View>
     );
 }
