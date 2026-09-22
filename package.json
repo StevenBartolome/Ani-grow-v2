@@ -14,6 +14,7 @@
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-navigation/native": "^7.1.8",
     "@supabase/supabase-js": "^2.49.1",
+    "caniuse-lite": "^1.0.30001810",
     "expo": "~54.0.37",
     "expo-av": "~16.0.8",
     "expo-clipboard": "~8.0.8",
