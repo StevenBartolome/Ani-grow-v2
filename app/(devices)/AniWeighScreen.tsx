@@ -56,6 +56,10 @@ interface WeightThreshold {
 interface WeighLogEntry {
     id: string;
     weight_g: number;
+    gross_weight_g?: number;
+    chick_count?: number;
+    weigh_mode?: string;
+    animal_label?: string;
     status: 'underweight' | 'normal' | 'overweight';
     timestamp: number;
     animal: string;
@@ -164,6 +168,7 @@ export default function AniWeighScreen() {
     const [threshold, setThreshold] = useState<WeightThreshold | null>(null);
     const thresholdRef = useRef<WeightThreshold | null>(null);
     const [weightLogs, setWeightLogs] = useState<WeighLogEntry[]>([]);
+    const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
     const [segregationStats, setSegregationStats] = useState<SegregationStats>({ total: 0, underweight: { count: 0, percentage: 0 }, normal: { count: 0, percentage: 0 }, overweight: { count: 0, percentage: 0 } });
     const [statsExpanded, setStatsExpanded] = useState(false);
     const [farmHousings, setFarmHousings] = useState<{ id: string; name: string; animal_type: string; farm_id?: string }[]>([]);
@@ -272,7 +277,7 @@ export default function AniWeighScreen() {
         id: string;
         batch_id: string;
         housing_id: string;
-        animal_type: 'pig' | 'chicken';
+        animal_type: 'pig' | 'chicken' | 'chicks' | 'piglet';
         weigh_mode: 'individual' | 'batch';
         expected_quantity: number;
         completed_quantity: number;
@@ -284,7 +289,7 @@ export default function AniWeighScreen() {
 
     const [gateHousingId, setGateHousingId] = useState<string | null>(null);
     const [gateBatchId, setGateBatchId] = useState<string | null>(null);
-    const [gateAnimalType, setGateAnimalType] = useState<'pig' | 'chicken'>('pig');
+    const [gateAnimalType, setGateAnimalType] = useState<'pig' | 'chicken' | 'chicks'>('pig');
     // Only meaningful for chickens — some farms weigh bird-by-bird, others
     // weigh a whole crate/tray at once. Pigs are always weighed individually,
     // so this stays fixed and hidden in that case.
@@ -562,11 +567,11 @@ export default function AniWeighScreen() {
                 // Fetch recent sessions for this device and selected batch
                 let logsQuery = supabase
                     .from('weigh_sessions')
-                    .select('id, net_weight_grams, status, animal_type, recorded_at')
+                    .select('id, net_weight_grams, animal_count, avg_weight_grams, status, animal_type, weigh_mode, animal_label, recorded_at')
                     .eq('device_id', deviceId)
                     .neq('status', 'invalid')  // ghost/test readings marked invalid, not deleted — see migration_006
                     .order('recorded_at', { ascending: false })
-                    .limit(3);
+                    .limit(5);
 
                 if (selectedBatchId) {
                     logsQuery = logsQuery.eq('batch_id', selectedBatchId);
@@ -577,17 +582,27 @@ export default function AniWeighScreen() {
                 const { data: logsData } = await logsQuery;
 
                 if (logsData) {
-                    setWeightLogs((logsData as any[]).map(s => ({
-                        id: s.id,
-                        weight_g: s.net_weight_grams,
-                        status: s.status,
-                        timestamp: new Date(s.recorded_at).getTime(),
-                        animal: s.animal_type === 'pig' ? 'Pig' : 'Chicken',
-                        housingId: info.housingId,
-                        housingName: info.housingName,
-                        deviceId: deviceId,
-                        deviceName: info.name,
-                    })));
+                    setWeightLogs((logsData as any[]).map(s => {
+                        const isBatch = s.weigh_mode === 'batch' || (s.animal_count && s.animal_count > 1);
+                        const perChickWeight = isBatch && s.animal_count > 0 
+                            ? (s.avg_weight_grams ? Number(s.avg_weight_grams) : Math.round(s.net_weight_grams / s.animal_count))
+                            : s.net_weight_grams;
+                        return {
+                            id: s.id,
+                            weight_g: perChickWeight,
+                            gross_weight_g: s.net_weight_grams,
+                            chick_count: s.animal_count ?? 1,
+                            weigh_mode: s.weigh_mode,
+                            animal_label: s.animal_label,
+                            status: s.status,
+                            timestamp: new Date(s.recorded_at).getTime(),
+                            animal: isBatch ? `Chicks (${s.animal_label || 'Tray'})` : (s.animal_type === 'pig' ? 'Pig' : 'Chicken'),
+                            housingId: info.housingId,
+                            housingName: info.housingName,
+                            deviceId: deviceId,
+                            deviceName: info.name,
+                        };
+                    }));
                 }
             }
 
@@ -625,9 +640,25 @@ export default function AniWeighScreen() {
                 .limit(1)
                 .maybeSingle();
             if (error) throw error;
-            const session = (data as ActiveSession | null) ?? null;
-            setActiveSession(session);
-            activeSessionRef.current = session;
+
+            if (data) {
+                // If completed_quantity >= expected_quantity, this session is finished — mark completed!
+                if (data.expected_quantity > 0 && data.completed_quantity >= data.expected_quantity) {
+                    console.log('[AniWeighScreen] Auto-completing finished session:', data.id);
+                    await supabase.from('weighing_sessions')
+                        .update({ status: 'completed', completed_at: new Date().toISOString() })
+                        .eq('id', data.id);
+                    setActiveSession(null);
+                    activeSessionRef.current = null;
+                } else {
+                    const session = data as ActiveSession;
+                    setActiveSession(session);
+                    activeSessionRef.current = session;
+                }
+            } else {
+                setActiveSession(null);
+                activeSessionRef.current = null;
+            }
         } catch (err) {
             console.error('[AniWeighScreen] fetchActiveSession error:', err);
         } finally {
@@ -737,6 +768,17 @@ export default function AniWeighScreen() {
             const diffDays = Math.floor((today.getTime() - arrivalDate.getTime()) / (1000 * 60 * 60 * 24));
             const farmDay = Math.max(0, diffDays) + (batch.age_at_arrival_days || 0);
 
+            const isChicksMode = gateAnimalType === 'chicks' || (gateAnimalType as string) === 'Chicks' || (gateAnimalType === 'chicken' && gateWeighMode === 'batch');
+            const totalHeadCount = batch.current_count || 1;
+            const chicksTraySize = chicksPerTrayRef.current || 20;
+
+            // Required captures Y: for Chicks mode, ceil(totalHeadCount / chicksTraySize). For Individual mode, totalHeadCount.
+            const expectedQty = isChicksMode
+                ? Math.ceil(totalHeadCount / chicksTraySize)
+                : totalHeadCount;
+
+            const dbAnimalType = isChicksMode ? 'chicken' : ((gateAnimalType as string) === 'chicks' ? 'chicken' : gateAnimalType);
+
             const { data, error } = await supabase
                 .from('weighing_sessions')
                 .insert({
@@ -744,10 +786,10 @@ export default function AniWeighScreen() {
                     housing_id: gateHousingId,
                     batch_id: gateBatchId,
                     device_id: deviceId,
-                    animal_type: gateAnimalType,
-                    weigh_mode: gateAnimalType === 'chicken' ? gateWeighMode : 'individual',
+                    animal_type: dbAnimalType,
+                    weigh_mode: isChicksMode ? 'batch' : 'individual',
                     farm_day: farmDay,
-                    expected_quantity: batch.current_count,
+                    expected_quantity: expectedQty,
                     completed_quantity: 0,
                     status: 'in_progress',
                     created_by: user?.id ?? (profile as any)?.id ?? (profile as any)?.uid ?? null,
@@ -758,6 +800,22 @@ export default function AniWeighScreen() {
             const session = data as ActiveSession;
             setActiveSession(session);
             activeSessionRef.current = session;
+
+            // Synchronize physical device sorting mode and tray capacity
+            let targetModeCode = 'CHICKEN';
+            if ((gateAnimalType as string) === 'pig' || (gateAnimalType as string) === 'Pig') targetModeCode = 'PIG';
+            else if ((gateAnimalType as string) === 'piglet' || (gateAnimalType as string) === 'Piglet') targetModeCode = 'PIGLET';
+            else if (isChicksMode) targetModeCode = 'CHICK';
+
+            if (deviceUniqueCode) {
+                syncModeToDevice(deviceUniqueCode, targetModeCode).catch(console.warn);
+                if (isChicksMode) {
+                    const crateUrl1 = `http://anigrow-${deviceUniqueCode}.local/crate?crate_weight=0&chick_count=${chicksTraySize}`;
+                    const crateUrl2 = `http://192.168.4.1/crate?crate_weight=0&chick_count=${chicksTraySize}`;
+                    fetch(crateUrl1).catch(() => fetch(crateUrl2)).catch(console.warn);
+                }
+            }
+
             showSnackbar('Weighing session started — you can begin weighing now.', 'success');
         } catch (err: any) {
             // Postgres unique-violation (23505) means a session for this
@@ -790,6 +848,7 @@ export default function AniWeighScreen() {
             setActiveSession(null);
             activeSessionRef.current = null;
             setFinishModalVisible(false);
+            setIncompleteWarningVisible(false);
             // Clear the gate so it re-prefills fresh (from the device's own
             // housing) for the next run instead of silently keeping this
             // run's picks around.
@@ -925,14 +984,47 @@ export default function AniWeighScreen() {
                     if (rowBatch !== uiBatch && uiBatch !== null) return;
 
                     const info = deviceInfoRef.current;
-                    const isChicks = info?.animalType === 'Chicks';
-                    const countInTray = isChicks ? (chicksPerTrayRef.current || 20) : 1;
+                    const session = activeSessionRef.current;
 
-                    let entryWeightG = row.net_weight_grams;
+                    const isChicks = session
+                        ? (session.animal_type === 'chicks' || session.weigh_mode === 'batch')
+                        : (info?.animalType === 'Chicks');
+
+                    const expectedQty = session?.expected_quantity ?? 1;
+                    const completedSoFar = session?.completed_quantity ?? 0;
+                    const captureIndex = completedSoFar + 1;
+
+                    // If session is already completed or reached max required captures, ignore extra capture
+                    if (session && completedSoFar >= expectedQty) {
+                        console.log('[AniWeigh Realtime] Max required captures reached for session, ignoring extra capture.');
+                        return;
+                    }
+
+                    let countInTray = 1;
+                    if (isChicks) {
+                        const targetBatch = housingBatches.find(b => b.id === (session?.batch_id || selectedBatchId)) 
+                            || gateBatches.find(b => b.id === (session?.batch_id || gateBatchId));
+                        const totalHeadCount = targetBatch?.current_count ?? (expectedQty * (chicksPerTrayRef.current || 20));
+                        const trayCapacity = chicksPerTrayRef.current || 20;
+
+                        if (captureIndex < expectedQty || (totalHeadCount % trayCapacity === 0)) {
+                            countInTray = trayCapacity;
+                        } else {
+                            // Final tray capture with partial count
+                            const fullTraysTotal = (expectedQty - 1) * trayCapacity;
+                            countInTray = Math.max(1, totalHeadCount - fullTraysTotal);
+                        }
+                    }
+
+                    const grossWeightG = row.net_weight_grams;
+                    let entryWeightG = grossWeightG;
                     let entryStatus = row.status ?? 'normal';
 
-                    if (isChicks && countInTray > 1) {
-                        entryWeightG = Math.round(row.net_weight_grams / countInTray);
+                    if (isChicks && countInTray >= 1) {
+                        // 1. Calculate per-chick average weight (e.g. 3111g / 20 chicks = 155.55g)
+                        entryWeightG = Math.round(grossWeightG / countInTray);
+
+                        // 2. Evaluate ONLY the per-chick average against weight thresholds
                         const curThresh = thresholdRef.current;
                         if (curThresh) {
                             if (entryWeightG <= curThresh.underweightMaxGrams) entryStatus = 'underweight';
@@ -947,47 +1039,60 @@ export default function AniWeighScreen() {
                     setLiveFlash(true);
                     setTimeout(() => setLiveFlash(false), 600);
 
-                    // The confirmed result has landed — clear any in-progress
-                    // sampling display so the confirmed number above takes
-                    // over as authoritative.
                     if (sampleProgressStaleTimeoutRef.current) clearTimeout(sampleProgressStaleTimeoutRef.current);
                     setSampleProgress(null);
 
-                    // 2. Prepend new entry directly into logs — expand into individual logs if tray
+                    // 2. Prepend ONE folded Tray entry into logs
                     const baseTs = row.recorded_at ? new Date(row.recorded_at).getTime() : Date.now();
-                    const newEntries: WeighLogEntry[] = [];
-                    for (let i = 0; i < countInTray; i++) {
-                        newEntries.push({
-                            id: countInTray > 1 ? `${row.id}-${i}` : row.id,
-                            weight_g: entryWeightG,
-                            status: entryStatus,
-                            timestamp: baseTs - i * 10,
-                            animal: row.animal_type === 'pig' ? 'Pig' : 'Chicken',
-                            housingId: info?.housingId ?? null,
-                            housingName: info?.housingName ?? 'Unassigned',
-                            deviceId: row.device_id,
-                            deviceName: info?.name ?? 'AniWeigh',
-                        });
-                    }
-                    setWeightLogs(prev => [...newEntries, ...prev].slice(0, 16));
+                    const isPartialTag = isChicks && captureIndex === expectedQty && countInTray < (chicksPerTrayRef.current || 20);
+                    const tag = isChicks
+                        ? `Tray ${captureIndex}/${expectedQty}${isPartialTag ? ` (${countInTray} chicks - Partial)` : ''}`
+                        : `${row.animal_type === 'pig' ? 'Pig' : 'Animal'} ${captureIndex}`;
 
-                    // 3. Refresh only today's stats counter — do NOT call fetchAll()
-                    //    because fetchAll re-fetches logs from DB and would overwrite
-                    //    the entry we just injected, causing the "flicker then revert" bug.
+                    const newEntry: WeighLogEntry = {
+                        id: row.id,
+                        weight_g: entryWeightG,
+                        gross_weight_g: grossWeightG,
+                        chick_count: countInTray,
+                        weigh_mode: isChicks ? 'batch' : 'individual',
+                        animal_label: tag,
+                        status: entryStatus,
+                        timestamp: baseTs,
+                        animal: isChicks ? `Chicks (${tag})` : (row.animal_type === 'pig' ? 'Pig' : 'Chicken'),
+                        housingId: info?.housingId ?? null,
+                        housingName: info?.housingName ?? 'Unassigned',
+                        deviceId: row.device_id,
+                        deviceName: info?.name ?? 'AniWeigh',
+                    };
+
+                    setWeightLogs(prev => [newEntry, ...prev].slice(0, 50));
+
                     fetchStats();
 
-                    // 4. If this reading belongs to the active gated session (see
-                    //    record_weigh_session's weighing_session_id linking), bump
-                    //    its progress locally — matches what the RPC just did in
-                    //    the database.
-                    const session = activeSessionRef.current;
+                    // 3. Update active session completion counter
                     if (session && row.weighing_session_id === session.id) {
-                        setActiveSession(prev => {
-                            if (!prev) return prev;
-                            const updated = { ...prev, completed_quantity: prev.completed_quantity + countInTray };
-                            activeSessionRef.current = updated;
-                            return updated;
-                        });
+                        const newCompletedQty = completedSoFar + 1;
+                        const updatedSession = { ...session, completed_quantity: newCompletedQty };
+                        setActiveSession(updatedSession);
+                        activeSessionRef.current = updatedSession;
+
+                        supabase.from('weighing_sessions')
+                            .update({ completed_quantity: newCompletedQty })
+                            .eq('id', session.id)
+                            .then(({ error }) => { if (error) console.error('[AniWeigh] Error updating completed_quantity:', error); });
+
+                        // 4. Automatically stop scale after last required capture & complete session
+                        if (newCompletedQty >= expectedQty) {
+                            showSnackbar(`Capture ${newCompletedQty}/${expectedQty} complete — session finished!`, 'success');
+                            handleStopDevice();
+                            supabase.from('weighing_sessions')
+                                .update({ status: 'completed', completed_at: new Date().toISOString() })
+                                .eq('id', session.id)
+                                .then(() => {
+                                    setActiveSession(null);
+                                    activeSessionRef.current = null;
+                                });
+                        }
                     }
                 }
             )
@@ -1001,8 +1106,11 @@ export default function AniWeighScreen() {
     // ─── Derived values ──────────────────────────────────────────
     const animalType = deviceInfo?.animalType ?? 'Chicken';
     const housing    = deviceInfo?.housingName ?? 'Unassigned';
-    const isPigMode = animalType === 'Pig' || animalType === 'Piglet';
-    const animalColor = isPigMode ? colors.pig : colors.chicken;
+    const isPigMode  = animalType === 'Pig' || animalType === 'Piglet' || (animalType as string) === 'Piglets' || (gateAnimalType as string) === 'pig';
+    const isChicksMode = !isPigMode && (gateAnimalType as string) !== 'chicken' && (
+        gateAnimalType === 'chicks' || (deviceInfo?.animalType === 'Chicks' && (gateAnimalType as string) !== 'pig' && (gateAnimalType as string) !== 'chicken')
+    );
+    const animalColor = isPigMode ? colors.pig : (isChicksMode ? colors.secondary : colors.chicken);
 
     const numUnder = threshold ? threshold.underweightMaxGrams / 1000 : 0.8;
     const numOver  = threshold ? threshold.overweightMinGrams / 1000  : 1.5;
@@ -1091,6 +1199,14 @@ export default function AniWeighScreen() {
 
     const syncModeToDevice = async (uniqueCode: string, mode: string) => {
         if (!uniqueCode) return;
+
+        // Queue cloud command via device_commands table so board syncs over cloud even if LAN is unreachable
+        const cmdName = `mode_${mode.toLowerCase()}`;
+        const requestedBy = (profile as any)?.uid ?? (profile as any)?.id ?? null;
+        supabase.from('device_commands').insert({ device_id: deviceId, command: cmdName, requested_by: requestedBy }).then(({ error }) => {
+            if (error) console.warn('[ModeSync] Error inserting cloud mode command:', error);
+        });
+
         const urls = [
             `http://anigrow-${uniqueCode}.local/mode?mode=${mode}`,
             `http://192.168.4.1/mode?mode=${mode}`
@@ -1115,7 +1231,7 @@ export default function AniWeighScreen() {
         if (success) {
             showSnackbar(`Scale sorting mode synchronized to: ${mode}`);
         } else {
-            showSnackbar(`Scale mode updated on cloud. Reconnect to device hotspot or local WiFi to synchronize.`, 'info');
+            showSnackbar(`Scale mode updated on cloud (${mode}). Synchronizing with physical scale...`, 'info');
         }
     };
 
@@ -1176,6 +1292,7 @@ export default function AniWeighScreen() {
                 'Scale tared successfully.',
                 "Tare requested — the device hasn't confirmed yet. It'll apply as soon as it's reachable."
             );
+            // Tare zeroes scale reading only. Counter and weigh logs remain unchanged.
         } catch (err) {
             console.error('[Tare] error:', err);
             showSnackbar('Failed to request tare.', 'error');
@@ -1189,9 +1306,15 @@ export default function AniWeighScreen() {
     const handleStartDevice = async () => {
         setIsStarting(true);
         try {
+            const currentComp = activeSession?.completed_quantity ?? 0;
+            const expected = activeSession?.expected_quantity ?? 0;
+            const resumeMsg = currentComp > 0 && currentComp < expected
+                ? `Resuming session from capture ${currentComp + 1} of ${expected}.`
+                : `Start confirmed (${animalType}) — device is taring and getting ready.`;
+
             await sendDeviceCommand(
                 'start',
-                `Start confirmed (${animalType}) — the device is taring and getting ready, give it a few seconds.`,
+                resumeMsg,
                 "Start requested — the device hasn't confirmed yet. It'll begin as soon as it's reachable."
             );
         } catch (err) {
@@ -1206,9 +1329,15 @@ export default function AniWeighScreen() {
     const handleStopDevice = async () => {
         setIsStopping(true);
         try {
+            const currentComp = activeSession?.completed_quantity ?? 0;
+            const expected = activeSession?.expected_quantity ?? 0;
+            const stopMsg = activeSession
+                ? `Session paused at capture ${currentComp} of ${expected}. Tap Start to resume.`
+                : 'Stopped.';
+
             await sendDeviceCommand(
                 'stop',
-                'Stopped. Tap Start when you\'re ready to resume.',
+                stopMsg,
                 "Stop requested — the device hasn't confirmed yet. It'll pause as soon as it's reachable."
             );
         } catch (err) {
@@ -1225,10 +1354,25 @@ export default function AniWeighScreen() {
         try {
             await sendDeviceCommand(
                 'reset',
-                'Reset confirmed — the device is restarting (takes ~15-20 seconds), then Tap Start to resume.',
-                "Reset requested — the device hasn't confirmed yet. It'll reset as soon as it's reachable.",
+                'Reset confirmed — clearing session progress back to 0.',
+                "Reset requested — the device will reset when reachable.",
                 15000
             );
+
+            if (activeSession) {
+                // Clear session progress counter in DB back to 0
+                await supabase.from('weighing_sessions')
+                    .update({ completed_quantity: 0 })
+                    .eq('id', activeSession.id);
+
+                // Reset local session progress counter while preserving all weigh log entries
+                const updatedSession = { ...activeSession, completed_quantity: 0 };
+                setActiveSession(updatedSession);
+                activeSessionRef.current = updatedSession;
+                setLiveWeightG(null);
+                setLiveStatus(null);
+            }
+            showSnackbar('Session progress counter reset back to 0. All logs preserved!', 'info');
         } catch (err) {
             console.error('[Reset] error:', err);
             showSnackbar('Failed to reset device.', 'error');
@@ -1241,6 +1385,20 @@ export default function AniWeighScreen() {
     // the device is doing — worth a confirm tap, unlike Start/Tare).
     const [controlModalVisible, setControlModalVisible] = useState(false);
     const [controlAction, setControlAction] = useState<'stop' | 'reset' | null>(null);
+    const [incompleteWarningVisible, setIncompleteWarningVisible] = useState(false);
+
+    const handleFinishSessionTrigger = () => {
+        if (!activeSession) return;
+        if (activeSession.completed_quantity === 0) {
+            showSnackbar('Weigh at least 1 capture before finishing this session.', 'error');
+            return;
+        }
+        if (activeSession.completed_quantity < activeSession.expected_quantity) {
+            setIncompleteWarningVisible(true);
+        } else {
+            setFinishModalVisible(true);
+        }
+    };
 
     const openControlConfirm = (action: 'stop' | 'reset') => {
         setControlAction(action);
@@ -1262,10 +1420,10 @@ export default function AniWeighScreen() {
 
     const getEditOptions = (): string[] => {
         if (editTarget === 'Animal Type') {
-            return ['Pig', 'Piglet', 'Chicken', 'Chicks'];
+            return ['Piglets', 'Chickens', 'Chicks (Tray)'];
         }
         if (editTarget === 'Housing') {
-            const searchType = (animalType === 'Pig' || animalType === 'Piglet') ? 'pig' : 'chicken';
+            const searchType = (animalType === 'Pig' || animalType === 'Piglet' || (animalType as string) === 'Piglets') ? 'pig' : 'chicken';
             return farmHousings
                 .filter(h => h.animal_type === searchType)
                 .map(h => h.name);
@@ -1280,7 +1438,7 @@ export default function AniWeighScreen() {
         setEditModalVisible(false);
         try {
             if (editTarget === 'Animal Type') {
-                const selectedType = (val.includes('Chicks') ? 'Chicks' : val) as 'Pig' | 'Piglet' | 'Chicken' | 'Chicks';
+                const selectedType = val.includes('Chicks') ? 'Chicks' : (val.includes('Pig') ? 'Piglet' : 'Chicken');
                 
                 await AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
 
@@ -1289,10 +1447,20 @@ export default function AniWeighScreen() {
                     await supabase.from('devices').update({ housing_id: null }).eq('id', deviceId);
                 }
 
+                // Complete any stale active session so category change gets a fresh gate
+                if (activeSessionRef.current) {
+                    const st = activeSessionRef.current;
+                    await supabase.from('weighing_sessions')
+                        .update({ status: 'completed', completed_at: new Date().toISOString() })
+                        .eq('id', st.id);
+                    setActiveSession(null);
+                    activeSessionRef.current = null;
+                }
+
                 setDeviceInfo(prev => {
                     const updated = prev ? {
                         ...prev,
-                        animalType: selectedType,
+                        animalType: selectedType as any,
                         housingId: null,
                         housingName: 'Unassigned',
                     } as DeviceInfo : null;
@@ -1306,12 +1474,15 @@ export default function AniWeighScreen() {
                 setGateBatchId(null);
                 setGateBatches([]);
 
-                showSnackbar(`Category set to ${selectedType}. Housing and batch unassigned.`);
+                const newGateType = selectedType === 'Chicks' ? 'chicks' : (selectedType === 'Piglet' ? 'pig' : 'chicken');
+                setGateAnimalType(newGateType as any);
+                setGateWeighMode(selectedType === 'Chicks' ? 'batch' : 'individual');
+
+                showSnackbar(`Category set to ${val}. Housing and batch unassigned.`);
 
                 // Map category selection to Board sequences
                 let modeCode = "PIGLET";
-                if (selectedType === 'Pig') modeCode = "PIG";
-                else if (selectedType === 'Piglet') modeCode = "PIGLET";
+                if (selectedType === 'Piglet') modeCode = "PIGLET";
                 else if (selectedType === 'Chicken') modeCode = "CHICKEN";
                 else if (selectedType === 'Chicks') modeCode = "CHICK";
 
@@ -1609,7 +1780,7 @@ export default function AniWeighScreen() {
     };
 
     const renderChicksPerTrayButton = () => {
-        if (deviceInfo?.animalType !== 'Chicks') return null;
+        if (!isChicksMode) return null;
         const currentBatch = housingBatches.find(b => b.id === selectedBatchId) || housingBatches[0];
         const totalCount = currentBatch?.current_count ?? 0;
         const totalTrays = totalCount > 0 ? Math.ceil(totalCount / chicksPerTray) : null;
@@ -1766,14 +1937,20 @@ export default function AniWeighScreen() {
                         <Text style={[textStyles.label, { color: colors.text, marginBottom: 8 }]}>Animal Type</Text>
                         <AnimalTypePillSwitcher
                             selected={gateAnimalType}
+                            options={[
+                                { key: 'pig', label: 'Piglets' },
+                                { key: 'chicken', label: 'Chickens' },
+                                { key: 'chicks', label: 'Chicks (Tray)' },
+                            ]}
                             onSelect={(type) => {
                                 if (gateAnimalType === type) return;
                                 gatePrefilledRef.current = true;
-                                setGateAnimalType(type);
+                                setGateAnimalType(type as any);
                                 setGateHousingId(null);
                                 setGateBatchId(null);
                                 setGateBatches([]);
                                 if (type === 'pig') setGateWeighMode('individual');
+                                else if (type === 'chicks') setGateWeighMode('batch');
                             }}
                             style={{ marginBottom: 20 }}
                         />
@@ -1830,7 +2007,9 @@ export default function AniWeighScreen() {
                         </TouchableOpacity>
                         {gateBatchId && (
                             <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginBottom: 20 }]}>
-                                Expected: {gateBatches.find(b => b.id === gateBatchId)?.current_count ?? 0} {gateAnimalType === 'pig' ? 'pigs' : 'chickens'}
+                                {gateAnimalType === 'chicks' || (gateAnimalType === 'chicken' && gateWeighMode === 'batch')
+                                    ? `Expected: ${gateBatches.find(b => b.id === gateBatchId)?.current_count ?? 0} chicks · ${chicksPerTray} chicks/tray · ${Math.ceil((gateBatches.find(b => b.id === gateBatchId)?.current_count ?? 0) / chicksPerTray)} required tray weighs`
+                                    : `Expected: ${gateBatches.find(b => b.id === gateBatchId)?.current_count ?? 0} ${gateAnimalType === 'pig' ? 'pigs' : 'chickens'}`}
                             </Text>
                         )}
 
@@ -1869,7 +2048,8 @@ export default function AniWeighScreen() {
                         visible={gateHousingModalVisible}
                         onClose={() => setGateHousingModalVisible(false)}
                         onSelect={(val) => {
-                            const matched = farmHousings.find(h => h.animal_type === gateAnimalType && h.name === val);
+                            const targetType = gateAnimalType === 'chicks' ? 'chicken' : gateAnimalType;
+                            const matched = farmHousings.find(h => (h.animal_type === targetType || h.animal_type === gateAnimalType) && h.name === val);
                             if (matched) {
                                 if (matched.id !== gateHousingId) {
                                     setGateBatchId(null);
@@ -1881,7 +2061,7 @@ export default function AniWeighScreen() {
                         title="Select House"
                         description="Which house is being weighed?"
                         icon="home"
-                        options={farmHousings.filter(h => h.animal_type === gateAnimalType).map(h => h.name)}
+                        options={farmHousings.filter(h => h.animal_type === (gateAnimalType === 'chicks' ? 'chicken' : gateAnimalType) || h.animal_type === gateAnimalType).map(h => h.name)}
                         selectedValue={farmHousings.find(h => h.id === gateHousingId)?.name ?? ''}
                         requireConfirm={false}
                     />
@@ -1990,7 +2170,7 @@ export default function AniWeighScreen() {
                                                 ))}
                                             </View>
                                             <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 6 }]}>
-                                                {((sampleProgress.sampleValue ?? 0) / 1000).toFixed(2)} kg
+                                                {isPigMode ? `${((sampleProgress.sampleValue ?? 0) / 1000).toFixed(2)} kg` : `${Math.round(sampleProgress.sampleValue ?? 0)} g`}
                                             </Text>
                                         </>
                                     ) : sampleProgress?.stage === 'averaging' ? (
@@ -2000,23 +2180,23 @@ export default function AniWeighScreen() {
                                                 {isPigMode ? 'Averaging...' : 'Averaging tray...'}
                                             </Text>
                                             <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 2 }]}>
-                                                ~{((sampleProgress.average ?? 0) / 1000).toFixed(2)} kg
+                                                ~{isPigMode ? `${((sampleProgress.average ?? 0) / 1000).toFixed(2)} kg` : `${Math.round(sampleProgress.average ?? 0)} g`}
                                             </Text>
                                         </>
                                     ) : sampleProgress?.stage === 'done' ? (
                                         <>
                                             <Text style={[textStyles.h1, { color: colors.text, fontSize: 28 }]}>
-                                                {(((isPigMode ? sampleProgress.average : sampleProgress.perChick) ?? 0) / 1000).toFixed(2)}
+                                                {isPigMode ? ((sampleProgress.average ?? 0) / 1000).toFixed(2) : Math.round(sampleProgress.perChick ?? sampleProgress.average ?? 0)}
                                             </Text>
-                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>kg{!isPigMode ? ' / chick' : ''}</Text>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{isPigMode ? 'kg' : 'g / chick'}</Text>
                                             <MaterialIcons name="sensors" size={14} color={colors.primary} style={{ marginTop: 4 }} />
                                         </>
                                     ) : liveWeightG != null ? (
                                         <>
                                             <Text style={[textStyles.h1, { color: colors.text, fontSize: 28 }]}>
-                                                {(liveWeightG / 1000).toFixed(2)}
+                                                {isPigMode ? (liveWeightG / 1000).toFixed(2) : Math.round(liveWeightG)}
                                             </Text>
-                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>kg</Text>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{isPigMode ? 'kg' : (gateAnimalType === 'chicks' || activeSession?.weigh_mode === 'batch' ? 'g / chick' : 'g')}</Text>
                                             <MaterialIcons name="sensors" size={14} color={colors.primary} style={{ marginTop: 4 }} />
                                         </>
                                     ) : (
@@ -2032,7 +2212,7 @@ export default function AniWeighScreen() {
                             <View style={aniweighStyles.liveStatsContainer}>
                                 <View style={aniweighStyles.liveStatItem}>
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Detected</Text>
-                                    <Text style={[textStyles.h2, { color: colors.text }]}>{isPigMode ? 'Pig' : 'Chicken'}</Text>
+                                    <Text style={[textStyles.h2, { color: colors.text }]}>{isPigMode ? 'Piglet' : (isChicksMode ? 'Chicks (Tray)' : 'Chicken')}</Text>
                                 </View>
                                 <View style={[aniweighStyles.liveStatDivider, { backgroundColor: colors.stroke }]} />
                                 <View style={aniweighStyles.liveStatItem}>
@@ -2072,11 +2252,50 @@ export default function AniWeighScreen() {
                             {/* This run's progress — bumped automatically as each physical
                                 reading comes in tagged to the active weighing session. */}
                             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 }}>
-                                <MaterialIcons name="checklist" size={14} color={colors.textGrey} />
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
-                                    This run: {activeSession.completed_quantity}/{activeSession.expected_quantity} weighed
+                                <MaterialIcons name="checklist" size={15} color={colors.primary} />
+                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontWeight: '700' }]}>
+                                    {isChicksMode
+                                        ? `Tray Capture ${activeSession.completed_quantity} of ${activeSession.expected_quantity}`
+                                        : `Capture ${activeSession.completed_quantity} of ${activeSession.expected_quantity}`}
                                 </Text>
                             </View>
+
+                            {/* Chicks Tray Breakdown & Distribution Card */}
+                            {isChicksMode && (
+                                <View style={{
+                                    marginTop: 10, width: '100%', backgroundColor: colors.primary + '10',
+                                    borderColor: colors.primary + '35', borderWidth: 1, borderRadius: 12, padding: 12,
+                                }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 13 }]}>
+                                            🐥 Chicks Tray Breakdown
+                                        </Text>
+                                        <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 12 }]}>
+                                            {activeSession.completed_quantity} / {activeSession.expected_quantity} Trays
+                                        </Text>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.primary + '20' }}>
+                                        <View>
+                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Total Batch Size</Text>
+                                            <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 13 }]}>
+                                                {targetBatch?.current_count ?? (activeSession.expected_quantity * (chicksPerTrayRef.current || 20))} chicks
+                                            </Text>
+                                        </View>
+                                        <View style={{ alignItems: 'center' }}>
+                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Tray Capacity</Text>
+                                            <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 13 }]}>
+                                                {chicksPerTrayRef.current || 20} / tray
+                                            </Text>
+                                        </View>
+                                        <View style={{ alignItems: 'flex-end' }}>
+                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Unit</Text>
+                                            <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 13 }]}>
+                                                Grams (g)
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+                            )}
 
                             {/* Device Controls — Start/Stop the whole IoT remotely, plus Tare and
                                 a hardware-safe Reset. All relayed through Supabase, so they work
@@ -2174,17 +2393,7 @@ export default function AniWeighScreen() {
                                         opacity: activeSession.completed_quantity === 0 ? 0.5 : 1,
                                     }}
                                     activeOpacity={activeSession.completed_quantity === 0 ? 1 : 0.75}
-                                    onPress={() => {
-                                        // STRICT: can't close out — and generate a report for — a
-                                        // session where literally nothing was weighed. This is
-                                        // exactly what previously produced an empty "no weight
-                                        // recorded" report.
-                                        if (activeSession.completed_quantity === 0) {
-                                            showSnackbar('Weigh at least one animal before finishing this session.', 'error');
-                                            return;
-                                        }
-                                        setFinishModalVisible(true);
-                                    }}
+                                    onPress={handleFinishSessionTrigger}
                                     disabled={isFinishingSession}
                                 >
                                     {isFinishingSession ? (
@@ -2362,61 +2571,121 @@ export default function AniWeighScreen() {
                                 <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 8 }]}>No weigh events recorded yet.</Text>
                             </View>
                         ) : (
-                            weightLogs.slice(0, 3).map((log, index) => {
+                            weightLogs.slice(0, 5).map((log, index) => {
                                 const statusColor = log.status === 'underweight' ? colors.warning : log.status === 'overweight' ? colors.error : colors.primary;
                                 const statusIcon: any = log.status === 'underweight' ? 'arrow-downward' : log.status === 'overweight' ? 'arrow-upward' : 'check';
-                                const kg = (log.weight_g / 1000).toFixed(2);
+                                const isTray = !isPigMode && isChicksMode && !!(log.chick_count && log.chick_count > 1);
+                                const isExpanded = expandedLogId === (log.id ?? String(index));
+                                const isPig = isPigMode || log.animal.toLowerCase().includes('pig');
+                                const displayVal = isPig 
+                                    ? `${(log.weight_g / 1000).toFixed(2)}` 
+                                    : `${Math.round(log.weight_g)}`;
+                                const displayUnit = isPig ? 'kg' : (isTray ? 'g / chick' : 'g');
+                                const grossWeight = log.gross_weight_g ?? (log.weight_g * (log.chick_count || 1));
+
                                 return (
-                                    <View
+                                    <TouchableOpacity
                                         key={log.id ?? index}
+                                        activeOpacity={0.85}
+                                        onPress={() => isTray && setExpandedLogId(isExpanded ? null : (log.id ?? String(index)))}
                                         style={{
                                             backgroundColor: colors.surface,
                                             borderRadius: 16,
                                             borderWidth: 1,
-                                            borderColor: colors.stroke,
+                                            borderColor: isExpanded ? colors.primary : colors.stroke,
                                             marginBottom: 10,
                                             overflow: 'hidden',
-                                            flexDirection: 'row',
+                                            flexDirection: 'column',
                                         }}
                                     >
-                                        {/* Left accent strip */}
-                                        <View style={{ width: 4, backgroundColor: statusColor }} />
+                                        <View style={{ flexDirection: 'row' }}>
+                                            {/* Left accent strip */}
+                                            <View style={{ width: 4, backgroundColor: statusColor }} />
 
-                                        {/* Card content */}
-                                        <View style={{ flex: 1, padding: 12 }}>
-                                            {/* Top row: housing label + weight */}
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                                                <View style={{ flex: 1, marginRight: 12 }}>
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
-                                                        <MaterialIcons name="home" size={13} color={colors.textGrey} />
-                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginLeft: 3 }]} numberOfLines={1}>{log.housingName}</Text>
+                                            {/* Card content */}
+                                            <View style={{ flex: 1, padding: 12 }}>
+                                                {/* Top row: housing label + weight */}
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                                                    <View style={{ flex: 1, marginRight: 12 }}>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
+                                                            <MaterialIcons name="home" size={13} color={colors.textGrey} />
+                                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginLeft: 3 }]} numberOfLines={1}>{log.housingName}</Text>
+                                                        </View>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: statusColor + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                                                            <MaterialIcons name={statusIcon} size={11} color={statusColor} />
+                                                            <Text style={[textStyles.label, { color: statusColor, fontSize: 11, marginLeft: 3, fontWeight: '700' }]}>
+                                                                {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
+                                                            </Text>
+                                                        </View>
                                                     </View>
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: statusColor + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
-                                                        <MaterialIcons name={statusIcon} size={11} color={statusColor} />
-                                                        <Text style={[textStyles.label, { color: statusColor, fontSize: 11, marginLeft: 3, fontWeight: '700' }]}>
-                                                            {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
-                                                        </Text>
+                                                    <View style={{ alignItems: 'flex-end' }}>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+                                                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 22, lineHeight: 26 }]}>{displayVal}</Text>
+                                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>{displayUnit}</Text>
+                                                        </View>
+                                                        {isTray && (
+                                                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, marginTop: 2 }]}>
+                                                                Gross: {grossWeight.toLocaleString()}g
+                                                            </Text>
+                                                        )}
                                                     </View>
                                                 </View>
-                                                <View style={{ alignItems: 'flex-end' }}>
-                                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 24, lineHeight: 28 }]}>{kg}</Text>
-                                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>kg</Text>
-                                                </View>
-                                            </View>
 
-                                            {/* Bottom chips */}
-                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
-                                                    <AnimalIcon type={log.animal as any} size={11} color={colors.textGrey} />
-                                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{log.animal}</Text>
-                                                </View>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
-                                                    <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
-                                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{formatLogTime(log.timestamp)}</Text>
+                                                {/* Bottom chips */}
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
+                                                            <AnimalIcon type={isPig ? 'pig' : 'chicken'} size={11} color={colors.textGrey} />
+                                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{log.animal}</Text>
+                                                        </View>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
+                                                            <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
+                                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{formatLogTime(log.timestamp)}</Text>
+                                                        </View>
+                                                    </View>
+
+                                                    {isTray && (
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                                                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 11 }]}>{isExpanded ? 'Hide details' : 'Tap tray details'}</Text>
+                                                            <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={16} color={colors.primary} />
+                                                        </View>
+                                                    )}
                                                 </View>
                                             </View>
                                         </View>
-                                    </View>
+
+                                        {/* Folded Tray Breakdown Drawer */}
+                                        {isTray && isExpanded && (
+                                            <View style={{
+                                                backgroundColor: colors.primary + '0D',
+                                                borderTopWidth: 1,
+                                                borderTopColor: colors.primary + '25',
+                                                padding: 12,
+                                            }}>
+                                                <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 12, marginBottom: 6 }]}>
+                                                    🐥 Folded Tray Breakdown ({log.chick_count} chicks)
+                                                </Text>
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Total Gross Tray Weight:</Text>
+                                                    <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 11 }]}>{grossWeight.toLocaleString()} g</Text>
+                                                </View>
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Head Count in Tray:</Text>
+                                                    <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 11 }]}>{log.chick_count} chicks</Text>
+                                                </View>
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Evaluated Per-Chick Average:</Text>
+                                                    <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 11 }]}>{Math.round(log.weight_g)} g / chick</Text>
+                                                </View>
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Status Determination:</Text>
+                                                    <Text style={[textStyles.body, { color: statusColor, fontWeight: '700', fontSize: 11 }]}>
+                                                        {log.status.toUpperCase()} (evaluated on {Math.round(log.weight_g)}g/chick average)
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
                                 );
                             })
                         )}
@@ -2475,11 +2744,27 @@ export default function AniWeighScreen() {
                 visible={finishModalVisible}
                 type="confirmation"
                 title="Finish Weighing Session?"
-                message={activeSession ? `${activeSession.completed_quantity} of ${activeSession.expected_quantity} have been weighed so far. This closes out the run as a permanent historical record and takes you to its report. The next run will ask you to pick house/batch/animal type again.` : ''}
+                message={activeSession ? `${activeSession.completed_quantity} of ${activeSession.expected_quantity} captures have been completed so far. This closes out the run as a permanent historical record and takes you to its report.` : ''}
                 confirmText="Finish"
                 cancelText="Cancel"
                 onConfirm={handleFinishSession}
                 onCancel={() => setFinishModalVisible(false)}
+                isLoading={isFinishingSession}
+            />
+
+            {/* Incomplete session warning modal */}
+            <ActionModal
+                visible={incompleteWarningVisible}
+                type="warning"
+                title="Incomplete Session Warning"
+                message={activeSession ? `You have completed ${activeSession.completed_quantity} of ${activeSession.expected_quantity} required captures. Finishing now will log an incomplete session. Are you sure you want to finish early?` : ''}
+                confirmText="Finish Anyway"
+                cancelText="Continue Session"
+                onConfirm={() => {
+                    setIncompleteWarningVisible(false);
+                    handleFinishSession();
+                }}
+                onCancel={() => setIncompleteWarningVisible(false)}
                 isLoading={isFinishingSession}
             />
 

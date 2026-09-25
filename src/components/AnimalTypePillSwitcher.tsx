@@ -12,13 +12,13 @@ import { Text } from '@/components/Text';
 import { useTheme } from '@/context/ThemeContext';
 
 export interface AnimalTypeOption {
-    key: 'chicken' | 'pig';
+    key: string;
     label: string;
 }
 
 interface AnimalTypePillSwitcherProps {
-    selected: 'chicken' | 'pig';
-    onSelect: (type: 'chicken' | 'pig') => void;
+    selected: string;
+    onSelect: (type: any) => void;
     options?: AnimalTypeOption[];
     style?: StyleProp<ViewStyle>;
 }
