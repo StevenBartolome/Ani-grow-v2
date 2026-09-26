@@ -454,12 +454,36 @@ function VaccinePickerModal({
             <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
             <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', paddingBottom: 24, width: '100%', zIndex: 1001, elevation: 30 }}>
                 <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.stroke, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
-                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 17, color: colors.text, textAlign: 'center', marginBottom: (isChicken || isPig) ? 2 : 12 }}>Select Vaccine</Text>
-                {(isChicken || isPig) && (
-                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey, textAlign: 'center', marginBottom: 12 }}>
-                        Showing vaccines for {isChicken ? 'Chickens' : 'Pigs'} & General
+                <View style={{ paddingHorizontal: 20, alignItems: 'center', marginBottom: (isChicken || isPig) ? 4 : 12 }}>
+                    <Text
+                        style={{
+                            fontFamily: 'Poppins-SemiBold',
+                            fontSize: 17,
+                            color: colors.text,
+                            textAlign: 'center',
+                            width: '100%',
+                        }}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                    >
+                        Select Vaccine
                     </Text>
-                )}
+                    {(isChicken || isPig) && (
+                        <Text
+                            style={{
+                                fontFamily: 'Poppins-Regular',
+                                fontSize: 12,
+                                color: colors.textGrey,
+                                textAlign: 'center',
+                                marginTop: 2,
+                                width: '100%',
+                            }}
+                            numberOfLines={2}
+                        >
+                            Showing vaccines for {isChicken ? 'Chickens' : 'Pigs'} & General
+                        </Text>
+                    )}
+                </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.primary, borderRadius: 14, marginHorizontal: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8, backgroundColor: colors.cardFill }}>
                     <MaterialIcons name="search" size={18} color={colors.primary} style={{ marginRight: 6 }} />
                     <TextInput
@@ -468,7 +492,6 @@ function VaccinePickerModal({
                         placeholderTextColor={colors.textGrey}
                         value={search}
                         onChangeText={onSearch}
-                        autoFocus
                     />
                     {search.length > 0 && (
                         <TouchableOpacity onPress={() => onSearch('')}>
@@ -1199,6 +1222,7 @@ const HealthRecordCardItem = ({
     batchName,
     onPress,
     onLongPress,
+    onFollowupPress,
 }: {
     record: HealthRecord;
     index?: number;
@@ -1206,6 +1230,7 @@ const HealthRecordCardItem = ({
     batchName: string;
     onPress: () => void;
     onLongPress: () => void;
+    onFollowupPress?: (record: HealthRecord) => void;
 }) => {
     const { colors } = useTheme();
     const styles = useAnimalStyles();
@@ -1328,12 +1353,20 @@ const HealthRecordCardItem = ({
                         const status = getFollowupStatus(record.followup_date, record.record_type, colors);
                         if (!status) return null;
                         return (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, backgroundColor: status.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' }}>
+                            <TouchableOpacity
+                                activeOpacity={0.75}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    onFollowupPress?.(record);
+                                }}
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, backgroundColor: status.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' }}
+                            >
                                 <MaterialIcons name={status.icon as any} size={12} color={status.color} />
                                 <Text style={{ color: status.color, fontSize: 10.5, fontFamily: 'Poppins-SemiBold' }}>
                                     {status.label}
                                 </Text>
-                            </View>
+                                <MaterialIcons name="arrow-forward" size={11} color={status.color} style={{ marginLeft: 2 }} />
+                            </TouchableOpacity>
                         );
                     })()}
                 </View>
@@ -1450,6 +1483,7 @@ export default function HealthRecordsScreen() {
 
     // ── Detail modal ──────────────────────────────────────────────────────────
     const [detailRecord, setDetailRecord] = useState<HealthRecord | null>(null);
+    const [parentFollowupRecord, setParentFollowupRecord] = useState<HealthRecord | null>(null);
 
     // ── Delete ────────────────────────────────────────────────────────────────
     const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -2296,11 +2330,23 @@ export default function HealthRecordsScreen() {
                 }
             }
 
-            if (resolvedFarmId) {
-                scheduleUpcomingVetVisits([resolvedFarmId]);
+            // ── If this record is fulfilling a parent booster / follow-up ──────────
+            if (parentFollowupRecord) {
+                const todayStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                const prevNotes = parentFollowupRecord.notes
+                    ? `${parentFollowupRecord.notes}\n[Follow-up fulfilled on ${todayStr} with new record: ${finalTitle}]`
+                    : `[Follow-up fulfilled on ${todayStr} with new record: ${finalTitle}]`;
+
+                const { error: prevErr } = await supabase
+                    .from('health_records')
+                    .update({ followup_date: null, notes: prevNotes })
+                    .eq('id', parentFollowupRecord.id);
+                if (prevErr) {
+                    console.warn('[HealthRecords] Failed to clear parent followup_date:', prevErr.message);
+                }
             }
 
-            showSnackbar('Health record added successfully.');
+            showSnackbar(parentFollowupRecord ? 'Follow-up record saved & scheduled alert resolved.' : 'Health record added successfully.');
             await clearDraft();
             resetForm();
             handleCloseAddModal();
@@ -2320,6 +2366,69 @@ export default function HealthRecordsScreen() {
         setAddDate(new Date().toISOString().split('T')[0]);
         if (paramBatchId) setAddBatchId(paramBatchId);
         setCustomTitle(''); setCustomMed('');
+        setParentFollowupRecord(null);
+    };
+
+    const handleStartFollowupRecord = (record: HealthRecord) => {
+        setParentFollowupRecord(record);
+        setAddType(record.record_type);
+        if (record.batch_id) {
+            setAddBatchId(record.batch_id);
+        }
+
+        let titleStr = record.title;
+        if (record.record_type === 'vaccination') {
+            if (!titleStr.toLowerCase().includes('booster')) {
+                titleStr = `${titleStr} (Booster Shot)`;
+            }
+        } else if (record.record_type === 'deworming') {
+            if (!titleStr.toLowerCase().includes('repeat') && !titleStr.toLowerCase().includes('follow')) {
+                titleStr = `${titleStr} (Repeat)`;
+            }
+        } else if (!titleStr.toLowerCase().includes('follow')) {
+            titleStr = `Follow-up: ${titleStr}`;
+        }
+        setAddTitle(titleStr);
+        setCustomTitle('');
+
+        setAddMed(record.medication || '');
+        setCustomMed('');
+        setAddDosage(record.dosage || '');
+        setAddAffected(record.affected_count ? String(record.affected_count) : '');
+        setAddSeverity(record.severity || 'low');
+        setAddDate(new Date().toISOString().split('T')[0]);
+        setAddNotes(
+            record.notes
+                ? `Administered follow-up for record from ${fmtDate(record.record_date)}.\nPrevious notes: ${record.notes}`
+                : `Administered follow-up for record from ${fmtDate(record.record_date)}.`
+        );
+        setAddFollowup('');
+
+        setDetailRecord(null);
+        setAddVisible(true);
+    };
+
+    const handleMarkFollowupDone = async (record: HealthRecord) => {
+        try {
+            const todayStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const updatedNotes = record.notes
+                ? `${record.notes}\n[Follow-up marked completed on ${todayStr}]`
+                : `[Follow-up marked completed on ${todayStr}]`;
+
+            const { error } = await supabase
+                .from('health_records')
+                .update({ followup_date: null, notes: updatedNotes })
+                .eq('id', record.id);
+
+            if (error) throw error;
+
+            showSnackbar('Follow-up marked as completed.', 'success');
+            setDetailRecord(null);
+            await fetchData();
+        } catch (err: any) {
+            console.error('[HealthRecords] mark followup error:', err);
+            showSnackbar(err?.message || 'Failed to complete follow-up.', 'error');
+        }
     };
 
     closeAddModalRef.current = () => {
@@ -3080,6 +3189,7 @@ export default function HealthRecordsScreen() {
                                         batchName={batchName}
                                         onPress={() => setDetailRecord(record)}
                                         onLongPress={() => { setDeleteId(record.id); setDeleteModalVisible(true); }}
+                                        onFollowupPress={handleStartFollowupRecord}
                                     />
                                 );
                             })}
@@ -3211,23 +3321,77 @@ export default function HealthRecordsScreen() {
                                         const heading = isPrev 
                                             ? (detailRecord.record_type === 'vaccination' ? 'BOOSTER SHOT DUE' : detailRecord.record_type === 'deworming' ? 'REPEAT DEWORMING DUE' : 'NEXT DOSE DUE')
                                             : 'FOLLOW-UP SCHEDULED';
+                                        const actionBtnLabel = detailRecord.record_type === 'vaccination'
+                                            ? 'Record Booster Shot'
+                                            : detailRecord.record_type === 'deworming'
+                                            ? 'Record Repeat Dose'
+                                            : 'Record Follow-up';
+
                                         return (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: status?.bg ?? (colors.warning + '15'), borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: (status?.color ?? colors.warning) + '30' }}>
-                                                <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: (status?.color ?? colors.warning) + '20', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <MaterialIcons name={(status?.icon ?? 'event') as any} size={20} color={status?.color ?? colors.warning} />
-                                                </View>
-                                                <View style={{ flex: 1 }}>
-                                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: status?.color ?? colors.warning, marginBottom: 2, letterSpacing: 0.5 }}>
-                                                        {heading}
-                                                    </Text>
-                                                    <Text style={[textStyles.body, { color: colors.text, fontFamily: 'Poppins-SemiBold', fontSize: 14 }]}>
-                                                        {fmtDate(detailRecord.followup_date)}
-                                                    </Text>
-                                                    {status?.label && (
-                                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11.5, color: status.color, marginTop: 2 }}>
-                                                            {status.label}
+                                            <View style={{ backgroundColor: status?.bg ?? (colors.warning + '15'), borderRadius: 16, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: (status?.color ?? colors.warning) + '30' }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                                                    <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: (status?.color ?? colors.warning) + '20', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <MaterialIcons name={(status?.icon ?? 'event') as any} size={20} color={status?.color ?? colors.warning} />
+                                                    </View>
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: status?.color ?? colors.warning, marginBottom: 2, letterSpacing: 0.5 }}>
+                                                            {heading}
                                                         </Text>
-                                                    )}
+                                                        <Text style={[textStyles.body, { color: colors.text, fontFamily: 'Poppins-SemiBold', fontSize: 14 }]}>
+                                                            {fmtDate(detailRecord.followup_date)}
+                                                        </Text>
+                                                        {status?.label && (
+                                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11.5, color: status.color, marginTop: 2 }}>
+                                                                {status.label}
+                                                            </Text>
+                                                        )}
+                                                    </View>
+                                                </View>
+
+                                                {/* Action Buttons for Follow-up / Booster */}
+                                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
+                                                    <TouchableOpacity
+                                                        activeOpacity={0.85}
+                                                        onPress={() => handleStartFollowupRecord(detailRecord)}
+                                                        style={{
+                                                            flex: 1,
+                                                            flexDirection: 'row',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            backgroundColor: colors.primary,
+                                                            borderRadius: 10,
+                                                            paddingVertical: 9,
+                                                            paddingHorizontal: 10,
+                                                            gap: 6,
+                                                        }}
+                                                    >
+                                                        <MaterialIcons name="add-circle-outline" size={15} color={colors.onPrimary} />
+                                                        <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 12 }]}>
+                                                            {actionBtnLabel}
+                                                        </Text>
+                                                    </TouchableOpacity>
+
+                                                    <TouchableOpacity
+                                                        activeOpacity={0.8}
+                                                        onPress={() => handleMarkFollowupDone(detailRecord)}
+                                                        style={{
+                                                            flexDirection: 'row',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            backgroundColor: colors.surface,
+                                                            borderWidth: 1,
+                                                            borderColor: colors.stroke,
+                                                            borderRadius: 10,
+                                                            paddingVertical: 9,
+                                                            paddingHorizontal: 12,
+                                                            gap: 4,
+                                                        }}
+                                                    >
+                                                        <MaterialIcons name="check" size={15} color={colors.textGrey} />
+                                                        <Text style={[textStyles.btnLabel, { color: colors.textGrey, fontSize: 12 }]}>
+                                                            Mark Done
+                                                        </Text>
+                                                    </TouchableOpacity>
                                                 </View>
                                             </View>
                                         );
@@ -3282,6 +3446,23 @@ export default function HealthRecordsScreen() {
                             contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 36 }}
                             showsVerticalScrollIndicator={false}
                         >
+                            {/* ── Linked Booster / Follow-up Banner ── */}
+                            {parentFollowupRecord && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary + '14', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16, gap: 10, borderWidth: 1, borderColor: colors.primary + '35' }}>
+                                    <MaterialIcons name="link" size={18} color={colors.primary} />
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.primary }}>
+                                            {parentFollowupRecord.record_type === 'vaccination' ? 'Recording Booster Shot' : 'Recording Follow-up'}
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                            Fulfills scheduled alert from {fmtDate(parentFollowupRecord.record_date)}.
+                                        </Text>
+                                    </View>
+                                    <TouchableOpacity onPress={() => setParentFollowupRecord(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                        <MaterialIcons name="close" size={16} color={colors.textGrey} />
+                                    </TouchableOpacity>
+                                </View>
+                            )}
 
                             {/* ── Batch selector ── */}
                             {fieldLabel('BATCH *')}
