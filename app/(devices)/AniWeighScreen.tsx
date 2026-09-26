@@ -19,6 +19,7 @@ import { AnimalIcon } from '@/components/AnimalIcon';
 import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
+import { WeighingSetupGate } from '@/components/WeighingSetupGate';
 import { supabase } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getDeviceDisplayStatus } from '@/lib/deviceStatus';
@@ -668,6 +669,11 @@ export default function AniWeighScreen() {
                     const session = data as ActiveSession;
                     setActiveSession(session);
                     activeSessionRef.current = session;
+                    setGateHousingId(session.housing_id);
+                    setGateBatchId(session.batch_id);
+                    setSelectedBatchId(prev => prev ?? session.batch_id);
+                    const sessionType = session.animal_type === 'pig' ? 'pig' : session.animal_type === 'piglet' ? 'piglet' : session.animal_type === 'chicks' || session.weigh_mode === 'batch' ? 'chicks' : 'chicken';
+                    setGateAnimalType(sessionType as any);
                 }
             } else {
                 setActiveSession(null);
@@ -814,6 +820,30 @@ export default function AniWeighScreen() {
             const session = data as ActiveSession;
             setActiveSession(session);
             activeSessionRef.current = session;
+
+            // Sync housing and batch selection to state and device DB
+            if (deviceId && gateHousingId) {
+                await supabase.from('devices').update({ housing_id: gateHousingId }).eq('id', deviceId);
+            }
+
+            const targetHousing = farmHousings.find(h => h.id === gateHousingId);
+            const selectedTypeStr = gateAnimalType === 'pig' ? 'Pig' : gateAnimalType === 'piglet' ? 'Piglet' : gateAnimalType === 'chicks' ? 'Chicks' : 'Chicken';
+
+            setDeviceInfo(prev => prev ? {
+                ...prev,
+                housingId: gateHousingId,
+                housingName: targetHousing?.name ?? 'Unassigned',
+                animalType: selectedTypeStr as any,
+            } : null);
+
+            if (deviceInfoRef.current) {
+                deviceInfoRef.current.housingId = gateHousingId;
+                deviceInfoRef.current.housingName = targetHousing?.name ?? 'Unassigned';
+                deviceInfoRef.current.animalType = selectedTypeStr as any;
+            }
+
+            setSelectedBatchId(gateBatchId);
+            setHousingBatches(gateBatches);
 
             // Synchronize physical device sorting mode and tray capacity
             let targetModeCode = 'CHICKEN';
@@ -1127,8 +1157,24 @@ export default function AniWeighScreen() {
     }, [deviceId, fetchStats, selectedBatchId]);
 
     // ─── Derived values ──────────────────────────────────────────
-    const animalType = deviceInfo?.animalType ?? 'Chicken';
-    const housing    = deviceInfo?.housingName ?? 'Unassigned';
+    const effectiveHousingId = activeSession?.housing_id || gateHousingId || deviceInfo?.housingId || null;
+    const effectiveBatchId = activeSession?.batch_id || gateBatchId || selectedBatchId || null;
+
+    const animalType = activeSession
+        ? (activeSession.animal_type === 'pig' ? 'Pig' : activeSession.animal_type === 'piglet' ? 'Piglet' : activeSession.animal_type === 'chicks' || activeSession.weigh_mode === 'batch' ? 'Chicks' : 'Chicken')
+        : (gateAnimalType === 'pig' ? 'Pig' : gateAnimalType === 'piglet' ? 'Piglet' : gateAnimalType === 'chicks' ? 'Chicks' : (deviceInfo?.animalType ?? 'Chicken'));
+
+    const housing = farmHousings.find(h => h.id === effectiveHousingId)?.name 
+        || (deviceInfo?.housingName && deviceInfo?.housingName !== 'Unassigned' ? deviceInfo?.housingName : null) 
+        || 'Unassigned';
+    const targetHousingName = housing;
+
+    const targetBatch = housingBatches.find(b => b.id === effectiveBatchId) 
+        || gateBatches.find(b => b.id === effectiveBatchId) 
+        || reminderBatches.find(b => b.id === effectiveBatchId);
+
+    const targetBatchName = targetBatch?.name ?? (effectiveBatchId ? 'Active Batch' : 'No Batch');
+
     const isPigMode  = (
         animalType.toLowerCase().includes('pig') ||
         gateAnimalType === 'pig' ||
@@ -1143,7 +1189,7 @@ export default function AniWeighScreen() {
         activeSession?.weigh_mode === 'batch'
     );
     const animalColor = isPigMode ? colors.pig : colors.chicken;
-    const hasHousingAndBatch = Boolean(deviceInfo?.housingId && selectedBatchId);
+    const hasHousingAndBatch = Boolean(effectiveHousingId && effectiveBatchId);
 
     const numUnder = threshold ? threshold.underweightMaxGrams / 1000 : 0.8;
     const numOver  = threshold ? threshold.overweightMinGrams / 1000  : 1.5;
@@ -1626,18 +1672,6 @@ export default function AniWeighScreen() {
     };
 
     // ─── Target Housing & Batch Resolved Helpers ───────────────────
-    const effectiveHousingId = activeSession?.housing_id || gateHousingId || deviceInfo?.housingId || reminderHousingId || null;
-    const effectiveBatchId = activeSession?.batch_id || gateBatchId || selectedBatchId || reminderBatchId || null;
-
-    const targetHousingName = farmHousings.find(h => h.id === effectiveHousingId)?.name 
-        || (deviceInfo as any)?.housing 
-        || 'Assigned Housing';
-
-    const targetBatch = reminderBatches.find(b => b.id === effectiveBatchId) 
-        || housingBatches.find(b => b.id === effectiveBatchId) 
-        || gateBatches.find(b => b.id === effectiveBatchId);
-
-    const targetBatchName = targetBatch?.name || 'Active Batch';
     const isBatchActive = (targetBatch as any)?.status ? (targetBatch as any).status.toLowerCase() === 'active' : true;
 
     // ─── Weighing Reminders Handler ────────────────────────────────
@@ -2019,6 +2053,49 @@ export default function AniWeighScreen() {
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                     <ActivityIndicator size="large" color={colors.primary} />
                 </View>
+            ) : !activeSession ? (
+                <WeighingSetupGate
+                    gateAnimalType={gateAnimalType}
+                    setGateAnimalType={setGateAnimalType}
+                    gateWeighMode={gateWeighMode}
+                    setGateWeighMode={setGateWeighMode}
+                    gateHousingId={gateHousingId}
+                    setGateHousingId={setGateHousingId}
+                    gateBatchId={gateBatchId}
+                    setGateBatchId={setGateBatchId}
+                    gateBatches={gateBatches}
+                    setGateBatches={setGateBatches}
+                    farmHousings={farmHousings}
+                    chicksPerTray={chicksPerTray}
+                    isBeginningSession={isBeginningSession}
+                    onBeginWeighingSession={handleBeginWeighingSession}
+                    gateHousingModalVisible={gateHousingModalVisible}
+                    setGateHousingModalVisible={setGateHousingModalVisible}
+                    gateBatchModalVisible={gateBatchModalVisible}
+                    setGateBatchModalVisible={setGateBatchModalVisible}
+                    renderFeedScheduleButton={renderFeedScheduleButton}
+                    renderChicksPerTrayButton={renderChicksPerTrayButton}
+                    renderWeighingReminderCard={renderWeighingReminderCard}
+                    onAnimalTypeChange={(type: any) => {
+                        let selectedType = 'Chicken';
+                        if (type === 'chicks') selectedType = 'Chicks';
+                        else if (type === 'piglet') selectedType = 'Piglet';
+                        else if (type === 'pig') selectedType = 'Pig';
+                        else selectedType = 'Chicken';
+                        
+                        AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
+                        
+                        let modeCode = "PIGLET";
+                        if (selectedType === 'Piglet') modeCode = "PIGLET";
+                        else if (selectedType === 'Pig') modeCode = "PIG";
+                        else if (selectedType === 'Chicken') modeCode = "CHICKEN";
+                        else if (selectedType === 'Chicks') modeCode = "CHICK";
+
+                        if (deviceUniqueCode) {
+                            syncModeToDevice(deviceUniqueCode, modeCode).catch(console.warn);
+                        }
+                    }}
+                />
             ) : (
                 <ScrollView contentContainerStyle={aniweighStyles.contentContainer} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
 
@@ -2053,11 +2130,11 @@ export default function AniWeighScreen() {
                                     <Text style={[textStyles.label, { color: colors.info, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{housing}</Text>
                                     <MaterialIcons name="arrow-drop-down" size={16} color={colors.info} />
                                 </TouchableOpacity>
-                                {deviceInfo?.housingId && (
+                                {effectiveHousingId && (
                                     <TouchableOpacity style={[aniweighStyles.tag, { backgroundColor: colors.warning + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Batch')}>
                                         <MaterialIcons name="layers" size={14} color={colors.warning} />
                                         <Text style={[textStyles.label, { color: colors.warning, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>
-                                            {housingBatches.find(b => b.id === selectedBatchId)?.name ?? 'No Batch'}
+                                            {targetBatchName}
                                         </Text>
                                         <MaterialIcons name="arrow-drop-down" size={16} color={colors.warning} />
                                     </TouchableOpacity>
