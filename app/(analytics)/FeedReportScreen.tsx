@@ -18,6 +18,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
 import { useAnimalStyles } from '@/styles/animalStyles';
 import { useDevicesStyles } from '@/styles/devicesStyles';
@@ -96,6 +97,7 @@ export default function FeedReportScreen() {
     const [totalDispenses, setTotalDispenses] = useState<number>(0);
     const [timeframe, setTimeframe] = useState<'This Week' | 'This Month'>('This Week');
     const [isLoading, setIsLoading] = useState(true);
+    const [isConsumptionLoading, setIsConsumptionLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [housingModalVisible, setHousingModalVisible] = useState(false);
     
@@ -166,14 +168,44 @@ export default function FeedReportScreen() {
         return selectedHousing?.current_count || 0;
     }, [selectedBatch, filteredBatches, selectedHousing]);
 
+    // ─── Shared Persistence Helper ───────────────────────────────────
+    const saveSelectionPreference = useCallback(async (type: 'pig' | 'chicken', housingId: string | null, batchId: string | null) => {
+        if (!farmId) return;
+        try {
+            let currentPref: any = { lastAnimalType: type };
+            const rawPref = await AsyncStorage.getItem(`analytics_active_selection_${farmId}`);
+            if (rawPref) {
+                try {
+                    currentPref = { ...JSON.parse(rawPref) };
+                } catch {}
+            }
+            currentPref.lastAnimalType = type;
+            currentPref[type] = {
+                housingId,
+                batchId,
+            };
+            currentPref.animalType = type;
+            currentPref.housingId = housingId;
+            currentPref.batchId = batchId;
+
+            await AsyncStorage.setItem(
+                `analytics_active_selection_${farmId}`,
+                JSON.stringify(currentPref)
+            );
+        } catch (err) {
+            console.warn('[FeedReportScreen] Failed to save selection preference:', err);
+        }
+    }, [farmId]);
+
     // ─── Fetch Housings & Batches ────────────────────────────────
     const fetchHousingsAndBatches = useCallback(async () => {
         if (!farmId) {
             setIsLoading(false);
             return;
         }
+        setIsLoading(true);
         try {
-            const [housingsRes, batchesRes] = await Promise.all([
+            const [housingsRes, batchesRes, rawPref] = await Promise.all([
                 supabase
                     .from('housings')
                     .select('id, name, animal_type, status, current_count')
@@ -186,6 +218,7 @@ export default function FeedReportScreen() {
                     .eq('farm_id', farmId)
                     .eq('status', 'active')
                     .order('arrival_date', { ascending: false }),
+                AsyncStorage.getItem(`analytics_active_selection_${farmId}`).catch(() => null),
             ]);
 
             if (housingsRes.error) throw housingsRes.error;
@@ -197,88 +230,152 @@ export default function FeedReportScreen() {
             setAllHousings(hData);
             setAllBatches(bData);
 
+            let savedPref: any = null;
+            if (rawPref) {
+                try {
+                    savedPref = JSON.parse(rawPref);
+                } catch {}
+            }
+
             if (typeof requestedBatchId === 'string') {
                 const reqB = bData.find(b => b.id === requestedBatchId);
                 if (reqB) {
                     const reqH = hData.find(h => h.id === reqB.housing_id);
+                    const reqType: 'pig' | 'chicken' = reqH?.animal_type === 'chicken' ? 'chicken' : 'pig';
                     if (reqH) {
-                        setAnimalType(reqH.animal_type === 'chicken' ? 'chicken' : 'pig');
+                        setAnimalType(reqType);
                         setSelectedHousingId(reqH.id);
                     }
                     setSelectedBatchId(reqB.id);
+                    saveSelectionPreference(reqType, reqB.housing_id, reqB.id);
+                    return;
                 }
+            }
+
+            const savedLastAnimalType = savedPref?.lastAnimalType || savedPref?.animalType;
+            let effectiveAnimalType: 'pig' | 'chicken' = 'pig';
+            if (type) {
+                effectiveAnimalType = type.toLowerCase().includes('chicken') ? 'chicken' : 'pig';
+            } else if (savedLastAnimalType === 'pig' || savedLastAnimalType === 'chicken') {
+                effectiveAnimalType = savedLastAnimalType;
+            }
+
+            const typePref = savedPref?.[effectiveAnimalType] || (savedPref?.animalType === effectiveAnimalType ? savedPref : undefined);
+            const savedHousingId = typePref?.housingId;
+            const savedBatchId = typePref?.batchId;
+
+            const filteredH = hData.filter(h => h.animal_type === effectiveAnimalType);
+            let targetHousingId: string | null = null;
+            let targetBatchId: string | null = null;
+
+            if (filteredH.length > 0) {
+                const targetHousing = (savedHousingId && filteredH.find(h => h.id === savedHousingId)) || filteredH[0];
+                targetHousingId = targetHousing.id;
+
+                const filteredB = bData.filter(b => b.housing_id === targetHousingId);
+                if (filteredB.length > 0) {
+                    if (savedBatchId === 'all') {
+                        targetBatchId = 'all';
+                    } else {
+                        const targetBatch = (savedBatchId && filteredB.find(b => b.id === savedBatchId)) || filteredB[0];
+                        targetBatchId = targetBatch.id;
+                    }
+                }
+            }
+
+            setAnimalType(effectiveAnimalType);
+            setSelectedHousingId(targetHousingId);
+            setSelectedBatchId(targetBatchId);
+
+            if (targetHousingId) {
+                saveSelectionPreference(effectiveAnimalType, targetHousingId, targetBatchId);
             }
         } catch (err) {
             console.error('[FeedReportScreen] error loading housings and batches:', err);
+        } finally {
+            setIsLoading(false);
         }
-    }, [farmId, requestedBatchId]);
+    }, [farmId, requestedBatchId, type, saveSelectionPreference]);
 
     useEffect(() => {
         fetchHousingsAndBatches();
     }, [fetchHousingsAndBatches]);
 
-    const handleSwitchAnimalType = useCallback((type: 'pig' | 'chicken') => {
+    const handleSwitchAnimalType = useCallback(async (type: 'pig' | 'chicken') => {
         if (type === animalType) return;
         setAnimalType(type);
         setChartTooltip(null);
+
+        let savedHousingId: string | null = null;
+        let savedBatchId: string | null = null;
+        if (farmId) {
+            try {
+                const rawPref = await AsyncStorage.getItem(`analytics_active_selection_${farmId}`);
+                if (rawPref) {
+                    const parsed = JSON.parse(rawPref);
+                    const typePref = parsed[type] || (parsed.animalType === type ? parsed : undefined);
+                    if (typePref) {
+                        savedHousingId = typePref.housingId || null;
+                        savedBatchId = typePref.batchId || null;
+                    }
+                }
+            } catch {}
+        }
+
         const targetHousings = allHousings.filter(h => h.animal_type === type);
         if (targetHousings.length > 0) {
-            const nextHousingId = targetHousings[0].id;
+            const nextHousing = (savedHousingId && targetHousings.find(h => h.id === savedHousingId)) || targetHousings[0];
+            const nextHousingId = nextHousing.id;
             setSelectedHousingId(nextHousingId);
-            setSelectedBatchId(null);
+
+            const targetBatches = allBatches.filter(b => b.housing_id === nextHousingId);
+            if (targetBatches.length > 0) {
+                let nextBatchId: string | null = null;
+                if (savedBatchId === 'all') {
+                    nextBatchId = 'all';
+                } else {
+                    const nextBatch = (savedBatchId && targetBatches.find(b => b.id === savedBatchId)) || targetBatches[0];
+                    nextBatchId = nextBatch.id;
+                }
+                setSelectedBatchId(nextBatchId);
+                saveSelectionPreference(type, nextHousingId, nextBatchId);
+            } else {
+                setSelectedBatchId(null);
+                saveSelectionPreference(type, nextHousingId, null);
+            }
         } else {
             setSelectedHousingId(null);
             setSelectedBatchId(null);
             setReportData([]);
             setChartData(null);
             setTotalDispenses(0);
+            saveSelectionPreference(type, null, null);
         }
-    }, [animalType, allHousings]);
+    }, [animalType, farmId, allHousings, allBatches, saveSelectionPreference]);
 
     const handleSelectHousing = useCallback((housingId: string) => {
         if (housingId === selectedHousingId) return;
         setSelectedHousingId(housingId);
-        setSelectedBatchId(null);
         setChartTooltip(null);
-    }, [selectedHousingId]);
+        const targetBatches = allBatches.filter(b => b.housing_id === housingId);
+        const nextBatchId = targetBatches[0]?.id || null;
+        setSelectedBatchId(nextBatchId);
+        saveSelectionPreference(animalType, housingId, nextBatchId);
+    }, [selectedHousingId, animalType, allBatches, saveSelectionPreference]);
 
     const handleSelectBatch = useCallback((batchOption: string) => {
         setChartTooltip(null);
         if (batchOption === 'All Batches') {
             setSelectedBatchId('all');
+            saveSelectionPreference(animalType, selectedHousingId, 'all');
         } else {
             const matched = filteredBatches.find(b => b.name === batchOption);
             if (matched) {
                 setSelectedBatchId(matched.id);
+                saveSelectionPreference(animalType, selectedHousingId, matched.id);
             }
         }
-    }, [filteredBatches]);
-
-    // ─── Resolve selected housing & batch when animal type or housings change ─
-    useEffect(() => {
-        if (filteredHousings.length > 0) {
-            const exists = filteredHousings.some(h => h.id === selectedHousingId);
-            if (!exists) {
-                setSelectedHousingId(filteredHousings[0].id);
-                setSelectedBatchId(null);
-            }
-        } else {
-            setSelectedHousingId(null);
-            setSelectedBatchId(null);
-        }
-    }, [animalType, filteredHousings, selectedHousingId]);
-
-    useEffect(() => {
-        if (filteredBatches.length > 0) {
-            setSelectedBatchId(prev => {
-                if (prev === 'all') return 'all';
-                const exists = filteredBatches.some(b => b.id === prev);
-                return exists ? prev : filteredBatches[0].id;
-            });
-        } else {
-            setSelectedBatchId(null);
-        }
-    }, [filteredBatches]);
+    }, [filteredBatches, animalType, selectedHousingId, saveSelectionPreference]);
 
     // ─── Fetch Feed Consumption (Dispense Records) ───────────────
     const fetchConsumption = useCallback(async () => {
@@ -286,11 +383,11 @@ export default function FeedReportScreen() {
             setReportData([]);
             setChartData(null);
             setTotalDispenses(0);
-            setIsLoading(false);
+            setIsConsumptionLoading(false);
             return;
         }
 
-        setIsLoading(true);
+        setIsConsumptionLoading(true);
         setChartTooltip(null);
         try {
             const now = new Date();
@@ -446,7 +543,7 @@ export default function FeedReportScreen() {
             console.error('[FeedReportScreen] error loading consumption:', err);
             setChartData(null);
         } finally {
-            setIsLoading(false);
+            setIsConsumptionLoading(false);
         }
     }, [selectedHousingId, selectedBatchId, timeframe]);
 
@@ -691,108 +788,113 @@ export default function FeedReportScreen() {
                 </View>
             </View>
 
-            <ScrollView 
-                showsVerticalScrollIndicator={false} 
-                contentContainerStyle={[animalStyles.scrollContent, { paddingTop: 8, paddingBottom: 60 }]}
-                refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
-                }
-            >
-                {/* Intro Text & Value Badge */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 4, gap: 12 }}>
-                    <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginTop: 0, marginBottom: 0 }]}>
-                        Monitor feeding efficiency, daily dispense per head, and ration stock for your {animalType === 'pig' ? 'pigs' : 'chickens'}.
-                    </Text>
-                    <View style={[styles.dayBadge, { marginBottom: 0, backgroundColor: colors.surface, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.stroke, flexShrink: 0 }]}>
-                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, letterSpacing: 1.2, opacity: 0.85 }]}>
-                            DISPENSED
-                        </Text>
-                        <Text style={[textStyles.h1, { color: colors.primary, fontSize: 24, lineHeight: 28 }]}>
-                            {totalConsumption.toFixed(1)}<Text style={{ fontSize: 14 }}> kg</Text>
-                        </Text>
-                    </View>
+            {isLoading ? (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
                 </View>
-
-                {/* Sliding Animal Type Pill Switcher */}
-                <AnimalTypePillSwitcher
-                    selected={animalType}
-                    onSelect={handleSwitchAnimalType}
-                    style={{ marginBottom: 16 }}
-                />
-
-                {/* Filters Dropdown (House & Batch beside each other) */}
-                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
-                    {/* House Filter Dropdown */}
-                    <View style={{ flex: 1 }}>
-                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
-                            Select a House
+            ) : (
+                <ScrollView 
+                    showsVerticalScrollIndicator={false} 
+                    contentContainerStyle={[animalStyles.scrollContent, { paddingTop: 8, paddingBottom: 60 }]}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+                    }
+                >
+                    {/* Intro Text & Value Badge */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 4, gap: 12 }}>
+                        <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginTop: 0, marginBottom: 0 }]}>
+                            Monitor feeding efficiency, daily dispense per head, and ration stock for your {animalType === 'pig' ? 'pigs' : 'chickens'}.
                         </Text>
-                        <TouchableOpacity
-                            activeOpacity={filteredHousings.length > 0 ? 0.8 : 1}
-                            disabled={filteredHousings.length === 0}
-                            style={[
-                                animalStyles.dropdownContainer,
-                                {
-                                    backgroundColor: colors.surface,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 12,
-                                    borderRadius: 14,
-                                    opacity: filteredHousings.length > 0 ? 1 : 0.6,
-                                }
-                            ]}
-                            onPress={() => setHousingModalVisible(true)}
-                        >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                                <MaterialIcons name="home" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
-                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
-                                    {selectedHousingOptionStr}
-                                </Text>
-                            </View>
-                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
-                        </TouchableOpacity>
+                        <View style={[styles.dayBadge, { marginBottom: 0, backgroundColor: colors.surface, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.stroke, flexShrink: 0 }]}>
+                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, letterSpacing: 1.2, opacity: 0.85 }]}>
+                                DISPENSED
+                            </Text>
+                            <Text style={[textStyles.h1, { color: colors.primary, fontSize: 24, lineHeight: 28 }]}>
+                                {totalConsumption.toFixed(1)}<Text style={{ fontSize: 14 }}> kg</Text>
+                            </Text>
+                        </View>
                     </View>
 
-                    {/* Batch Filter Dropdown */}
-                    <View style={{ flex: 1 }}>
-                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
-                            Select a Batch
-                        </Text>
-                        <TouchableOpacity
-                            activeOpacity={filteredBatches.length > 0 ? 0.8 : 1}
-                            disabled={filteredBatches.length === 0}
-                            style={[
-                                animalStyles.dropdownContainer,
-                                {
-                                    backgroundColor: colors.surface,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 12,
-                                    borderRadius: 14,
-                                    opacity: filteredBatches.length > 0 ? 1 : 0.6,
-                                }
-                            ]}
-                            onPress={() => setBatchModalVisible(true)}
-                        >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                                <MaterialIcons name="layers" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
-                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
-                                    {selectedBatchOptionStr}
-                                </Text>
-                            </View>
-                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                    {/* Sliding Animal Type Pill Switcher */}
+                    <AnimalTypePillSwitcher
+                        selected={animalType}
+                        onSelect={handleSwitchAnimalType}
+                        style={{ marginBottom: 16 }}
+                    />
 
-                {isLoading ? (
-                    <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
-                        <ActivityIndicator size="large" color={colors.primary} />
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading report details...</Text>
+                    {/* Filters Dropdown (House & Batch beside each other) */}
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+                        {/* House Filter Dropdown */}
+                        <View style={{ flex: 1 }}>
+                            <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
+                                Select a House
+                            </Text>
+                            <TouchableOpacity
+                                activeOpacity={filteredHousings.length > 0 ? 0.8 : 1}
+                                disabled={filteredHousings.length === 0}
+                                style={[
+                                    animalStyles.dropdownContainer,
+                                    {
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        paddingVertical: 12,
+                                        paddingHorizontal: 12,
+                                        borderRadius: 14,
+                                        opacity: filteredHousings.length > 0 ? 1 : 0.6,
+                                    }
+                                ]}
+                                onPress={() => setHousingModalVisible(true)}
+                            >
+                                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                    <MaterialIcons name="home" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
+                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                                        {selectedHousingOptionStr}
+                                    </Text>
+                                </View>
+                                <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Batch Filter Dropdown */}
+                        <View style={{ flex: 1 }}>
+                            <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
+                                Select a Batch
+                            </Text>
+                            <TouchableOpacity
+                                activeOpacity={filteredBatches.length > 0 ? 0.8 : 1}
+                                disabled={filteredBatches.length === 0}
+                                style={[
+                                    animalStyles.dropdownContainer,
+                                    {
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        paddingVertical: 12,
+                                        paddingHorizontal: 12,
+                                        borderRadius: 14,
+                                        opacity: filteredBatches.length > 0 ? 1 : 0.6,
+                                    }
+                                ]}
+                                onPress={() => setBatchModalVisible(true)}
+                            >
+                                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                    <MaterialIcons name="layers" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
+                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                                        {selectedBatchOptionStr}
+                                    </Text>
+                                </View>
+                                <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                ) : filteredHousings.length === 0 ? (
+
+                    {isConsumptionLoading ? (
+                        <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
+                            <ActivityIndicator size="large" color={colors.primary} />
+                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading report details...</Text>
+                        </View>
+                    ) : filteredHousings.length === 0 ? (
                     /* Empty Housings State */
                     <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
                         <MaterialIcons name="home" size={48} color={colors.textGrey} />
@@ -1230,6 +1332,7 @@ export default function FeedReportScreen() {
                     </>
                 )}
             </ScrollView>
+            )}
 
             {/* House Selection Modal */}
             <SelectionModal

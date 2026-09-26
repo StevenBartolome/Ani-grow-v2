@@ -11,6 +11,7 @@ import {
     View,
     useWindowDimensions,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LineChart } from 'react-native-chart-kit';
@@ -161,6 +162,35 @@ export default function PredictionReportScreen() {
         animalTypeRef.current = animalType;
     }, [animalType]);
 
+    // ─── Shared Persistence Helper ───────────────────────────────────
+    const saveSelectionPreference = useCallback(async (type: 'pig' | 'chicken', housingId: string | null, batchId: string | null) => {
+        if (!farmId) return;
+        try {
+            let currentPref: any = { lastAnimalType: type };
+            const rawPref = await AsyncStorage.getItem(`analytics_active_selection_${farmId}`);
+            if (rawPref) {
+                try {
+                    currentPref = { ...JSON.parse(rawPref) };
+                } catch {}
+            }
+            currentPref.lastAnimalType = type;
+            currentPref[type] = {
+                housingId,
+                batchId,
+            };
+            currentPref.animalType = type;
+            currentPref.housingId = housingId;
+            currentPref.batchId = batchId;
+
+            await AsyncStorage.setItem(
+                `analytics_active_selection_${farmId}`,
+                JSON.stringify(currentPref)
+            );
+        } catch (err) {
+            console.warn('[PredictionReportScreen] Failed to save selection preference:', err);
+        }
+    }, [farmId]);
+
     // ─── Derived lists ───────────────────────────────────────────────────────
     const filteredHousings = allHousings.filter(h => h.animal_type === animalType);
     const selectedHousing = allHousings.find(h => h.id === selectedHousingId) ?? null;
@@ -170,142 +200,6 @@ export default function PredictionReportScreen() {
     }, [allBatches, selectedHousingId]);
 
     const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId) ?? null;
-
-    // ─── Data Fetching (Synchronized with GrowthReportScreen) ─────────────────
-    const fetchReportMetadata = useCallback(async () => {
-        if (!farmId) {
-            setIsLoading(false);
-            return;
-        }
-        setIsLoading(true);
-        try {
-            const [housingsRes, batchesRes, farmRes] = await Promise.all([
-                supabase
-                    .from('housings')
-                    .select('id, name, animal_type, status, current_count, farm_id, farms(id, name)')
-                    .eq('farm_id', farmId)
-                    .eq('status', 'Active')
-                    .order('name', { ascending: true }),
-                supabase
-                    .from('batches')
-                    .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id, farms(id, name))')
-                    .eq('housings.farm_id', farmId)
-                    .eq('status', 'active') // sold/completed batches shouldn't clutter this picker
-                    .order('arrival_date', { ascending: false }),
-                supabase
-                    .from('farms')
-                    .select('name')
-                    .eq('id', farmId)
-                    .maybeSingle(),
-            ]);
-
-            if (housingsRes.error) throw housingsRes.error;
-            if (batchesRes.error) throw batchesRes.error;
-
-            if (farmRes.data?.name) {
-                setFarmName(farmRes.data.name);
-            }
-
-            const housingsData = (housingsRes.data || []) as HousingInfo[];
-            const batchesData = (batchesRes.data || []) as BatchInfo[];
-
-            setAllHousings(housingsData);
-            setAllBatches(batchesData);
-
-            // An explicitly-requested batch wins outright.
-            const requestedBatch = typeof requestedBatchId === 'string'
-                ? batchesData.find(b => b.id === requestedBatchId)
-                : undefined;
-            if (requestedBatch) {
-                const requestedHousing = housingsData.find(h => h.id === requestedBatch.housing_id);
-                if (requestedHousing) {
-                    setAnimalType(requestedHousing.animal_type === 'chicken' ? 'chicken' : 'pig');
-                    animalTypeRef.current = requestedHousing.animal_type === 'chicken' ? 'chicken' : 'pig';
-                }
-                setSelectedHousingId(requestedBatch.housing_id);
-                setSelectedBatchId(requestedBatch.id);
-
-                const [reqWeighRes, reqEnvRes, reqHealthRes] = await Promise.all([
-                    supabase.from('weigh_sessions')
-                        .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id, weighing_session_id')
-                        .eq('batch_id', requestedBatch.id)
-                        .neq('status', 'invalid')
-                        .order('recorded_at', { ascending: true }),
-                    supabase.from('weighing_sessions')
-                        .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
-                        .eq('batch_id', requestedBatch.id)
-                        .eq('status', 'completed')
-                        .gt('completed_quantity', 0)
-                        .order('created_at', { ascending: true }),
-                    supabase.from('health_records')
-                        .select('id, record_type, affected_count, record_date')
-                        .eq('batch_id', requestedBatch.id)
-                        .is('deleted_at', null),
-                ]);
-                setWeighSessions((reqWeighRes.data || []) as WeighSession[]);
-                setWeighingSessionEnvelopes((reqEnvRes.data || []) as WeighingSessionEnvelope[]);
-                setHealthRecords((reqHealthRes.data || []) as HealthRecord[]);
-                lastLoadedBatchIdRef.current = requestedBatch.id;
-                setIsLoading(false);
-                return;
-            }
-
-            const filteredH = housingsData.filter(h => h.animal_type === animalTypeRef.current);
-            if (filteredH.length > 0) {
-                const targetHousingId = filteredH[0].id;
-                setSelectedHousingId(targetHousingId);
-
-                const filteredB = batchesData.filter(b => b.housing_id === targetHousingId);
-                if (filteredB.length > 0) {
-                    const targetBatchId = filteredB[0].id;
-                    setSelectedBatchId(targetBatchId);
-
-                    const [weighRes, envRes, healthRes] = await Promise.all([
-                        supabase
-                            .from('weigh_sessions')
-                            .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id, weighing_session_id')
-                            .eq('batch_id', targetBatchId)
-                            .neq('status', 'invalid')
-                            .order('recorded_at', { ascending: true }),
-                        supabase
-                            .from('weighing_sessions')
-                            .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
-                            .eq('batch_id', targetBatchId)
-                            .eq('status', 'completed')
-                            .gt('completed_quantity', 0)
-                            .order('created_at', { ascending: true }),
-                        supabase
-                            .from('health_records')
-                            .select('id, record_type, affected_count, record_date')
-                            .eq('batch_id', targetBatchId)
-                            .is('deleted_at', null),
-                    ]);
-
-                    setWeighSessions((weighRes.data || []) as WeighSession[]);
-                    setWeighingSessionEnvelopes((envRes.data || []) as WeighingSessionEnvelope[]);
-                    setHealthRecords((healthRes.data || []) as HealthRecord[]);
-                    lastLoadedBatchIdRef.current = targetBatchId;
-                } else {
-                    setSelectedBatchId(null);
-                    setWeighSessions([]);
-                    setWeighingSessionEnvelopes([]);
-                    setHealthRecords([]);
-                    lastLoadedBatchIdRef.current = null;
-                }
-            } else {
-                setSelectedHousingId(null);
-                setSelectedBatchId(null);
-                setWeighSessions([]);
-                setWeighingSessionEnvelopes([]);
-                setHealthRecords([]);
-                lastLoadedBatchIdRef.current = null;
-            }
-        } catch (err) {
-            console.error('[PredictionReportScreen] error loading metadata:', err);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [farmId]);
 
     const fetchBatchData = useCallback(async (batchId: string) => {
         setIsDataLoading(true);
@@ -342,19 +236,118 @@ export default function PredictionReportScreen() {
         }
     }, []);
 
-    const handleSwitchAnimalType = useCallback((type: 'pig' | 'chicken') => {
-        if (type === animalType) return;
-        setAnimalType(type);
-        setForecastTooltip(null);
-        const targetHousings = allHousings.filter(h => h.animal_type === type);
-        if (targetHousings.length > 0) {
-            const nextHousingId = targetHousings[0].id;
-            setSelectedHousingId(nextHousingId);
-            const targetBatches = allBatches.filter(b => b.housing_id === nextHousingId);
-            if (targetBatches.length > 0) {
-                const nextBatchId = targetBatches[0].id;
-                setSelectedBatchId(nextBatchId);
-                fetchBatchData(nextBatchId);
+    // ─── Data Fetching (Synchronized with GrowthReportScreen) ─────────────────
+    const fetchReportMetadata = useCallback(async () => {
+        if (!farmId) {
+            setIsLoading(false);
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const [housingsRes, batchesRes, farmRes, rawPref] = await Promise.all([
+                supabase
+                    .from('housings')
+                    .select('id, name, animal_type, status, current_count, farm_id, farms(id, name)')
+                    .eq('farm_id', farmId)
+                    .eq('status', 'Active')
+                    .order('name', { ascending: true }),
+                supabase
+                    .from('batches')
+                    .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id, farms(id, name))')
+                    .eq('housings.farm_id', farmId)
+                    .eq('status', 'active') // sold/completed batches shouldn't clutter this picker
+                    .order('arrival_date', { ascending: false }),
+                supabase
+                    .from('farms')
+                    .select('name')
+                    .eq('id', farmId)
+                    .maybeSingle(),
+                AsyncStorage.getItem(`analytics_active_selection_${farmId}`).catch(() => null),
+            ]);
+
+            if (housingsRes.error) throw housingsRes.error;
+            if (batchesRes.error) throw batchesRes.error;
+
+            if (farmRes.data?.name) {
+                setFarmName(farmRes.data.name);
+            }
+
+            const housingsData = (housingsRes.data || []) as HousingInfo[];
+            const batchesData = (batchesRes.data || []) as BatchInfo[];
+
+            setAllHousings(housingsData);
+            setAllBatches(batchesData);
+
+            let savedPref: any = null;
+            if (rawPref) {
+                try {
+                    savedPref = JSON.parse(rawPref);
+                } catch {}
+            }
+
+            // An explicitly-requested batch wins outright.
+            const requestedBatch = typeof requestedBatchId === 'string'
+                ? batchesData.find(b => b.id === requestedBatchId)
+                : undefined;
+            if (requestedBatch) {
+                const requestedHousing = housingsData.find(h => h.id === requestedBatch.housing_id);
+                const reqType: 'pig' | 'chicken' = requestedHousing?.animal_type === 'chicken' ? 'chicken' : 'pig';
+                if (requestedHousing) {
+                    setAnimalType(reqType);
+                    animalTypeRef.current = reqType;
+                }
+                setSelectedHousingId(requestedBatch.housing_id);
+                setSelectedBatchId(requestedBatch.id);
+                saveSelectionPreference(reqType, requestedBatch.housing_id, requestedBatch.id);
+                await fetchBatchData(requestedBatch.id);
+                setIsLoading(false);
+                return;
+            }
+
+            let effectiveAnimalType: 'pig' | 'chicken' = 'pig';
+            if (typeof type === 'string') {
+                effectiveAnimalType = type.toLowerCase().includes('chicken') ? 'chicken' : 'pig';
+            } else if (savedPref?.lastAnimalType === 'pig' || savedPref?.lastAnimalType === 'chicken') {
+                effectiveAnimalType = savedPref.lastAnimalType;
+            } else if (savedPref?.animalType === 'pig' || savedPref?.animalType === 'chicken') {
+                effectiveAnimalType = savedPref.animalType;
+            }
+
+            setAnimalType(effectiveAnimalType);
+
+            const filteredH = housingsData.filter(h => h.animal_type === effectiveAnimalType);
+            let targetHousingId: string | null = null;
+            let targetBatchId: string | null = null;
+
+            const savedHousingForType = savedPref?.[effectiveAnimalType]?.housingId || (savedPref?.animalType === effectiveAnimalType ? savedPref?.housingId : null);
+            if (savedHousingForType && filteredH.some(h => h.id === savedHousingForType)) {
+                targetHousingId = savedHousingForType;
+            } else if (filteredH.length > 0) {
+                targetHousingId = filteredH[0].id;
+            }
+
+            setSelectedHousingId(targetHousingId);
+
+            if (targetHousingId) {
+                const filteredB = batchesData.filter(b => b.housing_id === targetHousingId);
+                const savedBatchForType = savedPref?.[effectiveAnimalType]?.batchId || (savedPref?.animalType === effectiveAnimalType ? savedPref?.batchId : null);
+
+                if (savedBatchForType && filteredB.some(b => b.id === savedBatchForType)) {
+                    targetBatchId = savedBatchForType;
+                } else if (filteredB.length > 0) {
+                    targetBatchId = filteredB[0].id;
+                }
+                setSelectedBatchId(targetBatchId);
+
+                if (targetBatchId) {
+                    saveSelectionPreference(effectiveAnimalType, targetHousingId, targetBatchId);
+                    await fetchBatchData(targetBatchId);
+                } else {
+                    setWeighSessions([]);
+                    setWeighingSessionEnvelopes([]);
+                    setHealthRecords([]);
+                    lastLoadedBatchIdRef.current = null;
+                }
             } else {
                 setSelectedBatchId(null);
                 setWeighSessions([]);
@@ -362,23 +355,76 @@ export default function PredictionReportScreen() {
                 setHealthRecords([]);
                 lastLoadedBatchIdRef.current = null;
             }
+        } catch (err) {
+            console.error('[PredictionReportScreen] error loading metadata:', err);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [farmId, requestedBatchId, type, saveSelectionPreference, fetchBatchData]);
+
+    const handleSwitchAnimalType = useCallback(async (type: 'pig' | 'chicken') => {
+        if (type === animalType) return;
+        setAnimalType(type);
+        setForecastTooltip(null);
+
+        let savedPref: any = null;
+        if (farmId) {
+            try {
+                const rawPref = await AsyncStorage.getItem(`analytics_active_selection_${farmId}`);
+                if (rawPref) savedPref = JSON.parse(rawPref);
+            } catch {}
+        }
+
+        const targetHousings = allHousings.filter(h => h.animal_type === type);
+        let nextHousingId: string | null = null;
+        let nextBatchId: string | null = null;
+
+        const savedHousingForType = savedPref?.[type]?.housingId;
+        if (savedHousingForType && targetHousings.some(h => h.id === savedHousingForType)) {
+            nextHousingId = savedHousingForType;
+        } else if (targetHousings.length > 0) {
+            nextHousingId = targetHousings[0].id;
+        }
+        setSelectedHousingId(nextHousingId);
+
+        if (nextHousingId) {
+            const targetBatches = allBatches.filter(b => b.housing_id === nextHousingId);
+            const savedBatchForType = savedPref?.[type]?.batchId;
+
+            if (savedBatchForType && targetBatches.some(b => b.id === savedBatchForType)) {
+                nextBatchId = savedBatchForType;
+            } else if (targetBatches.length > 0) {
+                nextBatchId = targetBatches[0].id;
+            }
+            setSelectedBatchId(nextBatchId);
+
+            if (nextBatchId) {
+                fetchBatchData(nextBatchId);
+            } else {
+                setWeighSessions([]);
+                setWeighingSessionEnvelopes([]);
+                setHealthRecords([]);
+                lastLoadedBatchIdRef.current = null;
+            }
         } else {
-            setSelectedHousingId(null);
             setSelectedBatchId(null);
             setWeighSessions([]);
             setWeighingSessionEnvelopes([]);
             setHealthRecords([]);
             lastLoadedBatchIdRef.current = null;
         }
-    }, [animalType, allHousings, allBatches, fetchBatchData]);
+
+        saveSelectionPreference(type, nextHousingId, nextBatchId);
+    }, [animalType, allHousings, allBatches, farmId, fetchBatchData, saveSelectionPreference]);
 
     const handleSelectHousing = useCallback((housingId: string) => {
         if (housingId === selectedHousingId) return;
         setSelectedHousingId(housingId);
         setForecastTooltip(null);
         const targetBatches = allBatches.filter(b => b.housing_id === housingId);
+        let nextBatchId: string | null = null;
         if (targetBatches.length > 0) {
-            const nextBatchId = targetBatches[0].id;
+            nextBatchId = targetBatches[0].id;
             setSelectedBatchId(nextBatchId);
             fetchBatchData(nextBatchId);
         } else {
@@ -388,36 +434,18 @@ export default function PredictionReportScreen() {
             setHealthRecords([]);
             lastLoadedBatchIdRef.current = null;
         }
-    }, [selectedHousingId, allBatches, fetchBatchData]);
+        saveSelectionPreference(animalType, housingId, nextBatchId);
+    }, [selectedHousingId, allBatches, fetchBatchData, saveSelectionPreference, animalType]);
 
     const handleSelectBatch = useCallback((batchId: string) => {
         if (batchId === selectedBatchId) return;
         setSelectedBatchId(batchId);
         setForecastTooltip(null);
         fetchBatchData(batchId);
-    }, [selectedBatchId, fetchBatchData]);
+        saveSelectionPreference(animalType, selectedHousingId, batchId);
+    }, [selectedBatchId, fetchBatchData, saveSelectionPreference, animalType, selectedHousingId]);
 
     useEffect(() => { fetchReportMetadata(); }, [fetchReportMetadata]);
-
-    // Auto-resolve housing when animal type changes as a fallback
-    useEffect(() => {
-        if (filteredHousings.length > 0) {
-            const exists = filteredHousings.some(h => h.id === selectedHousingId);
-            if (!exists) setSelectedHousingId(filteredHousings[0].id);
-        } else {
-            setSelectedHousingId(null);
-        }
-    }, [animalType, allHousings, selectedHousingId, filteredHousings]);
-
-    // Auto-resolve batch when housing changes as a fallback
-    useEffect(() => {
-        if (filteredBatches.length > 0) {
-            const exists = filteredBatches.some(b => b.id === selectedBatchId);
-            if (!exists) setSelectedBatchId(filteredBatches[0].id);
-        } else {
-            setSelectedBatchId(null);
-        }
-    }, [filteredBatches, selectedBatchId]);
 
     // Load batch data when batch changes
     useEffect(() => {
@@ -1013,108 +1041,113 @@ export default function PredictionReportScreen() {
                 </View>
             </View>
 
-            <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={[animalStyles.scrollContent, { paddingTop: 8, paddingBottom: 60 }]}
-                refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
-                }
-            >
-                {/* Intro Text & Confidence Badge */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 4, gap: 12 }}>
-                    <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginTop: 0, marginBottom: 0 }]}>
-                        AI-driven growth trajectory projections based on your actual farm data.
-                    </Text>
-                    <View style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                        backgroundColor: (colors.prediction ?? '#8B5CF6') + '15',
-                        borderWidth: 1,
-                        borderColor: (colors.prediction ?? '#8B5CF6') + '30',
-                        paddingHorizontal: 10,
-                        paddingVertical: 6,
-                        borderRadius: 20,
-                        flexShrink: 0,
-                    }}>
-                        <MaterialIcons name="psychology" size={16} color={colors.prediction ?? '#8B5CF6'} />
-                        <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 12, color: colors.prediction ?? '#8B5CF6' }}>
-                            {confidencePct}% {daysToHarvest !== null ? `· ${daysToHarvest === 0 ? 'Harvest Ready' : `${daysToHarvest}d to Harvest`}` : ''}
-                        </Text>
-                    </View>
+            {isLoading ? (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
                 </View>
-
-                {/* Sliding Animal Type Pill Switcher */}
-                <AnimalTypePillSwitcher
-                    selected={animalType}
-                    onSelect={handleSwitchAnimalType}
-                    style={{ marginBottom: 16 }}
-                />
-
-                {/* House & Batch Dropdowns */}
-                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
-                    <View style={{ flex: 1 }}>
-                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
-                            Select a House
+            ) : (
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={[animalStyles.scrollContent, { paddingTop: 8, paddingBottom: 60 }]}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+                    }
+                >
+                    {/* Intro Text & Confidence Badge */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 4, gap: 12 }}>
+                        <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginTop: 0, marginBottom: 0 }]}>
+                            AI-driven growth trajectory projections based on your actual farm data.
                         </Text>
-                        <TouchableOpacity
-                            activeOpacity={filteredHousings.length > 0 ? 0.8 : 1}
-                            disabled={filteredHousings.length === 0}
-                            style={[
-                                animalStyles.dropdownContainer,
-                                {
-                                    backgroundColor: colors.surface,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 12,
-                                    opacity: filteredHousings.length > 0 ? 1 : 0.6,
-                                },
-                            ]}
-                            onPress={() => setHousingModalVisible(true)}
-                        >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]}>
-                                {selectedHousingStr}
+                        <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            backgroundColor: (colors.prediction ?? '#8B5CF6') + '15',
+                            borderWidth: 1,
+                            borderColor: (colors.prediction ?? '#8B5CF6') + '30',
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: 20,
+                            flexShrink: 0,
+                        }}>
+                            <MaterialIcons name="psychology" size={16} color={colors.prediction ?? '#8B5CF6'} />
+                            <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 12, color: colors.prediction ?? '#8B5CF6' }}>
+                                {confidencePct}% {daysToHarvest !== null ? `· ${daysToHarvest === 0 ? 'Harvest Ready' : `${daysToHarvest}d to Harvest`}` : ''}
                             </Text>
-                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
-                        </TouchableOpacity>
+                        </View>
                     </View>
 
-                    <View style={{ flex: 1 }}>
-                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
-                            Select a Batch
-                        </Text>
-                        <TouchableOpacity
-                            activeOpacity={filteredBatches.length > 0 ? 0.8 : 1}
-                            disabled={filteredBatches.length === 0}
-                            style={[
-                                animalStyles.dropdownContainer,
-                                {
-                                    backgroundColor: colors.surface,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 12,
-                                    opacity: filteredBatches.length > 0 ? 1 : 0.6,
-                                },
-                            ]}
-                            onPress={() => setBatchModalVisible(true)}
-                        >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]}>
-                                {selectedBatchStr}
-                            </Text>
-                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                    {/* Sliding Animal Type Pill Switcher */}
+                    <AnimalTypePillSwitcher
+                        selected={animalType}
+                        onSelect={handleSwitchAnimalType}
+                        style={{ marginBottom: 16 }}
+                    />
 
-                {/* Loading State */}
-                {isLoading || isDataLoading ? (
-                    <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
-                        <ActivityIndicator size="large" color={colors.primary} />
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading predictions...</Text>
+                    {/* House & Batch Dropdowns */}
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
+                                Select a House
+                            </Text>
+                            <TouchableOpacity
+                                activeOpacity={filteredHousings.length > 0 ? 0.8 : 1}
+                                disabled={filteredHousings.length === 0}
+                                style={[
+                                    animalStyles.dropdownContainer,
+                                    {
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        paddingVertical: 12,
+                                        paddingHorizontal: 12,
+                                        opacity: filteredHousings.length > 0 ? 1 : 0.6,
+                                    },
+                                ]}
+                                onPress={() => setHousingModalVisible(true)}
+                            >
+                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                                    {selectedHousingStr}
+                                </Text>
+                                <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={{ flex: 1 }}>
+                            <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
+                                Select a Batch
+                            </Text>
+                            <TouchableOpacity
+                                activeOpacity={filteredBatches.length > 0 ? 0.8 : 1}
+                                disabled={filteredBatches.length === 0}
+                                style={[
+                                    animalStyles.dropdownContainer,
+                                    {
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        paddingVertical: 12,
+                                        paddingHorizontal: 12,
+                                        opacity: filteredBatches.length > 0 ? 1 : 0.6,
+                                    },
+                                ]}
+                                onPress={() => setBatchModalVisible(true)}
+                            >
+                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                                    {selectedBatchStr}
+                                </Text>
+                                <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                ) : filteredHousings.length === 0 ? (
+
+                    {/* Loading State */}
+                    {isDataLoading ? (
+                        <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
+                            <ActivityIndicator size="large" color={colors.primary} />
+                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading predictions...</Text>
+                        </View>
+                    ) : filteredHousings.length === 0 ? (
                     /* No Houses */
                     <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
                         <MaterialIcons name="home" size={48} color={colors.textGrey} />
@@ -1818,6 +1851,7 @@ export default function PredictionReportScreen() {
                     </>
                 )}
             </ScrollView>
+            )}
 
             {/* Modals */}
             <SelectionModal

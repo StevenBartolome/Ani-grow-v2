@@ -19,6 +19,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
 import { useAnimalStyles } from '@/styles/animalStyles';
 import { useDevicesStyles } from '@/styles/devicesStyles';
@@ -184,6 +185,36 @@ export default function GrowthReportScreen() {
 
     const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId) ?? null;
 
+    // ─── Persistence Helper ──────────────────────────────────────────
+    const saveSelectionPreference = useCallback(async (type: 'pig' | 'chicken', housingId: string | null, batchId: string | null) => {
+        if (!farmId) return;
+        try {
+            let currentPref: any = { lastAnimalType: type };
+            const rawPref = await AsyncStorage.getItem(`analytics_active_selection_${farmId}`);
+            if (rawPref) {
+                try {
+                    currentPref = { ...JSON.parse(rawPref) };
+                } catch {}
+            }
+            currentPref.lastAnimalType = type;
+            currentPref[type] = {
+                housingId,
+                batchId,
+            };
+            // Top-level fallbacks
+            currentPref.animalType = type;
+            currentPref.housingId = housingId;
+            currentPref.batchId = batchId;
+
+            await AsyncStorage.setItem(
+                `analytics_active_selection_${farmId}`,
+                JSON.stringify(currentPref)
+            );
+        } catch (err) {
+            console.warn('[GrowthReportScreen] Failed to save selection preference:', err);
+        }
+    }, [farmId]);
+
     // ─── Parallel Metadata Fetching ─────────────────────────────────
     const fetchReportMetadata = useCallback(async () => {
         if (!farmId) {
@@ -192,7 +223,7 @@ export default function GrowthReportScreen() {
         }
         setIsLoading(true);
         try {
-            const [housingsRes, batchesRes, farmRes] = await Promise.all([
+            const [housingsRes, batchesRes, farmRes, rawPref] = await Promise.all([
                 supabase
                     .from('housings')
                     .select('id, name, animal_type, status, current_count, farm_id, farms(id, name)')
@@ -209,7 +240,8 @@ export default function GrowthReportScreen() {
                     .from('farms')
                     .select('name')
                     .eq('id', farmId)
-                    .maybeSingle()
+                    .maybeSingle(),
+                AsyncStorage.getItem(`analytics_active_selection_${farmId}`).catch(() => null),
             ]);
 
             if (housingsRes.error) throw housingsRes.error;
@@ -222,23 +254,29 @@ export default function GrowthReportScreen() {
             const housingsData = (housingsRes.data || []) as HousingInfo[];
             const batchesData = (batchesRes.data || []) as BatchInfo[];
 
-            setAllHousings(housingsData);
-            setAllBatches(batchesData);
+            let savedPref: any = null;
+            if (rawPref) {
+                try {
+                    savedPref = JSON.parse(rawPref);
+                } catch {}
+            }
 
             // An explicitly-requested batch wins outright — resolve its own
-            // housing/animal type rather than falling through to the
-            // "first housing, most recent batch" default below.
+            // housing/animal type rather than falling through to the default logic.
             const requestedBatch = typeof requestedBatchId === 'string'
                 ? batchesData.find(b => b.id === requestedBatchId)
                 : undefined;
             if (requestedBatch) {
                 const requestedHousing = housingsData.find(h => h.id === requestedBatch.housing_id);
-                if (requestedHousing) {
-                    setAnimalType(requestedHousing.animal_type === 'chicken' ? 'chicken' : 'pig');
-                    animalTypeRef.current = requestedHousing.animal_type === 'chicken' ? 'chicken' : 'pig';
-                }
+                const reqAnimalType: 'pig' | 'chicken' = requestedHousing?.animal_type === 'chicken' ? 'chicken' : 'pig';
+                
+                setAllHousings(housingsData);
+                setAllBatches(batchesData);
+                setAnimalType(reqAnimalType);
+                animalTypeRef.current = reqAnimalType;
                 setSelectedHousingId(requestedBatch.housing_id);
                 setSelectedBatchId(requestedBatch.id);
+                saveSelectionPreference(reqAnimalType, requestedBatch.housing_id, requestedBatch.id);
 
                 const [weighRes, sessionRes] = await Promise.all([
                     supabase
@@ -264,60 +302,80 @@ export default function GrowthReportScreen() {
                 return;
             }
 
-            const filteredH = housingsData.filter(h => h.animal_type === animalTypeRef.current);
+            // Determine animal type: route param 'type' has top priority, then saved lastAnimalType, then default 'pig'
+            const savedLastAnimalType = savedPref?.lastAnimalType || savedPref?.animalType;
+            let effectiveAnimalType: 'pig' | 'chicken' = animalTypeRef.current;
+            if (type) {
+                effectiveAnimalType = type.toLowerCase().includes('chicken') ? 'chicken' : 'pig';
+            } else if (savedLastAnimalType === 'pig' || savedLastAnimalType === 'chicken') {
+                effectiveAnimalType = savedLastAnimalType;
+            }
+
+            // Get saved housing & batch preference for this animal type
+            const typePref = savedPref?.[effectiveAnimalType] || (savedPref?.animalType === effectiveAnimalType ? savedPref : undefined);
+            const savedHousingId = typePref?.housingId;
+            const savedBatchId = typePref?.batchId;
+
+            const filteredH = housingsData.filter(h => h.animal_type === effectiveAnimalType);
+            let targetHousingId: string | null = null;
+            let targetBatchId: string | null = null;
+
             if (filteredH.length > 0) {
-                const targetHousingId = filteredH[0].id;
-                setSelectedHousingId(targetHousingId);
+                const targetHousing = (savedHousingId && filteredH.find(h => h.id === savedHousingId)) || filteredH[0];
+                targetHousingId = targetHousing.id;
 
                 const filteredB = batchesData.filter(b => b.housing_id === targetHousingId);
                 if (filteredB.length > 0) {
-                    const targetBatchId = filteredB[0].id;
-                    setSelectedBatchId(targetBatchId);
-                    
-                    // Fetch initial weigh sessions inside loading state
-                    const [weighRes, sessionRes] = await Promise.all([
-                        supabase
-                            .from('weigh_sessions')
-                            .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id, weighing_session_id')
-                            .eq('batch_id', targetBatchId)
-                            .neq('status', 'invalid')
-                            .order('recorded_at', { ascending: true }),
-                        supabase
-                            .from('weighing_sessions')
-                            .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
-                            .eq('batch_id', targetBatchId)
-                            .eq('status', 'completed')
-                            .gt('completed_quantity', 0)
-                            .order('created_at', { ascending: true }),
-                    ]);
-
-                    if (weighRes.error) throw weighRes.error;
-                    
-                    setWeighSessions((weighRes.data || []) as WeighSession[]);
-                    setWeighingSessionEnvelopes((sessionRes.data || []) as WeighingSessionEnvelope[]);
-                    setSelectedSessionOption(null);
-                    lastLoadedBatchIdRef.current = targetBatchId;
-                } else {
-                    setSelectedBatchId(null);
-                    setWeighSessions([]);
-                    setWeighingSessionEnvelopes([]);
-                    setSelectedSessionOption(null);
-                    lastLoadedBatchIdRef.current = null;
+                    const targetBatch = (savedBatchId && filteredB.find(b => b.id === savedBatchId)) || filteredB[0];
+                    targetBatchId = targetBatch.id;
                 }
+            }
+
+            // Set all data and selections together
+            setAllHousings(housingsData);
+            setAllBatches(batchesData);
+            setAnimalType(effectiveAnimalType);
+            animalTypeRef.current = effectiveAnimalType;
+            setSelectedHousingId(targetHousingId);
+            setSelectedBatchId(targetBatchId);
+
+            if (targetHousingId && targetBatchId) {
+                saveSelectionPreference(effectiveAnimalType, targetHousingId, targetBatchId);
+
+                const [weighRes, sessionRes] = await Promise.all([
+                    supabase
+                        .from('weigh_sessions')
+                        .select('id, net_weight_grams, status, animal_type, recorded_at, batch_id, weighing_session_id')
+                        .eq('batch_id', targetBatchId)
+                        .neq('status', 'invalid')
+                        .order('recorded_at', { ascending: true }),
+                    supabase
+                        .from('weighing_sessions')
+                        .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
+                        .eq('batch_id', targetBatchId)
+                        .eq('status', 'completed')
+                        .gt('completed_quantity', 0)
+                        .order('created_at', { ascending: true }),
+                ]);
+
+                if (weighRes.error) throw weighRes.error;
+                setWeighSessions((weighRes.data || []) as WeighSession[]);
+                setWeighingSessionEnvelopes((sessionRes.data || []) as WeighingSessionEnvelope[]);
+                setSelectedSessionOption(null);
+                lastLoadedBatchIdRef.current = targetBatchId;
             } else {
-                setSelectedHousingId(null);
-                setSelectedBatchId(null);
                 setWeighSessions([]);
                 setWeighingSessionEnvelopes([]);
                 setSelectedSessionOption(null);
                 lastLoadedBatchIdRef.current = null;
+                saveSelectionPreference(effectiveAnimalType, targetHousingId, null);
             }
         } catch (err) {
             console.error('[GrowthReportScreen] error loading metadata:', err);
         } finally {
             setIsLoading(false);
         }
-    }, [farmId]);
+    }, [farmId, requestedBatchId, type, saveSelectionPreference]);
 
     // ─── Fetch Weigh Sessions ──────────────────────────────────────
     const fetchWeighSessions = useCallback(async (batchId: string) => {
@@ -356,27 +414,50 @@ export default function GrowthReportScreen() {
     }, [fetchReportMetadata]);
 
     // ─── Smooth & Atomic Filter Switching Handlers ─────────────────
-    const handleSwitchAnimalType = useCallback((type: 'pig' | 'chicken') => {
+    const handleSwitchAnimalType = useCallback(async (type: 'pig' | 'chicken') => {
         if (type === animalType) return;
         setAnimalType(type);
+        animalTypeRef.current = type;
         setGrowthTooltip(null);
         setCompTooltip(null);
         setSelectedSessionOption(null);
 
+        // Check if there is a saved housing & batch preference for this animal type
+        let savedHousingId: string | null = null;
+        let savedBatchId: string | null = null;
+        if (farmId) {
+            try {
+                const rawPref = await AsyncStorage.getItem(`analytics_active_selection_${farmId}`);
+                if (rawPref) {
+                    const parsed = JSON.parse(rawPref);
+                    const typePref = parsed[type] || (parsed.animalType === type ? parsed : undefined);
+                    if (typePref) {
+                        savedHousingId = typePref.housingId || null;
+                        savedBatchId = typePref.batchId || null;
+                    }
+                }
+            } catch {}
+        }
+
         const targetHousings = allHousings.filter(h => h.animal_type === type);
         if (targetHousings.length > 0) {
-            const nextHousingId = targetHousings[0].id;
+            const nextHousing = (savedHousingId && targetHousings.find(h => h.id === savedHousingId)) || targetHousings[0];
+            const nextHousingId = nextHousing.id;
             setSelectedHousingId(nextHousingId);
+
             const targetBatches = allBatches.filter(b => b.housing_id === nextHousingId);
             if (targetBatches.length > 0) {
-                const nextBatchId = targetBatches[0].id;
+                const nextBatch = (savedBatchId && targetBatches.find(b => b.id === savedBatchId)) || targetBatches[0];
+                const nextBatchId = nextBatch.id;
                 setSelectedBatchId(nextBatchId);
+                saveSelectionPreference(type, nextHousingId, nextBatchId);
                 fetchWeighSessions(nextBatchId);
             } else {
                 setSelectedBatchId(null);
                 setWeighSessions([]);
                 setWeighingSessionEnvelopes([]);
                 lastLoadedBatchIdRef.current = null;
+                saveSelectionPreference(type, nextHousingId, null);
             }
         } else {
             setSelectedHousingId(null);
@@ -384,8 +465,9 @@ export default function GrowthReportScreen() {
             setWeighSessions([]);
             setWeighingSessionEnvelopes([]);
             lastLoadedBatchIdRef.current = null;
+            saveSelectionPreference(type, null, null);
         }
-    }, [animalType, allHousings, allBatches, fetchWeighSessions]);
+    }, [animalType, farmId, allHousings, allBatches, fetchWeighSessions, saveSelectionPreference]);
 
     const handleSelectHousing = useCallback((housingId: string) => {
         if (housingId === selectedHousingId) return;
@@ -397,14 +479,16 @@ export default function GrowthReportScreen() {
         if (targetBatches.length > 0) {
             const nextBatchId = targetBatches[0].id;
             setSelectedBatchId(nextBatchId);
+            saveSelectionPreference(animalType, housingId, nextBatchId);
             fetchWeighSessions(nextBatchId);
         } else {
             setSelectedBatchId(null);
             setWeighSessions([]);
             setWeighingSessionEnvelopes([]);
             lastLoadedBatchIdRef.current = null;
+            saveSelectionPreference(animalType, housingId, null);
         }
-    }, [selectedHousingId, allBatches, fetchWeighSessions]);
+    }, [selectedHousingId, animalType, allBatches, fetchWeighSessions, saveSelectionPreference]);
 
     const handleSelectBatch = useCallback((batchId: string) => {
         if (batchId === selectedBatchId) return;
@@ -412,34 +496,9 @@ export default function GrowthReportScreen() {
         setGrowthTooltip(null);
         setCompTooltip(null);
         setSelectedSessionOption(null);
+        saveSelectionPreference(animalType, selectedHousingId, batchId);
         fetchWeighSessions(batchId);
-    }, [selectedBatchId, fetchWeighSessions]);
-
-    // Auto-resolve housing selection when animal type or housings load initially
-    useEffect(() => {
-        if (filteredHousings.length > 0) {
-            const exists = filteredHousings.some(h => h.id === selectedHousingId);
-            if (!exists) {
-                setSelectedHousingId(filteredHousings[0].id);
-            }
-        } else if (allHousings.length > 0 && selectedHousingId) {
-            const stillValid = allHousings.some(h => h.id === selectedHousingId && h.animal_type === animalType);
-            if (!stillValid) setSelectedHousingId(null);
-        }
-    }, [animalType, allHousings, selectedHousingId, filteredHousings]);
-
-    // Auto-resolve batch selection when housing selection or batches change
-    useEffect(() => {
-        if (filteredBatches.length > 0) {
-            const exists = filteredBatches.some(b => b.id === selectedBatchId);
-            if (!exists) {
-                setSelectedBatchId(filteredBatches[0].id);
-            }
-        } else if (allBatches.length > 0 && selectedBatchId) {
-            const stillValid = allBatches.some(b => b.id === selectedBatchId && b.housing_id === selectedHousingId);
-            if (!stillValid) setSelectedBatchId(null);
-        }
-    }, [filteredBatches, selectedBatchId, allBatches, selectedHousingId]);
+    }, [selectedBatchId, animalType, selectedHousingId, fetchWeighSessions, saveSelectionPreference]);
 
     // Load weigh sessions when selected batch changes
     useEffect(() => {
@@ -755,13 +814,6 @@ export default function GrowthReportScreen() {
 
     const tabs = ['All', 'Underweight', 'Normal', 'Overweight'] as const;
 
-    const getCategoryCount = (category: typeof tabs[number]) => {
-        if (category === 'Underweight') return underweightCount;
-        if (category === 'Normal') return normalCount;
-        if (category === 'Overweight') return overweightCount;
-        return totalWeighs;
-    };
-
     // Red for overweight everywhere
     const OVERWEIGHT_COLOR = '#EF4444';
 
@@ -878,6 +930,58 @@ export default function GrowthReportScreen() {
         return latestSession ? latestSession.label : 'All Sessions';
     }, [selectedSessionOption, sessionOptions, latestSession]);
 
+    // Filter sessions up to the selected session in the dropdown (or all if All Sessions)
+    const filteredSessionItems = useMemo(() => {
+        if (sessionItems.length === 0) return [];
+        if (activeSessionOption === 'All Sessions') {
+            return sessionItems;
+        }
+        const matchedIdx = sessionItems.findIndex(s => s.label === activeSessionOption);
+        if (matchedIdx === -1) return sessionItems;
+        return sessionItems.slice(0, matchedIdx + 1);
+    }, [sessionItems, activeSessionOption]);
+
+    const effectiveWeighSessions = useMemo(() => {
+        if (weighSessions.length === 0) return [];
+        if (activeSessionOption === 'All Sessions') {
+            return weighSessions;
+        }
+        const matchedIdx = sessionItems.findIndex(s => s.label === activeSessionOption);
+        if (matchedIdx === -1) return weighSessions;
+
+        const allowedItems = sessionItems.slice(0, matchedIdx + 1);
+        const allowedSessionIds = new Set<string>();
+        const allowedDateKeys = new Set<string>();
+        allowedItems.forEach(item => {
+            item.sessionIds?.forEach(id => {
+                if (id) allowedSessionIds.add(id);
+            });
+            item.dateKeys?.forEach(dk => {
+                if (dk) allowedDateKeys.add(dk);
+            });
+        });
+
+        return weighSessions.filter(s => {
+            if (s.weighing_session_id && allowedSessionIds.has(s.weighing_session_id)) {
+                return true;
+            }
+            const dk = s.recorded_at ? s.recorded_at.slice(0, 10) : '';
+            return allowedDateKeys.has(dk);
+        });
+    }, [weighSessions, activeSessionOption, sessionItems]);
+
+    const effectiveUnderweightCount = useMemo(() => effectiveWeighSessions.filter(s => s.status === 'underweight').length, [effectiveWeighSessions]);
+    const effectiveNormalCount = useMemo(() => effectiveWeighSessions.filter(s => s.status === 'normal').length, [effectiveWeighSessions]);
+    const effectiveOverweightCount = useMemo(() => effectiveWeighSessions.filter(s => s.status === 'overweight').length, [effectiveWeighSessions]);
+    const effectiveTotalWeighs = effectiveWeighSessions.length;
+
+    const getCategoryCount = (category: typeof tabs[number]) => {
+        if (category === 'Underweight') return effectiveUnderweightCount;
+        if (category === 'Normal') return effectiveNormalCount;
+        if (category === 'Overweight') return effectiveOverweightCount;
+        return effectiveTotalWeighs;
+    };
+
     const summaryInfo = useMemo(() => {
         if (weighSessions.length === 0) return null;
 
@@ -919,10 +1023,10 @@ export default function GrowthReportScreen() {
 
     // ─── Detailed Stats Per Session ──────────────────────────────────
     const sessionStatsList = useMemo(() => {
-        if (sessionItems.length === 0 || weighSessions.length === 0) return [];
+        if (filteredSessionItems.length === 0 || effectiveWeighSessions.length === 0) return [];
 
-        return sessionItems.map(item => {
-            const matchingSessions = weighSessions.filter(s => {
+        return filteredSessionItems.map(item => {
+            const matchingSessions = effectiveWeighSessions.filter(s => {
                 if (s.weighing_session_id && item.sessionIds?.includes(s.weighing_session_id)) {
                     return true;
                 }
@@ -952,11 +1056,11 @@ export default function GrowthReportScreen() {
                 overweightPct,
             };
         });
-    }, [sessionItems, weighSessions]);
+    }, [filteredSessionItems, effectiveWeighSessions]);
 
     // ─── Current Growth Descriptive Explanation ──────────────────────
     const growthExplanation = useMemo(() => {
-        if (weighSessions.length === 0 || sessionStatsList.length === 0) {
+        if (effectiveWeighSessions.length === 0 || sessionStatsList.length === 0) {
             return null;
         }
 
@@ -1064,7 +1168,7 @@ export default function GrowthReportScreen() {
             narrative,
             tabContextText,
         };
-    }, [weighSessions, sessionStatsList, selectedTab, colors]);
+    }, [effectiveWeighSessions, sessionStatsList, selectedTab, colors]);
 
     // ─── Status Comparison Descriptive & Delta Analysis ──────────────
     const statusExplanation = useMemo(() => {
@@ -1174,13 +1278,13 @@ export default function GrowthReportScreen() {
     // ─── Line Chart Data Processing ─────────────────────────────────
     const lineChartData = useMemo(() => {
         // No sessions → blank state
-        if (weighSessions.length === 0) {
+        if (effectiveWeighSessions.length === 0) {
             return { labels: [] as string[], datasets: [{ data: [0] }], hasRealData: false, noData: true, details: [] as PointDetail[] };
         }
 
         if (timeframe === 'Days') {
             const dateMap = new Map<string, { underweight: number; normal: number; overweight: number; total: number }>();
-            weighSessions.forEach(s => {
+            effectiveWeighSessions.forEach(s => {
                 const dateKey = s.recorded_at.slice(0, 10);
                 if (!dateMap.has(dateKey)) {
                     dateMap.set(dateKey, { underweight: 0, normal: 0, overweight: 0, total: 0 });
@@ -1313,14 +1417,14 @@ export default function GrowthReportScreen() {
             const arrival = selectedBatch?.arrival_date ? new Date(selectedBatch.arrival_date) : null;
             const weekMap = new Map<number, { underweight: number; normal: number; overweight: number; total: number }>();
 
-            weighSessions.forEach(s => {
+            effectiveWeighSessions.forEach(s => {
                 const recorded = new Date(s.recorded_at);
                 let weekIdx = 0;
                 if (arrival) {
                     const diffDays = Math.floor((recorded.getTime() - arrival.getTime()) / (1000 * 60 * 60 * 24));
                     weekIdx = Math.max(0, Math.floor(diffDays / 7)) + 1;
                 } else {
-                    const startYear = new Date(weighSessions[0].recorded_at).getFullYear();
+                    const startYear = new Date(effectiveWeighSessions[0].recorded_at).getFullYear();
                     weekIdx = Math.floor((recorded.getTime() - new Date(startYear, 0, 1).getTime()) / (1000 * 60 * 60 * 24 * 7));
                 }
                 if (!weekMap.has(weekIdx)) {
@@ -1436,17 +1540,17 @@ export default function GrowthReportScreen() {
                 hasRealData: true, noData: false, details
             };
         }
-    }, [weighSessions, selectedTab, timeframe, colors, activeColor, OVERWEIGHT_COLOR, selectedBatch]);
+    }, [effectiveWeighSessions, selectedTab, timeframe, colors, activeColor, OVERWEIGHT_COLOR, selectedBatch]);
 
     // ─── Comparison Chart: Counts Comparison ─────────────────────────
     const comparisonChartData = useMemo(() => {
-        if (weighSessions.length === 0) {
+        if (effectiveWeighSessions.length === 0) {
             return { noData: true, labels: [] as string[], datasets: [{ data: [0] }], details: [] as PointDetail[] };
         }
 
         if (timeframe === 'Days') {
             const dateMap = new Map<string, { underweight: number; normal: number; overweight: number; total: number }>();
-            weighSessions.forEach(s => {
+            effectiveWeighSessions.forEach(s => {
                 const key = s.recorded_at.slice(0, 10);
                 if (!dateMap.has(key)) {
                     dateMap.set(key, { underweight: 0, normal: 0, overweight: 0, total: 0 });
@@ -1492,14 +1596,14 @@ export default function GrowthReportScreen() {
         } else {
             const arrival = selectedBatch?.arrival_date ? new Date(selectedBatch.arrival_date) : null;
             const weekMap = new Map<number, { underweight: number; normal: number; overweight: number; total: number }>();
-            weighSessions.forEach(s => {
+            effectiveWeighSessions.forEach(s => {
                 const recorded = new Date(s.recorded_at);
                 let weekIdx = 0;
                 if (arrival) {
                     const diffDays = Math.floor((recorded.getTime() - arrival.getTime()) / (1000 * 60 * 60 * 24));
                     weekIdx = Math.max(0, Math.floor(diffDays / 7)) + 1;
                 } else {
-                    const startYear = new Date(weighSessions[0].recorded_at).getFullYear();
+                    const startYear = new Date(effectiveWeighSessions[0].recorded_at).getFullYear();
                     weekIdx = Math.floor((recorded.getTime() - new Date(startYear, 0, 1).getTime()) / (1000 * 60 * 60 * 24 * 7));
                 }
                 if (!weekMap.has(weekIdx)) {
@@ -1539,18 +1643,18 @@ export default function GrowthReportScreen() {
                 details,
             };
         }
-    }, [weighSessions, timeframe, colors, selectedBatch, OVERWEIGHT_COLOR]);
+    }, [effectiveWeighSessions, timeframe, colors, selectedBatch, OVERWEIGHT_COLOR]);
 
     // ─── Fast Local AI Recommendations ──────────────────────────────
     const getGrowthAnalysis = () => {
-        if (weighSessions.length === 0) {
+        if (effectiveWeighSessions.length === 0) {
             return `No weighing sessions recorded for ${selectedBatch ? selectedBatch.name : 'this batch'} yet. Please ensure the scale device is online and recording.`;
         }
         
-        const total = underweightCount + normalCount + overweightCount;
-        const underPct = total > 0 ? Math.round((underweightCount / total) * 100) : 0;
-        const overPct = total > 0 ? Math.round((overweightCount / total) * 100) : 0;
-        const normalPct = total > 0 ? Math.round((normalCount / total) * 100) : 0;
+        const total = effectiveUnderweightCount + effectiveNormalCount + effectiveOverweightCount;
+        const underPct = total > 0 ? Math.round((effectiveUnderweightCount / total) * 100) : 0;
+        const overPct = total > 0 ? Math.round((effectiveOverweightCount / total) * 100) : 0;
+        const normalPct = total > 0 ? Math.round((effectiveNormalCount / total) * 100) : 0;
         
         let insight = `Batch "${selectedBatch?.name}" cohort has ${total} recorded weights. The distribution shows ${normalPct}% normal weight, ${underPct}% underweight, and ${overPct}% overweight. `;
         
@@ -1674,118 +1778,124 @@ export default function GrowthReportScreen() {
                 </View>
             </View>
 
-            <ScrollView 
-                showsVerticalScrollIndicator={false} 
-                contentContainerStyle={[animalStyles.scrollContent, { paddingTop: 8, paddingBottom: 60 }]}
-                refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
-                }
-            >
-                {/* Intro Text & Day Badge */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, marginTop: 4, gap: 12 }}>
-                    <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginTop: 0, marginBottom: 0 }]}>
-                        Here are the growth statistics and analytics for your {animalType === 'pig' ? 'pigs' : 'chickens'}.
-                    </Text>
-                    {currentDay !== null && (
-                        <View style={[styles.dayBadge, { marginBottom: 0, backgroundColor: colors.surface, paddingHorizontal: 12, flexShrink: 0 }]}>
-                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, letterSpacing: 1.2, opacity: 0.8 }]}>
-                                DAY
+            {isLoading ? (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 60 }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading growth analytics...</Text>
+                </View>
+            ) : (
+                <ScrollView 
+                    showsVerticalScrollIndicator={false} 
+                    contentContainerStyle={[animalStyles.scrollContent, { paddingTop: 8, paddingBottom: 60 }]}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+                    }
+                >
+                    {/* Intro Text & Day Badge */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, marginTop: 4, gap: 12 }}>
+                        <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginTop: 0, marginBottom: 0 }]}>
+                            Here are the growth statistics and analytics for your {animalType === 'pig' ? 'pigs' : 'chickens'}.
+                        </Text>
+                        {currentDay !== null && (
+                            <View style={[styles.dayBadge, { marginBottom: 0, backgroundColor: colors.surface, paddingHorizontal: 12, flexShrink: 0 }]}>
+                                <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, letterSpacing: 1.2, opacity: 0.8 }]}>
+                                    DAY
+                                </Text>
+                                <Text style={[textStyles.h1, { color: colors.primary, fontSize: 24, lineHeight: 28 }]}>
+                                    {currentDay}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+
+                    {/* Sliding Animal Type Pill Switcher */}
+                    <AnimalTypePillSwitcher
+                        selected={animalType}
+                        onSelect={handleSwitchAnimalType}
+                        style={{ marginBottom: 16 }}
+                    />
+
+                    {/* Filters Dropdown (House & Batch beside each other) */}
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
+                        {/* House Filter Dropdown */}
+                        <View style={{ flex: 1 }}>
+                            <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
+                                Select a House
                             </Text>
-                            <Text style={[textStyles.h1, { color: colors.primary, fontSize: 24, lineHeight: 28 }]}>
-                                {currentDay}
+                            <TouchableOpacity
+                                activeOpacity={filteredHousings.length > 0 ? 0.8 : 1}
+                                disabled={filteredHousings.length === 0}
+                                style={[
+                                    animalStyles.dropdownContainer,
+                                    {
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        paddingVertical: 12,
+                                        paddingHorizontal: 12,
+                                        opacity: filteredHousings.length > 0 ? 1 : 0.6,
+                                    }
+                                ]}
+                                onPress={() => setHousingModalVisible(true)}
+                            >
+                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                                    {selectedHousingOptionStr}
+                                </Text>
+                                <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Batch Filter Dropdown */}
+                        <View style={{ flex: 1 }}>
+                            <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
+                                Select a Batch
+                            </Text>
+                            <TouchableOpacity
+                                activeOpacity={filteredBatches.length > 0 ? 0.8 : 1}
+                                disabled={filteredBatches.length === 0}
+                                style={[
+                                    animalStyles.dropdownContainer,
+                                    {
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        paddingVertical: 12,
+                                        paddingHorizontal: 12,
+                                        opacity: filteredBatches.length > 0 ? 1 : 0.6,
+                                    }
+                                ]}
+                                onPress={() => setBatchModalVisible(true)}
+                            >
+                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                                    {selectedBatchOptionStr}
+                                </Text>
+                                <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {isWeighLoading ? (
+                        <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
+                            <ActivityIndicator size="large" color={colors.primary} />
+                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading batch data...</Text>
+                        </View>
+                    ) : filteredHousings.length === 0 ? (
+                        <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
+                            <MaterialIcons name="home" size={48} color={colors.textGrey} />
+                            <Text style={[textStyles.h3, { color: colors.text, marginTop: 16, textAlign: 'center' }]}>No Houses Found</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
+                                There are no active houses registered for {animalType === 'pig' ? 'pigs' : 'chickens'} on this farm yet.
                             </Text>
                         </View>
-                    )}
-                </View>
-
-                {/* Sliding Animal Type Pill Switcher */}
-                <AnimalTypePillSwitcher
-                    selected={animalType}
-                    onSelect={handleSwitchAnimalType}
-                    style={{ marginBottom: 16 }}
-                />
-
-                {/* Filters Dropdown (House & Batch beside each other) */}
-                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
-                    {/* House Filter Dropdown */}
-                    <View style={{ flex: 1 }}>
-                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
-                            Select a House
-                        </Text>
-                        <TouchableOpacity
-                            activeOpacity={filteredHousings.length > 0 ? 0.8 : 1}
-                            disabled={filteredHousings.length === 0}
-                            style={[
-                                animalStyles.dropdownContainer,
-                                {
-                                    backgroundColor: colors.surface,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 12,
-                                    opacity: filteredHousings.length > 0 ? 1 : 0.6,
-                                }
-                            ]}
-                            onPress={() => setHousingModalVisible(true)}
-                        >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]}>
-                                {selectedHousingOptionStr}
+                    ) : filteredBatches.length === 0 ? (
+                        <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
+                            <MaterialIcons name="layers" size={48} color={colors.textGrey} />
+                            <Text style={[textStyles.h3, { color: colors.text, marginTop: 16, textAlign: 'center' }]}>No Active Batches</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
+                                There are no batches currently registered in {selectedHousing?.name ?? 'this housing'}.
                             </Text>
-                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
-                        </TouchableOpacity>
-                    </View>
-
-                    {/* Batch Filter Dropdown */}
-                    <View style={{ flex: 1 }}>
-                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
-                            Select a Batch
-                        </Text>
-                        <TouchableOpacity
-                            activeOpacity={filteredBatches.length > 0 ? 0.8 : 1}
-                            disabled={filteredBatches.length === 0}
-                            style={[
-                                animalStyles.dropdownContainer,
-                                {
-                                    backgroundColor: colors.surface,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 12,
-                                    opacity: filteredBatches.length > 0 ? 1 : 0.6,
-                                }
-                            ]}
-                            onPress={() => setBatchModalVisible(true)}
-                        >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]}>
-                                {selectedBatchOptionStr}
-                            </Text>
-                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-
-                {isLoading || isWeighLoading ? (
-                    <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
-                        <ActivityIndicator size="large" color={colors.primary} />
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading growth analytics...</Text>
-                    </View>
-                ) : filteredHousings.length === 0 ? (
-                    <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
-                        <MaterialIcons name="home" size={48} color={colors.textGrey} />
-                        <Text style={[textStyles.h3, { color: colors.text, marginTop: 16, textAlign: 'center' }]}>No Houses Found</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
-                            There are no active houses registered for {animalType === 'pig' ? 'pigs' : 'chickens'} on this farm yet.
-                        </Text>
-                    </View>
-                ) : filteredBatches.length === 0 ? (
-                    <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
-                        <MaterialIcons name="layers" size={48} color={colors.textGrey} />
-                        <Text style={[textStyles.h3, { color: colors.text, marginTop: 16, textAlign: 'center' }]}>No Active Batches</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
-                            There are no batches currently registered in {selectedHousing?.name ?? 'this housing'}.
-                        </Text>
-                    </View>
-                ) : (
+                        </View>
+                    ) : (
                     <>
                         {/* Filter Chips */}
                         <View style={[deviceStyles.filterContainer, { marginBottom: 24, paddingHorizontal: 0 }]}>
@@ -2776,6 +2886,7 @@ export default function GrowthReportScreen() {
                     </>
                 )}
             </ScrollView>
+            )}
 
             {/* House Selection Modal */}
             <SelectionModal

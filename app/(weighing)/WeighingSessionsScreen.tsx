@@ -21,6 +21,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
 import { useAnimalStyles } from '@/styles/animalStyles';
 
@@ -93,7 +94,7 @@ type RangeMode = 'week1' | 'week2' | 'week3' | 'week4' | 'full' | 'custom';
 // different calendar day than the one actually being reported on.
 function formatDate(dateStr: string): string {
     const d = new Date(dateStr);
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
@@ -194,28 +195,32 @@ export default function WeighingSessionsScreen() {
     const filteredBatches = useMemo(() => allBatches.filter(b => b.housing_id === selectedHousingId), [allBatches, selectedHousingId]);
     const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId) ?? null;
 
-    const fetchMetadata = useCallback(async () => {
-        if (!farmId) { setIsLoading(false); return; }
-        setIsLoading(true);
+    // ─── Shared Persistence Helper ───────────────────────────────────
+    const saveSelectionPreference = useCallback(async (type: 'pig' | 'chicken', housingId: string | null, batchId: string | null) => {
+        if (!farmId) return;
         try {
-            const [housingsRes, batchesRes, farmRes] = await Promise.all([
-                supabase.from('housings').select('id, name, animal_type, status, current_count')
-                    .eq('farm_id', farmId).eq('status', 'Active').order('name', { ascending: true }),
-                supabase.from('batches').select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id)')
-                    .eq('housings.farm_id', farmId).eq('status', 'active').order('arrival_date', { ascending: false }),
-                supabase.from('farms').select('name').eq('id', farmId).maybeSingle(),
-            ]);
-            if (housingsRes.error) throw housingsRes.error;
-            if (batchesRes.error) throw batchesRes.error;
-            if (farmRes.data?.name) {
-                setFarmName(farmRes.data.name);
+            let currentPref: any = { lastAnimalType: type };
+            const rawPref = await AsyncStorage.getItem(`analytics_active_selection_${farmId}`);
+            if (rawPref) {
+                try {
+                    currentPref = { ...JSON.parse(rawPref) };
+                } catch {}
             }
-            setAllHousings((housingsRes.data || []) as HousingInfo[]);
-            setAllBatches((batchesRes.data || []) as BatchInfo[]);
+            currentPref.lastAnimalType = type;
+            currentPref[type] = {
+                housingId,
+                batchId,
+            };
+            currentPref.animalType = type;
+            currentPref.housingId = housingId;
+            currentPref.batchId = batchId;
+
+            await AsyncStorage.setItem(
+                `analytics_active_selection_${farmId}`,
+                JSON.stringify(currentPref)
+            );
         } catch (err) {
-            console.error('[WeighingSessionsScreen] metadata error:', err);
-        } finally {
-            setIsLoading(false);
+            console.warn('[WeighingSessionsScreen] Failed to save selection preference:', err);
         }
     }, [farmId]);
 
@@ -245,30 +250,126 @@ export default function WeighingSessionsScreen() {
         }
     }, []);
 
-    const handleSwitchAnimalType = useCallback((type: 'pig' | 'chicken') => {
+    const fetchMetadata = useCallback(async () => {
+        if (!farmId) { setIsLoading(false); return; }
+        setIsLoading(true);
+        try {
+            const [housingsRes, batchesRes, farmRes, rawPref] = await Promise.all([
+                supabase.from('housings').select('id, name, animal_type, status, current_count')
+                    .eq('farm_id', farmId).eq('status', 'Active').order('name', { ascending: true }),
+                supabase.from('batches').select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id)')
+                    .eq('housings.farm_id', farmId).eq('status', 'active').order('arrival_date', { ascending: false }),
+                supabase.from('farms').select('name').eq('id', farmId).maybeSingle(),
+                AsyncStorage.getItem(`analytics_active_selection_${farmId}`).catch(() => null),
+            ]);
+            if (housingsRes.error) throw housingsRes.error;
+            if (batchesRes.error) throw batchesRes.error;
+            if (farmRes.data?.name) {
+                setFarmName(farmRes.data.name);
+            }
+            const housingsData = (housingsRes.data || []) as HousingInfo[];
+            const batchesData = (batchesRes.data || []) as BatchInfo[];
+
+            let savedPref: any = null;
+            if (rawPref) {
+                try {
+                    savedPref = JSON.parse(rawPref);
+                } catch {}
+            }
+
+            const savedLastAnimalType = savedPref?.lastAnimalType || savedPref?.animalType;
+            let effectiveAnimalType: 'pig' | 'chicken' = 'pig';
+            if (savedLastAnimalType === 'pig' || savedLastAnimalType === 'chicken') {
+                effectiveAnimalType = savedLastAnimalType;
+            }
+
+            const typePref = savedPref?.[effectiveAnimalType] || (savedPref?.animalType === effectiveAnimalType ? savedPref : undefined);
+            const savedHousingId = typePref?.housingId;
+            const savedBatchId = typePref?.batchId;
+
+            const filteredH = housingsData.filter(h => h.animal_type === effectiveAnimalType);
+            let targetHousingId: string | null = null;
+            let targetBatchId: string | null = null;
+
+            if (filteredH.length > 0) {
+                const targetHousing = (savedHousingId && filteredH.find(h => h.id === savedHousingId)) || filteredH[0];
+                targetHousingId = targetHousing.id;
+
+                const filteredB = batchesData.filter(b => b.housing_id === targetHousingId);
+                if (filteredB.length > 0) {
+                    const targetBatch = (savedBatchId && filteredB.find(b => b.id === savedBatchId)) || filteredB[0];
+                    targetBatchId = targetBatch.id;
+                }
+            }
+
+            setAllHousings(housingsData);
+            setAllBatches(batchesData);
+            setAnimalType(effectiveAnimalType);
+            setSelectedHousingId(targetHousingId);
+            setSelectedBatchId(targetBatchId);
+
+            if (targetHousingId && targetBatchId) {
+                saveSelectionPreference(effectiveAnimalType, targetHousingId, targetBatchId);
+                await fetchSessions(targetBatchId);
+            } else {
+                setSessions([]);
+                setChildRows([]);
+                saveSelectionPreference(effectiveAnimalType, targetHousingId, null);
+            }
+        } catch (err) {
+            console.error('[WeighingSessionsScreen] metadata error:', err);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [farmId, saveSelectionPreference, fetchSessions]);
+
+    const handleSwitchAnimalType = useCallback(async (type: 'pig' | 'chicken') => {
         if (type === animalType) return;
         setAnimalType(type);
+
+        let savedHousingId: string | null = null;
+        let savedBatchId: string | null = null;
+        if (farmId) {
+            try {
+                const rawPref = await AsyncStorage.getItem(`analytics_active_selection_${farmId}`);
+                if (rawPref) {
+                    const parsed = JSON.parse(rawPref);
+                    const typePref = parsed[type] || (parsed.animalType === type ? parsed : undefined);
+                    if (typePref) {
+                        savedHousingId = typePref.housingId || null;
+                        savedBatchId = typePref.batchId || null;
+                    }
+                }
+            } catch {}
+        }
+
         const targetHousings = allHousings.filter(h => h.animal_type === type);
         if (targetHousings.length > 0) {
-            const nextHousingId = targetHousings[0].id;
+            const nextHousing = (savedHousingId && targetHousings.find(h => h.id === savedHousingId)) || targetHousings[0];
+            const nextHousingId = nextHousing.id;
             setSelectedHousingId(nextHousingId);
+
             const targetBatches = allBatches.filter(b => b.housing_id === nextHousingId);
             if (targetBatches.length > 0) {
-                const nextBatchId = targetBatches[0].id;
+                const nextBatch = (savedBatchId && targetBatches.find(b => b.id === savedBatchId)) || targetBatches[0];
+                const nextBatchId = nextBatch.id;
                 setSelectedBatchId(nextBatchId);
+                saveSelectionPreference(type, nextHousingId, nextBatchId);
                 fetchSessions(nextBatchId);
             } else {
                 setSelectedBatchId(null);
                 setSessions([]);
                 setChildRows([]);
+                saveSelectionPreference(type, nextHousingId, null);
             }
         } else {
             setSelectedHousingId(null);
             setSelectedBatchId(null);
             setSessions([]);
             setChildRows([]);
+            saveSelectionPreference(type, null, null);
         }
-    }, [animalType, allHousings, allBatches, fetchSessions]);
+    }, [animalType, farmId, allHousings, allBatches, fetchSessions, saveSelectionPreference]);
 
     const handleSelectHousing = useCallback((housingId: string) => {
         if (housingId === selectedHousingId) return;
@@ -277,46 +378,24 @@ export default function WeighingSessionsScreen() {
         if (targetBatches.length > 0) {
             const nextBatchId = targetBatches[0].id;
             setSelectedBatchId(nextBatchId);
+            saveSelectionPreference(animalType, housingId, nextBatchId);
             fetchSessions(nextBatchId);
         } else {
             setSelectedBatchId(null);
             setSessions([]);
             setChildRows([]);
+            saveSelectionPreference(animalType, housingId, null);
         }
-    }, [selectedHousingId, allBatches, fetchSessions]);
+    }, [selectedHousingId, animalType, allBatches, fetchSessions, saveSelectionPreference]);
 
     const handleSelectBatch = useCallback((batchId: string) => {
         if (batchId === selectedBatchId) return;
         setSelectedBatchId(batchId);
+        saveSelectionPreference(animalType, selectedHousingId, batchId);
         fetchSessions(batchId);
-    }, [selectedBatchId, fetchSessions]);
+    }, [selectedBatchId, animalType, selectedHousingId, fetchSessions, saveSelectionPreference]);
 
     useEffect(() => { fetchMetadata(); }, [fetchMetadata]);
-
-    useEffect(() => {
-        if (filteredHousings.length > 0) {
-            if (!filteredHousings.some(h => h.id === selectedHousingId)) setSelectedHousingId(filteredHousings[0].id);
-        } else if (allHousings.length > 0 && selectedHousingId) {
-            const stillValid = allHousings.some(h => h.id === selectedHousingId && h.animal_type === animalType);
-            if (!stillValid) setSelectedHousingId(null);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [animalType, allHousings, selectedHousingId, filteredHousings]);
-
-    useEffect(() => {
-        if (filteredBatches.length > 0) {
-            if (!filteredBatches.some(b => b.id === selectedBatchId)) setSelectedBatchId(filteredBatches[0].id);
-        } else if (allBatches.length > 0 && selectedBatchId) {
-            const stillValid = allBatches.some(b => b.id === selectedBatchId && b.housing_id === selectedHousingId);
-            if (!stillValid) setSelectedBatchId(null);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filteredBatches, selectedBatchId, allBatches, selectedHousingId]);
-
-    useEffect(() => {
-        if (selectedBatchId) fetchSessions(selectedBatchId);
-        else { setSessions([]); setChildRows([]); }
-    }, [selectedBatchId, fetchSessions]);
 
     // Default the custom-range calendar to the batch's own arrival date ->
     // today whenever the batch changes, so the picker opens somewhere
@@ -346,7 +425,7 @@ export default function WeighingSessionsScreen() {
             case 'week2': return { fromDay: 8, toDay: 14 };
             case 'week3': return { fromDay: 15, toDay: 21 };
             case 'week4': return { fromDay: 22, toDay: 28 };
-            case 'full':  return { fromDay: 0, toDay: Math.max(currentDay ?? 0, 1) };
+            case 'full': return { fromDay: 0, toDay: Math.max(currentDay ?? 0, 1) };
             case 'custom': {
                 if (!customFromDate || !customToDate) return null;
                 if (customFromDate > customToDate) return null;
@@ -692,8 +771,8 @@ export default function WeighingSessionsScreen() {
                 <View style={{ width: 44, height: 44 }}>
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 16, flex: 1, textAlign: 'center' }]}>
-                    Weighing History
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flex: 1, textAlign: 'center', marginHorizontal: 8 }]}>
+                    {animalType === 'pig' ? 'Pigs' : 'Chickens'} Weighing History
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <PrintReportButton
@@ -704,54 +783,61 @@ export default function WeighingSessionsScreen() {
                 </View>
             </View>
 
-            <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={[animalStyles.scrollContent, { paddingTop: 8, paddingBottom: 60 }]}
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}
-            >
-                <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey }]}>
-                    Select a house and batch to view its weighing history and generate a report. New weighing runs are started from the AniWeigh device screen itself.
-                </Text>
-
-                {/* Sliding Animal Type Pill Switcher */}
-                <AnimalTypePillSwitcher
-                    selected={animalType}
-                    onSelect={handleSwitchAnimalType}
-                    style={{ marginBottom: 20 }}
-                />
-
-                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
-                    <View style={{ flex: 1 }}>
-                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>Select a House</Text>
-                        <TouchableOpacity
-                            activeOpacity={filteredHousings.length > 0 ? 0.8 : 1}
-                            disabled={filteredHousings.length === 0}
-                            style={[animalStyles.dropdownContainer, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, paddingVertical: 12, paddingHorizontal: 12, opacity: filteredHousings.length > 0 ? 1 : 0.6 }]}
-                            onPress={() => setHousingModalVisible(true)}
-                        >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>{selectedHousingOptionStr}</Text>
-                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
-                        </TouchableOpacity>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>Select a Batch</Text>
-                        <TouchableOpacity
-                            activeOpacity={filteredBatches.length > 0 ? 0.8 : 1}
-                            disabled={filteredBatches.length === 0}
-                            style={[animalStyles.dropdownContainer, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, paddingVertical: 12, paddingHorizontal: 12, opacity: filteredBatches.length > 0 ? 1 : 0.6 }]}
-                            onPress={() => setBatchModalVisible(true)}
-                        >
-                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>{selectedBatchOptionStr}</Text>
-                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
-                        </TouchableOpacity>
-                    </View>
+            {isLoading ? (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
                 </View>
+            ) : (
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={[animalStyles.scrollContent, { paddingTop: 8, paddingBottom: 60 }]}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}
+                >
+                    <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, marginBottom: 20 }]}>
+                        Select a house and batch to view its weighing history and generate a report. New weighing runs are started from the AniWeigh device screen itself.
+                    </Text>
 
-                {isLoading ? (
-                    <View style={{ paddingVertical: 80, alignItems: 'center' }}>
-                        <ActivityIndicator size="large" color={colors.primary} />
+                    {/* Sliding Animal Type Pill Switcher */}
+                    <AnimalTypePillSwitcher
+                        selected={animalType}
+                        onSelect={handleSwitchAnimalType}
+                        style={{ marginBottom: 16 }}
+                    />
+
+                    {/* Filters Dropdown (House & Batch beside each other) */}
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>Select a House</Text>
+                            <TouchableOpacity
+                                activeOpacity={filteredHousings.length > 0 ? 0.8 : 1}
+                                disabled={filteredHousings.length === 0}
+                                style={[animalStyles.dropdownContainer, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, paddingVertical: 12, paddingHorizontal: 12, opacity: filteredHousings.length > 0 ? 1 : 0.6 }]}
+                                onPress={() => setHousingModalVisible(true)}
+                            >
+                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>{selectedHousingOptionStr}</Text>
+                                <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>Select a Batch</Text>
+                            <TouchableOpacity
+                                activeOpacity={filteredBatches.length > 0 ? 0.8 : 1}
+                                disabled={filteredBatches.length === 0}
+                                style={[animalStyles.dropdownContainer, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, paddingVertical: 12, paddingHorizontal: 12, opacity: filteredBatches.length > 0 ? 1 : 0.6 }]}
+                                onPress={() => setBatchModalVisible(true)}
+                            >
+                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>{selectedBatchOptionStr}</Text>
+                                <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                ) : !selectedBatch ? (
+
+                    {isSessionsLoading ? (
+                        <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
+                            <ActivityIndicator size="large" color={colors.primary} />
+                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading session history...</Text>
+                        </View>
+                    ) : !selectedBatch ? (
                     <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center' }}>
                         <MaterialIcons name="layers" size={48} color={colors.textGrey} />
                         <Text style={[textStyles.h3, { color: colors.text, marginTop: 16, textAlign: 'center' }]}>No Batch Selected</Text>
@@ -1006,6 +1092,7 @@ export default function WeighingSessionsScreen() {
                     </>
                 )}
             </ScrollView>
+            )}
 
             <SelectionModal
                 visible={housingModalVisible}
@@ -1065,13 +1152,12 @@ export default function WeighingSessionsScreen() {
                 visible={deleteModalVisible}
                 type="warning"
                 title="Delete Weighing Session?"
-                message={`Are you sure you want to delete ${
-                    sessionToDelete
+                message={`Are you sure you want to delete ${sessionToDelete
                         ? sessionToDelete.farm_day !== null
                             ? `Day ${sessionToDelete.farm_day} (${formatDate(sessionToDelete.created_at)})`
                             : formatDate(sessionToDelete.created_at)
                         : 'this session'
-                }? All weight measurements recorded during this session will be permanently removed from reports.`}
+                    }? All weight measurements recorded during this session will be permanently removed from reports.`}
                 confirmText="Delete"
                 cancelText="Cancel"
                 isLoading={isDeletingSession}
