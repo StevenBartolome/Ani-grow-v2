@@ -153,7 +153,8 @@ export const useAniWeighStyles = () => {
         liveCard: {
             borderRadius: 24,
             borderWidth: 1.5,
-            padding: 32,
+            paddingVertical: 24,
+            paddingHorizontal: 16,
             alignItems: 'center',
             backgroundColor: colors.surface,
             borderColor: colors.stroke,
@@ -194,16 +195,22 @@ export const useAniWeighStyles = () => {
         liveStatsContainer: {
             flexDirection: 'row',
             width: '100%',
-            justifyContent: 'space-around',
+            justifyContent: 'space-between',
             alignItems: 'center',
+            marginTop: 4,
+            paddingHorizontal: 8,
         },
         liveStatItem: {
+            flex: 1,
             alignItems: 'center',
+            justifyContent: 'center',
+            paddingHorizontal: 4,
         },
         liveStatDivider: {
             width: 1,
-            height: 30,
+            height: 36,
             backgroundColor: colors.stroke,
+            marginHorizontal: 8,
         },
 
         // ─── Logs Section ──────────────────────────────────────────

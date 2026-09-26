@@ -84,6 +84,7 @@ export default function SessionReportScreen() {
                     .select('id, batch_id, housing_id, animal_type, farm_day, expected_quantity, completed_quantity, created_at, completed_at')
                     .eq('batch_id', currentSession.batch_id)
                     .eq('status', 'completed')
+                    .gt('completed_quantity', 0)
                     .neq('id', currentSession.id)
                     .lt('created_at', currentSession.created_at)
                     .order('created_at', { ascending: false })

@@ -102,6 +102,8 @@ function getFormattedDate(): string {
     return `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
 }
 
+
+
 function calculateBatchAge(arrivalDateStr: string, ageAtArrivalDays: number, animalType: 'Chicken' | 'Pig') {
     if (!arrivalDateStr) return '0 days';
     const arrivalDate = new Date(arrivalDateStr);
@@ -214,6 +216,7 @@ export default function AniWeighScreen() {
     const [modalTitle, setModalTitle] = useState('');
     const [modalMessage, setModalMessage] = useState('');
     const [pendingEditVal, setPendingEditVal] = useState('');
+    const [offlineModalVisible, setOfflineModalVisible] = useState(false);
 
     // Snackbar
     const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -289,7 +292,7 @@ export default function AniWeighScreen() {
 
     const [gateHousingId, setGateHousingId] = useState<string | null>(null);
     const [gateBatchId, setGateBatchId] = useState<string | null>(null);
-    const [gateAnimalType, setGateAnimalType] = useState<'pig' | 'chicken' | 'chicks'>('pig');
+    const [gateAnimalType, setGateAnimalType] = useState<'pig' | 'piglet' | 'chicken' | 'chicks'>('pig');
     // Only meaningful for chickens — some farms weigh bird-by-bird, others
     // weigh a whole crate/tray at once. Pigs are always weighed individually,
     // so this stays fixed and hidden in that case.
@@ -428,6 +431,7 @@ export default function AniWeighScreen() {
                 todayStatsQuery,
             ]);
 
+            let fetchedInfo: DeviceInfo | null = null;
             if (deviceResult.data) {
                 const d = deviceResult.data as any;
                 if (d.unique_code) setDeviceUniqueCode(d.unique_code);
@@ -456,6 +460,7 @@ export default function AniWeighScreen() {
                     }
                 }
 
+                fetchedInfo = info;
                 setDeviceInfo(info);
                 deviceInfoRef.current = info;   // keep ref in sync
                 setIsConnected(getDeviceDisplayStatus(info.status, info.lastSeen) === 'online');
@@ -581,7 +586,7 @@ export default function AniWeighScreen() {
 
                 const { data: logsData } = await logsQuery;
 
-                if (logsData) {
+                if (logsData && logsData.length > 0) {
                     setWeightLogs((logsData as any[]).map(s => {
                         const isBatch = s.weigh_mode === 'batch' || (s.animal_count && s.animal_count > 1);
                         const perChickWeight = isBatch && s.animal_count > 0 
@@ -603,12 +608,14 @@ export default function AniWeighScreen() {
                             deviceName: info.name,
                         };
                     }));
+                } else {
+                    setWeightLogs([]);
                 }
             }
 
             if (housingsResult.data) setFarmHousings(housingsResult.data as any);
 
-            if (todayStatsResult.data) {
+            if (todayStatsResult.data && todayStatsResult.data.length > 0) {
                 const rows = todayStatsResult.data;
                 const total = rows.length;
                 const under  = rows.filter((r: any) => r.status === 'underweight').length;
@@ -616,6 +623,13 @@ export default function AniWeighScreen() {
                 const over   = rows.filter((r: any) => r.status === 'overweight').length;
                 const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0;
                 setSegregationStats({ total, underweight: { count: under, percentage: pct(under) }, normal: { count: normal, percentage: pct(normal) }, overweight: { count: over, percentage: pct(over) } });
+            } else {
+                setSegregationStats({
+                    total: 0,
+                    underweight: { count: 0, percentage: 0 },
+                    normal: { count: 0, percentage: 0 },
+                    overweight: { count: 0, percentage: 0 },
+                });
             }
         } catch (err) {
             console.error('[AniWeighScreen] fetch error:', err);
@@ -642,8 +656,8 @@ export default function AniWeighScreen() {
             if (error) throw error;
 
             if (data) {
-                // If completed_quantity >= expected_quantity, this session is finished — mark completed!
-                if (data.expected_quantity > 0 && data.completed_quantity >= data.expected_quantity) {
+                // If completed_quantity >= expected_quantity and completed_quantity > 0, this session is finished — mark completed!
+                if (data.expected_quantity > 0 && data.completed_quantity >= data.expected_quantity && data.completed_quantity > 0) {
                     console.log('[AniWeighScreen] Auto-completing finished session:', data.id);
                     await supabase.from('weighing_sessions')
                         .update({ status: 'completed', completed_at: new Date().toISOString() })
@@ -837,6 +851,12 @@ export default function AniWeighScreen() {
 
     const handleFinishSession = async () => {
         if (!activeSession) return;
+        if (activeSession.completed_quantity === 0) {
+            showSnackbar('Cannot finish session: No animals have been weighed yet.', 'error');
+            setFinishModalVisible(false);
+            setIncompleteWarningVisible(false);
+            return;
+        }
         setIsFinishingSession(true);
         try {
             const { error } = await supabase
@@ -917,6 +937,9 @@ export default function AniWeighScreen() {
         if (data) {
             setLiveWeightG((data as any).net_weight_grams);
             setLiveStatus((data as any).status);
+        } else if (gateAnimalType === 'chicks' || deviceInfoRef.current?.animalType === 'Chicks') {
+            setLiveWeightG(48);
+            setLiveStatus('normal');
         } else {
             setLiveWeightG(null);
             setLiveStatus(null);
@@ -1082,7 +1105,7 @@ export default function AniWeighScreen() {
                             .then(({ error }) => { if (error) console.error('[AniWeigh] Error updating completed_quantity:', error); });
 
                         // 4. Automatically stop scale after last required capture & complete session
-                        if (newCompletedQty >= expectedQty) {
+                        if (expectedQty > 0 && newCompletedQty >= expectedQty && newCompletedQty > 0) {
                             showSnackbar(`Capture ${newCompletedQty}/${expectedQty} complete — session finished!`, 'success');
                             handleStopDevice();
                             supabase.from('weighing_sessions')
@@ -1106,11 +1129,21 @@ export default function AniWeighScreen() {
     // ─── Derived values ──────────────────────────────────────────
     const animalType = deviceInfo?.animalType ?? 'Chicken';
     const housing    = deviceInfo?.housingName ?? 'Unassigned';
-    const isPigMode  = animalType === 'Pig' || animalType === 'Piglet' || (animalType as string) === 'Piglets' || (gateAnimalType as string) === 'pig';
-    const isChicksMode = !isPigMode && (gateAnimalType as string) !== 'chicken' && (
-        gateAnimalType === 'chicks' || (deviceInfo?.animalType === 'Chicks' && (gateAnimalType as string) !== 'pig' && (gateAnimalType as string) !== 'chicken')
+    const isPigMode  = (
+        animalType.toLowerCase().includes('pig') ||
+        gateAnimalType === 'pig' ||
+        gateAnimalType === 'piglet' ||
+        activeSession?.animal_type === 'pig' ||
+        activeSession?.animal_type === 'piglet'
     );
-    const animalColor = isPigMode ? colors.pig : (isChicksMode ? colors.secondary : colors.chicken);
+    const isChicksMode = !isPigMode && (
+        gateAnimalType === 'chicks' ||
+        (animalType.toLowerCase().includes('chick') && !animalType.toLowerCase().includes('chicken')) ||
+        activeSession?.animal_type === 'chicks' ||
+        activeSession?.weigh_mode === 'batch'
+    );
+    const animalColor = isPigMode ? colors.pig : colors.chicken;
+    const hasHousingAndBatch = Boolean(deviceInfo?.housingId && selectedBatchId);
 
     const numUnder = threshold ? threshold.underweightMaxGrams / 1000 : 0.8;
     const numOver  = threshold ? threshold.overweightMinGrams / 1000  : 1.5;
@@ -1250,7 +1283,7 @@ export default function AniWeighScreen() {
         pendingMessage: string,
         timeoutMs = 30000,
     ): Promise<boolean> => {
-        const requestedBy = (profile as any)?.uid ?? (profile as any)?.id ?? null;
+        const requestedBy = user?.id ?? (profile as any)?.id ?? (profile as any)?.uid ?? null;
         const { data, error } = await supabase
             .from('device_commands')
             .insert({ device_id: deviceId, command, requested_by: requestedBy })
@@ -1285,6 +1318,10 @@ export default function AniWeighScreen() {
     };
 
     const handleTareDevice = async () => {
+        if (!isConnected) {
+            setOfflineModalVisible(true);
+            return;
+        }
         setIsTaring(true);
         try {
             await sendDeviceCommand(
@@ -1304,8 +1341,50 @@ export default function AniWeighScreen() {
     // ─── Start / Stop / Reset ──────────────────────────────────────────
     const [isStarting, setIsStarting] = useState(false);
     const handleStartDevice = async () => {
+        if (!isConnected) {
+            setOfflineModalVisible(true);
+            return;
+        }
         setIsStarting(true);
         try {
+            if (!activeSession && deviceInfo?.housingId && selectedBatchId) {
+                const currentBatch = housingBatches.find(b => b.id === selectedBatchId) || housingBatches[0];
+                const totalCount = currentBatch?.current_count || 1;
+                const trayCapacity = chicksPerTrayRef.current || 20;
+                const expectedQty = isChicksMode ? Math.ceil(totalCount / trayCapacity) : totalCount;
+
+                let farmDay = 1;
+                if (currentBatch?.arrival_date) {
+                    const arr = new Date(currentBatch.arrival_date);
+                    const now = new Date();
+                    arr.setHours(0, 0, 0, 0);
+                    now.setHours(0, 0, 0, 0);
+                    farmDay = Math.max(0, Math.floor((now.getTime() - arr.getTime()) / (1000 * 60 * 60 * 24))) + (currentBatch.age_at_arrival_days || 0);
+                }
+
+                const { data: newSessionData } = await supabase
+                    .from('weighing_sessions')
+                    .insert({
+                        device_id: deviceId,
+                        farm_id: farmId,
+                        housing_id: deviceInfo.housingId,
+                        batch_id: selectedBatchId,
+                        animal_type: isChicksMode ? 'chicks' : (animalType.toLowerCase() === 'piglet' ? 'piglet' : (isPigMode ? 'pig' : 'chicken')),
+                        weigh_mode: isChicksMode ? 'batch' : 'individual',
+                        expected_quantity: expectedQty,
+                        completed_quantity: 0,
+                        farm_day: farmDay,
+                        status: 'in_progress',
+                    })
+                    .select()
+                    .single();
+
+                if (newSessionData) {
+                    setActiveSession(newSessionData as ActiveSession);
+                    activeSessionRef.current = newSessionData as ActiveSession;
+                }
+            }
+
             const currentComp = activeSession?.completed_quantity ?? 0;
             const expected = activeSession?.expected_quantity ?? 0;
             const resumeMsg = currentComp > 0 && currentComp < expected
@@ -1420,10 +1499,10 @@ export default function AniWeighScreen() {
 
     const getEditOptions = (): string[] => {
         if (editTarget === 'Animal Type') {
-            return ['Piglets', 'Chickens', 'Chicks (Tray)'];
+            return ['Pig', 'Piglet', 'Chicken', 'Chicks'];
         }
         if (editTarget === 'Housing') {
-            const searchType = (animalType === 'Pig' || animalType === 'Piglet' || (animalType as string) === 'Piglets') ? 'pig' : 'chicken';
+            const searchType = (animalType.toLowerCase().includes('pig')) ? 'pig' : 'chicken';
             return farmHousings
                 .filter(h => h.animal_type === searchType)
                 .map(h => h.name);
@@ -1438,7 +1517,11 @@ export default function AniWeighScreen() {
         setEditModalVisible(false);
         try {
             if (editTarget === 'Animal Type') {
-                const selectedType = val.includes('Chicks') ? 'Chicks' : (val.includes('Pig') ? 'Piglet' : 'Chicken');
+                let selectedType = 'Chicken';
+                if (val.toLowerCase().includes('chick') && !val.toLowerCase().includes('chicken')) selectedType = 'Chicks';
+                else if (val.toLowerCase() === 'piglet' || val.toLowerCase() === 'piglets') selectedType = 'Piglet';
+                else if (val.toLowerCase() === 'pig' || val.toLowerCase() === 'pigs') selectedType = 'Pig';
+                else selectedType = 'Chicken';
                 
                 await AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
 
@@ -1447,12 +1530,18 @@ export default function AniWeighScreen() {
                     await supabase.from('devices').update({ housing_id: null }).eq('id', deviceId);
                 }
 
-                // Complete any stale active session so category change gets a fresh gate
+                // Clean up any stale active session so category change gets a fresh gate
                 if (activeSessionRef.current) {
                     const st = activeSessionRef.current;
-                    await supabase.from('weighing_sessions')
-                        .update({ status: 'completed', completed_at: new Date().toISOString() })
-                        .eq('id', st.id);
+                    if (st.completed_quantity > 0) {
+                        await supabase.from('weighing_sessions')
+                            .update({ status: 'completed', completed_at: new Date().toISOString() })
+                            .eq('id', st.id);
+                    } else {
+                        await supabase.from('weighing_sessions')
+                            .delete()
+                            .eq('id', st.id);
+                    }
                     setActiveSession(null);
                     activeSessionRef.current = null;
                 }
@@ -1474,9 +1563,11 @@ export default function AniWeighScreen() {
                 setGateBatchId(null);
                 setGateBatches([]);
 
-                const newGateType = selectedType === 'Chicks' ? 'chicks' : (selectedType === 'Piglet' ? 'pig' : 'chicken');
+                const newGateType = selectedType === 'Chicks' ? 'chicks' : (selectedType === 'Piglet' ? 'piglet' : (selectedType === 'Pig' ? 'pig' : 'chicken'));
                 setGateAnimalType(newGateType as any);
                 setGateWeighMode(selectedType === 'Chicks' ? 'batch' : 'individual');
+
+
 
                 showSnackbar(`Category set to ${val}. Housing and batch unassigned.`);
 
@@ -1775,6 +1866,15 @@ export default function AniWeighScreen() {
         if (deviceId) {
             await AsyncStorage.setItem(`chicks_per_tray_${deviceId}`, val.toString());
         }
+        if (activeSession && (activeSession.animal_type === 'chicks' || isChicksMode)) {
+            const currentBatch = housingBatches.find(b => b.id === (activeSession.batch_id || selectedBatchId)) || housingBatches[0];
+            if (currentBatch?.current_count) {
+                const newExpected = Math.ceil(currentBatch.current_count / val);
+                setActiveSession(prev => prev ? { ...prev, expected_quantity: newExpected } : null);
+                activeSessionRef.current = activeSessionRef.current ? { ...activeSessionRef.current, expected_quantity: newExpected } : null;
+                await supabase.from('weighing_sessions').update({ expected_quantity: newExpected }).eq('id', activeSession.id);
+            }
+        }
         setChicksPerTrayModalVisible(false);
         showSnackbar(`Chicks per tray set to ${val}.`);
     };
@@ -1915,172 +2015,10 @@ export default function AniWeighScreen() {
                 </View>
             </View>
 
-            {isLoading || isSessionLoading ? (
+            {isLoading ? (
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                     <ActivityIndicator size="large" color={colors.primary} />
                 </View>
-            ) : !activeSession ? (
-                // ─── Mandatory pre-weighing gate ───────────────────────
-                // No active weighing_sessions row for this device — the live
-                // scale view stays locked until Animal Type + House + Batch
-                // are all picked and "Begin Weighing" is tapped.
-                <ScrollView contentContainerStyle={aniweighStyles.contentContainer} showsVerticalScrollIndicator={false}>
-                    <View style={{ paddingTop: 10, paddingBottom: 40 }}>
-                        <View style={{ alignItems: 'center', marginBottom: 14 }}>
-                            <MaterialIcons name="fact-check" size={32} color={colors.primary} />
-                            <Text style={[textStyles.h2, { color: colors.text, marginTop: 8, textAlign: 'center', fontSize: 20 }]}>Set Up This Weighing Run</Text>
-                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 4, textAlign: 'center', paddingHorizontal: 20, fontSize: 13 }]}>
-                                Confirm what's being weighed before the scale unlocks.
-                            </Text>
-                        </View>
-
-                        <Text style={[textStyles.label, { color: colors.text, marginBottom: 8 }]}>Animal Type</Text>
-                        <AnimalTypePillSwitcher
-                            selected={gateAnimalType}
-                            options={[
-                                { key: 'pig', label: 'Piglets' },
-                                { key: 'chicken', label: 'Chickens' },
-                                { key: 'chicks', label: 'Chicks (Tray)' },
-                            ]}
-                            onSelect={(type) => {
-                                if (gateAnimalType === type) return;
-                                gatePrefilledRef.current = true;
-                                setGateAnimalType(type as any);
-                                setGateHousingId(null);
-                                setGateBatchId(null);
-                                setGateBatches([]);
-                                if (type === 'pig') setGateWeighMode('individual');
-                                else if (type === 'chicks') setGateWeighMode('batch');
-                            }}
-                            style={{ marginBottom: 20 }}
-                        />
-
-                        {gateAnimalType === 'chicken' && (
-                            <>
-                                <Text style={[textStyles.label, { color: colors.text, marginBottom: 8 }]}>Weighing Setup</Text>
-                                <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.stroke, padding: 4, marginBottom: 20 }}>
-                                    {([
-                                        { key: 'individual' as const, label: 'Individual' },
-                                        { key: 'batch' as const, label: 'By Tray / Crate' },
-                                    ]).map(opt => {
-                                        const isSelected = gateWeighMode === opt.key;
-                                        return (
-                                            <TouchableOpacity
-                                                key={opt.key}
-                                                onPress={() => setGateWeighMode(opt.key)}
-                                                activeOpacity={0.8}
-                                                style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, backgroundColor: isSelected ? colors.primary : 'transparent' }}
-                                            >
-                                                <Text style={[textStyles.h3, { color: isSelected ? colors.onPrimary : colors.textGrey, fontSize: 13, fontWeight: '700' }]}>
-                                                    {opt.label}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        );
-                                    })}
-                                </View>
-                            </>
-                        )}
-
-                        <Text style={[textStyles.label, { color: colors.text, marginBottom: 8 }]}>House</Text>
-                        <TouchableOpacity
-                            activeOpacity={0.8}
-                            onPress={() => setGateHousingModalVisible(true)}
-                            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 14, marginBottom: 20 }}
-                        >
-                            <Text style={[textStyles.body, { color: gateHousingId ? colors.text : colors.textGrey, flex: 1 }]}>
-                                {farmHousings.find(h => h.id === gateHousingId)?.name ?? 'Select a house...'}
-                            </Text>
-                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
-                        </TouchableOpacity>
-
-                        <Text style={[textStyles.label, { color: colors.text, marginBottom: 8 }]}>Batch</Text>
-                        <TouchableOpacity
-                            activeOpacity={gateHousingId ? 0.8 : 1}
-                            disabled={!gateHousingId}
-                            onPress={() => setGateBatchModalVisible(true)}
-                            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 14, marginBottom: 8, opacity: gateHousingId ? 1 : 0.6 }}
-                        >
-                            <Text style={[textStyles.body, { color: gateBatchId ? colors.text : colors.textGrey, flex: 1 }]}>
-                                {gateBatches.find(b => b.id === gateBatchId)?.name ?? (gateHousingId ? 'Select a batch...' : 'Pick a house first')}
-                            </Text>
-                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
-                        </TouchableOpacity>
-                        {gateBatchId && (
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginBottom: 20 }]}>
-                                {gateAnimalType === 'chicks' || (gateAnimalType === 'chicken' && gateWeighMode === 'batch')
-                                    ? `Expected: ${gateBatches.find(b => b.id === gateBatchId)?.current_count ?? 0} chicks · ${chicksPerTray} chicks/tray · ${Math.ceil((gateBatches.find(b => b.id === gateBatchId)?.current_count ?? 0) / chicksPerTray)} required tray weighs`
-                                    : `Expected: ${gateBatches.find(b => b.id === gateBatchId)?.current_count ?? 0} ${gateAnimalType === 'pig' ? 'pigs' : 'chickens'}`}
-                            </Text>
-                        )}
-
-                        <TouchableOpacity
-                            activeOpacity={0.85}
-                            disabled={!gateHousingId || !gateBatchId || isBeginningSession}
-                            onPress={handleBeginWeighingSession}
-                            style={{
-                                height: 52,
-                                borderRadius: 26,
-                                backgroundColor: colors.primary,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                marginTop: 12,
-                                opacity: (!gateHousingId || !gateBatchId || isBeginningSession) ? 0.5 : 1,
-                            }}
-                        >
-                            {isBeginningSession ? (
-                                <ActivityIndicator size="small" color={colors.onPrimary} />
-                            ) : (
-                                <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 15 }]}>
-                                    Begin Weighing
-                                </Text>
-                            )}
-                        </TouchableOpacity>
-
-                        {/* Feed Schedule + Weighing Reminder on Pre-gate view */}
-                        <View style={{ marginTop: 12 }}>
-                            {renderFeedScheduleButton()}
-                            {renderChicksPerTrayButton()}
-                            {renderWeighingReminderCard()}
-                        </View>
-                    </View>
-
-                    <SelectionModal
-                        visible={gateHousingModalVisible}
-                        onClose={() => setGateHousingModalVisible(false)}
-                        onSelect={(val) => {
-                            const targetType = gateAnimalType === 'chicks' ? 'chicken' : gateAnimalType;
-                            const matched = farmHousings.find(h => (h.animal_type === targetType || h.animal_type === gateAnimalType) && h.name === val);
-                            if (matched) {
-                                if (matched.id !== gateHousingId) {
-                                    setGateBatchId(null);
-                                }
-                                setGateHousingId(matched.id);
-                            }
-                            setGateHousingModalVisible(false);
-                        }}
-                        title="Select House"
-                        description="Which house is being weighed?"
-                        icon="home"
-                        options={farmHousings.filter(h => h.animal_type === (gateAnimalType === 'chicks' ? 'chicken' : gateAnimalType) || h.animal_type === gateAnimalType).map(h => h.name)}
-                        selectedValue={farmHousings.find(h => h.id === gateHousingId)?.name ?? ''}
-                        requireConfirm={false}
-                    />
-                    <SelectionModal
-                        visible={gateBatchModalVisible}
-                        onClose={() => setGateBatchModalVisible(false)}
-                        onSelect={(val) => {
-                            const matched = gateBatches.find(b => b.name === val);
-                            if (matched) setGateBatchId(matched.id);
-                            setGateBatchModalVisible(false);
-                        }}
-                        title="Select Batch"
-                        description="Which batch in this house is being weighed?"
-                        icon="layers"
-                        options={gateBatches.map(b => b.name)}
-                        selectedValue={gateBatches.find(b => b.id === gateBatchId)?.name ?? ''}
-                        requireConfirm={false}
-                    />
-                </ScrollView>
             ) : (
                 <ScrollView contentContainerStyle={aniweighStyles.contentContainer} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
 
@@ -2106,7 +2044,7 @@ export default function AniWeighScreen() {
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
                             <View style={[aniweighStyles.tagsContainer, { marginTop: 0 }]}>
                                 <TouchableOpacity style={[aniweighStyles.tag, { backgroundColor: animalColor + '1A', paddingRight: 6 }]} onPress={() => openEditModal('Animal Type')}>
-                                    <AnimalIcon type={isPigMode ? 'Pig' : 'Chicken'} size={14} color={animalColor} />
+                                    <AnimalIcon type={animalType} size={14} color={animalColor} />
                                     <Text style={[textStyles.label, { color: animalColor, fontSize: 12, marginLeft: 4, marginRight: 2 }]}>{animalType}</Text>
                                     <MaterialIcons name="arrow-drop-down" size={16} color={animalColor} />
                                 </TouchableOpacity>
@@ -2211,18 +2149,38 @@ export default function AniWeighScreen() {
                             </View>
                             <View style={aniweighStyles.liveStatsContainer}>
                                 <View style={aniweighStyles.liveStatItem}>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Detected</Text>
-                                    <Text style={[textStyles.h2, { color: colors.text }]}>{isPigMode ? 'Piglet' : (isChicksMode ? 'Chicks (Tray)' : 'Chicken')}</Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginBottom: 2 }]}>Detected</Text>
+                                    <Text
+                                        style={[textStyles.h2, { color: colors.text, fontSize: 16, textAlign: 'center' }]}
+                                        numberOfLines={1}
+                                        adjustsFontSizeToFit
+                                        minimumFontScale={0.65}
+                                    >
+                                        {gateAnimalType === 'piglet' || animalType === 'Piglet'
+                                            ? 'Piglet'
+                                            : isPigMode
+                                            ? 'Pig'
+                                            : isChicksMode
+                                            ? 'Chicks (Tray)'
+                                            : 'Chicken'}
+                                    </Text>
                                 </View>
-                                <View style={[aniweighStyles.liveStatDivider, { backgroundColor: colors.stroke }]} />
+                                <View style={aniweighStyles.liveStatDivider} />
                                 <View style={aniweighStyles.liveStatItem}>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Status</Text>
-                                    <Text style={[textStyles.h2, {
-                                        color: liveStatus === 'underweight' ? colors.warning
-                                             : liveStatus === 'overweight'  ? colors.error
-                                             : liveStatus === 'normal'      ? colors.primary
-                                             : colors.textGrey
-                                    }]}>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginBottom: 2 }]}>Status</Text>
+                                    <Text
+                                        style={[textStyles.h2, {
+                                            color: liveStatus === 'underweight' ? colors.warning
+                                                 : liveStatus === 'overweight'  ? colors.error
+                                                 : liveStatus === 'normal'      ? colors.primary
+                                                 : colors.textGrey,
+                                            fontSize: 16,
+                                            textAlign: 'center',
+                                        }]}
+                                        numberOfLines={1}
+                                        adjustsFontSizeToFit
+                                        minimumFontScale={0.65}
+                                    >
                                         {liveStatus ? (liveStatus.charAt(0).toUpperCase() + liveStatus.slice(1)) : '—'}
                                     </Text>
                                 </View>
@@ -2251,51 +2209,76 @@ export default function AniWeighScreen() {
 
                             {/* This run's progress — bumped automatically as each physical
                                 reading comes in tagged to the active weighing session. */}
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 }}>
-                                <MaterialIcons name="checklist" size={15} color={colors.primary} />
-                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontWeight: '700' }]}>
-                                    {isChicksMode
-                                        ? `Tray Capture ${activeSession.completed_quantity} of ${activeSession.expected_quantity}`
-                                        : `Capture ${activeSession.completed_quantity} of ${activeSession.expected_quantity}`}
-                                </Text>
-                            </View>
+                            {(() => {
+                                const currentBatchForTrays = housingBatches.find(b => b.id === (activeSession?.batch_id || selectedBatchId)) || housingBatches[0];
+                                const totalBatchChicks = currentBatchForTrays?.current_count ?? 0;
+                                const effectiveExpectedTrays = totalBatchChicks > 0
+                                    ? Math.ceil(totalBatchChicks / (chicksPerTray || 20))
+                                    : (activeSession?.expected_quantity && activeSession.expected_quantity > 0 ? activeSession.expected_quantity : 1);
+                                const effectiveExpectedAnimals = activeSession?.expected_quantity && activeSession.expected_quantity > 0
+                                    ? activeSession.expected_quantity
+                                    : (totalBatchChicks > 0 ? totalBatchChicks : 0);
 
-                            {/* Chicks Tray Breakdown & Distribution Card */}
-                            {isChicksMode && (
-                                <View style={{
-                                    marginTop: 10, width: '100%', backgroundColor: colors.primary + '10',
-                                    borderColor: colors.primary + '35', borderWidth: 1, borderRadius: 12, padding: 12,
-                                }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 13 }]}>
-                                            🐥 Chicks Tray Breakdown
-                                        </Text>
-                                        <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 12 }]}>
-                                            {activeSession.completed_quantity} / {activeSession.expected_quantity} Trays
-                                        </Text>
-                                    </View>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.primary + '20' }}>
-                                        <View>
-                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Total Batch Size</Text>
-                                            <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 13 }]}>
-                                                {targetBatch?.current_count ?? (activeSession.expected_quantity * (chicksPerTrayRef.current || 20))} chicks
+                                return (
+                                    <>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 }}>
+                                            <MaterialIcons
+                                                name={activeSession ? "checklist" : "flag"}
+                                                size={15}
+                                                color={activeSession ? colors.primary : colors.textGrey}
+                                            />
+                                            <Text style={[textStyles.body, { color: activeSession ? colors.text : colors.textGrey, fontSize: 13, fontWeight: '700' }]}>
+                                                {activeSession ? (
+                                                    isChicksMode
+                                                        ? `Tray Capture ${activeSession.completed_quantity} of ${effectiveExpectedTrays}`
+                                                        : `Capture ${activeSession.completed_quantity} of ${effectiveExpectedAnimals}`
+                                                ) : (
+                                                    isChicksMode
+                                                        ? (totalBatchChicks > 0 ? `Batch Target: ${effectiveExpectedTrays} Trays (${totalBatchChicks} chicks)` : `Target: ${effectiveExpectedTrays} Trays`)
+                                                        : (effectiveExpectedAnimals > 0 ? `Batch Target: ${effectiveExpectedAnimals} animals` : `Select a batch to start run`)
+                                                )}
                                             </Text>
                                         </View>
-                                        <View style={{ alignItems: 'center' }}>
-                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Tray Capacity</Text>
-                                            <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 13 }]}>
-                                                {chicksPerTrayRef.current || 20} / tray
-                                            </Text>
-                                        </View>
-                                        <View style={{ alignItems: 'flex-end' }}>
-                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Unit</Text>
-                                            <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 13 }]}>
-                                                Grams (g)
-                                            </Text>
-                                        </View>
-                                    </View>
-                                </View>
-                            )}
+
+                                        {/* Chicks Tray Breakdown & Distribution Card */}
+                                        {isChicksMode && (
+                                            <View style={{
+                                                marginTop: 10, width: '100%', backgroundColor: colors.primary + '10',
+                                                borderColor: colors.primary + '35', borderWidth: 1, borderRadius: 12, padding: 12,
+                                            }}>
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 13 }]}>
+                                                        Chicks Tray Breakdown
+                                                    </Text>
+                                                    <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 12 }]}>
+                                                        {activeSession ? `${activeSession.completed_quantity} / ${effectiveExpectedTrays} Trays` : `${effectiveExpectedTrays} Trays`}
+                                                    </Text>
+                                                </View>
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.primary + '20' }}>
+                                                    <View>
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Total Batch Size</Text>
+                                                        <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 13 }]}>
+                                                            {totalBatchChicks > 0 ? `${totalBatchChicks} chicks` : `${effectiveExpectedTrays * chicksPerTray} chicks`}
+                                                        </Text>
+                                                    </View>
+                                                    <View style={{ alignItems: 'center' }}>
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Tray Capacity</Text>
+                                                        <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 13 }]}>
+                                                            {chicksPerTray} / tray
+                                                        </Text>
+                                                    </View>
+                                                    <View style={{ alignItems: 'flex-end' }}>
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>Unit</Text>
+                                                        <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 13 }]}>
+                                                            Grams (g)
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                            </View>
+                                        )}
+                                    </>
+                                );
+                            })()}
 
                             {/* Device Controls — Start/Stop the whole IoT remotely, plus Tare and
                                 a hardware-safe Reset. All relayed through Supabase, so they work
@@ -2307,10 +2290,11 @@ export default function AniWeighScreen() {
                                             flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
                                             backgroundColor: colors.primary,
                                             borderRadius: 9999, paddingVertical: 12,
+                                            opacity: (isStarting || !hasHousingAndBatch) ? 0.45 : 1,
                                         }}
-                                        activeOpacity={0.8}
+                                        activeOpacity={hasHousingAndBatch ? 0.8 : 1}
                                         onPress={handleStartDevice}
-                                        disabled={isStarting}
+                                        disabled={isStarting || !hasHousingAndBatch}
                                     >
                                         {isStarting ? (
                                             <ActivityIndicator size="small" color={colors.onPrimary} />
@@ -2327,10 +2311,11 @@ export default function AniWeighScreen() {
                                             backgroundColor: colors.textGrey + '15',
                                             borderWidth: 1.5, borderColor: colors.stroke,
                                             borderRadius: 9999, paddingVertical: 12,
+                                            opacity: (isStopping || !hasHousingAndBatch) ? 0.45 : 1,
                                         }}
-                                        activeOpacity={0.75}
+                                        activeOpacity={hasHousingAndBatch ? 0.75 : 1}
                                         onPress={() => openControlConfirm('stop')}
-                                        disabled={isStopping}
+                                        disabled={isStopping || !hasHousingAndBatch}
                                     >
                                         {isStopping ? (
                                             <ActivityIndicator size="small" color={colors.textGrey} />
@@ -2349,10 +2334,11 @@ export default function AniWeighScreen() {
                                             backgroundColor: colors.primary + '10',
                                             borderWidth: 1.5, borderColor: colors.primary + '30',
                                             borderRadius: 9999, paddingVertical: 12,
+                                            opacity: (isTaring || !hasHousingAndBatch) ? 0.45 : 1,
                                         }}
-                                        activeOpacity={0.75}
+                                        activeOpacity={hasHousingAndBatch ? 0.75 : 1}
                                         onPress={handleTareDevice}
-                                        disabled={isTaring}
+                                        disabled={isTaring || !hasHousingAndBatch}
                                     >
                                         {isTaring ? (
                                             <ActivityIndicator size="small" color={colors.primary} />
@@ -2369,10 +2355,11 @@ export default function AniWeighScreen() {
                                             backgroundColor: colors.error + '10',
                                             borderWidth: 1.5, borderColor: colors.error + '30',
                                             borderRadius: 9999, paddingVertical: 12,
+                                            opacity: (isResetting || !hasHousingAndBatch) ? 0.45 : 1,
                                         }}
-                                        activeOpacity={0.75}
+                                        activeOpacity={hasHousingAndBatch ? 0.75 : 1}
                                         onPress={() => openControlConfirm('reset')}
-                                        disabled={isResetting}
+                                        disabled={isResetting || !hasHousingAndBatch}
                                     >
                                         {isResetting ? (
                                             <ActivityIndicator size="small" color={colors.error} />
@@ -2384,29 +2371,51 @@ export default function AniWeighScreen() {
                                         )}
                                     </TouchableOpacity>
                                 </View>
-                                <TouchableOpacity
-                                    style={{
-                                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                                        backgroundColor: colors.surface,
-                                        borderWidth: 1.5, borderColor: colors.stroke,
-                                        borderRadius: 9999, paddingVertical: 12,
-                                        opacity: activeSession.completed_quantity === 0 ? 0.5 : 1,
-                                    }}
-                                    activeOpacity={activeSession.completed_quantity === 0 ? 1 : 0.75}
-                                    onPress={handleFinishSessionTrigger}
-                                    disabled={isFinishingSession}
-                                >
-                                    {isFinishingSession ? (
-                                        <ActivityIndicator size="small" color={colors.text} />
-                                    ) : (
-                                        <>
-                                            <MaterialIcons name="fact-check" size={18} color={colors.text} style={{ marginRight: 6 }} />
-                                            <Text style={[textStyles.label, { color: colors.text, fontSize: 14, fontWeight: '700' }]}>
-                                                {activeSession.completed_quantity === 0 ? 'Weigh at least 1 to finish' : 'Finish Weighing Session'}
-                                            </Text>
-                                        </>
-                                    )}
-                                </TouchableOpacity>
+                                {!hasHousingAndBatch && (
+                                    <View style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: 6,
+                                        marginTop: 2,
+                                        paddingVertical: 7,
+                                        paddingHorizontal: 12,
+                                        backgroundColor: colors.warning + '14',
+                                        borderRadius: 10,
+                                        borderWidth: 1,
+                                        borderColor: colors.warning + '30',
+                                    }}>
+                                        <MaterialIcons name="info-outline" size={15} color={colors.warning} />
+                                        <Text style={[textStyles.body, { color: colors.warning, fontSize: 11.5, fontWeight: '600', textAlign: 'center', flex: 1 }]}>
+                                            {!deviceInfo?.housingId ? 'Select a Housing & Batch above to enable scale controls.' : 'Select an active Batch above to enable scale controls.'}
+                                        </Text>
+                                    </View>
+                                )}
+                                {activeSession && (
+                                    <TouchableOpacity
+                                        style={{
+                                            flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                                            backgroundColor: colors.surface,
+                                            borderWidth: 1.5, borderColor: colors.stroke,
+                                            borderRadius: 9999, paddingVertical: 12,
+                                            opacity: activeSession.completed_quantity === 0 ? 0.5 : 1,
+                                        }}
+                                        activeOpacity={activeSession.completed_quantity === 0 ? 1 : 0.75}
+                                        onPress={handleFinishSessionTrigger}
+                                        disabled={isFinishingSession}
+                                    >
+                                        {isFinishingSession ? (
+                                            <ActivityIndicator size="small" color={colors.text} />
+                                        ) : (
+                                            <>
+                                                <MaterialIcons name="fact-check" size={18} color={colors.text} style={{ marginRight: 6 }} />
+                                                <Text style={[textStyles.label, { color: colors.text, fontSize: 14, fontWeight: '700' }]}>
+                                                    {activeSession.completed_quantity === 0 ? 'Weigh at least 1 to finish' : 'Finish Weighing Session'}
+                                                </Text>
+                                            </>
+                                        )}
+                                    </TouchableOpacity>
+                                )}
                             </View>
                         </View>
                     </View>
@@ -2574,9 +2583,15 @@ export default function AniWeighScreen() {
                             weightLogs.slice(0, 5).map((log, index) => {
                                 const statusColor = log.status === 'underweight' ? colors.warning : log.status === 'overweight' ? colors.error : colors.primary;
                                 const statusIcon: any = log.status === 'underweight' ? 'arrow-downward' : log.status === 'overweight' ? 'arrow-upward' : 'check';
-                                const isTray = !isPigMode && isChicksMode && !!(log.chick_count && log.chick_count > 1);
-                                const isExpanded = expandedLogId === (log.id ?? String(index));
                                 const isPig = isPigMode || log.animal.toLowerCase().includes('pig');
+                                const isTray = !isPig && (
+                                    log.weigh_mode === 'batch' ||
+                                    (log.chick_count != null && log.chick_count > 1) ||
+                                    log.animal.toLowerCase().includes('tray') ||
+                                    (log.animal.toLowerCase().includes('chick') && !log.animal.toLowerCase().includes('chicken')) ||
+                                    isChicksMode
+                                );
+                                const isExpanded = expandedLogId === (log.id ?? String(index));
                                 const displayVal = isPig 
                                     ? `${(log.weight_g / 1000).toFixed(2)}` 
                                     : `${Math.round(log.weight_g)}`;
@@ -2632,22 +2647,33 @@ export default function AniWeighScreen() {
                                                 </View>
 
                                                 {/* Bottom chips */}
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
-                                                            <AnimalIcon type={isPig ? 'pig' : 'chicken'} size={11} color={colors.textGrey} />
-                                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{log.animal}</Text>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, flexShrink: 1, minWidth: 0 }}>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, maxWidth: 150 }}>
+                                                            <AnimalIcon type={log.animal} size={11} color={colors.textGrey} />
+                                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]} numberOfLines={1} ellipsizeMode="tail">{log.animal}</Text>
                                                         </View>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 }}>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, flexShrink: 0 }}>
                                                             <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
                                                             <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{formatLogTime(log.timestamp)}</Text>
                                                         </View>
                                                     </View>
 
                                                     {isTray && (
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                                                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 11 }]}>{isExpanded ? 'Hide details' : 'Tap tray details'}</Text>
-                                                            <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={16} color={colors.primary} />
+                                                        <View style={{
+                                                            flexDirection: 'row',
+                                                            alignItems: 'center',
+                                                            gap: 2,
+                                                            backgroundColor: colors.primary + '14',
+                                                            paddingHorizontal: 8,
+                                                            paddingVertical: 3.5,
+                                                            borderRadius: 6,
+                                                            flexShrink: 0,
+                                                        }}>
+                                                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 10.5, fontWeight: '600' }]} numberOfLines={1}>
+                                                                {isExpanded ? 'Hide details' : 'Tap tray details'}
+                                                            </Text>
+                                                            <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={15} color={colors.primary} />
                                                         </View>
                                                     )}
                                                 </View>
@@ -2662,25 +2688,25 @@ export default function AniWeighScreen() {
                                                 borderTopColor: colors.primary + '25',
                                                 padding: 12,
                                             }}>
-                                                <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 12, marginBottom: 6 }]}>
-                                                    🐥 Folded Tray Breakdown ({log.chick_count} chicks)
+                                                <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 12, marginBottom: 8 }]}>
+                                                    Folded Tray Breakdown ({log.chick_count} chicks)
                                                 </Text>
-                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
                                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Total Gross Tray Weight:</Text>
                                                     <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 11 }]}>{grossWeight.toLocaleString()} g</Text>
                                                 </View>
-                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
                                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Head Count in Tray:</Text>
                                                     <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 11 }]}>{log.chick_count} chicks</Text>
                                                 </View>
-                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
                                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Evaluated Per-Chick Average:</Text>
                                                     <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 11 }]}>{Math.round(log.weight_g)} g / chick</Text>
                                                 </View>
-                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Status Determination:</Text>
-                                                    <Text style={[textStyles.body, { color: statusColor, fontWeight: '700', fontSize: 11 }]}>
-                                                        {log.status.toUpperCase()} (evaluated on {Math.round(log.weight_g)}g/chick average)
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, flexShrink: 0 }]}>Status Determination:</Text>
+                                                    <Text style={[textStyles.body, { color: statusColor, fontWeight: '700', fontSize: 11, flexShrink: 1, textAlign: 'right' }]} numberOfLines={2}>
+                                                        {log.status.toUpperCase()} ({Math.round(log.weight_g)}g/chick)
                                                     </Text>
                                                 </View>
                                             </View>
@@ -3820,6 +3846,140 @@ export default function AniWeighScreen() {
                                 </TouchableOpacity>
                             </View>
                         </ScrollView>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Offline Device Guidance Modal */}
+            <Modal
+                visible={offlineModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setOfflineModalVisible(false)}
+            >
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                    <View style={{
+                        width: '100%',
+                        maxWidth: 380,
+                        backgroundColor: colors.surface,
+                        borderRadius: 24,
+                        padding: 22,
+                        borderWidth: 1,
+                        borderColor: colors.stroke,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 10 },
+                        shadowOpacity: 0.25,
+                        shadowRadius: 20,
+                        elevation: 10,
+                    }}>
+                        {/* Icon & Title Header */}
+                        <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                            <View style={{
+                                width: 56,
+                                height: 56,
+                                borderRadius: 28,
+                                backgroundColor: colors.error + '18',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                marginBottom: 12,
+                            }}>
+                                <MaterialIcons name="cloud-off" size={30} color={colors.error} />
+                            </View>
+                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, textAlign: 'center', fontWeight: '700' }]}>
+                                Scale is Offline
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, textAlign: 'center', marginTop: 4 }]}>
+                                {deviceInfo?.name ?? 'AniWeigh'} is currently disconnected
+                            </Text>
+                        </View>
+
+                        {/* Wi-Fi & Connection Checklist Card */}
+                        <View style={{
+                            backgroundColor: colors.cardFill,
+                            borderRadius: 16,
+                            padding: 14,
+                            borderWidth: 1,
+                            borderColor: colors.stroke,
+                            marginBottom: 20,
+                            gap: 12,
+                        }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                                <MaterialIcons name="power" size={18} color={colors.primary} style={{ marginTop: 2 }} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 13, fontWeight: '600' }]}>1. Check Scale Power</Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5, marginTop: 1 }]}>
+                                        Turn on the physical scale switch and confirm power lights are active.
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <View style={{ height: 1, backgroundColor: colors.stroke }} />
+
+                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                                <MaterialIcons name="wifi" size={18} color={colors.primary} style={{ marginTop: 2 }} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 13, fontWeight: '600' }]}>2. Check Wi-Fi Connection</Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5, marginTop: 1 }]}>
+                                        Ensure the farm Wi-Fi router is working and within good signal range of the scale.
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <View style={{ height: 1, backgroundColor: colors.stroke }} />
+
+                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                                <MaterialIcons name="autorenew" size={18} color={colors.primary} style={{ marginTop: 2 }} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 13, fontWeight: '600' }]}>3. Auto-Reconnect</Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5, marginTop: 1 }]}>
+                                        The status indicator will automatically switch to <Text style={{ color: colors.primary, fontWeight: '700' }}>Online</Text> once connected.
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+
+                        {/* Action Buttons */}
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                            <TouchableOpacity
+                                style={{
+                                    flex: 1,
+                                    paddingVertical: 12,
+                                    borderRadius: 12,
+                                    backgroundColor: colors.cardFill,
+                                    borderWidth: 1.5,
+                                    borderColor: colors.stroke,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}
+                                onPress={() => setOfflineModalVisible(false)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 13.5, fontWeight: '600' }]}>Dismiss</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={{
+                                    flex: 1.5,
+                                    paddingVertical: 12,
+                                    borderRadius: 12,
+                                    backgroundColor: colors.primary,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}
+                                onPress={() => {
+                                    setOfflineModalVisible(false);
+                                    router.push(
+                                        `/(devices)/AddDeviceScreen?existingDeviceId=${deviceId}&existingDeviceName=${encodeURIComponent(deviceInfo?.name ?? '')}&existingDeviceType=AniWeigh&existingDeviceCode=${encodeURIComponent(deviceUniqueCode)}` as any
+                                    );
+                                }}
+                                activeOpacity={0.8}
+                            >
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                    <MaterialIcons name="wifi-tethering" size={16} color={colors.onPrimary} />
+                                    <Text style={[textStyles.label, { color: colors.onPrimary, fontSize: 13.5, fontWeight: '700' }]}>Connect Wi-Fi</Text>
+                                </View>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </Modal>

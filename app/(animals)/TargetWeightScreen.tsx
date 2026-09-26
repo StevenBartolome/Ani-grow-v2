@@ -255,20 +255,21 @@ export default function TargetWeightScreen() {
             <View style={{ flex: 1 }}>
                 {/* Header */}
                 <View style={{
+                    position: 'relative',
                     flexDirection: 'row',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
+                    justifyContent: 'center',
                     paddingHorizontal: hPad,
                     paddingTop: 16,
                     paddingBottom: 16,
+                    minHeight: 56,
                 }}>
-                    <View style={{ width: 44, height: 44 }}>
+                    <View style={{ position: 'absolute', left: hPad, zIndex: 10 }}>
                         <BackButton fallbackRoute="/(animals)/AnimalsScreen" />
                     </View>
-                    <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
+                    <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center' }]} numberOfLines={1}>
                         Target Weight Standards
                     </Text>
-                    <View style={{ width: 44, height: 44 }} />
                 </View>
 
                 <ScrollView

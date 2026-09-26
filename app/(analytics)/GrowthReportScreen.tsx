@@ -252,6 +252,7 @@ export default function GrowthReportScreen() {
                         .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                         .eq('batch_id', requestedBatch.id)
                         .eq('status', 'completed')
+                        .gt('completed_quantity', 0)
                         .order('created_at', { ascending: true }),
                 ]);
                 if (weighRes.error) throw weighRes.error;
@@ -286,6 +287,7 @@ export default function GrowthReportScreen() {
                             .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                             .eq('batch_id', targetBatchId)
                             .eq('status', 'completed')
+                            .gt('completed_quantity', 0)
                             .order('created_at', { ascending: true }),
                     ]);
 
@@ -334,6 +336,7 @@ export default function GrowthReportScreen() {
                     .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                     .eq('batch_id', batchId)
                     .eq('status', 'completed')
+                    .gt('completed_quantity', 0)
                     .order('created_at', { ascending: true }),
             ]);
 

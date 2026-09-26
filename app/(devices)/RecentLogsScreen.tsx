@@ -649,25 +649,25 @@ export default function RecentLogsScreen() {
                                             paddingHorizontal: 13,
                                             paddingVertical: 10,
                                         }}>
-                                            <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 12, marginBottom: 5 }]}>
-                                                🐥 Folded Tray Breakdown ({log.chick_count} chicks)
+                                            <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 12, marginBottom: 6 }]}>
+                                                Folded Tray Breakdown ({log.chick_count} chicks)
                                             </Text>
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
                                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Total Gross Tray Weight:</Text>
                                                 <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 11 }]}>{grossWeight.toLocaleString()} g</Text>
                                             </View>
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
                                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Chicks in Tray:</Text>
                                                 <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 11 }]}>{log.chick_count} chicks</Text>
                                             </View>
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
                                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Evaluated Per-Chick Average:</Text>
                                                 <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 11 }]}>{Math.round(log.weight_g)} g / chick</Text>
                                             </View>
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Final Weight Category:</Text>
-                                                <Text style={[textStyles.body, { color: statusColor, fontWeight: '700', fontSize: 11 }]}>
-                                                    {log.status.toUpperCase()} (evaluated on {Math.round(log.weight_g)}g average)
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, flexShrink: 0 }]}>Final Weight Category:</Text>
+                                                <Text style={[textStyles.body, { color: statusColor, fontWeight: '700', fontSize: 11, flexShrink: 1, textAlign: 'right' }]} numberOfLines={2}>
+                                                    {log.status.toUpperCase()} ({Math.round(log.weight_g)}g avg)
                                                 </Text>
                                             </View>
                                         </View>

@@ -219,6 +219,7 @@ export default function WeighingSessionsScreen() {
                 supabase.from('weighing_sessions')
                     .select('id, farm_day, expected_quantity, completed_quantity, status, created_at, completed_at')
                     .eq('batch_id', batchId)
+                    .gt('completed_quantity', 0)
                     .order('farm_day', { ascending: true, nullsFirst: false })
                     .order('created_at', { ascending: true }),
                 supabase.from('weigh_sessions')

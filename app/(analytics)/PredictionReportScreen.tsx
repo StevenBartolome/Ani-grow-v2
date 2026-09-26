@@ -235,6 +235,7 @@ export default function PredictionReportScreen() {
                         .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                         .eq('batch_id', requestedBatch.id)
                         .eq('status', 'completed')
+                        .gt('completed_quantity', 0)
                         .order('created_at', { ascending: true }),
                     supabase.from('health_records')
                         .select('id, record_type, affected_count, record_date')
@@ -271,6 +272,7 @@ export default function PredictionReportScreen() {
                             .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                             .eq('batch_id', targetBatchId)
                             .eq('status', 'completed')
+                            .gt('completed_quantity', 0)
                             .order('created_at', { ascending: true }),
                         supabase
                             .from('health_records')
@@ -321,6 +323,7 @@ export default function PredictionReportScreen() {
                     .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                     .eq('batch_id', batchId)
                     .eq('status', 'completed')
+                    .gt('completed_quantity', 0)
                     .order('created_at', { ascending: true }),
                 supabase
                     .from('health_records')

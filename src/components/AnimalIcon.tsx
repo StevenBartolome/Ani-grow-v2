@@ -2,15 +2,16 @@ import React from 'react';
 import { View, StyleProp, ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 
-interface AnimalIconProps {
-  type: 'Pig' | 'Chicken' | 'Pigs' | 'Chickens' | 'pig' | 'chicken';
+export interface AnimalIconProps {
+  type?: 'Pig' | 'Chicken' | 'Pigs' | 'Chickens' | 'pig' | 'chicken' | 'chicks' | 'Chicks' | 'chick' | 'Chick' | 'piglet' | 'Piglet' | 'piglets' | 'Piglets' | string | null;
   size?: number;
   color?: string;
   style?: StyleProp<ViewStyle>;
 }
 
 export const AnimalIcon: React.FC<AnimalIconProps> = ({ type, size = 24, color, style }) => {
-  const isPig = type.toLowerCase().startsWith('pig');
+  const normalized = (type || '').toLowerCase();
+  const isPig = normalized.includes('pig');
   const source = isPig 
     ? require('../../assets/icons/pig.svg') 
     : require('../../assets/icons/chicken.svg');

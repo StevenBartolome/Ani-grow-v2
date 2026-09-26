@@ -13,8 +13,8 @@ const palette = {
     grey100: '#F0F0F0',
     white: '#FFFFFF',
     black: '#000000',
-    pink: '#EC4899', // pig
-    orangeBright: '#F97316', // chicken
+    pink: '#EC4899', // pig & piglet
+    yellow: '#EAB308', // chicken & chicks
 } as const;
 
 export const lightColors = {
@@ -53,7 +53,9 @@ export const lightColors = {
     poultry: palette.green900,
     prediction: palette.purple,
     pig: palette.pink,
-    chicken: palette.orangeBright,
+    piglet: palette.pink,
+    chicken: palette.yellow,
+    chicks: palette.yellow,
 
     // On-colors
     onPrimary: palette.white,
@@ -100,7 +102,9 @@ export const darkColors = {
     poultry: palette.greenDark,
     prediction: '#AB47BC',
     pig: '#F472B6',
-    chicken: '#FB923C',
+    piglet: '#F472B6',
+    chicken: '#FACC15',
+    chicks: '#FACC15',
 
     // On-colors
     onPrimary: palette.black,
