@@ -19,13 +19,18 @@ export function useFormDraft<T extends Record<string, any>>(
     const [isDraftRestored, setIsDraftRestored] = useState(false);
     const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
     const isRestoringRef = useRef(false);
+    const hasRestoredRef = useRef(false);
     const debounceTimerRef = useRef<any>(null);
     const prevValuesRef = useRef<string>('');
 
     // Restore draft on initial enable/mount
     useEffect(() => {
         if (!enabled || !formKey) {
-            setHasLoadedDraft(false);
+            return;
+        }
+
+        if (hasRestoredRef.current) {
+            setHasLoadedDraft(true);
             return;
         }
 
@@ -36,6 +41,7 @@ export function useFormDraft<T extends Record<string, any>>(
                 const saved = await loadFormDraft<T>(formKey);
                 if (!isCancelled && saved && hasMeaningfulData(saved)) {
                     isRestoringRef.current = true;
+                    hasRestoredRef.current = true;
                     if (onRestore) {
                         onRestore(saved);
                     }
@@ -45,9 +51,12 @@ export function useFormDraft<T extends Record<string, any>>(
                     setTimeout(() => {
                         isRestoringRef.current = false;
                     }, 100);
+                } else {
+                    hasRestoredRef.current = true;
                 }
             } catch (err) {
                 console.warn(`[useFormDraft] error restoring draft for ${formKey}:`, err);
+                hasRestoredRef.current = true;
             } finally {
                 if (!isCancelled) {
                     setHasLoadedDraft(true);
@@ -93,6 +102,7 @@ export function useFormDraft<T extends Record<string, any>>(
         if (!formKey) return;
         await clearFormDraft(formKey);
         setIsDraftRestored(false);
+        hasRestoredRef.current = false;
         prevValuesRef.current = '';
     }, [formKey]);
 

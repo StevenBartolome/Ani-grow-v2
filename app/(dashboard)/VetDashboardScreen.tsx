@@ -323,11 +323,14 @@ export default function VetDashboardScreen() {
         </Pressable>
     );
 
-    // ── Follow-up Card ────────────────────────────────────────────────────────
+    // ── Follow-up & Booster Card ──────────────────────────────────────────────
     const FollowUpCard = ({ item, isToday }: { item: FollowUp; isToday: boolean }) => {
         const meta = RECORD_META[item.record_type] ?? RECORD_META.observation;
         const sevColor = SEVERITY_COLOR[item.severity] ?? '#888';
         const days = daysUntil(item.followup_date);
+        const isPrev = ['vaccination', 'deworming', 'vitamins'].includes(item.record_type);
+        const noun = item.record_type === 'vaccination' ? 'Booster' : item.record_type === 'deworming' ? 'Repeat Deworm' : item.record_type === 'vitamins' ? 'Next Dose' : 'Follow-up';
+
         const urgentBg = isToday
             ? colors.error + '0D'
             : days <= 3
@@ -353,8 +356,8 @@ export default function VetDashboardScreen() {
                 })}
             >
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-                    {/* Severity strip */}
-                    <View style={{ width: 3, alignSelf: 'stretch', backgroundColor: sevColor, borderRadius: 4 }} />
+                    {/* Severity / Type strip */}
+                    <View style={{ width: 3, alignSelf: 'stretch', backgroundColor: isPrev ? meta.color : sevColor, borderRadius: 4 }} />
 
                     {/* Icon */}
                     <View style={{
@@ -382,7 +385,7 @@ export default function VetDashboardScreen() {
                                     fontSize: 10, fontFamily: 'Poppins-SemiBold',
                                     color: isToday ? colors.error : days <= 3 ? colors.warning : colors.textGrey,
                                 }]}>
-                                    {isToday ? 'Today' : `in ${days}d`}
+                                    {isToday ? `${noun} Today` : `${noun} in ${days}d`}
                                 </Text>
                             </View>
                         </View>
@@ -400,14 +403,16 @@ export default function VetDashboardScreen() {
                                     {meta.label}
                                 </Text>
                             </View>
-                            <View style={{
-                                backgroundColor: sevColor + '15', borderRadius: 6,
-                                paddingHorizontal: 6, paddingVertical: 2,
-                            }}>
-                                <Text style={[textStyles.body, { color: sevColor, fontSize: 10, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }]}>
-                                    {item.severity}
-                                </Text>
-                            </View>
+                            {!isPrev && (
+                                <View style={{
+                                    backgroundColor: sevColor + '15', borderRadius: 6,
+                                    paddingHorizontal: 6, paddingVertical: 2,
+                                }}>
+                                    <Text style={[textStyles.body, { color: sevColor, fontSize: 10, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }]}>
+                                        {item.severity}
+                                    </Text>
+                                </View>
+                            )}
                             {item.medication && (
                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]} numberOfLines={1}>
                                     💊 {item.medication}
@@ -416,7 +421,7 @@ export default function VetDashboardScreen() {
                         </View>
 
                         <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 4 }]}>
-                            Follow-up: <Text style={{ color: colors.text, fontFamily: 'Poppins-Medium' }}>{fmtDate(item.followup_date)}</Text>
+                            {isPrev ? `${noun} Due:` : 'Follow-up:'} <Text style={{ color: colors.text, fontFamily: 'Poppins-Medium' }}>{fmtDate(item.followup_date)}</Text>
                         </Text>
                     </View>
                 </View>
@@ -564,7 +569,7 @@ export default function VetDashboardScreen() {
                             {/* Row 2 */}
                             <View style={homeStyles.farmStateRow}>
                                 <StatCard
-                                    label="Follow-ups Due"
+                                    label="Boosters & Follow-ups"
                                     value={dueFollowUps}
                                     icon="event-available"
                                     iconColor="#2980B9"

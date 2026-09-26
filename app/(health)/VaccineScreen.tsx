@@ -137,7 +137,7 @@ export default function VaccineScreen() {
     const [housings, setHousings]         = useState<HousingItem[]>([]);
     const [isLoading, setIsLoading]       = useState(true);
     const [refreshing, setRefreshing]     = useState(false);
-    const [filter, setFilter]             = useState<ScheduleFilter>('all');
+    const [filter, setFilter]             = useState<ScheduleFilter>('pending');
 
     // ── Snackbar ──────────────────────────────────────────────────────────────
     const [snackVisible, setSnackVisible] = useState(false);
@@ -160,20 +160,27 @@ export default function VaccineScreen() {
     const [schNotes, setSchNotes]                       = useState('');
     const [savingSch, setSavingSch]                     = useState(false);
 
+    // ── Single Active Sub-Modals (Same Exact Pattern as ManageHousingsScreen) ──
+    const [vaccineModalVisible, setVaccineModalVisible] = useState(false);
+    const [housingModalVisible, setHousingModalVisible] = useState(false);
+    const [dateModalVisible, setDateModalVisible]       = useState(false);
+
     // ── Form Draft Checkpointing ──────────────────────────────────
+    const isSchFormActive = showSchModal || dateModalVisible || vaccineModalVisible || housingModalVisible;
+
     const {
         clearDraft,
     } = useFormDraft(
         `vaccine_schedule_${primaryFarmId || 'farm'}`,
         { schHousingId, schHousingName, schVaccineId, schVaccineName, schDate, schInterval, schNotes },
         {
-            enabled: showSchModal,
+            enabled: isSchFormActive,
             onRestore: (draft) => {
                 if (draft.schHousingId) setSchHousingId(draft.schHousingId);
                 if (draft.schHousingName) setSchHousingName(draft.schHousingName);
                 if (draft.schVaccineId) setSchVaccineId(draft.schVaccineId);
                 if (draft.schVaccineName) setSchVaccineName(draft.schVaccineName);
-                if (draft.schDate) setSchDate(draft.schDate);
+                if (draft.schDate && draft.schDate >= TODAY) setSchDate(draft.schDate);
                 if (draft.schInterval) setSchInterval(draft.schInterval);
                 if (draft.schNotes) setSchNotes(draft.schNotes);
             },
@@ -186,11 +193,6 @@ export default function VaccineScreen() {
     const [filterHousingId, setFilterHousingId]         = useState<string>('all');
     const [filtersCollapsed, setFiltersCollapsed]       = useState(true);
     const [showCalendar, setShowCalendar]               = useState(false);
-
-    // ── Single Active Sub-Modals (Same Exact Pattern as ManageHousingsScreen) ──
-    const [vaccineModalVisible, setVaccineModalVisible] = useState(false);
-    const [housingModalVisible, setHousingModalVisible] = useState(false);
-    const [dateModalVisible, setDateModalVisible]       = useState(false);
 
     // ── Delete Confirmation Modal ────────────────────────────────────────────
     const [deleteModalVisible, setDeleteModalVisible]   = useState(false);
@@ -317,6 +319,11 @@ export default function VaccineScreen() {
         // Validation: Scheduled Date
         if (!schDate || !/^\d{4}-\d{2}-\d{2}$/.test(schDate)) {
             showSnack('Please select a valid scheduled date.', 'error');
+            return;
+        }
+
+        if (schDate < TODAY) {
+            showSnack('Scheduled date must be today or a future date.', 'error');
             return;
         }
 
@@ -530,7 +537,7 @@ export default function VaccineScreen() {
     const pendingCount = schedules.filter(s => s.status === 'pending').length;
     const completedCount = schedules.filter(s => s.status === 'completed').length;
 
-    const isStatusFiltered  = filter !== 'all';
+    const isStatusFiltered  = filter !== 'pending';
     const isHousingFiltered = filterHousingId !== 'all';
     const isDateFiltered    = !!selectedFilterDate;
     const isSearchFiltered  = !!searchQuery.trim();
@@ -538,7 +545,9 @@ export default function VaccineScreen() {
 
     const activeFilterSummary = useMemo(() => {
         const parts: string[] = [];
-        if (isStatusFiltered) {
+        if (filter === 'all') {
+            parts.push('All Statuses');
+        } else if (filter) {
             parts.push(filter.charAt(0).toUpperCase() + filter.slice(1));
         }
         if (isHousingFiltered) {
@@ -552,10 +561,10 @@ export default function VaccineScreen() {
             parts.push(`"${searchQuery.trim()}"`);
         }
         if (parts.length === 0) {
-            return 'All Schedules';
+            return 'Pending';
         }
         return parts.join(' · ');
-    }, [isStatusFiltered, filter, isHousingFiltered, filterHousingId, isDateFiltered, selectedFilterDate, isSearchFiltered, searchQuery, housings]);
+    }, [filter, isHousingFiltered, filterHousingId, isDateFiltered, selectedFilterDate, isSearchFiltered, searchQuery, housings]);
 
     const filteredSchedules = schedules.filter(sch => {
         // Status filter
@@ -589,7 +598,7 @@ export default function VaccineScreen() {
         ? new Date(schDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
         : 'Select Scheduled Date';
 
-    const isSaveDisabled = savingSch || !schVaccineId || !schDate;
+    const isSaveDisabled = savingSch || !schVaccineId || !schDate || schDate < TODAY;
 
     return (
         <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
@@ -866,29 +875,36 @@ export default function VaccineScreen() {
                             paddingVertical: 10,
                         }}
                     >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}>
-                            <MaterialIcons name="tune" size={16} color={isFiltered ? colors.primary : colors.textGrey} />
-                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, marginRight: 8 }}>
+                            <MaterialIcons name="tune" size={16} color={isFiltered ? colors.primary : colors.textGrey} style={{ flexShrink: 0 }} />
+                            <Text
+                                numberOfLines={1}
+                                style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text, flexShrink: 0 }}
+                            >
                                 Filters
                             </Text>
                             <View style={{
                                 flexDirection: 'row', alignItems: 'center',
                                 backgroundColor: isFiltered ? colors.primary + '18' : colors.cardFill,
                                 paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999,
-                                flexShrink: 1,
+                                flexShrink: 1, minWidth: 0,
                             }}>
-                                <Text style={{ fontFamily: isFiltered ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: isFiltered ? colors.primary : colors.textGrey }} numberOfLines={1}>
+                                <Text
+                                    style={{ fontFamily: isFiltered ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: isFiltered ? colors.primary : colors.textGrey }}
+                                    numberOfLines={1}
+                                    ellipsizeMode="tail"
+                                >
                                     {activeFilterSummary}
                                 </Text>
                             </View>
                         </View>
 
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                             {isFiltered && (
                                 <TouchableOpacity
                                     activeOpacity={0.7}
                                     onPress={() => {
-                                        setFilter('all');
+                                        setFilter('pending');
                                         setFilterHousingId('all');
                                         setSelectedFilterDate(null);
                                         setSearchQuery('');
@@ -898,6 +914,7 @@ export default function VaccineScreen() {
                                         paddingVertical: 3,
                                         borderRadius: 999,
                                         backgroundColor: colors.primary + '12',
+                                        flexShrink: 0,
                                     }}
                                 >
                                     <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.primary }}>
@@ -1636,6 +1653,7 @@ export default function VaccineScreen() {
                 }}
                 title="Select Scheduled Date"
                 selectedDate={schDate || undefined}
+                minDate={TODAY}
             />
 
             {/* ── Delete Confirmation ActionModal (Same exact modal as ManageHousingsScreen) ── */}

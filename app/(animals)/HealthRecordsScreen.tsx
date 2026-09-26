@@ -57,7 +57,7 @@ const RECORD_TYPES: Record<
         showDosage: true,
         showAffected: true,
         showSeverity: false,
-        showFollowup: false,
+        showFollowup: true,
     },
     treatment: {
         label: 'Treatment',
@@ -101,7 +101,7 @@ const RECORD_TYPES: Record<
         showDosage: true,
         showAffected: true,
         showSeverity: false,
-        showFollowup: false,
+        showFollowup: true,
     },
     vitamins: {
         label: 'Vitamins',
@@ -112,7 +112,7 @@ const RECORD_TYPES: Record<
         showDosage: true,
         showAffected: false,
         showSeverity: false,
-        showFollowup: false,
+        showFollowup: true,
     },
     mortality: {
         label: 'Mortality',
@@ -260,7 +260,82 @@ const PIG_VACCINE_NAMES = new Set([
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
 const fmtDate = (d: string) =>
-    new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    new Date(d.includes('T') ? d : d + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+const addDaysToDate = (dateStr: string, days: number): string => {
+    const base = dateStr ? new Date(dateStr + 'T00:00:00') : new Date();
+    base.setDate(base.getDate() + days);
+    const y = base.getFullYear();
+    const m = String(base.getMonth() + 1).padStart(2, '0');
+    const d = String(base.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
+
+const getFollowupStatus = (followupDate: string | null, recordType: RecordType, colors: any) => {
+    if (!followupDate) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(followupDate + 'T00:00:00');
+    const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    const isPreventative = ['vaccination', 'deworming', 'vitamins'].includes(recordType);
+    const dateFormatted = target.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    if (isPreventative) {
+        const noun = recordType === 'vaccination' ? 'Booster' : recordType === 'deworming' ? 'Repeat Deworming' : 'Next Dose';
+        if (diffDays > 7) {
+            return {
+                label: `Protection Active · ${noun} in ${diffDays}d (${dateFormatted})`,
+                shortLabel: `${noun} in ${diffDays}d`,
+                color: colors.primary,
+                bg: colors.primary + '18',
+                icon: 'verified',
+            };
+        } else if (diffDays >= 0) {
+            return {
+                label: diffDays === 0 ? `${noun} Due Today (${dateFormatted})` : `${noun} Due in ${diffDays}d (${dateFormatted})`,
+                shortLabel: diffDays === 0 ? `${noun} Due Today` : `${noun} in ${diffDays}d`,
+                color: colors.warning,
+                bg: colors.warning + '20',
+                icon: 'schedule',
+            };
+        } else {
+            return {
+                label: `${noun} Overdue by ${Math.abs(diffDays)}d · Was due ${dateFormatted}`,
+                shortLabel: `${noun} Overdue (${Math.abs(diffDays)}d)`,
+                color: colors.error,
+                bg: colors.error + '18',
+                icon: 'warning',
+            };
+        }
+    } else {
+        if (diffDays > 3) {
+            return {
+                label: `Follow-up in ${diffDays}d (${dateFormatted})`,
+                shortLabel: `Follow-up in ${diffDays}d`,
+                color: '#2980B9',
+                bg: '#2980B918',
+                icon: 'event',
+            };
+        } else if (diffDays >= 0) {
+            return {
+                label: diffDays === 0 ? `Follow-up Due Today` : `Follow-up in ${diffDays}d (${dateFormatted})`,
+                shortLabel: diffDays === 0 ? `Follow-up Today` : `Follow-up in ${diffDays}d`,
+                color: colors.warning,
+                bg: colors.warning + '20',
+                icon: 'event-available',
+            };
+        } else {
+            return {
+                label: `Follow-up Overdue by ${Math.abs(diffDays)}d`,
+                shortLabel: `Overdue (${Math.abs(diffDays)}d)`,
+                color: colors.error,
+                bg: colors.error + '18',
+                icon: 'warning',
+            };
+        }
+    }
+};
 
 const LabeledField = ({ label, value, color }: { label: string; value: string; color?: string }) => {
     const { colors } = useTheme();
@@ -292,8 +367,12 @@ function DatePickerField({
         : '';
 
     return (
-        <View>
-            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 11, color: colors.textGrey, marginBottom: 5, letterSpacing: 0.5 }}>
+        <View style={{ flex: 1 }}>
+            <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10.5, color: colors.textGrey, marginBottom: 5, letterSpacing: 0.3 }}
+            >
                 {label}{required ? ' *' : ''}
             </Text>
             <TouchableOpacity
@@ -301,18 +380,22 @@ function DatePickerField({
                 onPress={onPress}
                 style={{
                     borderWidth: 1.5, borderColor: border, borderRadius: 14,
-                    paddingHorizontal: 14, paddingVertical: 12,
+                    paddingHorizontal: 10, paddingVertical: 11, minHeight: 46,
                     backgroundColor: bg,
                     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                 }}
             >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 6 }}>
-                    <MaterialIcons name="calendar-today" size={18} color={hasValue ? colors.primary : colors.textGrey} />
-                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 13, color: hasValue ? colors.text : colors.textGrey, flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, marginRight: 2 }}>
+                    <MaterialIcons name="calendar-today" size={15} color={hasValue ? colors.primary : colors.textGrey} />
+                    <Text
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                        style={{ fontFamily: 'Poppins-Medium', fontSize: 12, color: hasValue ? colors.text : colors.textGrey, flex: 1 }}
+                    >
                         {displayValue || 'Select date…'}
                     </Text>
                 </View>
-                <MaterialIcons name="keyboard-arrow-down" size={20} color={colors.textGrey} />
+                <MaterialIcons name="keyboard-arrow-down" size={17} color={colors.textGrey} />
             </TouchableOpacity>
         </View>
     );
@@ -458,9 +541,10 @@ function SuggestionPickerModal({
     visible: boolean; title: string; options: string[];
     onSelect: (val: string) => void; onClose: () => void; colors: any;
 }) {
+    const [search, setSearch] = useState('');
+
     if (!visible) return null;
 
-    const [search, setSearch] = useState('');
     const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
 
     return (
@@ -500,6 +584,156 @@ function SuggestionPickerModal({
                 </ScrollView>
                 <TouchableOpacity onPress={onClose} style={{ marginHorizontal: 20, marginTop: 12, paddingVertical: 13, borderRadius: 14, backgroundColor: colors.cardFill, alignItems: 'center' }}>
                     <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.textGrey }}>Cancel</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+}
+
+// ─── InModalCalendarPicker (In-Modal Overlay) ──────────────────────────────────
+
+function InModalCalendarPicker({
+    visible, title, selectedDate, minDate, maxDate, onSelect, onClose, colors,
+}: {
+    visible: boolean;
+    title: string;
+    selectedDate?: string;
+    minDate?: string;
+    maxDate?: string;
+    onSelect: (dateStr: string) => void;
+    onClose: () => void;
+    colors: any;
+}) {
+    const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const WEEKDAY_LABELS = ['S','M','T','W','T','F','S'];
+
+    const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+    const toDateStr = (y: number, m: number, d: number) => `${y}-${pad2(m + 1)}-${pad2(d)}`;
+
+    const parseYM = (dateStr?: string) => {
+        if (dateStr) {
+            const [y, m] = dateStr.split('-').map(Number);
+            if (!isNaN(y) && !isNaN(m)) {
+                return { year: y, month: m - 1 };
+            }
+        }
+        const today = new Date();
+        return { year: today.getFullYear(), month: today.getMonth() };
+    };
+
+    const todayDate = new Date();
+    const todayStr = toDateStr(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
+
+    const [viewYear, setViewYear] = useState(() => parseYM(selectedDate).year);
+    const [viewMonth, setViewMonth] = useState(() => parseYM(selectedDate).month);
+
+    useEffect(() => {
+        if (visible) {
+            const { year, month } = parseYM(selectedDate);
+            setViewYear(year);
+            setViewMonth(month);
+        }
+    }, [visible, selectedDate]);
+
+    if (!visible) return null;
+
+    const goPrevMonth = () => {
+        if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
+        else setViewMonth(m => m - 1);
+    };
+    const goNextMonth = () => {
+        if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
+        else setViewMonth(m => m + 1);
+    };
+
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
+    const cells: (number | null)[] = [...Array(firstWeekday).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+
+    return (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', zIndex: 1200, elevation: 35, padding: 16 }]}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+            <View style={{
+                backgroundColor: colors.surface,
+                width: '100%',
+                maxWidth: 340,
+                padding: 20,
+                borderRadius: 24,
+                elevation: 10,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 12,
+                zIndex: 1201,
+            }}>
+                <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text, textAlign: 'center', marginBottom: 4, fontSize: 17 }}>
+                    {title}
+                </Text>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, marginBottom: 8 }}>
+                    <TouchableOpacity onPress={goPrevMonth} style={{ padding: 8, borderRadius: 20, backgroundColor: colors.cardFill }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <MaterialIcons name="chevron-left" size={22} color={colors.text} />
+                    </TouchableOpacity>
+                    <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text, fontSize: 15 }}>
+                        {MONTH_NAMES[viewMonth]} {viewYear}
+                    </Text>
+                    <TouchableOpacity onPress={goNextMonth} style={{ padding: 8, borderRadius: 20, backgroundColor: colors.cardFill }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <MaterialIcons name="chevron-right" size={22} color={colors.text} />
+                    </TouchableOpacity>
+                </View>
+
+                <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+                    {WEEKDAY_LABELS.map((w, i) => (
+                        <View key={i} style={{ flex: 1, alignItems: 'center', paddingVertical: 2 }}>
+                            <Text style={{ fontFamily: 'Poppins-Medium', color: colors.textGrey, fontSize: 11 }}>{w}</Text>
+                        </View>
+                    ))}
+                </View>
+
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                    {cells.map((day, i) => {
+                        if (day === null) return <View key={`blank-${i}`} style={{ width: `${100 / 7}%`, aspectRatio: 1 }} />;
+                        const dateStr = toDateStr(viewYear, viewMonth, day);
+                        const isSelected = dateStr === selectedDate;
+                        const isToday = dateStr === todayStr;
+                        const isDisabled = (minDate && dateStr < minDate) || (maxDate && dateStr > maxDate);
+                        return (
+                            <View key={dateStr} style={{ width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' }}>
+                                <TouchableOpacity
+                                    activeOpacity={isDisabled ? 1 : 0.7}
+                                    disabled={!!isDisabled}
+                                    onPress={() => { onSelect(dateStr); }}
+                                    style={{
+                                        width: 32,
+                                        height: 32,
+                                        borderRadius: 16,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        backgroundColor: isSelected ? colors.primary : isToday ? (colors.primary + '18') : 'transparent',
+                                        borderWidth: isToday && !isSelected ? 1 : 0,
+                                        borderColor: colors.primary,
+                                        opacity: isDisabled ? 0.35 : 1,
+                                    }}
+                                >
+                                    <Text style={{
+                                        fontSize: 13,
+                                        fontFamily: isSelected || isToday ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                                        color: isDisabled ? colors.textGrey : isSelected ? colors.onPrimary : isToday ? colors.primary : colors.text,
+                                    }}>
+                                        {day}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        );
+                    })}
+                </View>
+
+                <TouchableOpacity
+                    style={{ width: '100%', height: 42, borderRadius: 21, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginTop: 14 }}
+                    onPress={onClose}
+                    activeOpacity={0.7}
+                >
+                    <Text style={{ fontFamily: 'Poppins-Medium', color: colors.textGrey, fontSize: 13 }}>Cancel</Text>
                 </TouchableOpacity>
             </View>
         </View>
@@ -1089,15 +1323,19 @@ const HealthRecordCardItem = ({
                         ) : null}
                     </View>
 
-                    {/* Follow-up badge */}
-                    {record.followup_date && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, backgroundColor: colors.warning + '18', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' }}>
-                            <MaterialIcons name="event" size={11} color={colors.warning} />
-                            <Text style={{ color: colors.warning, fontSize: 10, fontFamily: 'Poppins-SemiBold' }}>
-                                Follow-up: {new Date(record.followup_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </Text>
-                        </View>
-                    )}
+                    {/* Follow-up / Booster badge */}
+                    {record.followup_date && (() => {
+                        const status = getFollowupStatus(record.followup_date, record.record_type, colors);
+                        if (!status) return null;
+                        return (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, backgroundColor: status.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' }}>
+                                <MaterialIcons name={status.icon as any} size={12} color={status.color} />
+                                <Text style={{ color: status.color, fontSize: 10.5, fontFamily: 'Poppins-SemiBold' }}>
+                                    {status.label}
+                                </Text>
+                            </View>
+                        );
+                    })()}
                 </View>
 
                 {/* Chevron */}
@@ -1239,6 +1477,16 @@ export default function HealthRecordsScreen() {
     const [customMed, setCustomMed] = useState('');
 
     // Picker visibility states
+    const [typePickerVisible, setTypePickerVisible] = useState(false);
+    const [severityPickerVisible, setSeverityPickerVisible] = useState(false);
+    const [batchPickerVisible, setBatchPickerVisible] = useState(false);
+    const [activeAddCalendar, setActiveAddCalendar] = useState<{
+        label: string;
+        value: string;
+        minDate?: string;
+        maxDate?: string;
+        onChange: (d: string) => void;
+    } | null>(null);
     const [illnessPickerVisible, setIllnessPickerVisible] = useState(false);
     const [treatmentPickerVisible, setTreatmentPickerVisible] = useState(false);
     const [vitaminPickerVisible, setVitaminPickerVisible] = useState(false);
@@ -1246,6 +1494,8 @@ export default function HealthRecordsScreen() {
     const [medicationPickerVisible, setMedicationPickerVisible] = useState(false);
 
     // ── Form Draft Checkpointing ──────────────────────────────────
+    const isAddFormActive = addVisible || activeAddCalendar !== null || vaccinePickerVisible || illnessPickerVisible || treatmentPickerVisible || vitaminPickerVisible || dewormingPickerVisible || medicationPickerVisible || typePickerVisible || severityPickerVisible || batchPickerVisible;
+
     const {
         clearDraft,
     } = useFormDraft(
@@ -1265,7 +1515,7 @@ export default function HealthRecordsScreen() {
             addFollowup,
         },
         {
-            enabled: addVisible,
+            enabled: isAddFormActive,
             onRestore: (draft) => {
                 if (draft.addBatchId) setAddBatchId(draft.addBatchId);
                 if (draft.addType) setAddType(draft.addType);
@@ -1343,16 +1593,6 @@ export default function HealthRecordsScreen() {
     const slideTrash = useRef(new Animated.Value(600)).current;
     const slideEdit = useRef(new Animated.Value(600)).current;
 
-    // Pickers (Add form)
-    const [typePickerVisible, setTypePickerVisible] = useState(false);
-    const [severityPickerVisible, setSeverityPickerVisible] = useState(false);
-    const [batchPickerVisible, setBatchPickerVisible] = useState(false);
-    const [activeAddCalendar, setActiveAddCalendar] = useState<{
-        label: string;
-        value: string;
-        onChange: (d: string) => void;
-    } | null>(null);
-
     // ── Edit form ─────────────────────────────────────────────────────────────
     const [editVisible, setEditVisible] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
@@ -1384,27 +1624,37 @@ export default function HealthRecordsScreen() {
     const [activeEditCalendar, setActiveEditCalendar] = useState<{
         label: string;
         value: string;
+        minDate?: string;
+        maxDate?: string;
         onChange: (d: string) => void;
     } | null>(null);
 
-    const openAddCalendar = (label: string, value: string, onChange: (d: string) => void) => {
-        setActiveAddCalendar({ label, value, onChange });
-        setAddVisible(false);
+    const openAddCalendar = (
+        label: string,
+        value: string,
+        onChange: (d: string) => void,
+        minDate?: string,
+        maxDate?: string
+    ) => {
+        setActiveAddCalendar({ label, value, onChange, minDate, maxDate });
     };
 
     const closeAddCalendar = () => {
         setActiveAddCalendar(null);
-        setAddVisible(true);
     };
 
-    const openEditCalendar = (label: string, value: string, onChange: (d: string) => void) => {
-        setActiveEditCalendar({ label, value, onChange });
-        setEditVisible(false);
+    const openEditCalendar = (
+        label: string,
+        value: string,
+        onChange: (d: string) => void,
+        minDate?: string,
+        maxDate?: string
+    ) => {
+        setActiveEditCalendar({ label, value, onChange, minDate, maxDate });
     };
 
     const closeEditCalendar = () => {
         setActiveEditCalendar(null);
-        setEditVisible(true);
     };
 
     // ── Add Modal Swipe Gesture (Header only) ──
@@ -1800,6 +2050,12 @@ export default function HealthRecordsScreen() {
     );
     const isAddMortalityInvalid = addType === 'mortality' && (!addAffected || parseInt(addAffected, 10) <= 0);
     const isAddVaccinationInvalid = addType === 'vaccination' && (!addAffected || parseInt(addAffected, 10) < 1);
+    const isAddFollowupInvalid = !!(
+        RECORD_TYPES[addType].showFollowup &&
+        addFollowup &&
+        addDate &&
+        addFollowup < addDate
+    );
 
     const isAddFormValid = !!(
         addBatchId &&
@@ -1807,7 +2063,8 @@ export default function HealthRecordsScreen() {
         addDate &&
         !isAddCountExceeded &&
         !isAddMortalityInvalid &&
-        !isAddVaccinationInvalid
+        !isAddVaccinationInvalid &&
+        !isAddFollowupInvalid
     );
 
     const finalEditTitle = editTitle === 'Other' ? editCustomTitle.trim() : editTitle.trim();
@@ -1860,6 +2117,12 @@ export default function HealthRecordsScreen() {
     );
     const isEditMortalityInvalid = isNewMortality && (!editAffected || parseInt(editAffected, 10) <= 0);
     const isEditVaccinationInvalid = editType === 'vaccination' && (!editAffected || parseInt(editAffected, 10) < 1);
+    const isEditFollowupInvalid = !!(
+        RECORD_TYPES[editType].showFollowup &&
+        editFollowup &&
+        editDate &&
+        editFollowup < editDate
+    );
 
     const isEditFormValid = !!(
         editBatchId &&
@@ -1867,7 +2130,8 @@ export default function HealthRecordsScreen() {
         editDate &&
         !isEditCountExceeded &&
         !isEditMortalityInvalid &&
-        !isEditVaccinationInvalid
+        !isEditVaccinationInvalid &&
+        !isEditFollowupInvalid
     );
 
     const syncCountsForBatchAndHousing = async (batchId: string | null, targetHousingId: string | null) => {
@@ -1958,6 +2222,10 @@ export default function HealthRecordsScreen() {
         }
         if (currentConfig.showAffected && addAffected && selectedAddBatch && parseInt(addAffected) > selectedAddBatch.current_count) {
             showSnackbar(`Animals affected (${addAffected}) exceeds available count (${selectedAddBatch.current_count}).`, 'error');
+            return;
+        }
+        if (currentConfig.showFollowup && addFollowup && addDate && addFollowup < addDate) {
+            showSnackbar('Repeat / Due date cannot be earlier than Date Recorded.', 'error');
             return;
         }
 
@@ -2264,6 +2532,10 @@ export default function HealthRecordsScreen() {
         if (cfg.showAffected && !isNewMortality && editAffected && selectedEditBatch &&
             parseInt(editAffected) > selectedEditBatch.current_count) {
             showSnackbar(`Affected (${editAffected}) exceeds available count (${selectedEditBatch.current_count}).`, 'error');
+            return;
+        }
+        if (cfg.showFollowup && editFollowup && editDate && editFollowup < editDate) {
+            showSnackbar('Repeat / Due date cannot be earlier than Date Recorded.', 'error');
             return;
         }
 
@@ -2587,24 +2859,31 @@ export default function HealthRecordsScreen() {
                         paddingVertical: 10,
                     }}
                 >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}>
-                        <MaterialIcons name="tune" size={16} color={isFiltered ? colors.primary : colors.textGrey} />
-                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, marginRight: 8 }}>
+                        <MaterialIcons name="tune" size={16} color={isFiltered ? colors.primary : colors.textGrey} style={{ flexShrink: 0 }} />
+                        <Text
+                            numberOfLines={1}
+                            style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text, flexShrink: 0 }}
+                        >
                             Filters
                         </Text>
                         <View style={{
                             flexDirection: 'row', alignItems: 'center',
                             backgroundColor: isFiltered ? colors.primary + '18' : colors.cardFill,
                             paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999,
-                            flexShrink: 1,
+                            flexShrink: 1, minWidth: 0,
                         }}>
-                            <Text style={{ fontFamily: isFiltered ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: isFiltered ? colors.primary : colors.textGrey }} numberOfLines={1}>
+                            <Text
+                                style={{ fontFamily: isFiltered ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: isFiltered ? colors.primary : colors.textGrey }}
+                                numberOfLines={1}
+                                ellipsizeMode="tail"
+                            >
                                 {activeFilterSummary}
                             </Text>
                         </View>
                     </View>
 
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                         {isFiltered && (
                             <TouchableOpacity
                                 activeOpacity={0.7}
@@ -2617,6 +2896,7 @@ export default function HealthRecordsScreen() {
                                     paddingVertical: 3,
                                     borderRadius: 999,
                                     backgroundColor: colors.primary + '12',
+                                    flexShrink: 0,
                                 }}
                             >
                                 <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.primary }}>
@@ -2925,17 +3205,33 @@ export default function HealthRecordsScreen() {
                                         </View>
                                     )}
 
-                                    {detailRecord.followup_date && (
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.warning + '15', borderRadius: 14, padding: 14, marginBottom: 14 }}>
-                                            <MaterialIcons name="event" size={22} color={colors.warning} />
-                                            <View>
-                                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.warning, marginBottom: 2, letterSpacing: 0.5 }}>FOLLOW-UP SCHEDULED</Text>
-                                                <Text style={[textStyles.body, { color: colors.text, fontFamily: 'Poppins-SemiBold', fontSize: 14 }]}>
-                                                    {fmtDate(detailRecord.followup_date)}
-                                                </Text>
+                                    {detailRecord.followup_date && (() => {
+                                        const status = getFollowupStatus(detailRecord.followup_date, detailRecord.record_type, colors);
+                                        const isPrev = ['vaccination', 'deworming', 'vitamins'].includes(detailRecord.record_type);
+                                        const heading = isPrev 
+                                            ? (detailRecord.record_type === 'vaccination' ? 'BOOSTER SHOT DUE' : detailRecord.record_type === 'deworming' ? 'REPEAT DEWORMING DUE' : 'NEXT DOSE DUE')
+                                            : 'FOLLOW-UP SCHEDULED';
+                                        return (
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: status?.bg ?? (colors.warning + '15'), borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: (status?.color ?? colors.warning) + '30' }}>
+                                                <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: (status?.color ?? colors.warning) + '20', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <MaterialIcons name={(status?.icon ?? 'event') as any} size={20} color={status?.color ?? colors.warning} />
+                                                </View>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: status?.color ?? colors.warning, marginBottom: 2, letterSpacing: 0.5 }}>
+                                                        {heading}
+                                                    </Text>
+                                                    <Text style={[textStyles.body, { color: colors.text, fontFamily: 'Poppins-SemiBold', fontSize: 14 }]}>
+                                                        {fmtDate(detailRecord.followup_date)}
+                                                    </Text>
+                                                    {status?.label && (
+                                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11.5, color: status.color, marginTop: 2 }}>
+                                                            {status.label}
+                                                        </Text>
+                                                    )}
+                                                </View>
                                             </View>
-                                        </View>
-                                    )}
+                                        );
+                                    })()}
 
                                     {/* Divider */}
                                     <View style={{ height: 1, backgroundColor: colors.stroke, marginBottom: 20 }} />
@@ -3264,24 +3560,96 @@ export default function HealthRecordsScreen() {
                                 </View>
                             )}
 
-                            {/* ── Date + Follow-up ── */}
+                            {/* ── Date + Follow-up / Booster Due Date ── */}
                             {RECORD_TYPES[addType].showFollowup ? (
-                                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 14 }}>
-                                    <View style={{ flex: 1 }}>
-                                        <DatePickerField
-                                            label="DATE RECORDED"
-                                            value={addDate}
-                                            onPress={() => openAddCalendar('Date Recorded', addDate, setAddDate)}
-                                            required
-                                        />
+                                <View style={{ marginBottom: 14 }}>
+                                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                                        <View style={{ flex: 1 }}>
+                                            <DatePickerField
+                                                label="DATE RECORDED"
+                                                value={addDate}
+                                                onPress={() => openAddCalendar('Date Recorded', addDate, setAddDate)}
+                                                required
+                                            />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <DatePickerField
+                                                label={
+                                                    addType === 'vaccination' ? 'BOOSTER DUE' :
+                                                    addType === 'deworming' ? 'REPEAT DEWORM' :
+                                                    addType === 'vitamins' ? 'NEXT DOSE' :
+                                                    'FOLLOW-UP DATE'
+                                                }
+                                                value={addFollowup}
+                                                onPress={() => openAddCalendar(
+                                                    addType === 'vaccination' ? 'Booster Due Date' :
+                                                    addType === 'deworming' ? 'Repeat Deworming Date' :
+                                                    addType === 'vitamins' ? 'Next Dose Date' :
+                                                    'Follow-up Date',
+                                                    addFollowup || addDate || new Date().toISOString().split('T')[0],
+                                                    setAddFollowup,
+                                                    addDate || new Date().toISOString().split('T')[0]
+                                                )}
+                                            />
+                                        </View>
                                     </View>
-                                    <View style={{ flex: 1 }}>
-                                        <DatePickerField
-                                            label="FOLLOW-UP DATE"
-                                            value={addFollowup}
-                                            onPress={() => openAddCalendar('Follow-up Date', addFollowup, setAddFollowup)}
-                                        />
-                                    </View>
+                                    {isAddFollowupInvalid && (
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                                            <MaterialIcons name="error-outline" size={13} color={colors.error} />
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.error }}>
+                                                Repeat / due date cannot be earlier than Date Recorded.
+                                            </Text>
+                                        </View>
+                                    )}
+                                    {/* Quick Validity / Interval Presets for Preventative Care */}
+                                    {['vaccination', 'deworming', 'vitamins'].includes(addType) && (
+                                        <View style={{ marginTop: 8 }}>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginBottom: 5 }}>
+                                                {addType === 'vaccination' ? 'Booster Interval / Validity:' : 'Protection Validity Period:'}
+                                            </Text>
+                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                                {[
+                                                    { label: '+21d (Booster)', days: 21 },
+                                                    { label: '+30d (1 Mo)', days: 30 },
+                                                    { label: '+90d (3 Mos)', days: 90 },
+                                                    { label: '+180d (6 Mos)', days: 180 },
+                                                ].map(chip => {
+                                                    const targetVal = addDaysToDate(addDate, chip.days);
+                                                    const isSelected = addFollowup === targetVal;
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={chip.days}
+                                                            activeOpacity={0.75}
+                                                            onPress={() => setAddFollowup(targetVal)}
+                                                            style={{
+                                                                backgroundColor: isSelected ? colors.primary + '20' : colors.cardFill,
+                                                                borderWidth: 1,
+                                                                borderColor: isSelected ? colors.primary : colors.stroke,
+                                                                paddingHorizontal: 9,
+                                                                paddingVertical: 4,
+                                                                borderRadius: 8,
+                                                            }}
+                                                        >
+                                                            <Text style={{ fontFamily: isSelected ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: isSelected ? colors.primary : colors.text }}>
+                                                                {chip.label}
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    );
+                                                })}
+                                                {addFollowup ? (
+                                                    <TouchableOpacity
+                                                        activeOpacity={0.7}
+                                                        onPress={() => setAddFollowup('')}
+                                                        style={{ paddingHorizontal: 6, paddingVertical: 4 }}
+                                                    >
+                                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.error }}>
+                                                            Clear
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ) : null}
+                                            </View>
+                                        </View>
+                                    )}
                                 </View>
                             ) : (
                                 <View style={{ marginBottom: 14 }}>
@@ -3419,6 +3787,21 @@ export default function HealthRecordsScreen() {
                         options={suggestedMeds.concat('Other')}
                         onSelect={val => { setAddMed(val); setCustomMed(''); setMedicationPickerVisible(false); }}
                         onClose={() => setMedicationPickerVisible(false)}
+                        colors={colors}
+                    />
+                    <InModalCalendarPicker
+                        visible={!!activeAddCalendar}
+                        title={activeAddCalendar?.label || 'Select Date'}
+                        selectedDate={activeAddCalendar?.value || undefined}
+                        minDate={activeAddCalendar?.minDate}
+                        maxDate={activeAddCalendar?.maxDate}
+                        onSelect={(d) => {
+                            if (activeAddCalendar) {
+                                activeAddCalendar.onChange(d);
+                            }
+                            closeAddCalendar();
+                        }}
+                        onClose={closeAddCalendar}
                         colors={colors}
                     />
                 </View>
@@ -3661,24 +4044,96 @@ export default function HealthRecordsScreen() {
                                 </View>
                             )}
 
-                            {/* ── Date + Follow-up ── */}
+                            {/* ── Date + Follow-up / Booster Due Date ── */}
                             {RECORD_TYPES[editType].showFollowup ? (
-                                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 14 }}>
-                                    <View style={{ flex: 1 }}>
-                                        <DatePickerField
-                                            label="DATE RECORDED"
-                                            value={editDate}
-                                            onPress={() => openEditCalendar('Date Recorded', editDate, setEditDate)}
-                                            required
-                                        />
+                                <View style={{ marginBottom: 14 }}>
+                                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                                        <View style={{ flex: 1 }}>
+                                            <DatePickerField
+                                                label="DATE RECORDED"
+                                                value={editDate}
+                                                onPress={() => openEditCalendar('Date Recorded', editDate, setEditDate)}
+                                                required
+                                            />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <DatePickerField
+                                                label={
+                                                    editType === 'vaccination' ? 'BOOSTER DUE' :
+                                                    editType === 'deworming' ? 'REPEAT DEWORM' :
+                                                    editType === 'vitamins' ? 'NEXT DOSE' :
+                                                    'FOLLOW-UP DATE'
+                                                }
+                                                value={editFollowup}
+                                                onPress={() => openEditCalendar(
+                                                    editType === 'vaccination' ? 'Booster Due Date' :
+                                                    editType === 'deworming' ? 'Repeat Deworming Date' :
+                                                    editType === 'vitamins' ? 'Next Dose Date' :
+                                                    'Follow-up Date',
+                                                    editFollowup || editDate || new Date().toISOString().split('T')[0],
+                                                    setEditFollowup,
+                                                    editDate || new Date().toISOString().split('T')[0]
+                                                )}
+                                            />
+                                        </View>
                                     </View>
-                                    <View style={{ flex: 1 }}>
-                                        <DatePickerField
-                                            label="FOLLOW-UP DATE"
-                                            value={editFollowup}
-                                            onPress={() => openEditCalendar('Follow-up Date', editFollowup, setEditFollowup)}
-                                        />
-                                    </View>
+                                    {isEditFollowupInvalid && (
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                                            <MaterialIcons name="error-outline" size={13} color={colors.error} />
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.error }}>
+                                                Repeat / due date cannot be earlier than Date Recorded.
+                                            </Text>
+                                        </View>
+                                    )}
+                                    {/* Quick Validity / Interval Presets for Preventative Care */}
+                                    {['vaccination', 'deworming', 'vitamins'].includes(editType) && (
+                                        <View style={{ marginTop: 8 }}>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginBottom: 5 }}>
+                                                {editType === 'vaccination' ? 'Booster Interval / Validity:' : 'Protection Validity Period:'}
+                                            </Text>
+                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                                {[
+                                                    { label: '+21d (Booster)', days: 21 },
+                                                    { label: '+30d (1 Mo)', days: 30 },
+                                                    { label: '+90d (3 Mos)', days: 90 },
+                                                    { label: '+180d (6 Mos)', days: 180 },
+                                                ].map(chip => {
+                                                    const targetVal = addDaysToDate(editDate, chip.days);
+                                                    const isSelected = editFollowup === targetVal;
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={chip.days}
+                                                            activeOpacity={0.75}
+                                                            onPress={() => setEditFollowup(targetVal)}
+                                                            style={{
+                                                                backgroundColor: isSelected ? colors.primary + '20' : colors.cardFill,
+                                                                borderWidth: 1,
+                                                                borderColor: isSelected ? colors.primary : colors.stroke,
+                                                                paddingHorizontal: 9,
+                                                                paddingVertical: 4,
+                                                                borderRadius: 8,
+                                                            }}
+                                                        >
+                                                            <Text style={{ fontFamily: isSelected ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: isSelected ? colors.primary : colors.text }}>
+                                                                {chip.label}
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    );
+                                                })}
+                                                {editFollowup ? (
+                                                    <TouchableOpacity
+                                                        activeOpacity={0.7}
+                                                        onPress={() => setEditFollowup('')}
+                                                        style={{ paddingHorizontal: 6, paddingVertical: 4 }}
+                                                    >
+                                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.error }}>
+                                                            Clear
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ) : null}
+                                            </View>
+                                        </View>
+                                    )}
                                 </View>
                             ) : (
                                 <View style={{ marginBottom: 14 }}>
@@ -3816,6 +4271,21 @@ export default function HealthRecordsScreen() {
                         options={editSuggestedMeds.concat('Other')}
                         onSelect={val => { setEditMed(val); setCustomMed(''); setEditMedicationPickerVisible(false); }}
                         onClose={() => setEditMedicationPickerVisible(false)}
+                        colors={colors}
+                    />
+                    <InModalCalendarPicker
+                        visible={!!activeEditCalendar}
+                        title={activeEditCalendar?.label || 'Select Date'}
+                        selectedDate={activeEditCalendar?.value || undefined}
+                        minDate={activeEditCalendar?.minDate}
+                        maxDate={activeEditCalendar?.maxDate}
+                        onSelect={(d) => {
+                            if (activeEditCalendar) {
+                                activeEditCalendar.onChange(d);
+                            }
+                            closeEditCalendar();
+                        }}
+                        onClose={closeEditCalendar}
                         colors={colors}
                     />
                 </View>
@@ -3993,32 +4463,6 @@ export default function HealthRecordsScreen() {
                     />
                 </View>
             </Modal>
-
-            {activeAddCalendar && (
-                <CalendarPickerModal
-                    visible={true}
-                    onClose={closeAddCalendar}
-                    onSelect={(d) => {
-                        activeAddCalendar.onChange(d);
-                        closeAddCalendar();
-                    }}
-                    title={activeAddCalendar.label}
-                    selectedDate={activeAddCalendar.value || undefined}
-                />
-            )}
-
-            {activeEditCalendar && (
-                <CalendarPickerModal
-                    visible={true}
-                    onClose={closeEditCalendar}
-                    onSelect={(d) => {
-                        activeEditCalendar.onChange(d);
-                        closeEditCalendar();
-                    }}
-                    title={activeEditCalendar.label}
-                    selectedDate={activeEditCalendar.value || undefined}
-                />
-            )}
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
         </View>

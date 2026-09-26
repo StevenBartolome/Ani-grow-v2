@@ -615,11 +615,11 @@ export default function FeedReportScreen() {
     // Dynamic AI Insights text for AniBot card
     const getBotAnalysis = () => {
         if (!feedAnalysis) {
-            return `No feed consumption records found for ${selectedHousing ? selectedHousing.name : 'this house'} in ${timeframe.toLowerCase()}.`;
+            return `No feed dispense records found for ${selectedHousing ? selectedHousing.name : 'this house'} in ${timeframe.toLowerCase()}.`;
         }
 
         const animalLabel = animalType === 'pig' ? 'pigs' : 'chickens';
-        return `In ${selectedHousing?.name ?? 'this house'}, ${headCount} ${animalLabel} consumed a total of ${totalConsumption.toFixed(1)} kg over ${timeframe.toLowerCase()}. Daily feed intake averages ${feedAnalysis.dailyIntakePerHeadGrams} g/head (${Math.round(feedAnalysis.benchmarkRatio * 100)}% of the ${feedAnalysis.targetIntakeGrams} g standard). Primary diet is ${feedAnalysis.topFeedName} (${feedAnalysis.topFeedCategory}), accounting for ${feedAnalysis.topPct}% of intake with approximately ${feedAnalysis.estimatedRunwayDays} days of storage remaining.`;
+        return `In ${selectedHousing?.name ?? 'this house'}, ${headCount} ${animalLabel} were dispensed a total of ${totalConsumption.toFixed(1)} kg over ${timeframe.toLowerCase()}. Daily feed dispense averages ${feedAnalysis.dailyIntakePerHeadGrams} g/head (${Math.round(feedAnalysis.benchmarkRatio * 100)}% of the ${feedAnalysis.targetIntakeGrams} g standard). Primary diet is ${feedAnalysis.topFeedName} (${feedAnalysis.topFeedCategory}), accounting for ${feedAnalysis.topPct}% of dispensed feed with approximately ${feedAnalysis.estimatedRunwayDays} days of storage remaining.`;
     };
 
     // ─── PDF Report Builder ──────────────────────────────────────
@@ -636,7 +636,7 @@ export default function FeedReportScreen() {
         ]);
 
         return {
-            reportTitle: 'Feed Consumption & Nutritional Report',
+            reportTitle: 'Feed Dispensed & Nutritional Report',
             farmName,
             subtitle: `${selectedHousing.name} · ${animalType === 'pig' ? 'Pigs' : 'Chickens'} · ${timeframe}`,
             meta: [
@@ -651,7 +651,7 @@ export default function FeedReportScreen() {
                 {
                     heading: 'Executive Feeding Performance',
                     stats: [
-                        { label: 'Total Consumed', value: `${totalConsumption.toFixed(1)} kg` },
+                        { label: 'Total Dispensed', value: `${totalConsumption.toFixed(1)} kg` },
                         { label: 'Avg Daily / Head', value: feedAnalysis ? `${feedAnalysis.dailyIntakePerHeadGrams} g/day` : 'N/A' },
                         { label: 'Appetite Rating', value: feedAnalysis?.appetiteStatus || 'Normal' },
                         { label: 'Feed Runway', value: feedAnalysis ? `~${feedAnalysis.estimatedRunwayDays} days` : 'N/A' },
@@ -664,9 +664,9 @@ export default function FeedReportScreen() {
                 {
                     heading: 'Feed Ration Breakdown',
                     table: {
-                        headers: ['Feed & Brand', 'Category', 'Consumption', '% of Total', 'Stock Left'],
+                        headers: ['Feed & Brand', 'Category', 'Dispensed', '% of Total', 'Stock Left'],
                         rows,
-                        note: rows.length === 0 ? 'No feed consumption recorded for this period.' : undefined,
+                        note: rows.length === 0 ? 'No feed dispense records found for this period.' : undefined,
                     },
                 },
             ],
@@ -701,11 +701,11 @@ export default function FeedReportScreen() {
                 {/* Intro Text & Value Badge */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 4, gap: 12 }}>
                     <Text style={[textStyles.body, animalStyles.detailsSubtitle, { color: colors.textGrey, flex: 1, marginTop: 0, marginBottom: 0 }]}>
-                        Monitor feeding efficiency, daily intake per head, and ration stock for your {animalType === 'pig' ? 'pigs' : 'chickens'}.
+                        Monitor feeding efficiency, daily dispense per head, and ration stock for your {animalType === 'pig' ? 'pigs' : 'chickens'}.
                     </Text>
                     <View style={[styles.dayBadge, { marginBottom: 0, backgroundColor: colors.surface, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.stroke, flexShrink: 0 }]}>
                         <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, letterSpacing: 1.2, opacity: 0.85 }]}>
-                            CONSUMED
+                            DISPENSED
                         </Text>
                         <Text style={[textStyles.h1, { color: colors.primary, fontSize: 24, lineHeight: 28 }]}>
                             {totalConsumption.toFixed(1)}<Text style={{ fontSize: 14 }}> kg</Text>
@@ -822,16 +822,16 @@ export default function FeedReportScreen() {
                         </Text>
                     </View>
                 ) : (
-                    /* ─── Informative Feed Consumption Content ─── */
+                    /* ─── Informative Feed Dispense Content ─── */
                     <>
                         {/* KPI 4-Metric Grid (Two explicit 2-column rows to prevent flexWrap calculation overflow) */}
                         <View style={{ gap: 10, marginBottom: 20 }}>
                             <View style={{ flexDirection: 'row', gap: 10 }}>
-                                {/* Total Consumed */}
+                                {/* Total Dispensed */}
                                 <View style={{ flex: 1, backgroundColor: colors.surface, borderRadius: 16, padding: 13, borderWidth: 1, borderColor: colors.stroke }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                                         <MaterialIcons name="inventory-2" size={16} color={colors.primary} />
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>Total Consumed</Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>Total Dispensed</Text>
                                     </View>
                                     <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 19, color: colors.text }}>
                                         {totalConsumption.toFixed(1)} <Text style={{ fontSize: 12, fontFamily: 'Poppins-Regular', color: colors.textGrey }}>kg</Text>
@@ -889,7 +889,7 @@ export default function FeedReportScreen() {
 
                         {/* Timeframe Toggle & Chart Title */}
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Daily Feed Intake</Text>
+                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Daily Feed Dispensed</Text>
                             <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2 }}>
                                 {(['This Week', 'This Month'] as const).map(tf => (
                                     <TouchableOpacity
@@ -1085,12 +1085,12 @@ export default function FeedReportScreen() {
                                  {/* Detailed Narrative Explanation */}
                                  <View style={{ gap: 10 }}>
                                      <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
-                                         In <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{selectedHousing?.name}</Text>, the active flock of <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{headCount} {animalType === 'pig' ? 'pigs' : 'chickens'}</Text> {activeBatch ? `(${activeBatch.name}${batchAgeDays !== null ? `, Day ${batchAgeDays}` : ''})` : ''} consumed a total of <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{totalConsumption.toFixed(1)} kg</Text> of feed across {totalDispenses} automated dispenses over {timeframe.toLowerCase()}. Daily feed intake averages <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{feedAnalysis.dailyIntakePerHeadGrams} g/head/day</Text> ({feedAnalysis.avgDailyKg.toFixed(1)} kg/day house consumption).
+                                         In <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{selectedHousing?.name}</Text>, the active flock of <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{headCount} {animalType === 'pig' ? 'pigs' : 'chickens'}</Text> {activeBatch ? `(${activeBatch.name}${batchAgeDays !== null ? `, Day ${batchAgeDays}` : ''})` : ''} was dispensed a total of <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{totalConsumption.toFixed(1)} kg</Text> of feed across {totalDispenses} automated dispenses over {timeframe.toLowerCase()}. Daily feed dispense averages <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{feedAnalysis.dailyIntakePerHeadGrams} g/head/day</Text> ({feedAnalysis.avgDailyKg.toFixed(1)} kg/day house dispense).
                                      </Text>
 
                                      <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
                                          <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>Growth Alignment: </Text>
-                                         {feedAnalysis.stageDesc} The primary diet currently being dispensed is <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{feedAnalysis.topFeedName}</Text> ({feedAnalysis.topFeedCategory}), representing <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{feedAnalysis.topPct}%</Text> of total intake.
+                                         {feedAnalysis.stageDesc} The primary diet currently being dispensed is <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{feedAnalysis.topFeedName}</Text> ({feedAnalysis.topFeedCategory}), representing <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{feedAnalysis.topPct}%</Text> of total dispensed feed.
                                      </Text>
 
                                      <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
@@ -1108,7 +1108,7 @@ export default function FeedReportScreen() {
                                          </View>
                                          <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11.5, color: colors.textGrey, lineHeight: 17 }}>
                                              • Ensure constant access to cool drinking water ({animalType === 'chicken' ? 'broilers require 1.8–2.0x water to feed ratio' : 'swine require 2.0–2.5x water to feed ratio'}).{'\n'}
-                                             • Feeder hopper inventory has approximately <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>~{feedAnalysis.estimatedRunwayDays} days of feed remaining</Text> at current daily consumption rates.{'\n'}
+                                             • Feeder hopper inventory has approximately <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.text }}>~{feedAnalysis.estimatedRunwayDays} days of feed remaining</Text> at current daily dispense rates.{'\n'}
                                              • Clean feeder trays regularly to avoid dust accumulation and optimize feed conversion ratio (FCR).
                                          </Text>
                                      </View>
@@ -1260,7 +1260,7 @@ export default function FeedReportScreen() {
                     setBatchModalVisible(false);
                 }}
                 title="Select Batch"
-                description="Filter feed consumption by a specific batch or view all."
+                description="Filter feed dispensed by a specific batch or view all."
                 icon="layers"
                 options={batchesOptions}
                 selectedValue={selectedBatchOptionStr}

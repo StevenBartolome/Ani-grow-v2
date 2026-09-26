@@ -183,7 +183,7 @@ export async function scheduleUpcomingVetVisits(farmIds: string[]): Promise<void
         const today = todayDateString();
         const { data: records } = await supabase
             .from('health_records')
-            .select('id, farm_id, title, notes, followup_date, housings(name)')
+            .select('id, farm_id, record_type, title, notes, followup_date, housings(name)')
             .in('farm_id', farmIds)
             .gte('followup_date', today);
 
@@ -207,11 +207,28 @@ export async function scheduleUpcomingVetVisits(farmIds: string[]): Promise<void
 
             if (triggerDate.getTime() > Date.now()) {
                 const housingLabel = rec.housings?.name ? ` for ${rec.housings.name}` : '';
+                let notifTitle = 'Vet Visit Today';
+                let notifBody = `Good morning! Scheduled consultation${housingLabel} is scheduled for today. Check your farm and prepare for consultation.`;
+
+                if (rec.record_type === 'vaccination') {
+                    notifTitle = 'Vaccine Booster Due Today';
+                    notifBody = `Good morning! '${rec.title}' booster vaccination${housingLabel} is due today. Administer booster to maintain animal immunity.`;
+                } else if (rec.record_type === 'deworming') {
+                    notifTitle = 'Deworming Due Today';
+                    notifBody = `Good morning! Routine deworming '${rec.title}'${housingLabel} is due today.`;
+                } else if (rec.record_type === 'vitamins') {
+                    notifTitle = 'Vitamin Supplement Due Today';
+                    notifBody = `Good morning! Vitamin supplement '${rec.title}'${housingLabel} is due today.`;
+                } else if (rec.record_type === 'treatment') {
+                    notifTitle = 'Treatment Follow-up Today';
+                    notifBody = `Good morning! Follow-up evaluation for '${rec.title}'${housingLabel} is due today.`;
+                }
+
                 await Notifications.scheduleNotificationAsync({
                     identifier,
                     content: {
-                        title: 'Vet Visit Today',
-                        body: `Good morning! Scheduled consultation${housingLabel} is scheduled for today. Check your farm and prepare for consultation.`,
+                        title: notifTitle,
+                        body: notifBody,
                         sound: true,
                         data: {
                             actionUrl: '/(animals)/HealthRecordsScreen',

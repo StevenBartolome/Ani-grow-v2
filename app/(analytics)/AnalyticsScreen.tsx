@@ -67,8 +67,8 @@ export default function AnalyticsScreen() {
             route: '/(analytics)/GrowthReportScreen',
         },
         {
-            title: 'Feed Consumption Report',
-            description: 'Monitor feeding efficiency, waste tracked, and overall feed conversion ratio (FCR).',
+            title: 'Feed Dispensed Report',
+            description: 'Monitor feeding efficiency, automated dispenses, and overall ration stock usage.',
             icon: 'restaurant',
             color: '#F59E0B',
             route: '/(analytics)/FeedReportScreen',

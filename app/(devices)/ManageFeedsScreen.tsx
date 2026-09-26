@@ -584,9 +584,12 @@ export default function ManageFeedsScreen() {
                                     paddingVertical: 10,
                                 }}
                             >
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}>
-                                    <MaterialIcons name="tune" size={16} color={isFiltered ? colors.primary : colors.textGrey} />
-                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, marginRight: 8 }}>
+                                    <MaterialIcons name="tune" size={16} color={isFiltered ? colors.primary : colors.textGrey} style={{ flexShrink: 0 }} />
+                                    <Text
+                                        numberOfLines={1}
+                                        style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text, flexShrink: 0 }}
+                                    >
                                         Filters
                                     </Text>
                                     <View style={{
@@ -597,8 +600,13 @@ export default function ManageFeedsScreen() {
                                         paddingVertical: 3,
                                         borderRadius: 999,
                                         flexShrink: 1,
+                                        minWidth: 0,
                                     }}>
-                                        <Text style={{ fontFamily: isFiltered ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: isFiltered ? colors.primary : colors.textGrey }} numberOfLines={1}>
+                                        <Text
+                                            style={{ fontFamily: isFiltered ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: isFiltered ? colors.primary : colors.textGrey }}
+                                            numberOfLines={1}
+                                            ellipsizeMode="tail"
+                                        >
                                             {activeFilterSummary}
                                         </Text>
                                     </View>
