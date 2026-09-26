@@ -744,51 +744,11 @@ export default function AniFeedScreen() {
                         </ScrollView>
                     </View>
 
-                    {/* Hopper Level — real sensor reading (Low/Mid/High), distinct
-                        from the "Current Feed Level" ring below which tracks
-                        today's dispense progress, not how much feed remains. */}
+                    {/* Hopper Level (Live per-sensor indicators) */}
                     <View style={{ width: '100%', marginBottom: 16, backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 14 }}>
-                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, letterSpacing: 0.5, marginBottom: 10 }]}>
-                            HOPPER LEVEL
-                        </Text>
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                            {(['low', 'mid', 'high'] as const).map(level => {
-                                const isActive = deviceInfo?.feedLevel === level;
-                                const levelColor = level === 'low' ? colors.error : level === 'mid' ? colors.warning : colors.primary;
-                                return (
-                                    <View
-                                        key={level}
-                                        style={{
-                                            flex: 1,
-                                            alignItems: 'center',
-                                            paddingVertical: 10,
-                                            borderRadius: 10,
-                                            backgroundColor: isActive ? levelColor + '1A' : colors.cardFill,
-                                            borderWidth: isActive ? 1.5 : 1,
-                                            borderColor: isActive ? levelColor : colors.stroke,
-                                        }}
-                                    >
-                                        <Text style={[textStyles.label, { color: isActive ? levelColor : colors.textGrey, fontSize: 12, fontWeight: isActive ? '700' : '500' }]}>
-                                            {level.toUpperCase()}
-                                        </Text>
-                                    </View>
-                                );
-                            })}
-                        </View>
-                        {!deviceInfo?.feedLevel && (
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 8 }]}>
-                                No sensor reading yet — the feeder reports this on its next heartbeat.
-                            </Text>
-                        )}
-
-                        {/* Live per-sensor test — LAN poll when reachable (near-instant),
-                            falling back to Realtime updates pushed by the board over
-                            Supabase so this still works off the board's WiFi (a few
-                            seconds behind LAN, but works from anywhere with internet). */}
-                        <View style={{ height: 1, backgroundColor: colors.stroke, marginVertical: 12 }} />
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10, letterSpacing: 0.5 }]}>
-                                LIVE TEST
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, letterSpacing: 0.5 }]}>
+                                HOPPER LEVEL
                             </Text>
                             {liveSensorsSource && (
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -809,19 +769,19 @@ export default function AniFeedScreen() {
                                             style={{
                                                 flex: 1,
                                                 alignItems: 'center',
-                                                paddingVertical: 8,
+                                                paddingVertical: 10,
                                                 borderRadius: 10,
                                                 backgroundColor: blocked ? colors.primary + '1A' : colors.cardFill,
-                                                borderWidth: 1,
+                                                borderWidth: 1.5,
                                                 borderColor: blocked ? colors.primary : colors.stroke,
                                             }}
                                         >
                                             <MaterialIcons
                                                 name={blocked ? 'sensors' : 'sensors-off'}
-                                                size={16}
+                                                size={18}
                                                 color={blocked ? colors.primary : colors.textGrey}
                                             />
-                                            <Text style={[textStyles.label, { color: blocked ? colors.primary : colors.textGrey, fontSize: 10, marginTop: 2 }]}>
+                                            <Text style={[textStyles.label, { color: blocked ? colors.primary : colors.textGrey, fontSize: 11, fontWeight: blocked ? '700' : '500', marginTop: 3 }]}>
                                                 {label}
                                             </Text>
                                         </View>

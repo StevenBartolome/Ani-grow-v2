@@ -143,7 +143,7 @@ export default function RecentLogsScreen() {
 
             const mapped: WeighLogEntry[] = (data ?? []).map((s: any) => {
                 const dev = deviceMap[s.device_id];
-                const isBatch = s.weigh_mode === 'batch' || (s.animal_count && s.animal_count > 1);
+                const isBatch = s.weigh_mode === 'batch' || s.animal_type === 'chicks' || (s.animal_count && s.animal_count >= 1 && (s.weigh_mode === 'batch' || s.animal_label === 'Tray'));
                 const perChickWeight = isBatch && s.animal_count > 0 
                     ? (s.avg_weight_grams ? Number(s.avg_weight_grams) : Math.round(s.net_weight_grams / s.animal_count))
                     : s.net_weight_grams;
@@ -197,14 +197,23 @@ export default function RecentLogsScreen() {
                     const dev = map[row.device_id];
                     if (!dev) return;
 
+                    const isBatch = row.weigh_mode === 'batch' || row.animal_type === 'chicks' || (row.animal_count && row.animal_count >= 1 && (row.weigh_mode === 'batch' || row.animal_label === 'Tray'));
+                    const perChickWeight = isBatch && row.animal_count > 0 
+                        ? (row.avg_weight_grams ? Number(row.avg_weight_grams) : Math.round(row.net_weight_grams / row.animal_count))
+                        : row.net_weight_grams;
+
                     const newEntry: WeighLogEntry = {
                         id: row.id,
-                        weight_g: row.net_weight_grams,
+                        weight_g: perChickWeight,
+                        gross_weight_g: row.net_weight_grams,
+                        chick_count: row.animal_count ?? 1,
+                        weigh_mode: row.weigh_mode,
+                        animal_label: row.animal_label,
                         status: row.status ?? 'normal',
                         timestamp: row.recorded_at
                             ? new Date(row.recorded_at).getTime()
                             : Date.now(),
-                        animal: row.animal_type === 'pig' ? 'Pig' : 'Chicken',
+                        animal: isBatch ? `Chicks (${row.animal_label || 'Tray'})` : (row.animal_type === 'pig' ? 'Pig' : 'Chicken'),
                         housingId: dev.housingId,
                         housingName: dev.housingName,
                         deviceId: row.device_id,
@@ -495,10 +504,14 @@ export default function RecentLogsScreen() {
                         {pagedLogs.map((log, index) => {
                             const statusColor = log.status === 'underweight' ? colors.warning : log.status === 'overweight' ? colors.error : colors.primary;
                             const statusIcon: any = log.status === 'underweight' ? 'arrow-downward' : log.status === 'overweight' ? 'arrow-upward' : 'check';
-                            const isTray = !!(log.chick_count && log.chick_count > 1);
-                            const isExpanded = expandedLogId === (log.id ?? String(index));
                             const isPig = log.animal.toLowerCase().includes('pig');
-                            const animalColor = isPig ? colors.pig : colors.chicken;
+                            const isTray = !isPig && (
+                                log.weigh_mode === 'batch' ||
+                                (log.chick_count != null && log.chick_count >= 1 && (log.animal.toLowerCase().includes('chick') || log.weigh_mode === 'batch')) ||
+                                log.animal.toLowerCase().includes('tray') ||
+                                (log.animal.toLowerCase().includes('chick') && !log.animal.toLowerCase().includes('chicken'))
+                            );
+                            const isExpanded = expandedLogId === (log.id ?? String(index));
 
                             const displayVal = isPig 
                                 ? `${(log.weight_g / 1000).toFixed(2)}` 
@@ -513,129 +526,83 @@ export default function RecentLogsScreen() {
                                     onPress={() => isTray && setExpandedLogId(isExpanded ? null : (log.id ?? String(index)))}
                                     style={{
                                         backgroundColor: colors.surface,
-                                        borderRadius: 14,
+                                        borderRadius: 16,
                                         borderWidth: 1,
                                         borderColor: isExpanded ? colors.primary : colors.stroke,
-                                        borderLeftWidth: 3.5,
-                                        borderLeftColor: statusColor,
                                         marginBottom: 10,
                                         overflow: 'hidden',
                                         flexDirection: 'column',
                                     }}
                                 >
-                                    <View style={{
-                                        paddingHorizontal: 13,
-                                        paddingVertical: 10,
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        gap: 11,
-                                    }}>
-                                        {/* Compact Status Icon (34x34 circle) */}
-                                        <View style={{
-                                            width: 34,
-                                            height: 34,
-                                            borderRadius: 17,
-                                            backgroundColor: statusColor + '15',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            flexShrink: 0,
-                                        }}>
-                                            <MaterialIcons name={statusIcon} size={18} color={statusColor} />
-                                        </View>
+                                    <View style={{ flexDirection: 'row' }}>
+                                        {/* Left accent strip */}
+                                        <View style={{ width: 4, backgroundColor: statusColor }} />
 
-                                        {/* Middle info */}
-                                        <View style={{ flex: 1, minWidth: 0 }}>
-                                            {/* Top line: Housing name & Animal pill */}
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                                                <Text
-                                                    style={{
-                                                        fontFamily: 'Poppins-SemiBold',
-                                                        fontSize: 13,
-                                                        color: colors.text,
-                                                        flexShrink: 1,
-                                                    }}
-                                                    numberOfLines={1}
-                                                >
-                                                    {log.housingName}
-                                                </Text>
-                                                <View style={{
-                                                    flexDirection: 'row',
-                                                    alignItems: 'center',
-                                                    gap: 3,
-                                                    paddingHorizontal: 6,
-                                                    paddingVertical: 1.5,
-                                                    borderRadius: 999,
-                                                    backgroundColor: animalColor + '14',
-                                                    flexShrink: 0,
-                                                }}>
-                                                    <AnimalIcon type={isPig ? 'pig' : 'chicken'} size={10} color={animalColor} />
-                                                    <Text style={{
-                                                        fontFamily: 'Poppins-Medium',
-                                                        fontSize: 10,
-                                                        color: animalColor,
+                                        {/* Card content */}
+                                        <View style={{ flex: 1, padding: 12 }}>
+                                            {/* Top row: housing label + weight */}
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                                                <View style={{ flex: 1, marginRight: 12 }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
+                                                        <MaterialIcons name="home" size={13} color={colors.textGrey} />
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginLeft: 3 }]} numberOfLines={1}>{log.housingName}</Text>
+                                                    </View>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: statusColor + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                                                        <MaterialIcons name={statusIcon} size={11} color={statusColor} />
+                                                        <Text style={[textStyles.label, { color: statusColor, fontSize: 11, marginLeft: 3, fontWeight: '700' }]}>
+                                                            {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                                <View style={{ alignItems: 'flex-end' }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+                                                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 22, lineHeight: 26 }]}>{displayVal}</Text>
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>{displayUnit}</Text>
+                                                    </View>
+                                                    {isTray && (
+                                                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, marginTop: 2 }]}>
+                                                            Gross: {grossWeight.toLocaleString()}g
+                                                        </Text>
+                                                    )}
+                                                </View>
+                                            </View>
+
+                                            {/* Bottom chips */}
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, flexShrink: 1, minWidth: 0 }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, maxWidth: 150 }}>
+                                                        <AnimalIcon type={isPig ? 'pig' : 'chicken'} size={11} color={colors.textGrey} />
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]} numberOfLines={1} ellipsizeMode="tail">{log.animal}</Text>
+                                                    </View>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, flexShrink: 0 }}>
+                                                        <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{formatLogTime(log.timestamp)}</Text>
+                                                    </View>
+                                                    {log.deviceName && (
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, maxWidth: 130 }}>
+                                                            <AniWeighIcon size={11} />
+                                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]} numberOfLines={1}>{log.deviceName}</Text>
+                                                        </View>
+                                                    )}
+                                                </View>
+
+                                                {isTray && (
+                                                    <View style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        gap: 2,
+                                                        backgroundColor: colors.primary + '14',
+                                                        paddingHorizontal: 8,
+                                                        paddingVertical: 3.5,
+                                                        borderRadius: 6,
+                                                        flexShrink: 0,
                                                     }}>
-                                                        {log.animal}
-                                                    </Text>
-                                                </View>
-                                            </View>
-
-                                            {/* Bottom line: Time · Device */}
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                    <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
-                                                        {formatLogTime(log.timestamp)}
-                                                    </Text>
-                                                </View>
-                                                <Text style={{ color: colors.textGrey, fontSize: 8 }}>•</Text>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flex: 1 }}>
-                                                    <AniWeighIcon size={11} />
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }} numberOfLines={1}>
-                                                        {log.deviceName}
-                                                    </Text>
-                                                </View>
-                                            </View>
-                                        </View>
-
-                                        {/* Right: Weight & Status Pill */}
-                                        <View style={{ alignItems: 'flex-end', flexShrink: 0, marginLeft: 4 }}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-                                                <Text style={{
-                                                    fontFamily: 'Poppins-Bold',
-                                                    fontSize: 17,
-                                                    color: colors.text,
-                                                    letterSpacing: -0.2,
-                                                }}>
-                                                    {displayVal}
-                                                </Text>
-                                                <Text style={{
-                                                    fontFamily: 'Poppins-Medium',
-                                                    fontSize: 11,
-                                                    color: colors.textGrey,
-                                                }}>
-                                                    {displayUnit}
-                                                </Text>
-                                            </View>
-                                            {isTray && (
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9.5, color: colors.primary, marginTop: 1 }}>
-                                                    Gross: {grossWeight.toLocaleString()}g
-                                                </Text>
-                                            )}
-                                            <View style={{
-                                                paddingHorizontal: 7,
-                                                paddingVertical: 1.5,
-                                                borderRadius: 999,
-                                                backgroundColor: statusColor + '18',
-                                                marginTop: 2,
-                                            }}>
-                                                <Text style={{
-                                                    fontFamily: 'Poppins-SemiBold',
-                                                    color: statusColor,
-                                                    fontSize: 9.5,
-                                                    textTransform: 'capitalize',
-                                                }}>
-                                                    {log.status}
-                                                </Text>
+                                                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 10.5, fontWeight: '600' }]} numberOfLines={1}>
+                                                            {isExpanded ? 'Hide details' : 'Tap tray details'}
+                                                        </Text>
+                                                        <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={15} color={colors.primary} />
+                                                    </View>
+                                                )}
                                             </View>
                                         </View>
                                     </View>
@@ -645,29 +612,28 @@ export default function RecentLogsScreen() {
                                         <View style={{
                                             backgroundColor: colors.primary + '0D',
                                             borderTopWidth: 1,
-                                            borderTopColor: colors.primary + '20',
-                                            paddingHorizontal: 13,
-                                            paddingVertical: 10,
+                                            borderTopColor: colors.primary + '25',
+                                            padding: 12,
                                         }}>
-                                            <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 12, marginBottom: 6 }]}>
+                                            <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 12, marginBottom: 8 }]}>
                                                 Folded Tray Breakdown ({log.chick_count} chicks)
                                             </Text>
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
                                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Total Gross Tray Weight:</Text>
                                                 <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 11 }]}>{grossWeight.toLocaleString()} g</Text>
                                             </View>
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Chicks in Tray:</Text>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Head Count in Tray:</Text>
                                                 <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 11 }]}>{log.chick_count} chicks</Text>
                                             </View>
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
                                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Evaluated Per-Chick Average:</Text>
                                                 <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 11 }]}>{Math.round(log.weight_g)} g / chick</Text>
                                             </View>
                                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, flexShrink: 0 }]}>Final Weight Category:</Text>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, flexShrink: 0 }]}>Status Determination:</Text>
                                                 <Text style={[textStyles.body, { color: statusColor, fontWeight: '700', fontSize: 11, flexShrink: 1, textAlign: 'right' }]} numberOfLines={2}>
-                                                    {log.status.toUpperCase()} ({Math.round(log.weight_g)}g avg)
+                                                    {log.status.toUpperCase()} ({Math.round(log.weight_g)}g/chick)
                                                 </Text>
                                             </View>
                                         </View>

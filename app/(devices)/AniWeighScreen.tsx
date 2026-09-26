@@ -860,7 +860,10 @@ export default function AniWeighScreen() {
                 }
             }
 
-            showSnackbar('Weighing session started — you can begin weighing now.', 'success');
+            showSnackbar(
+                isConnected ? 'Weighing session started — you can begin weighing now.' : 'Weighing session started. Scale is currently offline.',
+                isConnected ? 'success' : 'info'
+            );
         } catch (err: any) {
             // Postgres unique-violation (23505) means a session for this
             // device is ALREADY in_progress — a race with another tap, or
@@ -2262,27 +2265,59 @@ export default function AniWeighScreen() {
                                     </Text>
                                 </View>
                             </View>
-                            {/* Running indicator — reflects devices.weighing_active, pushed by the
-                                board immediately on Start/Stop/Reset rather than waiting on the
-                                next periodic heartbeat. */}
-                            <View style={{
-                                flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-                                marginTop: 20, alignSelf: 'center',
-                                backgroundColor: deviceInfo?.weighingActive ? colors.primary + '15' : colors.cardFill,
-                                borderWidth: 1, borderColor: deviceInfo?.weighingActive ? colors.primary + '40' : colors.stroke,
-                                borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5,
-                            }}>
-                                <View style={{
-                                    width: 7, height: 7, borderRadius: 3.5,
-                                    backgroundColor: deviceInfo?.weighingActive ? colors.primary : colors.textGrey,
-                                }} />
-                                <Text style={[textStyles.label, {
-                                    fontSize: 12, fontWeight: '700',
-                                    color: deviceInfo?.weighingActive ? colors.primary : colors.textGrey,
-                                }]}>
-                                    {deviceInfo?.weighingActive ? 'Running — weighing animals' : 'Idle — tap Start to begin'}
-                                </Text>
-                            </View>
+                            {/* Connection & Weighing status indicator */}
+                            {(() => {
+                                const isRunning = !!deviceInfo?.weighingActive;
+                                let badgeBg = colors.cardFill;
+                                let badgeBorder = colors.stroke;
+                                let dotColor = colors.textGrey;
+                                let textColor = colors.textGrey;
+                                let labelText = 'Idle — tap Start to begin';
+
+                                if (!isConnected) {
+                                    badgeBg = colors.error + '12';
+                                    badgeBorder = colors.error + '35';
+                                    dotColor = colors.error;
+                                    textColor = colors.error;
+                                    labelText = 'Offline — scale disconnected';
+                                } else if (isRunning) {
+                                    badgeBg = colors.primary + '15';
+                                    badgeBorder = colors.primary + '40';
+                                    dotColor = colors.primary;
+                                    textColor = colors.primary;
+                                    labelText = 'Running — weighing animals';
+                                } else {
+                                    const currentComp = activeSession?.completed_quantity ?? 0;
+                                    badgeBg = colors.cardFill;
+                                    badgeBorder = colors.stroke;
+                                    dotColor = colors.textGrey;
+                                    textColor = colors.textGrey;
+                                    labelText = currentComp > 0 
+                                        ? 'Paused — tap Start to resume' 
+                                        : 'Idle — tap Start to begin';
+                                }
+
+                                return (
+                                    <View style={{
+                                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                                        marginTop: 20, alignSelf: 'center',
+                                        backgroundColor: badgeBg,
+                                        borderWidth: 1, borderColor: badgeBorder,
+                                        borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5,
+                                    }}>
+                                        <View style={{
+                                            width: 7, height: 7, borderRadius: 3.5,
+                                            backgroundColor: dotColor,
+                                        }} />
+                                        <Text style={[textStyles.label, {
+                                            fontSize: 12, fontWeight: '700',
+                                            color: textColor,
+                                        }]}>
+                                            {labelText}
+                                        </Text>
+                                    </View>
+                                );
+                            })()}
 
                             {/* This run's progress — bumped automatically as each physical
                                 reading comes in tagged to the active weighing session. */}

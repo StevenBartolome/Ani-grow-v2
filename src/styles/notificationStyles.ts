@@ -5,7 +5,8 @@ import { useTheme } from '@/context/ThemeContext';
 const getHPad = (width: number) => {
     if (width >= 900) return Math.round(width * 0.12);
     if (width >= 600) return Math.round(width * 0.07);
-    return 20;
+    if (width <= 360) return 12;
+    return 16;
 };
 
 export const useNotificationStyles = () => {
@@ -20,6 +21,7 @@ export const useNotificationStyles = () => {
         },
         container: {
             flex: 1,
+            width: '100%',
         },
 
         // ─── Header ─────────────────────────────────────────────────────────────
@@ -30,6 +32,7 @@ export const useNotificationStyles = () => {
             paddingHorizontal: hPad,
             paddingTop: 16,
             paddingBottom: 16,
+            width: '100%',
         },
 
         // ─── List ───────────────────────────────────────────────────────────────
@@ -44,8 +47,10 @@ export const useNotificationStyles = () => {
             borderWidth: 1,
             borderColor: colors.stroke,
             overflow: 'hidden',
+            width: '100%',
         },
         notificationItem: {
+            width: '100%',
             flexDirection: 'row',
             alignItems: 'center',
             paddingVertical: 13,
@@ -54,7 +59,8 @@ export const useNotificationStyles = () => {
         divider: {
             height: 1,
             backgroundColor: colors.stroke,
-            marginLeft: 64, // subtle inset divider aligned with text
+            marginLeft: 58,
+            marginRight: 0,
         },
         iconBox: {
             width: 38,
@@ -63,15 +69,19 @@ export const useNotificationStyles = () => {
             justifyContent: 'center',
             alignItems: 'center',
             marginRight: 12,
+            flexShrink: 0,
         },
         contentContainer: {
             flex: 1,
+            minWidth: 0,
             justifyContent: 'center',
         },
         titleRow: {
             flexDirection: 'row',
             justifyContent: 'space-between',
             alignItems: 'center',
+            width: '100%',
+            minWidth: 0,
             marginBottom: 2,
         },
         unreadDot: {
@@ -80,12 +90,14 @@ export const useNotificationStyles = () => {
             borderRadius: 4,
             backgroundColor: colors.primary,
             marginLeft: 6,
+            flexShrink: 0,
         },
         emptyContainer: {
             alignItems: 'center',
             justifyContent: 'center',
             paddingTop: 80,
             paddingHorizontal: hPad,
+            width: '100%',
         }
     });
 };

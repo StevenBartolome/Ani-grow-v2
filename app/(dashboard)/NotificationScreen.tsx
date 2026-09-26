@@ -281,13 +281,15 @@ const ExpandableNotificationItem: React.FC<NotificationItemProps> = ({
                     borderRightWidth: 1,
                     borderColor: isExpanded ? colors.primary + '60' : colors.stroke,
                     paddingVertical: 14,
-                    paddingHorizontal: 16,
+                    paddingHorizontal: 14,
+                    width: '100%',
+                    overflow: 'hidden',
                 },
             ]}
             activeOpacity={0.85}
             onPress={() => onToggle(item)}
         >
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', width: '100%', flex: 1 }}>
                 <View style={[notificationStyles.iconBox, { backgroundColor: iconInfo.bgColor, marginTop: 2 }]}>
                     {iconInfo.customComponent === 'aniweigh' ? (
                         <AniWeighIcon size={19} />
@@ -308,15 +310,17 @@ const ExpandableNotificationItem: React.FC<NotificationItemProps> = ({
                                     fontSize: 13.5,
                                     fontFamily: item.isRead ? 'Poppins-Medium' : 'Poppins-SemiBold',
                                     flex: 1,
-                                    marginRight: 8,
+                                    minWidth: 0,
+                                    marginRight: 6,
                                 },
                             ]}
                             numberOfLines={isExpanded ? undefined : 1}
+                            ellipsizeMode="tail"
                         >
                             {item.title}
                         </Text>
 
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0, marginLeft: 4 }}>
                             <Text
                                 style={[
                                     textStyles.label,
@@ -324,14 +328,14 @@ const ExpandableNotificationItem: React.FC<NotificationItemProps> = ({
                                         color: colors.textGrey,
                                         fontSize: 11,
                                         fontFamily: 'Poppins-Regular',
-                                        marginRight: 4,
+                                        marginRight: 2,
                                     },
                                 ]}
                             >
                                 {isExpanded ? '' : item.shortTime}
                             </Text>
                             {!item.isRead && <View style={notificationStyles.unreadDot} />}
-                            <Animated.View style={{ transform: [{ rotate: rotateChevron }], marginLeft: 4 }}>
+                            <Animated.View style={{ transform: [{ rotate: rotateChevron }], marginLeft: 2 }}>
                                 <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.textGrey} />
                             </Animated.View>
                         </View>
@@ -347,9 +351,11 @@ const ExpandableNotificationItem: React.FC<NotificationItemProps> = ({
                                 lineHeight: 19,
                                 marginTop: 4,
                                 fontFamily: 'Poppins-Regular',
+                                width: '100%',
                             },
                         ]}
                         numberOfLines={isExpanded ? undefined : 2}
+                        ellipsizeMode="tail"
                     >
                         {item.message}
                     </Text>
@@ -367,9 +373,10 @@ const ExpandableNotificationItem: React.FC<NotificationItemProps> = ({
                                 flexDirection: 'row',
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
+                                width: '100%',
                             }}
                         >
-                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>
+                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, flex: 1, minWidth: 0, marginRight: 8 }]} numberOfLines={1}>
                                 {item.time}
                             </Text>
 
@@ -382,6 +389,7 @@ const ExpandableNotificationItem: React.FC<NotificationItemProps> = ({
                                     paddingHorizontal: 12,
                                     borderRadius: 8,
                                     gap: 4,
+                                    flexShrink: 0,
                                 }}
                                 activeOpacity={0.8}
                                 onPress={() => onNavigate(item)}
