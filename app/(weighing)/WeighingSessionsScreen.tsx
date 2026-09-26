@@ -1,5 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
@@ -7,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import { AniWeighIcon } from '@/components/AniWeighIcon';
+import ActionModal from '@/components/ActionModal';
 import { CalendarPickerModal } from '@/components/CalendarPickerModal';
 import { SelectionModal } from '@/components/SelectionModal';
 import { PrintReportButton } from '@/components/PrintReportButton';
@@ -178,6 +180,11 @@ export default function WeighingSessionsScreen() {
     const [previousBatchStats, setPreviousBatchStats] = useState<BatchStats | null>(null);
     const [currentBatchStats, setCurrentBatchStats] = useState<BatchStats | null>(null);
     const [isComparisonLoading, setIsComparisonLoading] = useState(false);
+
+    // ── Delete Session State ──────────────────────────────────────
+    const [sessionToDelete, setSessionToDelete] = useState<WeighingSessionRow | null>(null);
+    const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+    const [isDeletingSession, setIsDeletingSession] = useState(false);
 
     const [snackbar, setSnackbar] = useState<{ visible: boolean; message: string; type: SnackbarType }>({ visible: false, message: '', type: 'info' });
     const showSnackbar = (message: string, type: SnackbarType = 'info') => setSnackbar({ visible: true, message, type });
@@ -473,6 +480,17 @@ export default function WeighingSessionsScreen() {
 
     useEffect(() => { fetchBatchComparison(); }, [fetchBatchComparison]);
 
+    // Automatically re-fetch dynamically when returning to this screen (e.g. after deleting in SessionReportScreen)
+    useFocusEffect(
+        useCallback(() => {
+            if (selectedBatchId) {
+                fetchSessions(selectedBatchId);
+                fetchRangePreview();
+                fetchBatchComparison();
+            }
+        }, [selectedBatchId, fetchSessions, fetchRangePreview, fetchBatchComparison])
+    );
+
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
         await Promise.all([fetchMetadata(), selectedBatchId ? fetchSessions(selectedBatchId) : Promise.resolve(), fetchRangePreview(), fetchBatchComparison()]);
@@ -484,6 +502,57 @@ export default function WeighingSessionsScreen() {
         if (rows.length === 0) return null;
         return rows.reduce((sum, r) => sum + r.net_weight_grams, 0) / rows.length;
     };
+
+    const handleLongPressSession = useCallback((session: WeighingSessionRow) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        setSessionToDelete(session);
+        setDeleteModalVisible(true);
+    }, []);
+
+    const handleDeleteSession = useCallback(async () => {
+        if (!sessionToDelete) return;
+        const targetSessionId = sessionToDelete.id;
+        setIsDeletingSession(true);
+
+        // 1. Instant optimistic local UI update so the card vanishes immediately
+        setSessions(prev => prev.filter(s => s.id !== targetSessionId));
+        setChildRows(prev => prev.filter(r => r.weighing_session_id !== targetSessionId));
+        setDeleteModalVisible(false);
+        setSessionToDelete(null);
+
+        try {
+            // 2. Delete associated weigh measurements linked to this session
+            const { error: childErr } = await supabase
+                .from('weigh_sessions')
+                .delete()
+                .eq('weighing_session_id', targetSessionId);
+            if (childErr) throw childErr;
+
+            // 3. Delete the weighing session envelope
+            const { error: sessionErr } = await supabase
+                .from('weighing_sessions')
+                .delete()
+                .eq('id', targetSessionId);
+            if (sessionErr) throw sessionErr;
+
+            showSnackbar('Weighing session deleted successfully.', 'success');
+
+            // 4. Dynamically re-fetch metrics so range previews and batch comparisons refresh seamlessly
+            if (selectedBatchId) {
+                await Promise.all([
+                    fetchSessions(selectedBatchId),
+                    fetchRangePreview(),
+                    fetchBatchComparison()
+                ]);
+            }
+        } catch (err: any) {
+            console.error('[WeighingSessionsScreen] Delete session error:', err);
+            showSnackbar(err?.message || 'Failed to delete weighing session.', 'error');
+            if (selectedBatchId) fetchSessions(selectedBatchId);
+        } finally {
+            setIsDeletingSession(false);
+        }
+    }, [sessionToDelete, selectedBatchId, fetchSessions, fetchRangePreview, fetchBatchComparison]);
 
     const housingsOptions = filteredHousings.map(h => h.name);
     const selectedHousingOptionStr = selectedHousing ? selectedHousing.name : 'No House Selected';
@@ -910,8 +979,10 @@ export default function WeighingSessionsScreen() {
                                 return (
                                     <TouchableOpacity
                                         key={session.id}
-                                        activeOpacity={0.85}
+                                        activeOpacity={0.8}
+                                        delayLongPress={350}
                                         onPress={() => router.push(`/(weighing)/SessionReportScreen?sessionId=${session.id}` as any)}
+                                        onLongPress={() => handleLongPressSession(session)}
                                         style={styles.menuCard}
                                     >
                                         <View style={styles.menuIconContainer}>
@@ -989,6 +1060,29 @@ export default function WeighingSessionsScreen() {
                     />
                 </>
             )}
+
+            <ActionModal
+                visible={deleteModalVisible}
+                type="warning"
+                title="Delete Weighing Session?"
+                message={`Are you sure you want to delete ${
+                    sessionToDelete
+                        ? sessionToDelete.farm_day !== null
+                            ? `Day ${sessionToDelete.farm_day} (${formatDate(sessionToDelete.created_at)})`
+                            : formatDate(sessionToDelete.created_at)
+                        : 'this session'
+                }? All weight measurements recorded during this session will be permanently removed from reports.`}
+                confirmText="Delete"
+                cancelText="Cancel"
+                isLoading={isDeletingSession}
+                onConfirm={handleDeleteSession}
+                onCancel={() => {
+                    if (!isDeletingSession) {
+                        setDeleteModalVisible(false);
+                        setSessionToDelete(null);
+                    }
+                }}
+            />
 
             <Snackbar visible={snackbar.visible} message={snackbar.message} type={snackbar.type} onDismiss={() => setSnackbar(s => ({ ...s, visible: false }))} />
         </View>

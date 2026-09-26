@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
@@ -7,7 +8,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { BackButton } from '@/components/BackButton';
+import ActionModal from '@/components/ActionModal';
 import { PrintReportButton } from '@/components/PrintReportButton';
+import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -63,6 +66,35 @@ export default function SessionReportScreen() {
     const [feedConsumedGrams, setFeedConsumedGrams] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [snackbar, setSnackbar] = useState<{ visible: boolean; message: string; type: SnackbarType }>({ visible: false, message: '', type: 'info' });
+    const showSnackbar = (message: string, type: SnackbarType = 'info') => setSnackbar({ visible: true, message, type });
+
+    const handleDelete = async () => {
+        if (!sessionId) return;
+        setIsDeleting(true);
+        try {
+            const { error: childErr } = await supabase
+                .from('weigh_sessions')
+                .delete()
+                .eq('weighing_session_id', sessionId);
+            if (childErr) throw childErr;
+
+            const { error: sessionErr } = await supabase
+                .from('weighing_sessions')
+                .delete()
+                .eq('id', sessionId);
+            if (sessionErr) throw sessionErr;
+
+            setDeleteModalVisible(false);
+            router.back();
+        } catch (err: any) {
+            console.error('[SessionReportScreen] delete error:', err);
+            showSnackbar(err?.message || 'Failed to delete weighing session.', 'error');
+            setIsDeleting(false);
+        }
+    };
 
     const load = useCallback(async () => {
         if (!sessionId) { setIsLoading(false); return; }
@@ -249,10 +281,29 @@ export default function SessionReportScreen() {
                     <BackButton fallbackRoute="/(weighing)/WeighingSessionsScreen" />
                 </View>
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Session Report</Text>
-                <PrintReportButton
-                    buildReport={buildSessionReport}
-                    emptyMessage="This session has no recorded weigh-ins yet."
-                />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <PrintReportButton
+                        buildReport={buildSessionReport}
+                        emptyMessage="This session has no recorded weigh-ins yet."
+                    />
+                    <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            setDeleteModalVisible(true);
+                        }}
+                        style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 22,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: colors.error + '14',
+                        }}
+                    >
+                        <MaterialIcons name="delete-outline" size={22} color={colors.error} />
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <ScrollView
@@ -373,6 +424,29 @@ export default function SessionReportScreen() {
                     </TouchableOpacity>
                 </View>
             </ScrollView>
+
+            <ActionModal
+                visible={deleteModalVisible}
+                type="warning"
+                title="Delete Weighing Session?"
+                message={`Are you sure you want to delete ${
+                    session.farm_day !== null ? `Day ${session.farm_day}` : 'this session'
+                }? All weight recordings attached to this session will be permanently removed.`}
+                confirmText="Delete"
+                cancelText="Cancel"
+                isLoading={isDeleting}
+                onConfirm={handleDelete}
+                onCancel={() => {
+                    if (!isDeleting) setDeleteModalVisible(false);
+                }}
+            />
+
+            <Snackbar
+                visible={snackbar.visible}
+                message={snackbar.message}
+                type={snackbar.type}
+                onDismiss={() => setSnackbar(s => ({ ...s, visible: false }))}
+            />
         </View>
     );
 }
