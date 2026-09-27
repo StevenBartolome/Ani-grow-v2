@@ -92,6 +92,7 @@ function RootNavigator() {
         <Stack.Screen name="(dashboard)/VetDashboardScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(devices)/DevicesScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(animals)/AnimalsScreen" options={{ animation: 'none' }} />
+        <Stack.Screen name="(animals)/BatchHistoryScreen" />
         <Stack.Screen name="(animals)/HealthRecordsScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(analytics)/AnalyticsScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(guide)/GuideScreen" options={{ animation: 'none' }} />

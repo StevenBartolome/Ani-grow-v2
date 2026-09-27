@@ -255,21 +255,25 @@ export default function TargetWeightScreen() {
             <View style={{ flex: 1 }}>
                 {/* Header */}
                 <View style={{
-                    position: 'relative',
                     flexDirection: 'row',
                     alignItems: 'center',
-                    justifyContent: 'center',
+                    justifyContent: 'space-between',
                     paddingHorizontal: hPad,
                     paddingTop: 16,
                     paddingBottom: 16,
                     minHeight: 56,
                 }}>
-                    <View style={{ position: 'absolute', left: hPad, zIndex: 10 }}>
+                    <View style={{ width: 44, height: 44, justifyContent: 'center' }}>
                         <BackButton fallbackRoute="/(animals)/AnimalsScreen" />
                     </View>
-                    <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center' }]} numberOfLines={1}>
+                    <Text
+                        style={[textStyles.h1, { fontSize: 18, color: colors.primary, textAlign: 'center', flex: 1, paddingHorizontal: 6 }]}
+                        numberOfLines={2}
+                        adjustsFontSizeToFit
+                    >
                         Target Weight Standards
                     </Text>
+                    <View style={{ width: 44, height: 44 }} />
                 </View>
 
                 <ScrollView
@@ -334,9 +338,10 @@ export default function TargetWeightScreen() {
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     marginBottom: 12,
+                    gap: 10,
                 }}>
-                    <View>
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 16 }]} numberOfLines={2}>
                             {selectedAnimal === 'pig' ? 'Pig Growth Benchmarks' : 'Chicken Growth Benchmarks'}
                         </Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
@@ -354,13 +359,14 @@ export default function TargetWeightScreen() {
                                 borderWidth: 1,
                                 borderColor: colors.stroke,
                                 paddingHorizontal: 12,
-                                paddingVertical: 6,
+                                paddingVertical: 7,
                                 borderRadius: 18,
+                                flexShrink: 0,
                             }}
                             onPress={() => openEditModal()}
                         >
                             <MaterialIcons name="add" size={16} color={colors.primary} />
-                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 12 }]}>
+                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 12, flexShrink: 0 }]}>
                                 Add Week
                             </Text>
                         </TouchableOpacity>
@@ -557,8 +563,8 @@ export default function TargetWeightScreen() {
                     <View style={{
                         backgroundColor: colors.surface,
                         borderRadius: 24,
-                        width: '100%',
-                        maxWidth: 380,
+                        width: '92%',
+                        maxWidth: 420,
                         maxHeight: '90%',
                         borderWidth: 1,
                         borderColor: colors.stroke,
@@ -583,11 +589,16 @@ export default function TargetWeightScreen() {
                                     backgroundColor: colors.primary + '1A',
                                     alignItems: 'center',
                                     justifyContent: 'center',
+                                    flexShrink: 0,
                                 }}>
                                     <MaterialIcons name="tune" size={18} color={colors.primary} />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 16, fontFamily: 'Poppins-Bold' }]}>
+                                    <Text
+                                        style={[textStyles.h2, { color: colors.text, fontSize: 15, fontFamily: 'Poppins-Bold' }]}
+                                        numberOfLines={2}
+                                        adjustsFontSizeToFit
+                                    >
                                         {editingStandard ? `Edit Week ${editWeek} Benchmark` : 'Add Week Benchmark'}
                                     </Text>
                                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
@@ -607,6 +618,7 @@ export default function TargetWeightScreen() {
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     marginLeft: 8,
+                                    flexShrink: 0,
                                 }}
                             >
                                 <MaterialIcons name="close" size={18} color={colors.textGrey} />

@@ -83,7 +83,24 @@ function fixFilipinoText(text: string): string {
     }
     return m;
   });
-  fixed = fixed.replace(/^\s*mga\s+/i, 'Mga ');
+
+  // Preserve leading whitespace instead of stripping it when normalizing 'mga'
+  const leadingMatch = fixed.match(/^(\s+)/);
+  const leadingSpace = leadingMatch ? leadingMatch[1] : '';
+  const coreText = fixed.slice(leadingSpace.length);
+
+  if (!leadingSpace && /^mga\b/i.test(coreText)) {
+    // Only capitalize if it's the very start of a sentence/phrase without preceding whitespace
+    fixed = coreText.replace(/^mga\b/i, 'Mga');
+  } else if (leadingSpace) {
+    // Preserve the leading whitespace and keep 'mga' lowercase
+    fixed = leadingSpace + coreText.replace(/^mga\b/i, 'mga');
+  }
+
+  // Ensure spacing between digits/slash/dash and following word/letter (e.g. "100heads" -> "100 heads", "100mga" -> "100 mga", "10/20ulo" -> "10/20 ulo")
+  fixed = fixed.replace(/([\d\/\-\:\.\,]+)([a-zA-Z\u00C0-\u024F]+)/g, '$1 $2');
+  fixed = fixed.replace(/([a-zA-Z\u00C0-\u024F]+)([\d\/\-\:\.\,]+)/g, '$1 $2');
+
   return fixed;
 }
 
@@ -113,7 +130,23 @@ async function translateNode(node: React.ReactNode, language: string, profile: a
 
   if (Array.isArray(node)) {
     const parts = await Promise.all(node.map((n) => translateNode(n, language, profile)));
-    return parts;
+    // Ensure space between numbers/symbols and following words across adjacent array nodes
+    const processedParts: React.ReactNode[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      let current = parts[i];
+      if (i > 0) {
+        const prev = processedParts[i - 1];
+        const isPrevNumeric = 
+          typeof prev === 'number' || 
+          (typeof prev === 'string' && /[\d\/\-\:\.\,]+$/.test(prev.trimEnd()));
+        
+        if (isPrevNumeric && typeof current === 'string' && current.length > 0 && !/^\s/.test(current)) {
+          current = ' ' + current;
+        }
+      }
+      processedParts.push(current);
+    }
+    return processedParts;
   }
 
   return node;

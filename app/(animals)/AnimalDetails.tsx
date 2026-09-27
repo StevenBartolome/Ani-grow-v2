@@ -948,8 +948,6 @@ export default function AnimalDetailsScreen() {
                             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 4, overflow: 'hidden' }}>
                                 <MaterialIcons name="layers" size={20} color={colors.textGrey} style={{ marginRight: 10 }} />
                                 <Text
-                                    numberOfLines={1}
-                                    ellipsizeMode="tail"
                                     style={[textStyles.h3, { color: colors.text, fontSize: 15, flex: 1 }]}
                                 >
                                     {selectedBatchLabel || 'Select a batch'}
@@ -2030,7 +2028,7 @@ function StatusCard({ title, value, icon, bgColor, iconColor, isCustomIcon, show
                         : <MaterialIcons name={icon} size={20} color={iconColor} />
                     }
                 </View>
-                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, flex: 1 }]} numberOfLines={1}>{title}</Text>
+                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, flex: 1 }]}>{title}</Text>
                 {showChevron && <MaterialIcons name="chevron-right" size={16} color={colors.textGrey} />}
             </View>
             <Text style={[textStyles.h2, { color: colors.text, fontSize: 24 }]}>{value}</Text>

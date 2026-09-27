@@ -159,7 +159,7 @@ const HousingCard = ({
 export default function AnimalsScreen() {
     const insets = useSafeAreaInsets();
     const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
-    const { colors } = useTheme();
+    const { colors, isDark } = useTheme();
     const textStyles = useTextStyles();
     const styles = useAnimalStyles();
     const router = useRouter();
@@ -180,9 +180,24 @@ export default function AnimalsScreen() {
     }, [authLoading, role, permissions]);
 
     const [housings, setHousings] = useState<HousingSummary[]>([]);
+    const [completedBatchCount, setCompletedBatchCount] = useState<number>(0);
     const [isLoading, setIsLoading] = useState(true);
     const [shouldAnimateCards, setShouldAnimateCards] = useState(false);
     const hasInitialAnimatedRef = useRef(false);
+
+    useEffect(() => {
+        if (!farmId) return;
+        supabase
+            .from('batches')
+            .select('*', { count: 'exact', head: true })
+            .eq('farm_id', farmId)
+            .eq('status', 'completed')
+            .then(({ count, error }) => {
+                if (!error && typeof count === 'number') {
+                    setCompletedBatchCount(count);
+                }
+            });
+    }, [farmId]);
 
     const calculateAge = (arrivalDateStr: string | null, ageAtArrivalDays: number, animalType: 'chicken' | 'pig') => {
         if (!arrivalDateStr) return '';
@@ -355,47 +370,123 @@ export default function AnimalsScreen() {
                         />
                     }
                 >
-                    {/* Target Weights Banner Card */}
-                    <View style={{ paddingHorizontal: (styles.sectionTitleRow as any)?.paddingHorizontal ?? 20, marginBottom: 16 }}>
+                    {/* Quick Actions Feature Cards: Target Weights & Batch History */}
+                    <View style={{
+                        paddingHorizontal: (styles.sectionTitleRow as any)?.paddingHorizontal ?? 20,
+                        marginBottom: 18,
+                        flexDirection: 'row',
+                        gap: 12,
+                    }}>
+                        {/* Target Weights */}
                         <TouchableOpacity
-                            activeOpacity={0.8}
-                            style={[
-                                styles.deviceCard,
-                                {
-                                    backgroundColor: colors.surface,
-                                    borderColor: colors.stroke,
-                                    padding: 16,
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    gap: 14,
-                                }
-                            ]}
+                            activeOpacity={0.75}
+                            style={{
+                                flex: 1,
+                                backgroundColor: colors.surface,
+                                borderColor: colors.stroke,
+                                borderWidth: 1.5,
+                                borderRadius: 16,
+                                padding: 14,
+                                minHeight: 128,
+                                justifyContent: 'space-between',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: isDark ? 0.25 : 0.04,
+                                shadowRadius: 6,
+                                elevation: 2,
+                            }}
                             onPress={() => router.push('/(animals)/TargetWeightScreen' as any)}
                         >
-                            <View style={{
-                                width: 44,
-                                height: 44,
-                                borderRadius: 22,
-                                backgroundColor: colors.primary + '1A',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                            }}>
-                                <MaterialIcons name="scale" size={24} color={colors.primary} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 15, fontFamily: 'Poppins-SemiBold' }]}>
-                                        Target Weights & Growth
-                                    </Text>
-                                    <View style={{ backgroundColor: colors.primary + '20', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
-                                        <Text style={{ color: colors.primary, fontSize: 10, fontFamily: 'Poppins-Bold' }}>AUTO</Text>
-                                    </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+                                <View style={{
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: 12,
+                                    backgroundColor: colors.primary + '18',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}>
+                                    <MaterialIcons name="scale" size={20} color={colors.primary} />
                                 </View>
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 3 }]}>
-                                    Manage weekly underweight & overweight ranges
+                                <View style={{ backgroundColor: colors.primary + '1F', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
+                                    <Text style={{ color: colors.primary, fontSize: 10, fontFamily: 'Poppins-Bold' }}>AUTO</Text>
+                                </View>
+                            </View>
+                            <View style={{ marginTop: 8 }}>
+                                <Text
+                                    style={[textStyles.h3, { color: colors.text, fontSize: 14, fontFamily: 'Poppins-Bold', lineHeight: 18 }]}
+                                    numberOfLines={2}
+                                    adjustsFontSizeToFit
+                                >
+                                    Target Weights
+                                </Text>
+                                <Text
+                                    style={{ color: colors.textGrey, fontSize: 11.5, fontFamily: 'Poppins-Regular', marginTop: 2, lineHeight: 15 }}
+                                    numberOfLines={2}
+                                >
+                                    Weekly growth ranges
                                 </Text>
                             </View>
-                            <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                        </TouchableOpacity>
+
+                        {/* Batch History */}
+                        <TouchableOpacity
+                            activeOpacity={0.75}
+                            style={{
+                                flex: 1,
+                                backgroundColor: colors.surface,
+                                borderColor: colors.stroke,
+                                borderWidth: 1.5,
+                                borderRadius: 16,
+                                padding: 14,
+                                minHeight: 128,
+                                justifyContent: 'space-between',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: isDark ? 0.25 : 0.04,
+                                shadowRadius: 6,
+                                elevation: 2,
+                            }}
+                            onPress={() => router.push('/(animals)/BatchHistoryScreen' as any)}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+                                <View style={{
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: 12,
+                                    backgroundColor: '#10B98118',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}>
+                                    <MaterialIcons name="history" size={20} color="#10B981" />
+                                </View>
+                                {completedBatchCount > 0 ? (
+                                    <View style={{ backgroundColor: '#10B9811F', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
+                                        <Text style={{ color: '#10B981', fontSize: 10, fontFamily: 'Poppins-Bold' }}>
+                                            {completedBatchCount} {completedBatchCount === 1 ? 'BATCH' : 'BATCHES'}
+                                        </Text>
+                                    </View>
+                                ) : (
+                                    <View style={{ backgroundColor: colors.cardFill || colors.stroke + '40', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
+                                        <Text style={{ color: colors.textGrey, fontSize: 10, fontFamily: 'Poppins-Medium' }}>ARCHIVE</Text>
+                                    </View>
+                                )}
+                            </View>
+                            <View style={{ marginTop: 8 }}>
+                                <Text
+                                    style={[textStyles.h3, { color: colors.text, fontSize: 14, fontFamily: 'Poppins-Bold', lineHeight: 18 }]}
+                                    numberOfLines={2}
+                                    adjustsFontSizeToFit
+                                >
+                                    Batch History
+                                </Text>
+                                <Text
+                                    style={{ color: colors.textGrey, fontSize: 11.5, fontFamily: 'Poppins-Regular', marginTop: 2, lineHeight: 15 }}
+                                    numberOfLines={2}
+                                >
+                                    Completed cycles
+                                </Text>
+                            </View>
                         </TouchableOpacity>
                     </View>
 
