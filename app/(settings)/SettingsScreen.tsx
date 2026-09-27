@@ -344,6 +344,16 @@ export default function SettingsScreen() {
                     <View style={settingsStyles.section}>
                         <Text style={settingsStyles.sectionTitle}>Information</Text>
                         <View style={settingsStyles.card}>
+                            <TouchableOpacity style={settingsStyles.row} activeOpacity={0.7} onPress={() => router.push('/(settings)/UserManualScreen' as any)}>
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#10B981' + '1A' }]}>
+                                        <MaterialIcons name="menu-book" size={22} color="#10B981" />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>User Manual</Text>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+
                             <TouchableOpacity style={settingsStyles.row} activeOpacity={0.7} onPress={() => router.push('/(settings)/AboutAppScreen')}>
                                 <View style={settingsStyles.rowContent}>
                                     <View style={[settingsStyles.iconBox, { backgroundColor: '#64748B' + '1A' }]}>

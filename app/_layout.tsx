@@ -102,6 +102,7 @@ function RootNavigator() {
         <Stack.Screen name="(auth)/ResetPasswordScreen" />
         <Stack.Screen name="(auth)/SetupAccountScreen" />
         <Stack.Screen name="(settings)/PrivacyPolicyScreen" />
+        <Stack.Screen name="(settings)/UserManualScreen" />
         <Stack.Screen name="(auth)/TermsOfServiceScreen" />
         <Stack.Screen name="(auth)/MFAChallengeScreen" />
       </Stack>

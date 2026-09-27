@@ -271,6 +271,14 @@ export const ProfileDrawer: React.FC<Props> = ({ visible, onClose, activeFarmNam
                             <MaterialIcons name="chevron-right" size={18} color={colors.textGrey} style={styles.chevron} />
                         </TouchableOpacity>
 
+                        <TouchableOpacity style={styles.menuItem} onPress={() => handleLink('/(settings)/UserManualScreen')}>
+                            <View style={[styles.iconContainer, { backgroundColor: '#10B9811A' }]}>
+                                <MaterialIcons name="menu-book" size={20} color="#10B981" />
+                            </View>
+                            <Text style={[styles.menuItemText, { color: colors.text }]}>User Manual</Text>
+                            <MaterialIcons name="chevron-right" size={18} color={colors.textGrey} style={styles.chevron} />
+                        </TouchableOpacity>
+
                         <TouchableOpacity style={styles.menuItem} onPress={() => handleLink('/(settings)/AboutAppScreen')}>
                             <View style={[styles.iconContainer, { backgroundColor: '#64748B1A' }]}>
                                 <MaterialIcons name="info-outline" size={20} color="#64748B" />
