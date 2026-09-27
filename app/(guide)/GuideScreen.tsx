@@ -346,7 +346,7 @@ const GuideTaskCardItem = ({
             >
                 {/* Top Row: Task Description & Day Badge */}
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={{
                             fontSize: 12.5,
                             color: isCompleted ? (isDark ? '#34D399' : '#065F46') : isRejected ? (isDark ? '#FBBF24' : '#92400E') : isAIItem ? '#10B981' : colors.text,
@@ -361,12 +361,13 @@ const GuideTaskCardItem = ({
                         backgroundColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.15)' : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
                         borderWidth: 1,
                         borderColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.35)' : colors.stroke,
-                        paddingHorizontal: 7,
-                        paddingVertical: 2,
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
                         borderRadius: 6,
                         flexShrink: 0,
+                        alignSelf: 'flex-start',
                     }}>
-                        <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayMatched ? '#10B981' : colors.textGrey }}>
+                        <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayMatched ? '#10B981' : colors.textGrey, textAlign: 'center' }}>
                             {actionItem.dayTag}
                         </Text>
                     </View>
@@ -395,9 +396,11 @@ const GuideTaskCardItem = ({
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    paddingTop: 6,
+                    paddingTop: 8,
                     borderTopWidth: 1,
                     borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                    flexWrap: 'wrap',
+                    gap: 8,
                 }}>
                     {isCompleted ? (
                         <>
@@ -1463,7 +1466,7 @@ export default function GuideScreen() {
                                                                 >
                                                                     {/* Top Row: Task Description & Day Badge */}
                                                                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                                                                        <View style={{ flex: 1 }}>
+                                                                        <View style={{ flex: 1, minWidth: 0 }}>
                                                                             <Text style={{
                                                                                 fontSize: 12.5,
                                                                                 color: isCompleted ? (isDark ? '#34D399' : '#065F46') : isRejected ? (isDark ? '#FBBF24' : '#92400E') : isAIItem ? '#10B981' : colors.text,
@@ -1474,15 +1477,16 @@ export default function GuideScreen() {
                                                                             </Text>
                                                                         </View>
 
-                                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0, alignSelf: 'flex-start' }}>
                                                                             {isTodayItem && (
                                                                                 <View style={{
                                                                                     backgroundColor: 'rgba(16, 185, 129, 0.18)',
                                                                                     borderWidth: 1,
                                                                                     borderColor: 'rgba(16, 185, 129, 0.3)',
                                                                                     paddingHorizontal: 6,
-                                                                                    paddingVertical: 1.5,
+                                                                                    paddingVertical: 2,
                                                                                     borderRadius: 4,
+                                                                                    flexShrink: 0,
                                                                                 }}>
                                                                                     <Text style={{ fontSize: 9, fontFamily: 'Poppins-Bold', color: '#10B981' }}>
                                                                                         TODAY
@@ -1493,11 +1497,12 @@ export default function GuideScreen() {
                                                                                 backgroundColor: isAIItem || isTodayItem ? 'rgba(16, 185, 129, 0.15)' : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
                                                                                 borderWidth: 1,
                                                                                 borderColor: isAIItem || isTodayItem ? 'rgba(16, 185, 129, 0.35)' : colors.stroke,
-                                                                                paddingHorizontal: 7,
-                                                                                paddingVertical: 2,
+                                                                                paddingHorizontal: 8,
+                                                                                paddingVertical: 3,
                                                                                 borderRadius: 6,
+                                                                                flexShrink: 0,
                                                                             }}>
-                                                                                <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayItem ? '#10B981' : colors.textGrey }}>
+                                                                                <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayItem ? '#10B981' : colors.textGrey, textAlign: 'center' }}>
                                                                                     {actionItem.dayTag}
                                                                                 </Text>
                                                                             </View>
@@ -1527,9 +1532,11 @@ export default function GuideScreen() {
                                                                         flexDirection: 'row',
                                                                         alignItems: 'center',
                                                                         justifyContent: 'space-between',
-                                                                        paddingTop: 6,
+                                                                        paddingTop: 8,
                                                                         borderTopWidth: 1,
                                                                         borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                                                                        flexWrap: 'wrap',
+                                                                        gap: 8,
                                                                     }}>
                                                                         {isCompleted ? (
                                                                             <>
@@ -1768,8 +1775,9 @@ export default function GuideScreen() {
                                 shadowRadius: 8,
                                 elevation: 2,
                                 marginBottom: 20,
+                                gap: 12,
                             }}>
-                                <View style={{ flex: 1, marginRight: 14 }}>
+                                <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
                                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 19, marginBottom: 4 }]}>
                                         {animalFilter === 'pig' ? 'Swine' : 'Poultry'} Timeline
                                     </Text>
@@ -1799,6 +1807,7 @@ export default function GuideScreen() {
                                     borderRadius: 12,
                                     alignItems: 'center',
                                     minWidth: 64,
+                                    flexShrink: 0,
                                 }}>
                                     <Text style={{ color: colors.primary, fontSize: 10, letterSpacing: 1.2, fontFamily: 'Poppins-Bold' }}>
                                         DAY
@@ -1854,16 +1863,26 @@ export default function GuideScreen() {
                                 padding: 16,
                                 marginBottom: 20,
                             }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 160 }}>
                                         <MaterialIcons name="format-list-bulleted" size={18} color={colors.primary} />
                                         <Text style={[textStyles.h3, { fontSize: 15, fontFamily: 'Poppins-Bold', color: colors.text }]}>
                                             Today's Suggested Tasks
                                         </Text>
                                     </View>
-                                    <Text style={{ fontSize: 11, color: colors.textGrey, fontFamily: 'Poppins-Medium' }}>
-                                        Day {currentDay}
-                                    </Text>
+                                    <View style={{
+                                        backgroundColor: colors.primary + '14',
+                                        paddingHorizontal: 9,
+                                        paddingVertical: 3.5,
+                                        borderRadius: 8,
+                                        borderWidth: 1,
+                                        borderColor: colors.primary + '25',
+                                        alignSelf: 'center',
+                                    }}>
+                                        <Text style={{ fontSize: 11, color: colors.primary, fontFamily: 'Poppins-Bold' }}>
+                                            Day {currentDay}
+                                        </Text>
+                                    </View>
                                 </View>
 
                                 <View style={{ gap: 8 }}>

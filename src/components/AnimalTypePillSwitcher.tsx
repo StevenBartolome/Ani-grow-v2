@@ -153,5 +153,6 @@ const styles = StyleSheet.create({
     tabText: {
         fontSize: 13,
         textAlign: 'center',
+        textTransform: 'capitalize',
     },
 });

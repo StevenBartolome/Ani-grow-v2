@@ -1088,43 +1088,46 @@ export default function VaccineScreen() {
                                         ]}
                                     >
                                         {/* Top Row: Icon, Vaccine Title & Status Pill */}
-                                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-                                            <View
-                                                style={{
-                                                    width: 44,
-                                                    height: 44,
-                                                    borderRadius: 14,
-                                                    backgroundColor: color + '15',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                }}
-                                            >
-                                                <MaterialIcons
-                                                    name={isCompleted ? 'check-circle' : 'vaccines'}
-                                                    size={24}
-                                                    color={color}
-                                                />
-                                            </View>
-
-                                            <View style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}>
-                                                <Text
-                                                    style={[
-                                                        textStyles.h3,
-                                                        {
-                                                            color: colors.text,
-                                                            fontSize: 16,
-                                                            textDecorationLine: isCompleted ? 'line-through' : 'none',
-                                                            opacity: isCompleted ? 0.75 : 1,
-                                                        }
-                                                    ]}
+                                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, flex: 1, minWidth: 160 }}>
+                                                <View
+                                                    style={{
+                                                        width: 44,
+                                                        height: 44,
+                                                        borderRadius: 14,
+                                                        backgroundColor: color + '15',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        flexShrink: 0,
+                                                    }}
                                                 >
-                                                    {sch.vaccine_name}
-                                                </Text>
-                                                {sch.housing?.animal_type ? (
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, textTransform: 'capitalize' }]}>
-                                                        {sch.housing.animal_type} Vaccination
+                                                    <MaterialIcons
+                                                        name={isCompleted ? 'check-circle' : 'vaccines'}
+                                                        size={24}
+                                                        color={color}
+                                                    />
+                                                </View>
+
+                                                <View style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center' }}>
+                                                    <Text
+                                                        style={[
+                                                            textStyles.h3,
+                                                            {
+                                                                color: colors.text,
+                                                                fontSize: 16,
+                                                                textDecorationLine: isCompleted ? 'line-through' : 'none',
+                                                                opacity: isCompleted ? 0.75 : 1,
+                                                            }
+                                                        ]}
+                                                    >
+                                                        {sch.vaccine_name}
                                                     </Text>
-                                                ) : null}
+                                                    {sch.housing?.animal_type ? (
+                                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, textTransform: 'capitalize' }]}>
+                                                            {sch.housing.animal_type} Vaccination
+                                                        </Text>
+                                                    ) : null}
+                                                </View>
                                             </View>
 
                                             {/* Status Pill */}
@@ -1139,6 +1142,8 @@ export default function VaccineScreen() {
                                                     backgroundColor: statusBg,
                                                     borderWidth: 1,
                                                     borderColor: statusBorder,
+                                                    alignSelf: 'flex-start',
+                                                    flexShrink: 0,
                                                 }}
                                             >
                                                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />

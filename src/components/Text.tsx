@@ -67,6 +67,26 @@ function shouldSkipTranslation(text: string, profile: any): boolean {
   return false;
 }
 
+function fixFilipinoText(text: string): string {
+  let fixed = text.replace(/\bnamatay\b/gi, (m) => m.charAt(0).toUpperCase() + m.slice(1));
+  fixed = fixed.replace(/\bmanok\b/gi, (m, offset, str) => {
+    const prev = str.slice(0, offset).trim();
+    if (/(\bmga|\bng|\bsa|\bang|^)$/i.test(prev)) {
+      return 'Manok';
+    }
+    return m;
+  });
+  fixed = fixed.replace(/\bbaboy\b/gi, (m, offset, str) => {
+    const prev = str.slice(0, offset).trim();
+    if (/(\bmga|\bng|\bsa|\bang|^)$/i.test(prev)) {
+      return 'Baboy';
+    }
+    return m;
+  });
+  fixed = fixed.replace(/^\s*mga\s+/i, 'Mga ');
+  return fixed;
+}
+
 async function translateNode(node: React.ReactNode, language: string, profile: any): Promise<React.ReactNode> {
   if (language === 'en') return node;
 
@@ -77,8 +97,18 @@ async function translateNode(node: React.ReactNode, language: string, profile: a
     if (shouldSkipTranslation(node, profile)) {
       return node;
     }
+
+    const leadingSpace = node.match(/^(\s+)/)?.[1] || '';
+    const trailingSpace = node.match(/(\s+)$/)?.[1] || '';
     
-    return queueTranslation(node, language);
+    const translated = await queueTranslation(trimmed, language);
+    let result = `${leadingSpace}${translated}${trailingSpace}`;
+
+    if (language === 'fil') {
+      result = fixFilipinoText(result);
+    }
+
+    return result;
   }
 
   if (Array.isArray(node)) {
@@ -107,7 +137,19 @@ export function Text({ children, translate = true, style, ...props }: CustomText
     }
     let active = true;
     translateNode(children, language, profile).then((result) => {
-      if (active) setTranslatedChildren(result);
+      if (active) {
+        if (language === 'fil') {
+          if (typeof result === 'string') {
+            setTranslatedChildren(fixFilipinoText(result));
+          } else if (Array.isArray(result)) {
+            setTranslatedChildren(result.map(item => typeof item === 'string' ? fixFilipinoText(item) : item));
+          } else {
+            setTranslatedChildren(result);
+          }
+        } else {
+          setTranslatedChildren(result);
+        }
+      }
     });
     return () => { active = false; };
   }, [children, language, translate, profile]);

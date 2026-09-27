@@ -778,7 +778,7 @@ export default function FeedReportScreen() {
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flex: 1, textAlign: 'center', marginHorizontal: 8 }]}>
-                    {animalType === 'pig' ? 'Pigs' : 'Chickens'} Feed Report
+                    {animalType === 'pig' ? 'Pigs Feed Report' : 'Chickens Feed Report'}
                 </Text>
                 <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                     <PrintReportButton
@@ -990,21 +990,23 @@ export default function FeedReportScreen() {
                         </View>
 
                         {/* Timeframe Toggle & Chart Title */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Daily Feed Dispensed</Text>
-                            <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                            <View style={{ flex: 1, minWidth: 140 }}>
+                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Daily Feed Dispensed</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2, flexShrink: 0 }}>
                                 {(['This Week', 'This Month'] as const).map(tf => (
                                     <TouchableOpacity
                                         key={tf}
                                         onPress={() => setTimeframe(tf)}
                                         style={{
-                                            paddingHorizontal: 12,
-                                            paddingVertical: 6,
+                                            paddingHorizontal: 10,
+                                            paddingVertical: 5,
                                             borderRadius: 6,
                                             backgroundColor: timeframe === tf ? colors.primary + '1A' : 'transparent',
                                         }}
                                     >
-                                        <Text style={[textStyles.label, { color: timeframe === tf ? colors.primary : colors.textGrey, fontSize: 11 }]}>{tf}</Text>
+                                        <Text style={[textStyles.label, { color: timeframe === tf ? colors.primary : colors.textGrey, fontSize: 11, textAlign: 'center', textTransform: 'capitalize' }]}>{tf}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>

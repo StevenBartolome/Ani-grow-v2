@@ -1768,7 +1768,7 @@ export default function GrowthReportScreen() {
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 16, flex: 1, textAlign: 'center', marginHorizontal: 4 }]}>
-                    {animalType === 'pig' ? 'Pigs' : 'Chickens'} Growth
+                    {animalType === 'pig' ? 'Pigs Growth Report' : 'Chickens Growth Report'}
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <PrintReportButton
@@ -2095,27 +2095,28 @@ export default function GrowthReportScreen() {
                             borderRadius: 16,
                             padding: 16,
                             marginBottom: 24,
+                            gap: 12,
                             shadowColor: colors.shadow,
                             shadowOffset: { width: 0, height: 2 },
                             shadowOpacity: 0.5,
                             shadowRadius: 4,
                             elevation: 1,
                         }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: activeColor + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: activeColor + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12, flexShrink: 0 }}>
                                     <Image
                                         source={require('../../assets/icons/animals-filled.svg')}
                                         style={{ width: 22, height: 22 }}
                                         contentFit="contain"
                                     />
                                 </View>
-                                <View>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>Total Weigh Logs</Text>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 15 }]}>{selectedTab} Group</Text>
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text numberOfLines={1} style={[textStyles.body, { color: colors.textGrey, fontSize: 13, lineHeight: 17 }]}>Total Weigh Logs</Text>
+                                    <Text numberOfLines={1} style={[textStyles.h3, { color: colors.text, fontSize: 15, lineHeight: 20 }]}>{selectedTab} Group</Text>
                                 </View>
                             </View>
-                            <View style={{ alignItems: 'flex-end' }}>
-                                <Text style={[textStyles.h1, { color: activeColor, fontSize: 28, lineHeight: 32 }]}>
+                            <View style={{ alignItems: 'flex-end', flexShrink: 0, minWidth: 48 }}>
+                                <Text style={[textStyles.h1, { color: activeColor, fontSize: 26, lineHeight: 30 }]}>
                                     {getCategoryCount(selectedTab)}
                                 </Text>
                                 <Text style={[textStyles.label, { color: activeColor, fontSize: 11, opacity: 0.8 }]}>Logs</Text>
@@ -2123,11 +2124,11 @@ export default function GrowthReportScreen() {
                         </View>
 
                         {/* Timeframe Toggle & Chart Title */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, marginBottom: 0 }]}>Current Growth</Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 130 }}>
+                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 0 }]}>Current Growth</Text>
                             </View>
-                            <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2 }}>
+                            <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2, flexShrink: 0 }}>
                                 {(['Days', 'Weeks'] as const).map(tf => (
                                     <TouchableOpacity
                                         key={tf}
@@ -2143,7 +2144,7 @@ export default function GrowthReportScreen() {
                                             backgroundColor: timeframe === tf ? activeColor + '1A' : 'transparent',
                                         }}
                                     >
-                                        <Text style={[textStyles.label, { color: timeframe === tf ? activeColor : colors.textGrey, fontSize: 11 }]}>{tf}</Text>
+                                        <Text style={[textStyles.label, { color: timeframe === tf ? activeColor : colors.textGrey, fontSize: 11, textAlign: 'center', textTransform: 'capitalize' }]}>{tf}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>

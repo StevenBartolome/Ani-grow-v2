@@ -1022,9 +1022,11 @@ export default function HomeScreen() {
                                 paddingHorizontal: 10,
                                 paddingVertical: 4,
                                 borderRadius: 20,
+                                flexShrink: 1,
+                                maxWidth: '70%',
                             }}>
                                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' }} />
-                                <Text style={{ fontSize: 11, fontFamily: 'Poppins-Medium', color: colors.text }}>
+                                <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: 'Poppins-Medium', color: colors.text, flexShrink: 1 }}>
                                     {farmName || 'Active Farm'}
                                 </Text>
                             </View>
@@ -1288,29 +1290,46 @@ export default function HomeScreen() {
                                                 style={({ pressed }) => [homeStyles.actionButton, { opacity: pressed ? 0.72 : 1 }]}
                                                 onPress={() => router.push(item.route as any)}
                                             >
-                                                <View style={{
-                                                    width: 52,
-                                                    height: 52,
-                                                    borderRadius: 16,
-                                                    backgroundColor: item.color + '15',
-                                                    borderWidth: 1,
-                                                    borderColor: item.color + '30',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                }}>
-                                                    {item.icon === null ? (
-                                                        <Image
-                                                            source={require('../../assets/icons/animals-filled.svg')}
-                                                            style={{ width: 24, height: 24 }}
-                                                            contentFit="contain"
-                                                        />
-                                                    ) : (
-                                                        <MaterialIcons name={item.icon as any} size={24} color={item.color} />
-                                                    )}
+                                                <View style={{ alignItems: 'center', width: '100%' }}>
+                                                    <View style={{
+                                                        width: 52,
+                                                        height: 52,
+                                                        borderRadius: 16,
+                                                        backgroundColor: item.color + '15',
+                                                        borderWidth: 1,
+                                                        borderColor: item.color + '30',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                    }}>
+                                                        {item.icon === null ? (
+                                                            <Image
+                                                                source={require('../../assets/icons/animals-filled.svg')}
+                                                                style={{ width: 24, height: 24 }}
+                                                                contentFit="contain"
+                                                            />
+                                                        ) : (
+                                                            <MaterialIcons name={item.icon as any} size={24} color={item.color} />
+                                                        )}
+                                                    </View>
+                                                    <View style={{ width: '100%', alignItems: 'center', justifyContent: 'flex-start', marginTop: 6, minHeight: 28 }}>
+                                                        <Text
+                                                            style={[
+                                                                textStyles.label,
+                                                                {
+                                                                    color: colors.text,
+                                                                    fontSize: 10.5,
+                                                                    lineHeight: 14,
+                                                                    textAlign: 'center',
+                                                                    fontFamily: 'Poppins-Medium',
+                                                                    width: '100%',
+                                                                    maxWidth: 70,
+                                                                },
+                                                            ]}
+                                                        >
+                                                            {item.label}
+                                                        </Text>
+                                                    </View>
                                                 </View>
-                                                <Text style={[textStyles.label, { color: colors.text, marginTop: 6, fontSize: 11, textAlign: 'center', fontFamily: 'Poppins-Medium' }]}>
-                                                    {item.label}
-                                                </Text>
                                             </Pressable>
                                         ))}
                                     </View>

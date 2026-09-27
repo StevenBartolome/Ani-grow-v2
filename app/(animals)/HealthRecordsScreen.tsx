@@ -1302,11 +1302,11 @@ const HealthRecordCardItem = ({
                 {/* Content */}
                 <View style={{ flex: 1, paddingVertical: 14, paddingRight: 4 }}>
                     {/* Title + severity badge */}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
-                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text, flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 3 }}>
+                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text, flex: 1, minWidth: 120 }}>
                             {record.title}
                         </Text>
-                        <View style={{ backgroundColor: sev.color + '22', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8, flexShrink: 0 }}>
+                        <View style={{ backgroundColor: sev.color + '22', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, flexShrink: 0 }}>
                             <Text style={{ color: sev.color, fontSize: 10, fontFamily: 'Poppins-SemiBold' }}>{sev.label}</Text>
                         </View>
                     </View>

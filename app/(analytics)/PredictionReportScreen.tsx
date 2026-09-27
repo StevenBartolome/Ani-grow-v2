@@ -1288,8 +1288,8 @@ export default function PredictionReportScreen() {
                         )}
 
                         {/* ── Forecast Chart Section ─────────────────────────── */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                            <View style={{ flex: 1, marginRight: 8 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+                            <View style={{ flex: 1, minWidth: 150, marginRight: 8 }}>
                                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 0 }]}>
                                     Weight Forecast &amp; Harvest Trajectory
                                 </Text>
@@ -1301,19 +1301,19 @@ export default function PredictionReportScreen() {
                             </View>
 
                             {/* Timeframe Toggle */}
-                            <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2 }}>
+                            <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2, flexShrink: 0 }}>
                                 {(['30 Days', '60 Days'] as const).map(tf => (
                                     <TouchableOpacity
                                         key={tf}
                                         onPress={() => setTimeframe(tf)}
                                         style={{
-                                            paddingHorizontal: 12,
-                                            paddingVertical: 6,
+                                            paddingHorizontal: 10,
+                                            paddingVertical: 5,
                                             borderRadius: 6,
                                             backgroundColor: timeframe === tf ? (colors.prediction ?? '#8B5CF6') + '1A' : 'transparent',
                                         }}
                                     >
-                                        <Text style={[textStyles.label, { color: timeframe === tf ? (colors.prediction ?? '#8B5CF6') : colors.textGrey, fontSize: 11 }]}>
+                                        <Text style={[textStyles.label, { color: timeframe === tf ? (colors.prediction ?? '#8B5CF6') : colors.textGrey, fontSize: 11, textAlign: 'center', textTransform: 'capitalize' }]}>
                                             {tf}
                                         </Text>
                                     </TouchableOpacity>
@@ -1782,7 +1782,7 @@ export default function PredictionReportScreen() {
                             </View>
                         )}
 
-                        {/* ── Batch Overview ─────────────────────────────────── */}
+                        {/* ── Batch Overview (Total Heads) ─────────────────────────── */}
                         <View style={{
                             flexDirection: 'row',
                             alignItems: 'center',
@@ -1794,34 +1794,35 @@ export default function PredictionReportScreen() {
                             padding: 16,
                             marginBottom: 24,
                             marginTop: 12,
+                            gap: 12,
                             elevation: 1,
                             shadowColor: colors.shadow,
                             shadowOffset: { width: 0, height: 2 },
                             shadowOpacity: 0.5,
                             shadowRadius: 4,
                         }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: activeColor + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: activeColor + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12, flexShrink: 0 }}>
                                     <Image
                                         source={require('../../assets/icons/animals-filled.svg')}
                                         style={{ width: 22, height: 22 }}
                                         contentFit="contain"
                                     />
                                 </View>
-                                <View>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text numberOfLines={1} style={[textStyles.body, { color: colors.textGrey, fontSize: 12, lineHeight: 16 }]}>
                                         {selectedBatch?.name ?? 'Batch'}
                                     </Text>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>
+                                    <Text numberOfLines={1} style={[textStyles.h3, { color: colors.text, fontSize: 14, lineHeight: 19 }]}>
                                         {animalType === 'pig' ? 'Pigs' : 'Chickens'} · {selectedHousing?.name ?? '—'}
                                     </Text>
                                 </View>
                             </View>
-                            <View style={{ alignItems: 'flex-end' }}>
+                            <View style={{ alignItems: 'flex-end', flexShrink: 0, minWidth: 48 }}>
                                 <Text style={[textStyles.h1, { color: activeColor, fontSize: 26, lineHeight: 30 }]}>
                                     {selectedBatch?.current_count ?? 0}
                                 </Text>
-                                <Text style={[textStyles.label, { color: activeColor, fontSize: 11, opacity: 0.8 }]}>Heads</Text>
+                                <Text numberOfLines={1} style={[textStyles.label, { color: activeColor, fontSize: 11, opacity: 0.8 }]}>Heads</Text>
                             </View>
                         </View>
 

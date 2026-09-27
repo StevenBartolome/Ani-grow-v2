@@ -1079,7 +1079,7 @@ export default function AnimalDetailsScreen() {
                         {/* Quick Actions */}
                         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
                             <TouchableOpacity
-                                style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
+                                style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 8, minHeight: 48, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
                                 onPress={() => {
                                     setAddHeadsNumber('');
                                     setAddHeadsAge('');
@@ -1094,10 +1094,10 @@ export default function AnimalDetailsScreen() {
                                 disabled={selectedBatch.status !== 'active'}
                             >
                                 <MaterialIcons name="add" size={20} color={selectedBatch.status === 'active' ? colors.primary : colors.textGrey} style={{ marginRight: 6 }} />
-                                <Text style={[textStyles.h3, { color: selectedBatch.status === 'active' ? colors.primary : colors.textGrey, fontSize: 13 }]}>Add Heads</Text>
+                                <Text numberOfLines={2} style={[textStyles.h3, { color: selectedBatch.status === 'active' ? colors.primary : colors.textGrey, fontSize: 12.5, lineHeight: 15, textAlign: 'center', flexShrink: 1 }]}>Add Heads</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
+                                style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 8, minHeight: 48, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
                                 onPress={() => {
                                     setDeceasedNumber('');
                                     setDeceasedReason('Illness');
@@ -1108,7 +1108,7 @@ export default function AnimalDetailsScreen() {
                                 disabled={selectedBatch.status !== 'active'}
                             >
                                 <MaterialIcons name="warning" size={18} color={selectedBatch.status === 'active' ? colors.error : colors.textGrey} style={{ marginRight: 6 }} />
-                                <Text style={[textStyles.h3, { color: selectedBatch.status === 'active' ? colors.error : colors.textGrey, fontSize: 13 }]}>Deceased</Text>
+                                <Text numberOfLines={2} style={[textStyles.h3, { color: selectedBatch.status === 'active' ? colors.error : colors.textGrey, fontSize: 12.5, lineHeight: 15, textAlign: 'center', flexShrink: 1 }]}>Deceased</Text>
                             </TouchableOpacity>
                         </View>
 

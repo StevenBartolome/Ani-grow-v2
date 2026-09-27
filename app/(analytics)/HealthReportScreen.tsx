@@ -810,7 +810,7 @@ export default function HealthReportScreen() {
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flex: 1, textAlign: 'center', marginHorizontal: 8 }]}>
-                    {animalType === 'pig' ? 'Pigs' : 'Chickens'} Health Report
+                    {animalType === 'pig' ? 'Pigs Health Report' : 'Chickens Health Report'}
                 </Text>
                 <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                     <PrintReportButton

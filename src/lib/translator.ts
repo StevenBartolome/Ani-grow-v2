@@ -39,9 +39,18 @@ let batchScheduled = false;
 export function queueTranslation(text: string, lang: string): Promise<string> {
   if (lang === 'en') return Promise.resolve(text);
 
+  const leadingSpace = text.match(/^(\s+)/)?.[1] || '';
+  const trailingSpace = text.match(/(\s+)$/)?.[1] || '';
+  const trimmed = text.trim();
+
+  if (!trimmed) return Promise.resolve(text);
+
   return new Promise((resolve) => {
     if (!pendingByLang.has(lang)) pendingByLang.set(lang, []);
-    pendingByLang.get(lang)!.push({ text, resolve });
+    pendingByLang.get(lang)!.push({
+      text: trimmed,
+      resolve: (res) => resolve(`${leadingSpace}${res}${trailingSpace}`),
+    });
 
     if (!batchScheduled) {
       batchScheduled = true;
@@ -117,7 +126,25 @@ export async function translateBatch(texts: string[], targetLang: string): Promi
       await Promise.all(
         chunkIndices.map(async (originalIndex, i) => {
           const originalText = texts[originalIndex];
-          const translatedText = translations[i]?.translatedText || originalText;
+          let translatedText = translations[i]?.translatedText || originalText;
+          if (targetCode === 'tl' && typeof translatedText === 'string') {
+            translatedText = translatedText.replace(/\bnamatay\b/gi, (m) => m.charAt(0).toUpperCase() + m.slice(1));
+            translatedText = translatedText.replace(/\bmanok\b/gi, (m, offset, str) => {
+              const prev = str.slice(0, offset).trim();
+              if (/(\bmga|\bng|\bsa|\bang|^)$/i.test(prev)) {
+                return 'Manok';
+              }
+              return m;
+            });
+            translatedText = translatedText.replace(/\bbaboy\b/gi, (m, offset, str) => {
+              const prev = str.slice(0, offset).trim();
+              if (/(\bmga|\bng|\bsa|\bang|^)$/i.test(prev)) {
+                return 'Baboy';
+              }
+              return m;
+            });
+            translatedText = translatedText.replace(/^\s*mga\s+/i, 'Mga ');
+          }
           await setCache(getCacheKey(targetCode, originalText.trim()), translatedText);
           results[originalIndex] = translatedText;
         })

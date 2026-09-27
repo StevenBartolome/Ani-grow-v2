@@ -772,7 +772,7 @@ export default function WeighingSessionsScreen() {
                     <BackButton fallbackRoute="/(analytics)/AnalyticsScreen" />
                 </View>
                 <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flex: 1, textAlign: 'center', marginHorizontal: 8 }]}>
-                    {animalType === 'pig' ? 'Pigs' : 'Chickens'} Weighing History
+                    {animalType === 'pig' ? 'Pigs Weighing History' : 'Chickens Weighing History'}
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <PrintReportButton
@@ -972,20 +972,20 @@ export default function WeighingSessionsScreen() {
 
                                 {/* Summary stats */}
                                 <View style={{ flexDirection: 'row', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
-                                    <View>
+                                    <View style={{ minWidth: 80, flexShrink: 1 }}>
                                         <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]}>TOTAL WEIGHED</Text>
                                         <Text style={[textStyles.h2, { color: colors.text }]}>{rangeTotal}</Text>
                                     </View>
-                                    <View>
+                                    <View style={{ minWidth: 80, flexShrink: 1 }}>
                                         <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]}>AVERAGE</Text>
                                         <Text style={[textStyles.h2, { color: colors.text }]}>{(rangeAvgG / 1000).toFixed(2)} kg</Text>
                                     </View>
-                                    <View>
+                                    <View style={{ minWidth: 100, flexShrink: 1 }}>
                                         <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]}>MIN / MAX</Text>
                                         <Text style={[textStyles.h2, { color: colors.text, fontSize: 15 }]}>{(rangeMinG / 1000).toFixed(2)} / {(rangeMaxG / 1000).toFixed(2)} kg</Text>
                                     </View>
                                     {rangeFeedGrams !== null && (
-                                        <View>
+                                        <View style={{ minWidth: 90, flexShrink: 1 }}>
                                             <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]}>FEED CONSUMED</Text>
                                             <Text style={[textStyles.h2, { color: colors.text }]}>{(rangeFeedGrams / 1000).toFixed(2)} kg</Text>
                                         </View>
@@ -1006,16 +1006,16 @@ export default function WeighingSessionsScreen() {
                                 {dayGroups.length > 0 && resolvedRange && (
                                     <>
                                         <View style={{ height: 1, backgroundColor: colors.stroke, marginBottom: 12 }} />
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                            <Text style={[textStyles.label, { color: colors.text, fontSize: 12 }]}>DAY-BY-DAY BREAKDOWN</Text>
-                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+                                            <Text style={[textStyles.label, { color: colors.text, fontSize: 12, flexShrink: 1 }]}>DAY-BY-DAY BREAKDOWN</Text>
+                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, flexShrink: 1 }]}>
                                                 {dayGroups.length} of {resolvedRange.toDay - resolvedRange.fromDay + 1} days recorded
                                             </Text>
                                         </View>
                                         {dayGroups.length >= 2 && (() => {
                                             const change = dayGroups[dayGroups.length - 1].avgG - dayGroups[0].avgG;
                                             return (
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginBottom: 12 }]}>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, lineHeight: 16, marginBottom: 12 }]}>
                                                     {change >= 0 ? '+' : ''}{(change / 1000).toFixed(2)} kg average change from {dayGroups[0].label} to {dayGroups[dayGroups.length - 1].label}
                                                 </Text>
                                             );
@@ -1025,21 +1025,21 @@ export default function WeighingSessionsScreen() {
                                             const midWeek = isMidWeekEntry(g);
                                             return (
                                                 <View key={g.dateKey} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.stroke + '80' }}>
-                                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontWeight: '700' }]}>{g.weekday}, {g.label}</Text>
+                                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4, gap: 8 }}>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, flexWrap: 'wrap' }}>
+                                                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontWeight: '700', flexShrink: 1, lineHeight: 18 }]}>{g.weekday}, {g.label}</Text>
                                                             {midWeek && (
-                                                                <View style={{ backgroundColor: colors.info + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                                                <View style={{ backgroundColor: colors.info + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, alignSelf: 'center' }}>
                                                                     <Text style={[textStyles.label, { color: colors.info, fontSize: 9 }]}>MID-WEEK</Text>
                                                                 </View>
                                                             )}
                                                         </View>
-                                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontWeight: '700' }]}>{(g.avgG / 1000).toFixed(2)} kg avg</Text>
+                                                        <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontWeight: '700', flexShrink: 0, textAlign: 'right', lineHeight: 18 }]}>{(g.avgG / 1000).toFixed(2)} kg avg</Text>
                                                     </View>
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, lineHeight: 16 }]}>
                                                         {g.count} weighed · min {(g.minG / 1000).toFixed(2)} / max {(g.maxG / 1000).toFixed(2)} kg
                                                     </Text>
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2 }]}>
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, marginTop: 2, lineHeight: 16 }]}>
                                                         Underweight {g.under} · Normal {g.normal} · Overweight {g.over}
                                                     </Text>
                                                 </View>
@@ -1074,11 +1074,11 @@ export default function WeighingSessionsScreen() {
                                         <View style={styles.menuIconContainer}>
                                             <AniWeighIcon size={22} />
                                         </View>
-                                        <View style={styles.menuContent}>
-                                            <Text style={[textStyles.h3, styles.menuTitle]}>
+                                        <View style={[styles.menuContent, { flex: 1, marginRight: 8 }]}>
+                                            <Text style={[textStyles.h3, styles.menuTitle, { fontSize: 14, lineHeight: 18 }]}>
                                                 {session.farm_day !== null ? `Day ${session.farm_day}` : formatDate(session.created_at)}
                                             </Text>
-                                            <Text style={[textStyles.body, styles.menuSubtitle]}>
+                                            <Text style={[textStyles.body, styles.menuSubtitle, { fontSize: 12, lineHeight: 16, marginTop: 2 }]}>
                                                 {session.completed_quantity}/{session.expected_quantity} weighed
                                                 {avg !== null ? ` · avg ${(avg / 1000).toFixed(2)} kg` : ''}
                                                 {session.status === 'cancelled' ? ' · Cancelled' : ''}
