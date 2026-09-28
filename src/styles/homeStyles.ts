@@ -141,7 +141,8 @@ export const useHomeStyles = () => {
             paddingBottom: 24,
         },
         alertChipCard: {
-            width: 160,
+            minWidth: 150,
+            maxWidth: 180,
             padding: 16,
             borderRadius: 16,
             borderWidth: 1,
@@ -193,6 +194,7 @@ export const useHomeStyles = () => {
             flexDirection: 'row',
             alignItems: 'center',
             marginTop: 4,
+            flexWrap: 'wrap',
         },
 
         // ─── Quick Actions ─────────────────────────────────────────────────────
@@ -217,7 +219,8 @@ export const useHomeStyles = () => {
         },
         actionButton: {
             flex: 1,
-            maxWidth: 84,
+            minWidth: 70,
+            maxWidth: 96,
             alignItems: 'center',
             justifyContent: 'flex-start',
             paddingHorizontal: 2,

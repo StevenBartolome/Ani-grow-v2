@@ -83,12 +83,14 @@ export const useSettingsSubPageStyles = () => {
             fontFamily: 'Poppins-SemiBold',
             fontSize: 15,
             color: colors.text,
+            flexShrink: 1,
         },
         rowDescription: {
             fontFamily: 'Poppins-Regular',
             fontSize: 12,
             color: colors.textGrey,
             marginTop: 2,
+            flexShrink: 1,
         },
         inputGroup: {
             paddingTop: 24,

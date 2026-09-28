@@ -22,18 +22,24 @@ function shouldSkipTranslation(text: string, profile: any): boolean {
     return true;
   }
 
-  // 2. Skip email addresses, usernames, URLs, and phone numbers
+  // 2. Skip email addresses, usernames, URLs, domains, and phone numbers
   if (
     lowerText.includes('@') || 
     lowerText.includes('http://') ||
     lowerText.includes('https://') ||
     lowerText.includes('www.') ||
+    /\.[a-z]{2,6}$/i.test(trimmed) ||
     /^\+?[0-9\s\-()]{7,}$/.test(trimmed)
   ) {
     return true;
   }
 
-  // 3. Skip user's farm name, user proper names, or username
+  // 3. Skip CamelCase/PascalCase identifier names/codes (e.g. BigAssKamyTS)
+  if (/^[A-Z][a-z0-9]+[A-Z][a-zA-Z0-9]+$/.test(trimmed)) {
+    return true;
+  }
+
+  // 4. Skip user's farm name, user proper names, or username
   if (profile) {
     const farmName = (profile.farm_name || profile.farmName || '').trim();
     const firstName = (profile.first_name || profile.firstName || '').trim();
@@ -54,7 +60,7 @@ function shouldSkipTranslation(text: string, profile: any): boolean {
     }
   }
 
-  // 4. Skip IDs, custom codes, Wi-Fi keys, and hex/UUID strings
+  // 5. Skip IDs, custom codes, Wi-Fi keys, and hex/UUID strings
   if (
     /^agr-[a-z0-9]{6}$/i.test(trimmed) || 
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) || 
@@ -68,7 +74,33 @@ function shouldSkipTranslation(text: string, profile: any): boolean {
 }
 
 function fixFilipinoText(text: string): string {
-  let fixed = text.replace(/\bnamatay\b/gi, (m) => m.charAt(0).toUpperCase() + m.slice(1));
+  let fixed = text;
+
+  // Concise Tagalog terminology dictionary to prevent verbose translations from overflowing containers
+  const dictionary: [RegExp, string][] = [
+    [/\bMga Tala ng Timbang\b/gi, 'Tala ng Timbang'],
+    [/\bMga Rekord ng Timbang\b/gi, 'Tala ng Timbang'],
+    [/\bMga Rekord ng Kalusugan\b/gi, 'Tala ng Kalusugan'],
+    [/\bImpormasyon ng Feed\b/gi, 'Impormasyon ng Feed'],
+    [/\bMga Setting ng App\b/gi, 'Settings ng App'],
+    [/\bMga Setting ng Account\b/gi, 'Account Settings'],
+    [/\bSetting ng Akawnt\b/gi, 'Account Settings'],
+    [/\bAkawnt\b/gi, 'Account'],
+    [/\bPinakain na Pagkain Ngayong Araw\b/gi, 'Pakain Ngayon'],
+    [/\bMga Kamakailang Aktibidad\b/gi, 'Kamakailang Activity'],
+    [/\bMga Detalye ng Hayop\b/gi, 'Detalye ng Hayop'],
+    [/\bPamamahala ng Farm\b/gi, 'Pamamahala ng Farm'],
+    [/\bUlat sa Paglaki ng mga Hayop\b/gi, 'Ulat sa Paglaki'],
+    [/\bUlat sa Paglago\b/gi, 'Ulat sa Paglaki'],
+    [/\bMagrehistro ng Bagong Batch\b/gi, 'Magrehistro ng Batch'],
+    [/\bMagdagdag ng Bagong Device\b/gi, 'Magdagdag ng Device'],
+  ];
+
+  for (const [pattern, replacement] of dictionary) {
+    fixed = fixed.replace(pattern, replacement);
+  }
+
+  fixed = fixed.replace(/\bnamatay\b/gi, (m) => m.charAt(0).toUpperCase() + m.slice(1));
   fixed = fixed.replace(/\bmanok\b/gi, (m, offset, str) => {
     const prev = str.slice(0, offset).trim();
     if (/(\bmga|\bng|\bsa|\bang|^)$/i.test(prev)) {
@@ -90,16 +122,10 @@ function fixFilipinoText(text: string): string {
   const coreText = fixed.slice(leadingSpace.length);
 
   if (!leadingSpace && /^mga\b/i.test(coreText)) {
-    // Only capitalize if it's the very start of a sentence/phrase without preceding whitespace
     fixed = coreText.replace(/^mga\b/i, 'Mga');
   } else if (leadingSpace) {
-    // Preserve the leading whitespace and keep 'mga' lowercase
     fixed = leadingSpace + coreText.replace(/^mga\b/i, 'mga');
   }
-
-  // Ensure spacing between digits/slash/dash and following word/letter (e.g. "100heads" -> "100 heads", "100mga" -> "100 mga", "10/20ulo" -> "10/20 ulo")
-  fixed = fixed.replace(/([\d\/\-\:\.\,]+)([a-zA-Z\u00C0-\u024F]+)/g, '$1 $2');
-  fixed = fixed.replace(/([a-zA-Z\u00C0-\u024F]+)([\d\/\-\:\.\,]+)/g, '$1 $2');
 
   return fixed;
 }
@@ -187,5 +213,20 @@ export function Text({ children, translate = true, style, ...props }: CustomText
     return () => { active = false; };
   }, [children, language, translate, profile]);
 
-  return <RNText style={[{ flexShrink: 1 }, style]} {...props}>{translatedChildren}</RNText>;
+  // When numberOfLines is specified, auto-enable adjustsFontSizeToFit with minimumFontScale to prevent container text overflow
+  const extraProps: Partial<TextProps> = {};
+  if (props.numberOfLines && props.numberOfLines > 0 && props.adjustsFontSizeToFit === undefined) {
+    extraProps.adjustsFontSizeToFit = true;
+    extraProps.minimumFontScale = 0.70;
+  }
+
+  return (
+    <RNText
+      style={[{ flexShrink: 1 }, style]}
+      {...extraProps}
+      {...props}
+    >
+      {translatedChildren}
+    </RNText>
+  );
 }

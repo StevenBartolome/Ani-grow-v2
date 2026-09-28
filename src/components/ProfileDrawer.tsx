@@ -492,6 +492,7 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontFamily: 'Poppins-Medium',
         flex: 1,
+        flexShrink: 1,
     },
     chevron: {
         opacity: 0.6,

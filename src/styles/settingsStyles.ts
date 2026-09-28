@@ -148,17 +148,20 @@ export const useSettingsStyles = () => {
             fontFamily: 'Poppins-Medium',
             fontSize: 15,
             color: colors.text,
+            flexShrink: 1,
         },
         rowDescription: {
             fontFamily: 'Poppins-Regular',
             fontSize: 12,
             color: colors.textGrey,
             marginTop: 1,
+            flexShrink: 1,
         },
         rowValue: {
             fontFamily: 'Poppins-Regular',
             fontSize: 14,
             color: colors.textGrey,
+            flexShrink: 1,
         },
 
         // ─── Logout Button ───────────────────────────────────────────────────────
