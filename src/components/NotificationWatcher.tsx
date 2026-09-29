@@ -8,7 +8,7 @@ import { createNotification, canUserViewNotification } from '@/lib/notify';
 import { getDeviceDisplayStatus, DeviceDisplayStatus } from '@/lib/deviceStatus';
 import { checkAndTriggerWeighingReminders } from '@/lib/weighingReminders';
 import { type GuidePhaseItem } from '@/constants/guideMockData';
-import { getEffectiveRoadmap, sortActionsByDay, isDayMatching } from '@/lib/roadmapService';
+import { getEffectiveRoadmap, sortActionsByDay, isDayMatching, getBatchActionLogs, getActionLogKey } from '@/lib/roadmapService';
 import { syncAllScheduledNotifications } from '@/lib/notificationScheduler';
 
 const DEVICE_POLL_INTERVAL_MS = 30_000;
@@ -773,6 +773,85 @@ export function NotificationWatcher() {
         }
     }, [dispatchNotification]);
 
+    // ── 10. Unmarked Guide Tasks Alert & Push Notification ─────────────
+    const checkUnmarkedGuideTasks = useCallback(async () => {
+        if (farmIdsRef.current.length === 0) return;
+        const today = todayDateString();
+
+        try {
+            const { data: batches } = await supabase
+                .from('batches')
+                .select('id, farm_id, name, animal_type, arrival_date, age_at_arrival_days, housings(name, farm_id)')
+                .in('status', ['active']);
+
+            if (!batches) return;
+
+            const activeBatches = (batches as any[]).filter(b => {
+                const bFarmId = b.farm_id || b.housings?.farm_id;
+                return bFarmId && farmIdsRef.current.includes(bFarmId);
+            });
+
+            for (const b of activeBatches) {
+                const farmId = b.farm_id || b.housings?.farm_id;
+                const currentDay = calculateBatchDay(b.arrival_date, b.age_at_arrival_days);
+                const housingName = b.housings?.name || 'Housing';
+                const animalType = (b.animal_type === 'chicken' ? 'chicken' : 'pig') as 'pig' | 'chicken';
+                const animalLabel = animalType === 'chicken' ? 'Poultry' : 'Swine';
+
+                // Fetch roadmap phases and action logs for this batch
+                const [phases, actionLogs] = await Promise.all([
+                    getEffectiveRoadmap(farmId, animalType, b.id),
+                    getBatchActionLogs(farmId, b.id),
+                ]);
+
+                // Filter phases applicable up to currentDay
+                const availablePhases = phases.filter(p => currentDay >= p.dayStart);
+                let unmarkedCount = 0;
+                let overdueCount = 0;
+
+                for (const phase of availablePhases) {
+                    const sorted = sortActionsByDay(phase.fullGuideActions || []);
+                    const startDay = Math.max(1, phase.dayStart);
+                    const endDay = Math.min(phase.dayEnd, currentDay);
+
+                    for (let d = startDay; d <= endDay; d++) {
+                        const matchingActions = sorted.filter(act => isDayMatching(act.dayTag, d));
+                        for (const act of matchingActions) {
+                            const logKey = getActionLogKey(phase.id, act.action, d);
+                            const generalKey = getActionLogKey(phase.id, act.action);
+                            const log = actionLogs[logKey] || actionLogs[generalKey];
+                            const isMarked = log && (log.status === 'completed' || log.status === 'rejected');
+                            if (!isMarked) {
+                                unmarkedCount++;
+                                if (d < currentDay) overdueCount++;
+                            }
+                        }
+                    }
+                }
+
+                if (unmarkedCount > 0) {
+                    const alertKey = `unmarked_guide_tasks_${b.id}_${today}_count_${unmarkedCount}`;
+                    if (!(await alreadyAlerted(alertKey))) {
+                        const taskWord = unmarkedCount === 1 ? 'task' : 'tasks';
+                        const overdueNote = overdueCount > 0 ? ` (${overdueCount} overdue from previous day${overdueCount > 1 ? 's' : ''})` : '';
+                        await dispatchNotification({
+                            farmId,
+                            category: 'ai_suggestion',
+                            type: 'warning',
+                            title: 'Unmarked Guide Tasks',
+                            message: `You have ${unmarkedCount} unmarked ${taskWord}${overdueNote} for ${animalLabel} in ${housingName} (${b.name}). Please review and mark as completed or skipped.`,
+                            actionUrl: '/(guide)/GuideScreen',
+                            skipLocalPush: false, // Fire local device push notification
+                        });
+                        await markAlerted(alertKey);
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[NotificationWatcher] checkUnmarkedGuideTasks error:', err);
+        }
+    }, [dispatchNotification]);
+
     // ── Run all periodic daily checks ───────────────────────────────────
     const runDailyChecks = useCallback(() => {
         fetchFarmNames();
@@ -782,6 +861,7 @@ export function NotificationWatcher() {
         checkBatchLifecycle();
         checkGrowthAnalytics();
         checkDailyMorningBriefing();
+        checkUnmarkedGuideTasks();
         checkUpcomingFeedDispenses();
         checkAndTriggerWeighingReminders(farmIdsRef.current);
         syncAllScheduledNotifications(farmIdsRef.current);
@@ -793,6 +873,7 @@ export function NotificationWatcher() {
         checkBatchLifecycle,
         checkGrowthAnalytics,
         checkDailyMorningBriefing,
+        checkUnmarkedGuideTasks,
         checkUpcomingFeedDispenses,
     ]);
 

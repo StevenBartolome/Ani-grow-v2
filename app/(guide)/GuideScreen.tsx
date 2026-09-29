@@ -296,6 +296,9 @@ const GuideTaskCardItem = ({
     actionItem,
     naturalPhaseId,
     currentDay,
+    taskDay,
+    isOverdue,
+    dayBadgeLabel,
     actionLog,
     onComplete,
     onSkip,
@@ -305,13 +308,17 @@ const GuideTaskCardItem = ({
     index?: number;
     naturalPhaseId: string;
     currentDay: number;
+    taskDay?: number;
+    isOverdue?: boolean;
+    dayBadgeLabel?: string;
     actionLog?: RoadmapActionLog;
-    onComplete: (actionItem: SOPAction, phaseId: string, currentDay: number) => void;
-    onSkip: (actionItem: SOPAction, phaseId: string, currentDay: number) => void;
-    onUndo: (actionItem: SOPAction, phaseId: string, currentDay: number) => void;
+    onComplete: (actionItem: SOPAction, phaseId: string, dayNumber?: number) => void;
+    onSkip: (actionItem: SOPAction, phaseId: string, dayNumber?: number) => void;
+    onUndo: (actionItem: SOPAction, phaseId: string, dayNumber?: number) => void;
 }) => {
     const { colors, isDark } = useTheme();
 
+    const effectiveDay = taskDay ?? currentDay;
     const isAIItem = typeof actionItem.action === 'string' && actionItem.action.startsWith('[AI Adjustment]');
     const isTodayMatched = isDayMatching(actionItem.dayTag, currentDay);
     const isCompleted = actionLog?.status === 'completed';
@@ -325,21 +332,25 @@ const GuideTaskCardItem = ({
                         ? (isDark ? 'rgba(16, 185, 129, 0.12)' : '#F0FDF4')
                         : isRejected
                             ? (isDark ? 'rgba(245, 158, 11, 0.1)' : '#FFFBEB')
-                            : isAIItem
-                                ? (isDark ? 'rgba(16, 185, 129, 0.08)' : '#ECFDF5')
-                                : (isDark ? 'rgba(255,255,255,0.02)' : '#FAFAFA'),
+                            : isOverdue
+                                ? (isDark ? 'rgba(245, 158, 11, 0.08)' : '#FFFDF5')
+                                : isAIItem
+                                    ? (isDark ? 'rgba(16, 185, 129, 0.08)' : '#ECFDF5')
+                                    : (isDark ? 'rgba(255,255,255,0.02)' : '#FAFAFA'),
                     borderWidth: 1,
                     borderColor: isCompleted
                         ? 'rgba(16, 185, 129, 0.5)'
                         : isRejected
                             ? 'rgba(245, 158, 11, 0.5)'
-                            : isAIItem
-                                ? 'rgba(16, 185, 129, 0.45)'
-                                : isTodayMatched
-                                    ? 'rgba(16, 185, 129, 0.35)'
-                                    : colors.stroke,
-                    borderLeftWidth: (isCompleted || isRejected) ? 4 : 1,
-                    borderLeftColor: isCompleted ? '#10B981' : isRejected ? '#F59E0B' : undefined,
+                            : isOverdue
+                                ? 'rgba(245, 158, 11, 0.4)'
+                                : isAIItem
+                                    ? 'rgba(16, 185, 129, 0.45)'
+                                    : isTodayMatched
+                                        ? 'rgba(16, 185, 129, 0.35)'
+                                        : colors.stroke,
+                    borderLeftWidth: (isCompleted || isRejected || isOverdue) ? 4 : 1,
+                    borderLeftColor: isCompleted ? '#10B981' : isRejected ? '#F59E0B' : isOverdue ? '#F59E0B' : undefined,
                     padding: 12,
                     gap: 10,
                 }}
@@ -358,17 +369,30 @@ const GuideTaskCardItem = ({
                     </View>
 
                     <View style={{
-                        backgroundColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.15)' : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
+                        backgroundColor: isOverdue
+                            ? (isDark ? 'rgba(245, 158, 11, 0.2)' : 'rgba(245, 158, 11, 0.12)')
+                            : isAIItem || isTodayMatched
+                                ? 'rgba(16, 185, 129, 0.15)'
+                                : (isDark ? 'rgba(255,255,255,0.05)' : colors.bgLight),
                         borderWidth: 1,
-                        borderColor: isAIItem || isTodayMatched ? 'rgba(16, 185, 129, 0.35)' : colors.stroke,
+                        borderColor: isOverdue
+                            ? 'rgba(245, 158, 11, 0.45)'
+                            : isAIItem || isTodayMatched
+                                ? 'rgba(16, 185, 129, 0.35)'
+                                : colors.stroke,
                         paddingHorizontal: 8,
                         paddingVertical: 3,
                         borderRadius: 6,
                         flexShrink: 0,
                         alignSelf: 'flex-start',
                     }}>
-                        <Text style={{ fontSize: 10, fontFamily: 'Poppins-Bold', color: isAIItem || isTodayMatched ? '#10B981' : colors.textGrey, textAlign: 'center' }}>
-                            {actionItem.dayTag}
+                        <Text style={{
+                            fontSize: 10,
+                            fontFamily: 'Poppins-Bold',
+                            color: isOverdue ? '#F59E0B' : isAIItem || isTodayMatched ? '#10B981' : colors.textGrey,
+                            textAlign: 'center',
+                        }}>
+                            {dayBadgeLabel || actionItem.dayTag}
                         </Text>
                     </View>
                 </View>
@@ -413,7 +437,7 @@ const GuideTaskCardItem = ({
 
                             <TouchableOpacity
                                 activeOpacity={0.7}
-                                onPress={() => onUndo(actionItem, naturalPhaseId, currentDay)}
+                                onPress={() => onUndo(actionItem, naturalPhaseId, effectiveDay)}
                                 style={{
                                     flexDirection: 'row',
                                     alignItems: 'center',
@@ -444,7 +468,7 @@ const GuideTaskCardItem = ({
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                                 <TouchableOpacity
                                     activeOpacity={0.7}
-                                    onPress={() => onSkip(actionItem, naturalPhaseId, currentDay)}
+                                    onPress={() => onSkip(actionItem, naturalPhaseId, effectiveDay)}
                                     style={{
                                         flexDirection: 'row',
                                         alignItems: 'center',
@@ -463,7 +487,7 @@ const GuideTaskCardItem = ({
 
                                 <TouchableOpacity
                                     activeOpacity={0.7}
-                                    onPress={() => onUndo(actionItem, naturalPhaseId, currentDay)}
+                                    onPress={() => onUndo(actionItem, naturalPhaseId, effectiveDay)}
                                     style={{
                                         flexDirection: 'row',
                                         alignItems: 'center',
@@ -492,7 +516,7 @@ const GuideTaskCardItem = ({
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                                 <TouchableOpacity
                                     activeOpacity={0.7}
-                                    onPress={() => onSkip(actionItem, naturalPhaseId, currentDay)}
+                                    onPress={() => onSkip(actionItem, naturalPhaseId, effectiveDay)}
                                     style={{
                                         flexDirection: 'row',
                                         alignItems: 'center',
@@ -513,7 +537,7 @@ const GuideTaskCardItem = ({
 
                                 <TouchableOpacity
                                     activeOpacity={0.8}
-                                    onPress={() => onComplete(actionItem, naturalPhaseId, currentDay)}
+                                    onPress={() => onComplete(actionItem, naturalPhaseId, effectiveDay)}
                                     style={{
                                         flexDirection: 'row',
                                         alignItems: 'center',
@@ -820,6 +844,57 @@ export default function GuideScreen() {
         const matched = sorted.filter(act => isDayMatching(act.dayTag, currentDay));
         return matched.length > 0 ? matched : sorted;
     }, [naturalPhase, currentDay]);
+
+    // ─── Compute Unmarked & Overdue Tasks up to currentDay ───────────────────
+    const { unmarkedTasks, overdueTasks, todayUnmarkedTasks } = useMemo(() => {
+        if (!selectedBatch) {
+            return { unmarkedTasks: [], overdueTasks: [], todayUnmarkedTasks: [] };
+        }
+
+        const allUnmarked: Array<{
+            phaseId: string;
+            phaseName: string;
+            actionItem: SOPAction;
+            taskDay: number;
+            isOverdue: boolean;
+            isToday: boolean;
+        }> = [];
+
+        availablePhases.forEach(phase => {
+            const sorted = sortActionsByDay(phase.fullGuideActions || []);
+            const startDay = Math.max(1, phase.dayStart);
+            const endDay = Math.min(phase.dayEnd, currentDay);
+
+            for (let d = startDay; d <= endDay; d++) {
+                const matchingActions = sorted.filter(act => isDayMatching(act.dayTag, d));
+                matchingActions.forEach(act => {
+                    const logKey = getActionLogKey(phase.id, act.action, d);
+                    const generalKey = getActionLogKey(phase.id, act.action);
+                    const log = actionLogs[logKey] || actionLogs[generalKey];
+                    const isMarked = log && (log.status === 'completed' || log.status === 'rejected');
+                    if (!isMarked) {
+                        allUnmarked.push({
+                            phaseId: phase.id,
+                            phaseName: phase.name,
+                            actionItem: act,
+                            taskDay: d,
+                            isOverdue: d < currentDay,
+                            isToday: d === currentDay,
+                        });
+                    }
+                });
+            }
+        });
+
+        const overdue = allUnmarked.filter(t => t.isOverdue);
+        const todayUnmarked = allUnmarked.filter(t => t.isToday);
+
+        return {
+            unmarkedTasks: allUnmarked,
+            overdueTasks: overdue,
+            todayUnmarkedTasks: todayUnmarked,
+        };
+    }, [availablePhases, currentDay, actionLogs, selectedBatch]);
 
     // ─── Batch Options for Selection Modal ─────────────────────────────────────
     const batchOptions = useMemo(() => {
@@ -1758,8 +1833,86 @@ export default function GuideScreen() {
                             </View>
                         ) : null}
 
+                        {/* 3.5 Unmarked Tasks Count & Action Reminder Banner */}
+                        {selectedBatch && (
+                            <GuideSectionFade delay={0} animKey={guideAnimKey}>
+                                {unmarkedTasks.length > 0 ? (
+                                    <View style={{
+                                        backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : '#FFFBEB',
+                                        borderWidth: 1.2,
+                                        borderColor: isDark ? 'rgba(245, 158, 11, 0.35)' : '#FDE68A',
+                                        borderRadius: 14,
+                                        padding: 14,
+                                        marginBottom: 16,
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 12,
+                                        shadowColor: '#F59E0B',
+                                        shadowOffset: { width: 0, height: 2 },
+                                        shadowOpacity: 0.08,
+                                        shadowRadius: 4,
+                                        elevation: 1,
+                                    }}>
+                                        <View style={{
+                                            width: 40,
+                                            height: 40,
+                                            borderRadius: 10,
+                                            backgroundColor: isDark ? 'rgba(245, 158, 11, 0.22)' : 'rgba(245, 158, 11, 0.15)',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1,
+                                            borderColor: isDark ? 'rgba(245, 158, 11, 0.45)' : '#FCD34D',
+                                        }}>
+                                            <MaterialIcons name="pending-actions" size={22} color="#F59E0B" />
+                                        </View>
+
+                                        <View style={{ flex: 1, minWidth: 0 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                                <Text style={{ fontSize: 13.5, fontFamily: 'Poppins-Bold', color: isDark ? '#FCD34D' : '#92400E' }}>
+                                                    {unmarkedTasks.length} Unmarked Task{unmarkedTasks.length > 1 ? 's' : ''} Require Marking
+                                                </Text>
+                                                <View style={{
+                                                    backgroundColor: '#F59E0B',
+                                                    paddingHorizontal: 7,
+                                                    paddingVertical: 1.5,
+                                                    borderRadius: 6,
+                                                }}>
+                                                    <Text style={{ color: '#FFFFFF', fontSize: 10, fontFamily: 'Poppins-Bold' }}>
+                                                        {overdueTasks.length > 0 ? `${overdueTasks.length} OVERDUE` : 'PENDING'}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                            <Text style={{ fontSize: 11.5, color: isDark ? '#FDE68A' : '#78350F', fontFamily: 'Poppins-Regular', marginTop: 2, lineHeight: 16 }}>
+                                                {overdueTasks.length > 0
+                                                    ? `${overdueTasks.length} overdue from previous day${overdueTasks.length > 1 ? 's' : ''}${todayUnmarkedTasks.length > 0 ? ` • ${todayUnmarkedTasks.length} today` : ''}. Review and mark as done or skipped.`
+                                                    : `Review today's ${todayUnmarkedTasks.length} procedure${todayUnmarkedTasks.length > 1 ? 's' : ''} and mark as done or skipped.`}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                ) : (
+                                    <View style={{
+                                        backgroundColor: isDark ? 'rgba(16, 185, 129, 0.08)' : '#F0FDF4',
+                                        borderWidth: 1,
+                                        borderColor: isDark ? 'rgba(16, 185, 129, 0.25)' : '#BBF7D0',
+                                        borderRadius: 14,
+                                        paddingHorizontal: 14,
+                                        paddingVertical: 10,
+                                        marginBottom: 16,
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 10,
+                                    }}>
+                                        <MaterialIcons name="check-circle" size={18} color="#10B981" />
+                                        <Text style={{ fontSize: 12, fontFamily: 'Poppins-Medium', color: isDark ? '#34D399' : '#065F46', flex: 1 }}>
+                                            All Guide Tasks Up to Date • No pending procedures to mark for {selectedBatch.name}.
+                                        </Text>
+                                    </View>
+                                )}
+                            </GuideSectionFade>
+                        )}
+
                         {/* 4. Real Day + Phase Header Card */}
-                        <GuideSectionFade delay={0} animKey={guideAnimKey}>
+                        <GuideSectionFade delay={30} animKey={guideAnimKey}>
                             <View style={{
                                 flexDirection: 'row',
                                 justifyContent: 'space-between',
@@ -1853,6 +2006,64 @@ export default function GuideScreen() {
                             </View>
                         </GuideSectionFade>
 
+                        {/* 5.5 Overdue Unmarked Tasks (From previous days) */}
+                        {overdueTasks.length > 0 && (
+                            <GuideSectionFade delay={90} animKey={guideAnimKey}>
+                                <View style={{
+                                    backgroundColor: colors.surface,
+                                    borderRadius: 16,
+                                    borderWidth: 1.5,
+                                    borderColor: isDark ? 'rgba(245, 158, 11, 0.4)' : '#FDE68A',
+                                    padding: 16,
+                                    marginBottom: 20,
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 160 }}>
+                                            <MaterialIcons name="history" size={18} color="#F59E0B" />
+                                            <Text style={[textStyles.h3, { fontSize: 15, fontFamily: 'Poppins-Bold', color: isDark ? '#FCD34D' : '#92400E' }]}>
+                                                Overdue Tasks ({overdueTasks.length})
+                                            </Text>
+                                        </View>
+                                        <View style={{
+                                            backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                                            paddingHorizontal: 9,
+                                            paddingVertical: 3.5,
+                                            borderRadius: 8,
+                                            borderWidth: 1,
+                                            borderColor: 'rgba(245, 158, 11, 0.3)',
+                                            alignSelf: 'center',
+                                        }}>
+                                            <Text style={{ fontSize: 11, color: '#F59E0B', fontFamily: 'Poppins-Bold' }}>
+                                                Previous Days
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    <View style={{ gap: 8 }}>
+                                        {overdueTasks.map((item, idx) => {
+                                            const logKey = getActionLogKey(item.phaseId, item.actionItem.action, item.taskDay);
+                                            const actionLog = actionLogs[logKey];
+                                            return (
+                                                <GuideTaskCardItem
+                                                    key={`overdue-${item.phaseId}-${idx}-${item.taskDay}`}
+                                                    actionItem={item.actionItem}
+                                                    naturalPhaseId={item.phaseId}
+                                                    currentDay={currentDay}
+                                                    taskDay={item.taskDay}
+                                                    isOverdue={true}
+                                                    dayBadgeLabel={`Day ${item.taskDay} • Overdue`}
+                                                    actionLog={actionLog}
+                                                    onComplete={handleCompleteAction}
+                                                    onSkip={handleOpenSkipModal}
+                                                    onUndo={handleUndoAction}
+                                                />
+                                            );
+                                        })}
+                                    </View>
+                                </View>
+                            </GuideSectionFade>
+                        )}
+
                         {/* 6. Today's Suggested Tasks */}
                         <GuideSectionFade delay={120} animKey={guideAnimKey}>
                             <View style={{
@@ -1896,6 +2107,7 @@ export default function GuideScreen() {
                                                 index={idx}
                                                 naturalPhaseId={naturalPhase.id}
                                                 currentDay={currentDay}
+                                                taskDay={currentDay}
                                                 actionLog={actionLog}
                                                 onComplete={handleCompleteAction}
                                                 onSkip={handleOpenSkipModal}
