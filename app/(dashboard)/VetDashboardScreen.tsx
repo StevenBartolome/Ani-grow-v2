@@ -416,27 +416,28 @@ export default function VetDashboardScreen() {
                 <Pressable
                     onPress={() => router.push('/(animals)/HealthRecordsScreen' as any)}
                     style={({ pressed }) => ({
-                        paddingVertical: 12,
+                        paddingVertical: 14,
                         opacity: pressed ? 0.75 : 1,
                     })}
                 >
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
                         {/* Icon Box */}
                         <View style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 11,
-                            backgroundColor: meta.color + '1A',
+                            width: 40,
+                            height: 40,
+                            borderRadius: 12,
+                            backgroundColor: meta.color + '18',
                             alignItems: 'center',
                             justifyContent: 'center',
                             flexShrink: 0,
+                            marginTop: 1,
                         }}>
-                            <MaterialIcons name={meta.icon as any} size={18} color={meta.color} />
+                            <MaterialIcons name={meta.icon as any} size={20} color={meta.color} />
                         </View>
 
                         {/* Content */}
-                        <View style={{ flex: 1 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                        <View style={{ flex: 1, paddingRight: 4 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
                                 <Text
                                     style={[textStyles.h3, { color: colors.text, fontSize: 13.5, fontFamily: 'Poppins-SemiBold', flex: 1 }]}
                                     numberOfLines={1}
@@ -446,8 +447,8 @@ export default function VetDashboardScreen() {
                                 <View style={{
                                     backgroundColor: isToday ? colors.error + '1E' : days <= 3 ? '#F59E0B1E' : colors.cardFill,
                                     borderRadius: 6,
-                                    paddingHorizontal: 7,
-                                    paddingVertical: 2,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
                                     marginLeft: 8,
                                 }}>
                                     <Text style={[textStyles.body, {
@@ -460,16 +461,16 @@ export default function VetDashboardScreen() {
                                 </View>
                             </View>
 
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5 }]}>
                                 {item.batch_name} · {item.housing_name}
                             </Text>
 
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
                                 <View style={{
                                     backgroundColor: meta.color + '15',
-                                    borderRadius: 5,
-                                    paddingHorizontal: 6,
-                                    paddingVertical: 2,
+                                    borderRadius: 6,
+                                    paddingHorizontal: 7,
+                                    paddingVertical: 2.5,
                                 }}>
                                     <Text style={{ color: meta.color, fontSize: 9.5, fontFamily: 'Poppins-Bold' }}>
                                         {meta.label}
@@ -478,9 +479,9 @@ export default function VetDashboardScreen() {
                                 {!isPrev && (
                                     <View style={{
                                         backgroundColor: sevColor + '15',
-                                        borderRadius: 5,
-                                        paddingHorizontal: 6,
-                                        paddingVertical: 2,
+                                        borderRadius: 6,
+                                        paddingHorizontal: 7,
+                                        paddingVertical: 2.5,
                                     }}>
                                         <Text style={{ color: sevColor, fontSize: 9.5, fontFamily: 'Poppins-Bold', textTransform: 'capitalize' }}>
                                             {item.severity}
@@ -488,19 +489,19 @@ export default function VetDashboardScreen() {
                                     </View>
                                 )}
                                 {item.medication && (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10.5 }]} numberOfLines={1}>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>
                                         💊 {item.medication}
                                     </Text>
                                 )}
                             </View>
 
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 5 }]}>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 6 }]}>
                                 {isPrev ? `${noun} Due:` : 'Follow-up:'} <Text style={{ color: colors.text, fontFamily: 'Poppins-Medium' }}>{fmtDate(item.followup_date)}</Text>
                             </Text>
                         </View>
                     </View>
                 </Pressable>
-                {!isLast && <View style={{ height: 1, backgroundColor: colors.stroke, marginVertical: 2 }} />}
+                {!isLast && <View style={{ height: 1, backgroundColor: colors.stroke }} />}
             </View>
         );
     };
@@ -515,47 +516,47 @@ export default function VetDashboardScreen() {
                 <Pressable
                     onPress={() => router.push('/(animals)/HealthRecordsScreen' as any)}
                     style={({ pressed }) => ({
-                        paddingVertical: 10,
+                        paddingVertical: 14,
                         opacity: pressed ? 0.75 : 1,
                     })}
                 >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                         <View style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 11,
+                            width: 40,
+                            height: 40,
+                            borderRadius: 12,
                             backgroundColor: meta.color + '18',
                             alignItems: 'center',
                             justifyContent: 'center',
                             flexShrink: 0,
                         }}>
-                            <MaterialIcons name={meta.icon as any} size={18} color={meta.color} />
+                            <MaterialIcons name={meta.icon as any} size={20} color={meta.color} />
                         </View>
 
-                        <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1, paddingRight: 8 }}>
                             <Text
-                                style={[textStyles.h3, { color: colors.text, fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}
+                                style={[textStyles.h3, { color: colors.text, fontSize: 13.5, lineHeight: 18, fontFamily: 'Poppins-SemiBold' }]}
                                 numberOfLines={1}
                             >
                                 {item.title}
                             </Text>
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 1 }]}>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5, marginTop: 2 }]} numberOfLines={1}>
                                 {item.batch_name} · {item.housing_name}
                             </Text>
                         </View>
 
-                        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                        <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                             <View style={{
-                                backgroundColor: sevColor + '1A',
+                                backgroundColor: sevColor + '18',
                                 borderRadius: 6,
-                                paddingHorizontal: 6,
-                                paddingVertical: 2,
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
                             }}>
                                 <Text style={{ color: sevColor, fontSize: 10, fontFamily: 'Poppins-Bold', textTransform: 'capitalize' }}>
                                     {item.severity}
                                 </Text>
                             </View>
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10.5, marginTop: 2 }]}>
                                 {fmtDate(item.record_date)}
                             </Text>
                         </View>
