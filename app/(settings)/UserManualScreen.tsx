@@ -1,19 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
     ActivityIndicator,
     Platform,
+    ScrollView,
     StyleSheet,
     TouchableOpacity,
     View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
 
 import { Text } from '@/components/Text';
 import { BackButton } from '@/components/BackButton';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
-import { openUserManual } from '@/lib/userManual';
+import { getManualHtmlWithAnchors, openUserManual } from '@/lib/userManual';
+
+interface ManualCategory {
+    id: string;
+    label: string;
+    icon: keyof typeof MaterialIcons.glyphMap;
+    sectionId: string;
+}
+
+const CATEGORIES: ManualCategory[] = [
+    { id: 'all', label: 'All Pages', icon: 'auto-stories', sectionId: 'sec-cover' },
+    { id: 'overview', label: 'Overview', icon: 'menu-book', sectionId: 'sec-cover' },
+    { id: 'hardware', label: '1.0 Hardware', icon: 'memory', sectionId: 'sec-hardware' },
+    { id: 'wifi', label: '2.0 Wi-Fi Setup', icon: 'wifi', sectionId: 'sec-wifi' },
+    { id: 'anifeed', label: '3.0 AniFeed', icon: 'restaurant', sectionId: 'sec-anifeed' },
+    { id: 'aniweigh', label: '4.0 AniWeigh', icon: 'scale', sectionId: 'sec-aniweigh' },
+    { id: 'troubleshoot', label: '5.0 Troubleshooting', icon: 'help-outline', sectionId: 'sec-troubleshoot' },
+];
 
 export default function UserManualScreen() {
     const textStyles = useTextStyles();
@@ -21,21 +40,63 @@ export default function UserManualScreen() {
     const { colors } = useTheme();
     const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
 
-    const [isLoading, setIsLoading] = useState(false);
+    const [activeCategory, setActiveCategory] = useState<string>('all');
+    const [isExporting, setIsExporting] = useState(false);
+    const [isPageLoading, setIsPageLoading] = useState(true);
 
-    const handleOpen = async () => {
-        setIsLoading(true);
+    const webViewRef = useRef<WebView>(null);
+    const iframeRef = useRef<any>(null);
+
+    const manualHtml = useMemo(() => getManualHtmlWithAnchors(), []);
+
+    const handleSelectCategory = (cat: ManualCategory) => {
+        setActiveCategory(cat.id);
+
+        if (Platform.OS === 'web') {
+            try {
+                if (iframeRef.current && iframeRef.current.contentWindow) {
+                    iframeRef.current.contentWindow.postMessage(
+                        JSON.stringify({ type: 'SCROLL_TO', sectionId: cat.sectionId }),
+                        '*'
+                    );
+                }
+            } catch (e) {
+                console.warn('[UserManual] Web scroll failed:', e);
+            }
+        } else {
+            const js = `
+                (function() {
+                    try {
+                        var targetId = '${cat.sectionId}';
+                        if ('${cat.id}' === 'all' || targetId === 'sec-cover') {
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        } else {
+                            var el = document.getElementById(targetId);
+                            if (el) {
+                                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        }
+                    } catch(err) {}
+                })();
+                true;
+            `;
+            webViewRef.current?.injectJavaScript(js);
+        }
+    };
+
+    const handleExport = async () => {
+        setIsExporting(true);
         try {
             await openUserManual();
         } finally {
-            setIsLoading(false);
+            setIsExporting(false);
         }
     };
 
     return (
         <View style={[styles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
-            <View style={[styles.header, { borderBottomColor: colors.stroke }]}>
+            <View style={[styles.header, { borderBottomColor: colors.stroke, backgroundColor: colors.surface }]}>
                 <View style={styles.headerSide}>
                     <BackButton fallbackRoute="/(dashboard)/HomeScreen" />
                 </View>
@@ -44,52 +105,113 @@ export default function UserManualScreen() {
                     <Text style={[textStyles.h1, styles.headerTitle, { color: colors.primary }]}>
                         User Manual
                     </Text>
+                    <Text style={[styles.headerSubtitle, { color: colors.textGrey }]}>
+                        Official Hardware & Software Guide
+                    </Text>
                 </View>
 
-                <View style={styles.headerSide} />
-            </View>
-
-            <View style={styles.contentContainer}>
-                {/* Hero Card */}
-                <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.stroke }]}>
-                    <View style={[styles.iconCircle, { backgroundColor: colors.primary + '18' }]}>
-                        <MaterialIcons name="menu-book" size={38} color={colors.primary} />
-                    </View>
-
-                    <Text style={[textStyles.h1, styles.cardTitle, { color: colors.text }]}>
-                        Ani-Grow™ Official User Manual
-                    </Text>
-
-                    <Text style={[styles.refTag, { color: colors.textGrey }]}>
-                        Document Ref: DOC-AG-MAN-2026 • Revision 2.5
-                    </Text>
-
-                    <Text style={[textStyles.body, styles.cardDescription, { color: colors.textGrey }]}>
-                        View the complete poultry & livestock farm admin and hardware setup guide. Covers hardware registration, Wi-Fi pairing, feed scheduling, and smart weighing platform operations.
-                    </Text>
-
+                <View style={styles.headerSideRight}>
                     <TouchableOpacity
-                        style={[styles.openButton, { backgroundColor: colors.primary }]}
-                        activeOpacity={0.8}
-                        onPress={handleOpen}
-                        disabled={isLoading}
+                        style={[styles.exportButton, { backgroundColor: colors.primary + '14', borderColor: colors.primary + '30' }]}
+                        activeOpacity={0.7}
+                        onPress={handleExport}
+                        disabled={isExporting}
+                        accessibilityLabel="Download or share PDF manual"
                     >
-                        {isLoading ? (
-                            <ActivityIndicator size="small" color="#FFFFFF" />
+                        {isExporting ? (
+                            <ActivityIndicator size="small" color={colors.primary} />
                         ) : (
-                            <>
-                                <MaterialIcons
-                                    name={Platform.OS === 'web' ? 'open-in-new' : 'picture-as-pdf'}
-                                    size={20}
-                                    color="#FFFFFF"
-                                />
-                                <Text style={styles.openButtonText}>
-                                    {Platform.OS === 'web' ? 'Open Manual in Web' : 'Open User Manual'}
-                                </Text>
-                            </>
+                            <MaterialIcons name="picture-as-pdf" size={20} color={colors.primary} />
                         )}
                     </TouchableOpacity>
                 </View>
+            </View>
+
+            {/* Category Navigation Pills Bar */}
+            <View style={[styles.categoriesContainer, { backgroundColor: colors.surface, borderBottomColor: colors.stroke }]}>
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.categoriesScrollContent}
+                >
+                    {CATEGORIES.map((cat) => {
+                        const isActive = activeCategory === cat.id;
+                        return (
+                            <TouchableOpacity
+                                key={cat.id}
+                                style={[
+                                    styles.categoryPill,
+                                    {
+                                        backgroundColor: isActive ? colors.primary : colors.bgLight,
+                                        borderColor: isActive ? colors.primary : colors.stroke,
+                                    },
+                                ]}
+                                activeOpacity={0.75}
+                                onPress={() => handleSelectCategory(cat)}
+                            >
+                                <MaterialIcons
+                                    name={cat.icon}
+                                    size={16}
+                                    color={isActive ? '#FFFFFF' : colors.textGrey}
+                                    style={styles.categoryIcon}
+                                />
+                                <Text
+                                    style={[
+                                        styles.categoryText,
+                                        {
+                                            color: isActive ? '#FFFFFF' : colors.text,
+                                            fontFamily: isActive ? 'Poppins-SemiBold' : 'Poppins-Medium',
+                                        },
+                                    ]}
+                                >
+                                    {cat.label}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </ScrollView>
+            </View>
+
+            {/* In-App Reader Container */}
+            <View style={styles.readerContainer}>
+                {Platform.OS === 'web' ? (
+                    <iframe
+                        ref={iframeRef}
+                        title="Ani-Grow User Manual"
+                        srcDoc={manualHtml}
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            border: 'none',
+                            backgroundColor: '#f1f5f9',
+                        }}
+                    />
+                ) : (
+                    <>
+                        <WebView
+                            ref={webViewRef}
+                            originWhitelist={['*']}
+                            source={{ html: manualHtml }}
+                            javaScriptEnabled={true}
+                            domStorageEnabled={true}
+                            showsVerticalScrollIndicator={true}
+                            showsHorizontalScrollIndicator={false}
+                            onLoadStart={() => setIsPageLoading(true)}
+                            onLoadEnd={() => setIsPageLoading(false)}
+                            style={styles.webView}
+                            containerStyle={styles.webViewWrapper}
+                        />
+
+                        {isPageLoading && (
+                            <View style={[styles.loadingOverlay, { backgroundColor: colors.bgLight }]}>
+                                <ActivityIndicator size="large" color={colors.primary} />
+                                <Text style={[textStyles.body, styles.loadingText, { color: colors.textGrey }]}>
+                                    Loading User Manual...
+                                </Text>
+                            </View>
+                        )}
+                    </>
+                )}
             </View>
         </View>
     );
@@ -104,12 +226,18 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 16,
-        paddingVertical: 14,
+        paddingVertical: 10,
         borderBottomWidth: 1,
     },
     headerSide: {
-        width: 44,
-        height: 44,
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+    },
+    headerSideRight: {
+        width: 40,
+        height: 40,
+        alignItems: 'flex-end',
         justifyContent: 'center',
     },
     headerTitleContainer: {
@@ -117,70 +245,70 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     headerTitle: {
-        fontSize: 18,
+        fontSize: 17,
+        fontFamily: 'Poppins-Bold',
         textAlign: 'center',
+        lineHeight: 22,
     },
-    contentContainer: {
-        flex: 1,
-        padding: 20,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    card: {
-        width: '100%',
-        maxWidth: 440,
-        borderRadius: 20,
-        borderWidth: 1.5,
-        padding: 24,
-        alignItems: 'center',
-        ...Platform.select({
-            web: { boxShadow: '0 8px 24px rgba(0, 0, 0, 0.06)' },
-            default: {
-                shadowColor: '#000',
-                shadowOpacity: 0.06,
-                shadowRadius: 12,
-                shadowOffset: { width: 0, height: 4 },
-                elevation: 3,
-            }
-        })
-    },
-    iconCircle: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 16,
-    },
-    cardTitle: {
-        fontSize: 20,
-        textAlign: 'center',
-        marginBottom: 6,
-    },
-    refTag: {
+    headerSubtitle: {
         fontSize: 11,
-        fontFamily: 'Poppins-Medium',
-        marginBottom: 14,
+        fontFamily: 'Poppins-Regular',
         textAlign: 'center',
+        marginTop: -2,
     },
-    cardDescription: {
-        fontSize: 13,
-        lineHeight: 20,
-        textAlign: 'center',
-        marginBottom: 24,
+    exportButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        borderWidth: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    openButton: {
-        width: '100%',
+    categoriesContainer: {
+        borderBottomWidth: 1,
+        paddingVertical: 10,
+    },
+    categoriesScrollContent: {
+        paddingHorizontal: 16,
+        gap: 8,
+        alignItems: 'center',
+    },
+    categoryPill: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 15,
-        borderRadius: 12,
-        gap: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        borderRadius: 20,
+        borderWidth: 1,
     },
-    openButtonText: {
-        color: '#FFFFFF',
-        fontSize: 15,
-        fontFamily: 'Poppins-SemiBold',
+    categoryIcon: {
+        marginRight: 6,
+    },
+    categoryText: {
+        fontSize: 12,
+    },
+    readerContainer: {
+        flex: 1,
+        position: 'relative',
+        backgroundColor: '#cbd5e1',
+    },
+    webViewWrapper: {
+        flex: 1,
+        backgroundColor: 'transparent',
+    },
+    webView: {
+        flex: 1,
+        backgroundColor: 'transparent',
+    },
+    loadingOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 12,
+        zIndex: 10,
+    },
+    loadingText: {
+        fontSize: 13,
+        fontFamily: 'Poppins-Medium',
     },
 });
