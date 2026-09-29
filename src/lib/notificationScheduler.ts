@@ -174,7 +174,7 @@ export async function scheduleDailyMorningBriefing(farmIds: string[]): Promise<v
 }
 
 /**
- * 2. Schedule upcoming Vet Visits / Consultations at 7:00 AM on the day of the visit
+ * 2. Schedule upcoming Vet Visits / Consultations at 7:00 AM (3-day advance, 1-day advance, and day of visit)
  */
 export async function scheduleUpcomingVetVisits(farmIds: string[]): Promise<void> {
     if (Platform.OS === 'web' || !farmIds.length) return;
@@ -199,36 +199,17 @@ export async function scheduleUpcomingVetVisits(farmIds: string[]): Promise<void
 
         for (const rec of records as any[]) {
             if (!rec.followup_date) continue;
-            const identifier = `vet-visit-${rec.id}`;
-
-            // Create target trigger date for 7:00 AM on followup_date
             const [year, month, day] = rec.followup_date.split('-').map(Number);
-            const triggerDate = new Date(year, month - 1, day, DEFAULT_MORNING_HOUR, DEFAULT_MORNING_MINUTE, 0);
+            const housingLabel = rec.housings?.name ? ` for ${rec.housings.name}` : '';
 
-            if (triggerDate.getTime() > Date.now()) {
-                const housingLabel = rec.housings?.name ? ` for ${rec.housings.name}` : '';
-                let notifTitle = 'Vet Visit Today';
-                let notifBody = `Good morning! Scheduled consultation${housingLabel} is scheduled for today. Check your farm and prepare for consultation.`;
-
-                if (rec.record_type === 'vaccination') {
-                    notifTitle = 'Vaccine Booster Due Today';
-                    notifBody = `Good morning! '${rec.title}' booster vaccination${housingLabel} is due today. Administer booster to maintain animal immunity.`;
-                } else if (rec.record_type === 'deworming') {
-                    notifTitle = 'Deworming Due Today';
-                    notifBody = `Good morning! Routine deworming '${rec.title}'${housingLabel} is due today.`;
-                } else if (rec.record_type === 'vitamins') {
-                    notifTitle = 'Vitamin Supplement Due Today';
-                    notifBody = `Good morning! Vitamin supplement '${rec.title}'${housingLabel} is due today.`;
-                } else if (rec.record_type === 'treatment') {
-                    notifTitle = 'Treatment Follow-up Today';
-                    notifBody = `Good morning! Follow-up evaluation for '${rec.title}'${housingLabel} is due today.`;
-                }
-
+            // ── Day of visit (7:00 AM) ──
+            const triggerDateToday = new Date(year, month - 1, day, DEFAULT_MORNING_HOUR, DEFAULT_MORNING_MINUTE, 0);
+            if (triggerDateToday.getTime() > Date.now()) {
                 await Notifications.scheduleNotificationAsync({
-                    identifier,
+                    identifier: `vet-visit-${rec.id}`,
                     content: {
-                        title: notifTitle,
-                        body: notifBody,
+                        title: 'Vet Visit Today',
+                        body: `Good morning! Scheduled consultation${housingLabel} is scheduled for today. Check your farm and prepare for consultation.`,
                         sound: true,
                         data: {
                             actionUrl: '/(animals)/HealthRecordsScreen',
@@ -238,7 +219,51 @@ export async function scheduleUpcomingVetVisits(farmIds: string[]): Promise<void
                     },
                     trigger: {
                         type: Notifications.SchedulableTriggerInputTypes.DATE,
-                        date: triggerDate,
+                        date: triggerDateToday,
+                    } as any,
+                });
+            }
+
+            // ── 1 Day Before visit (7:00 AM) ──
+            const triggerDate1Day = new Date(year, month - 1, day - 1, DEFAULT_MORNING_HOUR, DEFAULT_MORNING_MINUTE, 0);
+            if (triggerDate1Day.getTime() > Date.now()) {
+                await Notifications.scheduleNotificationAsync({
+                    identifier: `vet-visit-1day-${rec.id}`,
+                    content: {
+                        title: 'Veterinary Visit Tomorrow',
+                        body: `Notice: Farm veterinarian consultation${housingLabel} is scheduled for tomorrow.`,
+                        sound: true,
+                        data: {
+                            actionUrl: '/(animals)/HealthRecordsScreen',
+                            type: 'health_alert',
+                            farmId: rec.farm_id,
+                        },
+                    },
+                    trigger: {
+                        type: Notifications.SchedulableTriggerInputTypes.DATE,
+                        date: triggerDate1Day,
+                    } as any,
+                });
+            }
+
+            // ── 3 Days Before visit (7:00 AM) ──
+            const triggerDate3Days = new Date(year, month - 1, day - 3, DEFAULT_MORNING_HOUR, DEFAULT_MORNING_MINUTE, 0);
+            if (triggerDate3Days.getTime() > Date.now()) {
+                await Notifications.scheduleNotificationAsync({
+                    identifier: `vet-visit-3days-${rec.id}`,
+                    content: {
+                        title: 'Upcoming Veterinary Visit',
+                        body: `Reminder: A veterinary consultation${housingLabel} is scheduled on ${rec.followup_date}.`,
+                        sound: true,
+                        data: {
+                            actionUrl: '/(animals)/HealthRecordsScreen',
+                            type: 'health_alert',
+                            farmId: rec.farm_id,
+                        },
+                    },
+                    trigger: {
+                        type: Notifications.SchedulableTriggerInputTypes.DATE,
+                        date: triggerDate3Days,
                     } as any,
                 });
             }
@@ -249,7 +274,7 @@ export async function scheduleUpcomingVetVisits(farmIds: string[]): Promise<void
 }
 
 /**
- * 3. Schedule upcoming Vaccinations at 7:00 AM on the day of vaccination
+ * 3. Schedule upcoming Vaccinations at 7:00 AM (3-day advance, 1-day advance, and day of vaccination)
  */
 export async function scheduleUpcomingVaccinations(farmIds: string[]): Promise<void> {
     if (Platform.OS === 'web' || !farmIds.length) return;
@@ -269,22 +294,21 @@ export async function scheduleUpcomingVaccinations(farmIds: string[]): Promise<v
         // Cancel previous vaccination notifications to prevent duplicates
         const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
         for (const notif of allScheduled) {
-            if (notif.identifier.startsWith('vaccine-due-')) {
+            if (notif.identifier.startsWith('vaccine-due-') || notif.identifier.startsWith('vaccine-1day-') || notif.identifier.startsWith('vaccine-3days-')) {
                 await Notifications.cancelScheduledNotificationAsync(notif.identifier);
             }
         }
 
         for (const sch of schedules as any[]) {
             if (!sch.scheduled_date) continue;
-            const identifier = `vaccine-due-${sch.id}`;
-
             const [year, month, day] = sch.scheduled_date.split('-').map(Number);
-            const triggerDate = new Date(year, month - 1, day, DEFAULT_MORNING_HOUR, DEFAULT_MORNING_MINUTE, 0);
+            const housingLabel = sch.housings?.name ? ` in ${sch.housings.name}` : '';
 
-            if (triggerDate.getTime() > Date.now()) {
-                const housingLabel = sch.housings?.name ? ` in ${sch.housings.name}` : '';
+            // ── Day of vaccination (7:00 AM) ──
+            const triggerDateToday = new Date(year, month - 1, day, DEFAULT_MORNING_HOUR, DEFAULT_MORNING_MINUTE, 0);
+            if (triggerDateToday.getTime() > Date.now()) {
                 await Notifications.scheduleNotificationAsync({
-                    identifier,
+                    identifier: `vaccine-due-${sch.id}`,
                     content: {
                         title: 'Vaccination Due Today',
                         body: `Good morning! Vaccination '${sch.vaccine_name}'${housingLabel} is scheduled for today. Check your vaccine supplies and administer as scheduled.`,
@@ -297,7 +321,51 @@ export async function scheduleUpcomingVaccinations(farmIds: string[]): Promise<v
                     },
                     trigger: {
                         type: Notifications.SchedulableTriggerInputTypes.DATE,
-                        date: triggerDate,
+                        date: triggerDateToday,
+                    } as any,
+                });
+            }
+
+            // ── 1 Day Before vaccination (7:00 AM) ──
+            const triggerDate1Day = new Date(year, month - 1, day - 1, DEFAULT_MORNING_HOUR, DEFAULT_MORNING_MINUTE, 0);
+            if (triggerDate1Day.getTime() > Date.now()) {
+                await Notifications.scheduleNotificationAsync({
+                    identifier: `vaccine-1day-${sch.id}`,
+                    content: {
+                        title: 'Vaccination Tomorrow',
+                        body: `Action Required: '${sch.vaccine_name}' vaccination${housingLabel} is scheduled for tomorrow.`,
+                        sound: true,
+                        data: {
+                            actionUrl: '/(health)/VaccineScreen',
+                            type: 'health_alert',
+                            farmId: sch.farm_id,
+                        },
+                    },
+                    trigger: {
+                        type: Notifications.SchedulableTriggerInputTypes.DATE,
+                        date: triggerDate1Day,
+                    } as any,
+                });
+            }
+
+            // ── 3 Days Before vaccination (7:00 AM) ──
+            const triggerDate3Days = new Date(year, month - 1, day - 3, DEFAULT_MORNING_HOUR, DEFAULT_MORNING_MINUTE, 0);
+            if (triggerDate3Days.getTime() > Date.now()) {
+                await Notifications.scheduleNotificationAsync({
+                    identifier: `vaccine-3days-${sch.id}`,
+                    content: {
+                        title: 'Upcoming Vaccination Notice',
+                        body: `Reminder: Vaccination '${sch.vaccine_name}'${housingLabel} is scheduled for ${sch.scheduled_date}. Please prepare medical supplies.`,
+                        sound: true,
+                        data: {
+                            actionUrl: '/(health)/VaccineScreen',
+                            type: 'health_alert',
+                            farmId: sch.farm_id,
+                        },
+                    },
+                    trigger: {
+                        type: Notifications.SchedulableTriggerInputTypes.DATE,
+                        date: triggerDate3Days,
                     } as any,
                 });
             }

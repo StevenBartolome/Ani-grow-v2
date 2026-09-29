@@ -400,7 +400,7 @@ export function NotificationWatcher() {
         }
     }, [dispatchNotification]);
 
-    // ── 4. Scheduled Vet Visits (1-Hr Before & Today) ────────────────────
+    // ── 4. Scheduled Vet Visits (3-Days, 1-Day, Today, Overdue & Prolonged) ─
     const checkScheduledVetVisits = useCallback(async () => {
         if (farmIdsRef.current.length === 0) return;
         const today = todayDateString();
@@ -410,24 +410,84 @@ export function NotificationWatcher() {
                 .from('health_records')
                 .select('id, farm_id, title, notes, followup_date, housings(name)')
                 .in('farm_id', farmIdsRef.current)
-                .eq('followup_date', today);
+                .not('followup_date', 'is', null);
 
             if (!data) return;
 
             for (const rec of data as any[]) {
-                const key = `vet_visit_today_${rec.id}_${today}`;
-                if (!(await alreadyAlerted(key))) {
-                    const housing = rec.housings?.name ? ` for ${rec.housings.name}` : '';
-                    await dispatchNotification({
-                        farmId: rec.farm_id,
-                        category: 'health_alert',
-                        type: 'info',
-                        title: 'Vet Visit Today',
-                        message: `Scheduled consultation${housing} is scheduled for today. ${rec.notes ? `Note: ${rec.notes}` : ''}`,
-                        actionUrl: '/(animals)/HealthRecordsScreen',
-                        skipLocalPush: true, // OS level push is pre-scheduled by notificationScheduler
-                    });
-                    await markAlerted(key);
+                if (!rec.followup_date) continue;
+                const days = daysUntil(rec.followup_date);
+                const housingName = rec.housings?.name || 'Housing';
+
+                if (days === 3) {
+                    const key = `vet_visit_3days_${rec.id}_${today}`;
+                    if (!(await alreadyAlerted(key))) {
+                        await dispatchNotification({
+                            farmId: rec.farm_id,
+                            category: 'health_alert',
+                            type: 'info',
+                            title: 'Upcoming Veterinary Visit',
+                            message: `Reminder: A veterinary consultation for ${housingName} is scheduled on ${formatDisplayDate(rec.followup_date)}.`,
+                            actionUrl: '/(animals)/HealthRecordsScreen',
+                            skipLocalPush: true,
+                        });
+                        await markAlerted(key);
+                    }
+                } else if (days === 1) {
+                    const key = `vet_visit_1day_${rec.id}_${today}`;
+                    if (!(await alreadyAlerted(key))) {
+                        await dispatchNotification({
+                            farmId: rec.farm_id,
+                            category: 'health_alert',
+                            type: 'info',
+                            title: 'Veterinary Visit Tomorrow',
+                            message: `Notice: Farm veterinarian consultation for ${housingName} is scheduled for tomorrow.`,
+                            actionUrl: '/(animals)/HealthRecordsScreen',
+                            skipLocalPush: true,
+                        });
+                        await markAlerted(key);
+                    }
+                } else if (days === 0) {
+                    const key = `vet_visit_today_${rec.id}_${today}`;
+                    if (!(await alreadyAlerted(key))) {
+                        await dispatchNotification({
+                            farmId: rec.farm_id,
+                            category: 'health_alert',
+                            type: 'info',
+                            title: 'Vet Visit Today',
+                            message: `Scheduled consultation for ${housingName} is scheduled for today. ${rec.notes ? `Note: ${rec.notes}` : ''}`,
+                            actionUrl: '/(animals)/HealthRecordsScreen',
+                            skipLocalPush: true,
+                        });
+                        await markAlerted(key);
+                    }
+                } else if (days === -1) {
+                    const key = `vet_visit_overdue_1day_${rec.id}_${today}`;
+                    if (!(await alreadyAlerted(key))) {
+                        await dispatchNotification({
+                            farmId: rec.farm_id,
+                            category: 'health_alert',
+                            type: 'warning',
+                            title: 'Pending Veterinary Report',
+                            message: `Notice: The veterinary consultation scheduled for ${housingName} on ${formatDisplayDate(rec.followup_date)} is pending record confirmation.`,
+                            actionUrl: '/(animals)/HealthRecordsScreen',
+                        });
+                        await markAlerted(key);
+                    }
+                } else if (days <= -3) {
+                    // Prolonged overdue alert (daily reminder)
+                    const key = `vet_visit_prolonged_overdue_${rec.id}_${today}`;
+                    if (!(await alreadyAlerted(key))) {
+                        await dispatchNotification({
+                            farmId: rec.farm_id,
+                            category: 'health_alert',
+                            type: 'error',
+                            title: 'Critical: Unconfirmed Veterinary Check',
+                            message: `Urgent Notice: Veterinary consultation for ${housingName} is now ${Math.abs(days)} days past schedule without documented clearance. Please ensure the animals receive clinical evaluation.`,
+                            actionUrl: '/(animals)/HealthRecordsScreen',
+                        });
+                        await markAlerted(key);
+                    }
                 }
             }
         } catch (err) {
@@ -435,7 +495,7 @@ export function NotificationWatcher() {
         }
     }, [dispatchNotification]);
 
-    // ── 5. Vaccinations Due Today & Overdue ──────────────────────────────
+    // ── 5. Vaccinations (3-Days, 1-Day, Due Today & Overdue) ─────────────
     const checkVaccinations = useCallback(async () => {
         if (farmIdsRef.current.length === 0) return;
         const today = todayDateString();
@@ -445,7 +505,7 @@ export function NotificationWatcher() {
         try {
             const { data, error } = await supabase
                 .from('vaccination_schedules')
-                .select('id, vaccine_name, farm_id, scheduled_date, status, housings(name)')
+                .select('id, vaccine_name, farm_id, scheduled_date, status, batches(name), housings(name)')
                 .in('farm_id', farmIdsRef.current)
                 .neq('status', 'completed')
                 .neq('status', 'cancelled');
@@ -453,17 +513,34 @@ export function NotificationWatcher() {
 
             for (const sch of data as any[]) {
                 const days = daysUntil(sch.scheduled_date);
-                const housingLabel = sch.housings?.name ? ` in ${sch.housings.name}` : '';
-                if (days < 0) {
-                    const key = `vaccine_overdue_${sch.id}_${today}`;
+                const housingName = sch.housings?.name || 'Housing';
+                const batchLabel = sch.batches?.name ? `Batch ${sch.batches.name}` : 'livestock';
+
+                if (days === 3) {
+                    const key = `vaccine_3days_${sch.id}_${today}`;
                     if (!(await alreadyAlerted(key))) {
                         await dispatchNotification({
                             farmId: sch.farm_id,
                             category: 'health_alert',
-                            type: 'error',
-                            title: 'Vaccination Overdue',
-                            message: `Vaccination '${sch.vaccine_name}'${housingLabel} was scheduled for ${formatDisplayDate(sch.scheduled_date)}.`,
+                            type: 'info',
+                            title: 'Upcoming Vaccination Notice',
+                            message: `Reminder: ${batchLabel} in ${housingName} is scheduled for ${sch.vaccine_name} on ${formatDisplayDate(sch.scheduled_date)}. Please prepare medical supplies.`,
                             actionUrl: '/(health)/VaccineScreen',
+                            skipLocalPush: true,
+                        });
+                        await markAlerted(key);
+                    }
+                } else if (days === 1) {
+                    const key = `vaccine_1day_${sch.id}_${today}`;
+                    if (!(await alreadyAlerted(key))) {
+                        await dispatchNotification({
+                            farmId: sch.farm_id,
+                            category: 'health_alert',
+                            type: 'info',
+                            title: 'Vaccination Tomorrow',
+                            message: `Action Required: '${sch.vaccine_name}' vaccination for ${batchLabel} is scheduled for tomorrow at ${housingName}.`,
+                            actionUrl: '/(health)/VaccineScreen',
+                            skipLocalPush: true,
                         });
                         await markAlerted(key);
                     }
@@ -474,10 +551,23 @@ export function NotificationWatcher() {
                             farmId: sch.farm_id,
                             category: 'health_alert',
                             type: 'warning',
-                            title: 'Vaccination Due',
-                            message: `Vaccination '${sch.vaccine_name}'${housingLabel} is due today.`,
+                            title: 'Vaccination Due Today',
+                            message: `Vaccination '${sch.vaccine_name}' for ${batchLabel} in ${housingName} is scheduled for today.`,
                             actionUrl: '/(health)/VaccineScreen',
-                            skipLocalPush: true, // OS level push is pre-scheduled by notificationScheduler
+                            skipLocalPush: true,
+                        });
+                        await markAlerted(key);
+                    }
+                } else if (days < 0) {
+                    const key = `vaccine_overdue_${sch.id}_${today}`;
+                    if (!(await alreadyAlerted(key))) {
+                        await dispatchNotification({
+                            farmId: sch.farm_id,
+                            category: 'health_alert',
+                            type: 'error',
+                            title: 'Overdue Vaccination Alert',
+                            message: `Urgent: The scheduled ${sch.vaccine_name} for ${batchLabel} in ${housingName} has not been recorded as completed. Please update health records.`,
+                            actionUrl: '/(health)/VaccineScreen',
                         });
                         await markAlerted(key);
                     }
@@ -489,7 +579,7 @@ export function NotificationWatcher() {
         }
     }, [dispatchNotification]);
 
-    // ── 6. Feed Inventory (Low Stock & Expiring Soon) ───────────────────
+    // ── 6. Feed Inventory (Low Stock, 3-Day Depletion & Expiring Soon) ───
     const checkFeeds = useCallback(async () => {
         if (farmIdsRef.current.length === 0) return;
         const today = todayDateString();
@@ -537,8 +627,11 @@ export function NotificationWatcher() {
                     }
                 }
 
+                const stock = typeof feed.stock_kg === 'number' ? feed.stock_kg : 0;
                 const lowStockKey = `feed_low_stock_${feed.id}`;
-                if (typeof feed.stock_kg === 'number' && feed.stock_kg < LOW_STOCK_THRESHOLD_KG) {
+                const depletion3DaysKey = `feed_depletion_3days_${feed.id}_${today}`;
+
+                if (stock < LOW_STOCK_THRESHOLD_KG) {
                     if (!(await alreadyAlerted(lowStockKey))) {
                         await dispatchNotification({
                             farmId: feed.farm_id,
@@ -550,6 +643,19 @@ export function NotificationWatcher() {
                         });
                         await markAlerted(lowStockKey);
                     }
+                } else if (stock <= 15) {
+                    // Approximate 3-day depletion window for standard pen
+                    if (!(await alreadyAlerted(depletion3DaysKey))) {
+                        await dispatchNotification({
+                            farmId: feed.farm_id,
+                            category: 'feed_alert',
+                            type: 'warning',
+                            title: 'Feed Depletion Warning (3 Days)',
+                            message: `Inventory Warning: At current consumption rates, '${feed.name}' will be depleted in approximately 3 days. Please reorder stock.`,
+                            actionUrl: '/(devices)/ManageFeedsScreen',
+                        });
+                        await markAlerted(depletion3DaysKey);
+                    }
                 } else {
                     await clearAlerted(lowStockKey);
                 }
@@ -560,7 +666,7 @@ export function NotificationWatcher() {
         }
     }, [dispatchNotification]);
 
-    // ── 7. Animals & Batch Lifecycle (Growth Stage & Harvest Target) ─────
+    // ── 7. Animals & Batch Lifecycle (Harvest Prep, Target Weight & Daily Overdue) ──
     const checkBatchLifecycle = useCallback(async () => {
         if (farmIdsRef.current.length === 0) return;
         const today = todayDateString();
@@ -585,6 +691,8 @@ export function NotificationWatcher() {
                 const totalAgeDays = calculateBatchDay(b.arrival_date, b.age_at_arrival_days);
                 const housingName = b.housings?.name || 'Housing';
                 const animalType = (b.animal_type === 'chicken' ? 'chicken' : 'pig') as 'pig' | 'chicken';
+                const targetHarvestKg = Number(b.harvest_target_kg) || (animalType === 'pig' ? 95 : 2.2);
+                const standardHarvestAge = animalType === 'chicken' ? 35 : 165;
 
                 // Check guide phase milestones & transitions
                 const phases = await getEffectiveRoadmap(farmId, animalType, b.id);
@@ -607,35 +715,119 @@ export function NotificationWatcher() {
                     }
                 }
 
-                // Check harvest milestone
-                if (b.harvest_target_kg) {
-                    const { data: latestWeigh } = await supabase
-                        .from('weigh_sessions')
-                        .select('avg_weight_grams')
-                        .eq('batch_id', b.id)
-                        .order('recorded_at', { ascending: false })
-                        .limit(1)
-                        .single();
+                // Fetch latest weight session to calculate growth and harvest prediction
+                const { data: latestWeigh } = await supabase
+                    .from('weigh_sessions')
+                    .select('avg_weight_grams, recorded_at')
+                    .eq('batch_id', b.id)
+                    .order('recorded_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
 
-                    if (latestWeigh && (latestWeigh.avg_weight_grams / 1000) >= Number(b.harvest_target_kg)) {
-                        const key = `batch_harvest_reached_${b.id}`;
-                        if (!(await alreadyAlerted(key))) {
-                            await dispatchNotification({
-                                farmId,
-                                category: 'system',
-                                type: 'success',
-                                title: 'Target Harvest Reached',
-                                message: `Batch ${b.name} in ${housingName} reached target harvest weight of ${b.harvest_target_kg} kg. Ready for market.`,
-                                actionUrl: `/(animals)/AnimalDetails?batchId=${b.id}`,
-                            });
-                            await markAlerted(key);
-                        }
+                const currentWeightKg = latestWeigh ? Number(latestWeigh.avg_weight_grams) / 1000 : (animalType === 'pig' ? 25 : 0.045);
+                const remainingKg = targetHarvestKg - currentWeightKg;
+                const benchmarkDailyGain = animalType === 'pig' ? 0.70 : 0.06; // kg / day
+                const daysToHarvest = remainingKg > 0 ? Math.ceil(remainingKg / benchmarkDailyGain) : 0;
+
+                // ── 1. Harvest Preparation: 3 Days Before Target based on Prediction ──
+                if (daysToHarvest === 3 || totalAgeDays === standardHarvestAge - 3) {
+                    const prepKey = `batch_harvest_prep_3days_${b.id}_${today}`;
+                    if (!(await alreadyAlerted(prepKey))) {
+                        await dispatchNotification({
+                            farmId,
+                            category: 'ai_suggestion',
+                            type: 'info',
+                            title: 'Projected Harvest Window (3 Days)',
+                            message: `Growth Projection Notice: Based on recent growth predictions, Batch ${b.name} in ${housingName} might reach target market specifications in approximately 3 days. Please review pre-harvest preparation.`,
+                            actionUrl: `/(animals)/AnimalDetails?batchId=${b.id}`,
+                        });
+                        await markAlerted(prepKey);
+                    }
+                }
+
+                // ── 2. Target Market Weight Achieved Upon Weight Logging ──
+                if (latestWeigh && currentWeightKg >= targetHarvestKg) {
+                    const reachedKey = `batch_harvest_reached_${b.id}`;
+                    if (!(await alreadyAlerted(reachedKey))) {
+                        await dispatchNotification({
+                            farmId,
+                            category: 'system',
+                            type: 'success',
+                            title: 'Market Target Weight Achieved',
+                            message: `Milestone: Batch ${b.name} in ${housingName} has achieved the target market weight of ${currentWeightKg.toFixed(2)} kg. Batch is ready for scheduling.`,
+                            actionUrl: `/(animals)/AnimalDetails?batchId=${b.id}`,
+                        });
+                        await markAlerted(reachedKey);
+                    }
+                }
+
+                // ── 3. Overdue Harvest: Daily Notice until completed/harvested ──
+                if (totalAgeDays > standardHarvestAge || (currentWeightKg >= targetHarvestKg && daysToHarvest === 0)) {
+                    const daysPast = Math.max(1, totalAgeDays - standardHarvestAge);
+                    const overdueHarvestKey = `batch_harvest_overdue_daily_${b.id}_${today}`;
+                    if (!(await alreadyAlerted(overdueHarvestKey))) {
+                        await dispatchNotification({
+                            farmId,
+                            category: 'ai_suggestion',
+                            type: 'warning',
+                            title: 'Overdue Harvest Notice',
+                            message: `Notice: Batch ${b.name} in ${housingName} reached its projected harvest date ${daysPast} days ago. Please log the harvest or update the batch status once completed.`,
+                            actionUrl: `/(animals)/AnimalDetails?batchId=${b.id}`,
+                        });
+                        await markAlerted(overdueHarvestKey);
                     }
                 }
             }
             await markAlerted(dayKey);
         } catch (err) {
             console.warn('[NotificationWatcher] checkBatchLifecycle error:', err);
+        }
+    }, [dispatchNotification]);
+
+    // ── 7.5. Health: Abnormal Mortality Spike Alert ──────────────────────
+    const checkMortalitySpike = useCallback(async () => {
+        if (farmIdsRef.current.length === 0) return;
+        const today = todayDateString();
+
+        try {
+            const yesterdayDate = new Date();
+            yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+            const yesterdayIso = yesterdayDate.toISOString();
+
+            const { data: records } = await supabase
+                .from('health_records')
+                .select('id, farm_id, affected_count, batch_id, record_date, created_at, batches(name, estimated_count), housings(name)')
+                .in('farm_id', farmIdsRef.current)
+                .eq('record_type', 'mortality')
+                .gte('created_at', yesterdayIso);
+
+            if (!records) return;
+
+            for (const r of records as any[]) {
+                const count = Number(r.affected_count) || 1;
+                const batchCount = Number(r.batches?.estimated_count) || 100;
+                const mortalityRatio = count / batchCount;
+
+                // Threshold: >= 3 mortalities in 24h OR > 2% of batch
+                if (count >= 3 || mortalityRatio >= 0.02) {
+                    const key = `mortality_spike_${r.id}_${today}`;
+                    if (!(await alreadyAlerted(key))) {
+                        const batchName = r.batches?.name ? `Batch ${r.batches.name}` : 'batch';
+                        const housingName = r.housings?.name || 'Housing';
+                        await dispatchNotification({
+                            farmId: r.farm_id,
+                            category: 'health_alert',
+                            type: 'error',
+                            title: 'Critical Mortality Alert',
+                            message: `Urgent Health Alert: ${count} mortalities were recorded in ${housingName} for ${batchName} within the last 24 hours. Immediate pen inspection recommended.`,
+                            actionUrl: '/(animals)/HealthRecordsScreen',
+                        });
+                        await markAlerted(key);
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[NotificationWatcher] checkMortalitySpike error:', err);
         }
     }, [dispatchNotification]);
 
@@ -872,6 +1064,7 @@ export function NotificationWatcher() {
                 checkVaccinations(),
                 checkScheduledVetVisits(),
                 checkBatchLifecycle(),
+                checkMortalitySpike(),
                 checkGrowthAnalytics(),
                 checkDailyMorningBriefing(),
                 checkUnmarkedGuideTasks(),
@@ -888,6 +1081,7 @@ export function NotificationWatcher() {
         checkVaccinations,
         checkScheduledVetVisits,
         checkBatchLifecycle,
+        checkMortalitySpike,
         checkGrowthAnalytics,
         checkDailyMorningBriefing,
         checkUnmarkedGuideTasks,
