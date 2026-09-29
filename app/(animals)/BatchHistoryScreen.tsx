@@ -88,6 +88,13 @@ export const getWeighGrams = (w: WeighSessionItem): number => {
     return 0;
 };
 
+export const formatWeighMode = (mode?: string | null): string => {
+    if (!mode) return 'Individual';
+    const trimmed = mode.trim().toLowerCase();
+    if (trimmed === 'batch') return 'Tray';
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+};
+
 interface DispenseRecordItem {
     id: string;
     grams_dispensed: number;
@@ -1227,7 +1234,7 @@ export default function BatchHistoryScreen() {
                                                                 {formatDateTime(w.recorded_at)}
                                                             </Text>
                                                             <Text style={{ color: colors.textGrey, fontSize: 11 }}>
-                                                                Count: {w.animal_count || 1} • Mode: {w.weigh_mode || 'individual'}
+                                                                Mode: {formatWeighMode(w.weigh_mode)}
                                                             </Text>
                                                         </View>
                                                         <View style={{ alignItems: 'flex-end', gap: 4 }}>

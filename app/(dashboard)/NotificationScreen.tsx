@@ -1,19 +1,19 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-    FlatList,
+    ScrollView,
     TouchableOpacity,
     View,
     ActivityIndicator,
     RefreshControl,
     Animated,
     Easing,
-    Alert,
     Platform,
+    useWindowDimensions,
 } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import { Image } from 'expo-image';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
@@ -22,10 +22,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { useNotificationStyles } from '@/styles/notificationStyles';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
-import { AniFeedIcon } from '@/components/AniFeedIcon';
-import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { supabase } from '@/lib/supabase';
-import { sortByPriority, canUserViewNotification, createNotification } from '@/lib/notify';
+import { sortByPriority, canUserViewNotification } from '@/lib/notify';
 
 interface AppNotification {
     id: string;
@@ -39,6 +37,147 @@ interface AppNotification {
     created_at: string;
     isRead: boolean;
 }
+
+export type NotificationStatusFilter = 'all' | 'unread' | 'read';
+export type NotificationCategoryFilter = 'all' | 'health' | 'aniweigh' | 'feeding' | 'devices' | 'guide_ai' | 'others';
+
+export function getNotificationBucket(item: AppNotification): 'health' | 'aniweigh' | 'feeding' | 'devices' | 'guide_ai' | 'others' {
+    const text = `${item.title} ${item.message}`.toLowerCase();
+    const cat = (item.category || '').toLowerCase();
+
+    // 1. AniWeigh / Weight
+    if (cat === 'weight_alert' || text.includes('weight') || text.includes('weigh')) {
+        return 'aniweigh';
+    }
+    // 2. Health / Vaccines / Mortality
+    if (
+        cat === 'health_alert' ||
+        text.includes('health') ||
+        text.includes('vaccin') ||
+        text.includes('mortality') ||
+        text.includes('deceased') ||
+        text.includes('vet')
+    ) {
+        return 'health';
+    }
+    // 3. Feeding / Dispense
+    if (cat === 'feed_alert' || text.includes('feed') || text.includes('dispense')) {
+        return 'feeding';
+    }
+    // 4. Devices
+    if (
+        cat === 'device_alert' ||
+        text.includes('device') ||
+        text.includes('offline') ||
+        text.includes('online') ||
+        text.includes('hardware') ||
+        text.includes('firmware')
+    ) {
+        return 'devices';
+    }
+    // 5. AI / Guide / Analytics
+    if (
+        cat === 'ai_suggestion' ||
+        text.includes('briefing') ||
+        text.includes('guide') ||
+        text.includes('insight') ||
+        text.includes('analytic') ||
+        text.includes('growth') ||
+        text.includes('ai')
+    ) {
+        return 'guide_ai';
+    }
+    return 'others';
+}
+
+const CATEGORY_ITEMS: {
+    id: NotificationCategoryFilter;
+    label: string;
+    icon: (isActive: boolean, colors: any) => React.ReactNode;
+}[] = [
+    {
+        id: 'all',
+        label: 'All',
+        icon: (active, colors) => (
+            <MaterialIcons name="grid-view" size={17} color={active ? '#FFFFFF' : (colors.secondary || '#D8B800')} />
+        ),
+    },
+    {
+        id: 'aniweigh',
+        label: 'AniWeigh',
+        icon: () => (
+            <Image
+                source={require('../../assets/icons/ani-weigh-icon.svg')}
+                style={{ width: 18, height: 18 }}
+                contentFit="contain"
+            />
+        ),
+    },
+    {
+        id: 'feeding',
+        label: 'AniFeed',
+        icon: () => (
+            <Image
+                source={require('../../assets/icons/ani-feed-icon.svg')}
+                style={{ width: 17, height: 17 }}
+                contentFit="contain"
+            />
+        ),
+    },
+    {
+        id: 'health',
+        label: 'Health',
+        icon: (active) => (
+            <Image
+                source={active ? require('../../assets/icons/health-filled.svg') : require('../../assets/icons/health-stroke.svg')}
+                style={{ width: 18, height: 18 }}
+                contentFit="contain"
+            />
+        ),
+    },
+    {
+        id: 'devices',
+        label: 'Devices',
+        icon: (active) => (
+            <Image
+                source={active ? require('../../assets/icons/devices-filled.svg') : require('../../assets/icons/devices-stroke.svg')}
+                style={{ width: 18, height: 18 }}
+                contentFit="contain"
+            />
+        ),
+    },
+    {
+        id: 'guide_ai',
+        label: 'AI & Guide',
+        icon: (active) => (
+            <Image
+                source={active ? require('../../assets/icons/guide-filled.svg') : require('../../assets/icons/guide-stroke.svg')}
+                style={{ width: 18, height: 18 }}
+                contentFit="contain"
+            />
+        ),
+    },
+    {
+        id: 'others',
+        label: 'Others',
+        icon: (active, colors) => (
+            <MaterialIcons name="tune" size={17} color={active ? '#FFFFFF' : colors.textGrey} />
+        ),
+    },
+];
+
+const STATUS_OPTIONS: { key: NotificationStatusFilter; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'unread', label: 'Unread' },
+    { key: 'read', label: 'Read' },
+];
+
+const getHPad = (width: number) => {
+    if (width >= 900) return Math.round(width * 0.12);
+    if (width >= 600) return Math.round(width * 0.07);
+    if (width <= 360) return 12;
+    return 16;
+};
 
 function formatNotificationDate(ts: string): { full: string; short: string } {
     if (!ts) return { full: '', short: '' };
@@ -292,9 +431,35 @@ const ExpandableNotificationItem: React.FC<NotificationItemProps> = ({
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', width: '100%', flex: 1 }}>
                 <View style={[notificationStyles.iconBox, { backgroundColor: iconInfo.bgColor, marginTop: 2 }]}>
                     {iconInfo.customComponent === 'aniweigh' ? (
-                        <AniWeighIcon size={19} />
+                        <Image
+                            source={require('../../assets/icons/ani-weigh-icon.svg')}
+                            style={{ width: 22, height: 22 }}
+                            contentFit="contain"
+                        />
                     ) : iconInfo.customComponent === 'anifeed' ? (
-                        <AniFeedIcon size={19} />
+                        <Image
+                            source={require('../../assets/icons/ani-feed-icon.svg')}
+                            style={{ width: 21, height: 21 }}
+                            contentFit="contain"
+                        />
+                    ) : iconInfo.customComponent === 'health' ? (
+                        <Image
+                            source={require('../../assets/icons/health-filled.svg')}
+                            style={{ width: 20, height: 20 }}
+                            contentFit="contain"
+                        />
+                    ) : iconInfo.customComponent === 'devices' ? (
+                        <Image
+                            source={require('../../assets/icons/devices-filled.svg')}
+                            style={{ width: 21, height: 21 }}
+                            contentFit="contain"
+                        />
+                    ) : iconInfo.customComponent === 'guide' ? (
+                        <Image
+                            source={require('../../assets/icons/guide-filled.svg')}
+                            style={{ width: 20, height: 20 }}
+                            contentFit="contain"
+                        />
                     ) : (
                         <MaterialIcons name={iconInfo.name as any} size={20} color={iconInfo.color} />
                     )}
@@ -334,7 +499,9 @@ const ExpandableNotificationItem: React.FC<NotificationItemProps> = ({
                             >
                                 {isExpanded ? '' : item.shortTime}
                             </Text>
-                            {!item.isRead && <View style={notificationStyles.unreadDot} />}
+                            {!item.isRead && (
+                                <View style={[notificationStyles.unreadDot, { backgroundColor: colors.primary }]} />
+                            )}
                             <Animated.View style={{ transform: [{ rotate: rotateChevron }], marginLeft: 2 }}>
                                 <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.textGrey} />
                             </Animated.View>
@@ -397,7 +564,7 @@ const ExpandableNotificationItem: React.FC<NotificationItemProps> = ({
                                 <Text
                                     style={[
                                         textStyles.body,
-                                        { color: '#FFFFFF', fontSize: 12, fontFamily: 'Poppins-Medium' },
+                                        { color: '#FFFFFF', fontSize: 12, fontFamily: 'Poppins-SemiBold' },
                                     ]}
                                 >
                                     View Page
@@ -417,8 +584,11 @@ export default function NotificationScreen() {
     const notificationStyles = useNotificationStyles();
     const textStyles = useTextStyles();
     const insets = useSafeAreaInsets();
+    const { width } = useWindowDimensions();
+    const hPad = getHPad(width);
     const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors } = useTheme();
+    const goldColor = colors.secondary || '#D8B800';
     const { profile, hasPermission, role } = useAuth();
     const { activeFarmIds } = useFarmFilter();
 
@@ -426,6 +596,34 @@ export default function NotificationScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
+
+    // Filters & Pagination State
+    const [statusFilter, setStatusFilter] = useState<NotificationStatusFilter>('all');
+    const [categoryFilter, setCategoryFilter] = useState<NotificationCategoryFilter>('all');
+    const [currentPage, setCurrentPage] = useState(1);
+    const ITEMS_PER_PAGE = 10;
+
+    // Sliding Pill Switcher Animation State (Green)
+    const [statusTrackWidth, setStatusTrackWidth] = useState(0);
+    const selectedStatusIndex = STATUS_OPTIONS.findIndex(opt => opt.key === statusFilter);
+    const validStatusIndex = selectedStatusIndex >= 0 ? selectedStatusIndex : 0;
+    const statusSlideAnim = useRef(new Animated.Value(validStatusIndex)).current;
+
+    useEffect(() => {
+        Animated.spring(statusSlideAnim, {
+            toValue: validStatusIndex,
+            damping: 22,
+            stiffness: 240,
+            mass: 0.8,
+            useNativeDriver: true,
+        }).start();
+    }, [validStatusIndex, statusSlideAnim]);
+
+    const statusTabWidth = statusTrackWidth > 0 ? statusTrackWidth / STATUS_OPTIONS.length : 0;
+    const statusTranslateX = statusSlideAnim.interpolate({
+        inputRange: STATUS_OPTIONS.map((_, i) => i),
+        outputRange: STATUS_OPTIONS.map((_, i) => i * statusTabWidth),
+    });
 
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
     const userId = (profile as any)?.uid || (profile as any)?.id;
@@ -565,18 +763,6 @@ export default function NotificationScreen() {
 
         // 1. Weight alerts
         if (item.category === 'weight_alert' || text.includes('weight') || text.includes('weigh')) {
-            if (text.includes('reminder') || text.includes('scheduled')) {
-                return { customComponent: 'aniweigh', color: colors.primary, bgColor: colors.primary + '18' };
-            }
-            if (text.includes('underweight') || text.includes('low weight')) {
-                return { name: 'arrow-downward', color: colors.warning, bgColor: colors.warning + '18' };
-            }
-            if (text.includes('overweight') || text.includes('high weight')) {
-                return { name: 'arrow-upward', color: colors.error, bgColor: colors.error + '18' };
-            }
-            if (text.includes('complete') || text.includes('finish') || text.includes('normal')) {
-                return { customComponent: 'aniweigh', color: colors.primary, bgColor: colors.primary + '18' };
-            }
             return { customComponent: 'aniweigh', color: colors.primary, bgColor: colors.primary + '18' };
         }
 
@@ -586,37 +772,20 @@ export default function NotificationScreen() {
             text.includes('health') ||
             text.includes('vaccin') ||
             text.includes('mortality') ||
-            text.includes('deceased')
+            text.includes('deceased') ||
+            text.includes('vet')
         ) {
-            if (text.includes('vaccin')) {
-                return { name: 'vaccines', color: '#27AE60', bgColor: '#27AE6018' };
-            }
-            if (text.includes('mortality') || text.includes('deceased')) {
-                return { name: 'warning', color: colors.error, bgColor: colors.error + '18' };
-            }
-            return { name: 'medical-services', color: '#27AE60', bgColor: '#27AE6018' };
+            return { customComponent: 'health', color: '#27AE60', bgColor: '#27AE6018' };
         }
 
         // 3. Feeds & Dispense
         if (item.category === 'feed_alert' || text.includes('feed') || text.includes('dispense')) {
-            if (text.includes('expired') || text.includes('failed') || text.includes('error')) {
-                return { name: 'error-outline', color: colors.error, bgColor: colors.error + '18' };
-            }
-            if (text.includes('low') || text.includes('expiring')) {
-                return { customComponent: 'anifeed', color: colors.warning, bgColor: colors.warning + '18' };
-            }
             return { customComponent: 'anifeed', color: colors.secondary, bgColor: colors.secondary + '18' };
         }
 
         // 4. Devices
         if (item.category === 'device_alert' || text.includes('device') || text.includes('online') || text.includes('offline')) {
-            if (item.type === 'alert' || text.includes('offline')) {
-                return { name: 'phonelink-erase', color: colors.error, bgColor: colors.error + '18' };
-            }
-            if (item.type === 'success' || text.includes('online') || text.includes('connected')) {
-                return { name: 'devices', color: '#10B981', bgColor: '#10B98118' };
-            }
-            return { name: 'devices', color: colors.primary, bgColor: colors.primary + '18' };
+            return { customComponent: 'devices', color: colors.primary, bgColor: colors.primary + '18' };
         }
 
         // 5. Guide / Briefing / Analytics
@@ -625,12 +794,10 @@ export default function NotificationScreen() {
             text.includes('briefing') ||
             text.includes('guide') ||
             text.includes('analytic') ||
-            text.includes('growth')
+            text.includes('growth') ||
+            text.includes('ai')
         ) {
-            if (text.includes('analytic') || text.includes('growth')) {
-                return { name: 'insights', color: '#3B82F6', bgColor: '#3B82F618' };
-            }
-            return { name: 'menu-book', color: colors.primary, bgColor: colors.primary + '18' };
+            return { customComponent: 'guide', color: '#8B5CF6', bgColor: '#8B5CF618' };
         }
 
         switch (item.type) {
@@ -647,31 +814,43 @@ export default function NotificationScreen() {
 
     const unreadCount = notifications.filter(n => !n.isRead).length;
 
-    const renderItem = ({ item, index }: { item: AppNotification; index: number }) => {
-        const iconInfo = getIconDetails(item);
-        const isFirst = index === 0;
-        const isLast = index === notifications.length - 1;
-        const isExpanded = expandedId === item.id;
+    // Filter notifications based on status & category
+    const filteredNotifications = useMemo(() => {
+        return notifications.filter(item => {
+            // Status filter
+            if (statusFilter === 'unread' && item.isRead) return false;
+            if (statusFilter === 'read' && !item.isRead) return false;
 
-        return (
-            <ExpandableNotificationItem
-                item={item}
-                isFirst={isFirst}
-                isLast={isLast}
-                isExpanded={isExpanded}
-                onToggle={toggleExpand}
-                onNavigate={handleNavigate}
-                iconInfo={iconInfo}
-                colors={colors}
-                textStyles={textStyles}
-                notificationStyles={notificationStyles}
-            />
-        );
-    };
+            // Category filter
+            if (categoryFilter !== 'all') {
+                const bucket = getNotificationBucket(item);
+                if (bucket !== categoryFilter) return false;
+            }
+
+            return true;
+        });
+    }, [notifications, statusFilter, categoryFilter]);
+
+    const totalPages = Math.max(1, Math.ceil(filteredNotifications.length / ITEMS_PER_PAGE));
+
+    useEffect(() => {
+        if (currentPage > totalPages) {
+            setCurrentPage(totalPages);
+        }
+    }, [currentPage, totalPages]);
+
+    const paginatedNotifications = useMemo(() => {
+        const start = (currentPage - 1) * ITEMS_PER_PAGE;
+        return filteredNotifications.slice(start, start + ITEMS_PER_PAGE);
+    }, [filteredNotifications, currentPage]);
+
+    const showingStart = filteredNotifications.length === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1;
+    const showingEnd = Math.min(currentPage * ITEMS_PER_PAGE, filteredNotifications.length);
 
     return (
         <View style={[notificationStyles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={notificationStyles.container}>
+                {/* Header */}
                 <View style={notificationStyles.header}>
                     <View style={{ width: 44, height: 44 }}>
                         <BackButton fallbackRoute="/(dashboard)/HomeScreen" />
@@ -682,24 +861,197 @@ export default function NotificationScreen() {
                     <View style={{ width: 44, height: 44, alignItems: 'flex-end', justifyContent: 'center' }}>
                         {unreadCount > 0 ? (
                             <TouchableOpacity onPress={markAllAsRead} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                                <MaterialIcons name="done-all" size={24} color={colors.primary} />
+                                <MaterialIcons name="playlist-add-check" size={24} color={colors.primary} />
                             </TouchableOpacity>
                         ) : null}
                     </View>
                 </View>
 
+                {/* ── AnimalTypePillSwitcher-style Sliding Pill Switcher for Status (Green) ── */}
+                <View style={{
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: colors.stroke,
+                    padding: 4,
+                    backgroundColor: colors.surface,
+                    marginHorizontal: hPad,
+                    marginBottom: 12,
+                    overflow: 'hidden',
+                }}>
+                    <View
+                        style={{
+                            flexDirection: 'row',
+                            position: 'relative',
+                            alignItems: 'center',
+                            width: '100%',
+                        }}
+                        onLayout={(e) => setStatusTrackWidth(e.nativeEvent.layout.width)}
+                    >
+                        {/* Sliding Active Green Indicator Pill */}
+                        {statusTabWidth > 0 && (
+                            <Animated.View
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    bottom: 0,
+                                    left: 0,
+                                    width: statusTabWidth,
+                                    borderRadius: 999,
+                                    backgroundColor: colors.primary,
+                                    transform: [{ translateX: statusTranslateX }],
+                                    shadowColor: colors.primary,
+                                    shadowOffset: { width: 0, height: 2 },
+                                    shadowOpacity: 0.35,
+                                    shadowRadius: 4,
+                                    elevation: 3,
+                                }}
+                            />
+                        )}
+
+                        {/* Status Tabs */}
+                        {STATUS_OPTIONS.map((opt) => {
+                            const isSelected = opt.key === statusFilter;
+                            const count = opt.key === 'all'
+                                ? notifications.length
+                                : opt.key === 'unread'
+                                ? notifications.filter(n => !n.isRead).length
+                                : notifications.filter(n => n.isRead).length;
+
+                            return (
+                                <TouchableOpacity
+                                    key={opt.key}
+                                    activeOpacity={0.75}
+                                    onPress={() => {
+                                        setStatusFilter(opt.key);
+                                        setCurrentPage(1);
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        paddingVertical: 8,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        zIndex: 2,
+                                        flexDirection: 'row',
+                                        gap: 6,
+                                    }}
+                                >
+                                    <Text
+                                        style={{
+                                            fontSize: 13,
+                                            fontFamily: isSelected ? 'Poppins-Bold' : 'Poppins-Medium',
+                                            color: isSelected ? '#FFFFFF' : colors.textGrey,
+                                        }}
+                                    >
+                                        {opt.label}
+                                    </Text>
+                                    {count > 0 && (
+                                        <View
+                                            style={{
+                                                paddingHorizontal: 6,
+                                                paddingVertical: 1,
+                                                borderRadius: 999,
+                                                backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.28)' : (colors.stroke || '#E0E0E0'),
+                                            }}
+                                        >
+                                            <Text
+                                                style={{
+                                                    fontSize: 10.5,
+                                                    fontFamily: 'Poppins-Bold',
+                                                    color: isSelected ? '#FFFFFF' : colors.textGrey,
+                                                }}
+                                            >
+                                                {count}
+                                            </Text>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                </View>
+
+                {/* ── Enhanced Category Filter Carousel Chips (Gold) ── */}
+                <View style={{ marginBottom: 4 }}>
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={{
+                            paddingHorizontal: hPad,
+                            gap: 8,
+                            paddingBottom: 8,
+                        }}
+                    >
+                        {CATEGORY_ITEMS.map((cat) => {
+                            const isActive = categoryFilter === cat.id;
+                            const count = notifications.filter(n => {
+                                if (statusFilter === 'unread' && n.isRead) return false;
+                                if (statusFilter === 'read' && !n.isRead) return false;
+                                if (cat.id === 'all') return true;
+                                return getNotificationBucket(n) === cat.id;
+                            }).length;
+
+                            return (
+                                <TouchableOpacity
+                                    key={cat.id}
+                                    onPress={() => {
+                                        setCategoryFilter(cat.id);
+                                        setCurrentPage(1);
+                                    }}
+                                    style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        paddingVertical: 7,
+                                        paddingHorizontal: 14,
+                                        borderRadius: 999,
+                                        backgroundColor: isActive ? goldColor : colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: isActive ? goldColor : colors.stroke,
+                                        gap: 7,
+                                        shadowColor: '#000',
+                                        shadowOffset: { width: 0, height: 1 },
+                                        shadowOpacity: 0.04,
+                                        shadowRadius: 2,
+                                        elevation: 1,
+                                    }}
+                                    activeOpacity={0.75}
+                                >
+                                    {/* Direct icon without any circle background */}
+                                    {cat.icon(isActive, colors)}
+                                    <Text style={{
+                                        fontSize: 12.5,
+                                        fontFamily: isActive ? 'Poppins-Bold' : 'Poppins-Medium',
+                                        color: isActive ? '#FFFFFF' : colors.text,
+                                    }}>
+                                        {cat.label}
+                                    </Text>
+                                    {count > 0 && (
+                                        <View style={{
+                                            paddingHorizontal: 6,
+                                            paddingVertical: 1,
+                                            borderRadius: 999,
+                                            backgroundColor: isActive ? 'rgba(255, 255, 255, 0.28)' : (colors.stroke || '#E0E0E0'),
+                                        }}>
+                                            <Text style={{
+                                                fontSize: 10.5,
+                                                fontFamily: 'Poppins-Bold',
+                                                color: isActive ? '#FFFFFF' : colors.textGrey,
+                                            }}>
+                                                {count}
+                                            </Text>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </ScrollView>
+                </View>
+
+                {/* ── Notification Content ── */}
                 {isLoading ? (
                     <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 48 }} />
                 ) : (
-                    <FlatList
-                        data={notifications}
-                        keyExtractor={item => item.id}
-                        renderItem={renderItem}
-                        ItemSeparatorComponent={() => (
-                            <View style={{ backgroundColor: colors.surface, borderLeftWidth: 1, borderRightWidth: 1, borderColor: colors.stroke }}>
-                                <View style={notificationStyles.divider} />
-                            </View>
-                        )}
+                    <ScrollView
+                        style={{ flex: 1 }}
                         contentContainerStyle={notificationStyles.listContent}
                         showsVerticalScrollIndicator={false}
                         refreshControl={
@@ -710,7 +1062,8 @@ export default function NotificationScreen() {
                                 colors={[colors.primary]}
                             />
                         }
-                        ListEmptyComponent={
+                    >
+                        {notifications.length === 0 ? (
                             <View style={notificationStyles.emptyContainer}>
                                 <MaterialIcons name="notifications-off" size={48} color={colors.textGrey} />
                                 <Text style={[textStyles.h2, { color: colors.text, marginTop: 16 }]}>No notifications yet</Text>
@@ -718,8 +1071,140 @@ export default function NotificationScreen() {
                                     You are all caught up. New alerts and messages will appear here.
                                 </Text>
                             </View>
-                        }
-                    />
+                        ) : filteredNotifications.length === 0 ? (
+                            <View style={notificationStyles.emptyContainer}>
+                                <MaterialIcons name="filter-list-off" size={48} color={colors.textGrey} />
+                                <Text style={[textStyles.h2, { color: colors.text, marginTop: 16 }]}>No matching notifications</Text>
+                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginTop: 8 }]}>
+                                    No notifications found matching your selected category and status.
+                                </Text>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setStatusFilter('all');
+                                        setCategoryFilter('all');
+                                        setCurrentPage(1);
+                                    }}
+                                    style={{
+                                        marginTop: 16,
+                                        backgroundColor: colors.primary,
+                                        paddingVertical: 9,
+                                        paddingHorizontal: 18,
+                                        borderRadius: 999,
+                                    }}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text style={{ color: '#FFFFFF', fontSize: 13, fontFamily: 'Poppins-SemiBold' }}>
+                                        Clear Filters
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <>
+                                <View style={notificationStyles.listContainer}>
+                                    {paginatedNotifications.map((item, index) => {
+                                        const iconInfo = getIconDetails(item);
+                                        const isFirst = index === 0;
+                                        const isLast = index === paginatedNotifications.length - 1;
+                                        const isExpanded = expandedId === item.id;
+
+                                        return (
+                                            <React.Fragment key={item.id}>
+                                                <ExpandableNotificationItem
+                                                    item={item}
+                                                    isFirst={isFirst}
+                                                    isLast={isLast}
+                                                    isExpanded={isExpanded}
+                                                    onToggle={toggleExpand}
+                                                    onNavigate={handleNavigate}
+                                                    iconInfo={iconInfo}
+                                                    colors={colors}
+                                                    textStyles={textStyles}
+                                                    notificationStyles={notificationStyles}
+                                                />
+                                                {!isLast && (
+                                                    <View style={{ backgroundColor: colors.surface, borderLeftWidth: 1, borderRightWidth: 1, borderColor: colors.stroke }}>
+                                                        <View style={notificationStyles.divider} />
+                                                    </View>
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </View>
+
+                                {/* ── Enhanced Pagination Bar ── */}
+                                {totalPages > 1 && (
+                                    <View style={{
+                                        marginTop: 16,
+                                        paddingVertical: 12,
+                                        paddingHorizontal: 16,
+                                        backgroundColor: colors.surface,
+                                        borderRadius: 14,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        shadowColor: '#000',
+                                        shadowOffset: { width: 0, height: 1 },
+                                        shadowOpacity: 0.04,
+                                        shadowRadius: 2,
+                                        elevation: 1,
+                                    }}>
+                                        <TouchableOpacity
+                                            disabled={currentPage === 1}
+                                            onPress={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                            style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                opacity: currentPage === 1 ? 0.35 : 1,
+                                                paddingVertical: 6,
+                                                paddingHorizontal: 12,
+                                                borderRadius: 8,
+                                                backgroundColor: colors.primary + '14',
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <MaterialIcons name="chevron-left" size={18} color={colors.primary} />
+                                            <Text style={{ color: colors.primary, fontSize: 12.5, fontFamily: 'Poppins-Bold' }}>
+                                                Prev
+                                            </Text>
+                                        </TouchableOpacity>
+
+                                        <View style={{ alignItems: 'center' }}>
+                                            <Text style={{ color: colors.text, fontSize: 12.5, fontFamily: 'Poppins-Bold' }}>
+                                                Page {currentPage} of {totalPages}
+                                            </Text>
+                                            <Text style={{ color: colors.textGrey, fontSize: 10.5, fontFamily: 'Poppins-Regular' }}>
+                                                Showing {showingStart}–{showingEnd} of {filteredNotifications.length}
+                                            </Text>
+                                        </View>
+
+                                        <TouchableOpacity
+                                            disabled={currentPage >= totalPages}
+                                            onPress={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                            style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                opacity: currentPage >= totalPages ? 0.35 : 1,
+                                                paddingVertical: 6,
+                                                paddingHorizontal: 12,
+                                                borderRadius: 8,
+                                                backgroundColor: colors.primary + '14',
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={{ color: colors.primary, fontSize: 12.5, fontFamily: 'Poppins-Bold' }}>
+                                                Next
+                                            </Text>
+                                            <MaterialIcons name="chevron-right" size={18} color={colors.primary} />
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+                            </>
+                        )}
+                    </ScrollView>
                 )}
             </View>
         </View>
