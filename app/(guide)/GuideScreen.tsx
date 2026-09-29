@@ -847,11 +847,12 @@ export default function GuideScreen() {
 
     // ─── Compute Unmarked & Overdue Tasks up to currentDay ───────────────────
     const { unmarkedTasks, overdueTasks, todayUnmarkedTasks } = useMemo(() => {
-        if (!selectedBatch) {
+        if (!selectedBatch || !naturalPhase) {
             return { unmarkedTasks: [], overdueTasks: [], todayUnmarkedTasks: [] };
         }
 
-        const allUnmarked: Array<{
+        // 1. Overdue tasks strictly from previous days (d < currentDay)
+        const overdue: Array<{
             phaseId: string;
             phaseName: string;
             actionItem: SOPAction;
@@ -863,7 +864,7 @@ export default function GuideScreen() {
         availablePhases.forEach(phase => {
             const sorted = sortActionsByDay(phase.fullGuideActions || []);
             const startDay = Math.max(1, phase.dayStart);
-            const endDay = Math.min(phase.dayEnd, currentDay);
+            const endDay = Math.min(phase.dayEnd, currentDay - 1);
 
             for (let d = startDay; d <= endDay; d++) {
                 const matchingActions = sorted.filter(act => isDayMatching(act.dayTag, d));
@@ -873,28 +874,52 @@ export default function GuideScreen() {
                     const log = actionLogs[logKey] || actionLogs[generalKey];
                     const isMarked = log && (log.status === 'completed' || log.status === 'rejected');
                     if (!isMarked) {
-                        allUnmarked.push({
+                        overdue.push({
                             phaseId: phase.id,
                             phaseName: phase.name,
                             actionItem: act,
                             taskDay: d,
-                            isOverdue: d < currentDay,
-                            isToday: d === currentDay,
+                            isOverdue: true,
+                            isToday: false,
                         });
                     }
                 });
             }
         });
 
-        const overdue = allUnmarked.filter(t => t.isOverdue);
-        const todayUnmarked = allUnmarked.filter(t => t.isToday);
+        // 2. Today's unmarked tasks directly tracking today's suggested procedures
+        const todayUnmarked: Array<{
+            phaseId: string;
+            phaseName: string;
+            actionItem: SOPAction;
+            taskDay: number;
+            isOverdue: boolean;
+            isToday: boolean;
+        }> = [];
+
+        todayTasksForCurrentPhase.forEach(act => {
+            const logKey = getActionLogKey(naturalPhase.id, act.action, currentDay);
+            const generalKey = getActionLogKey(naturalPhase.id, act.action);
+            const log = actionLogs[logKey] || actionLogs[generalKey];
+            const isMarked = log && (log.status === 'completed' || log.status === 'rejected');
+            if (!isMarked) {
+                todayUnmarked.push({
+                    phaseId: naturalPhase.id,
+                    phaseName: naturalPhase.name,
+                    actionItem: act,
+                    taskDay: currentDay,
+                    isOverdue: false,
+                    isToday: true,
+                });
+            }
+        });
 
         return {
-            unmarkedTasks: allUnmarked,
+            unmarkedTasks: [...overdue, ...todayUnmarked],
             overdueTasks: overdue,
             todayUnmarkedTasks: todayUnmarked,
         };
-    }, [availablePhases, currentDay, actionLogs, selectedBatch]);
+    }, [availablePhases, currentDay, actionLogs, selectedBatch, naturalPhase, todayTasksForCurrentPhase]);
 
     // ─── Batch Options for Selection Modal ─────────────────────────────────────
     const batchOptions = useMemo(() => {
