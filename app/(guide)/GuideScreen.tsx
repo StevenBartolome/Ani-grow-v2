@@ -1836,7 +1836,7 @@ export default function GuideScreen() {
                         {/* 3.5 Unmarked Tasks Count & Action Reminder Banner */}
                         {selectedBatch && (
                             <GuideSectionFade delay={0} animKey={guideAnimKey}>
-                                {unmarkedTasks.length > 0 ? (
+                                {overdueTasks.length > 0 ? (
                                     <View style={{
                                         backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : '#FFFBEB',
                                         borderWidth: 1.2,
@@ -1869,7 +1869,7 @@ export default function GuideScreen() {
                                         <View style={{ flex: 1, minWidth: 0 }}>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                                 <Text style={{ fontSize: 13.5, fontFamily: 'Poppins-Bold', color: isDark ? '#FCD34D' : '#92400E' }}>
-                                                    {unmarkedTasks.length} Unmarked Task{unmarkedTasks.length > 1 ? 's' : ''} Require Marking
+                                                    {overdueTasks.length} Overdue Task{overdueTasks.length > 1 ? 's' : ''} Require Marking
                                                 </Text>
                                                 <View style={{
                                                     backgroundColor: '#F59E0B',
@@ -1878,14 +1878,35 @@ export default function GuideScreen() {
                                                     borderRadius: 6,
                                                 }}>
                                                     <Text style={{ color: '#FFFFFF', fontSize: 10, fontFamily: 'Poppins-Bold' }}>
-                                                        {overdueTasks.length > 0 ? `${overdueTasks.length} OVERDUE` : 'PENDING'}
+                                                        {overdueTasks.length} OVERDUE
                                                     </Text>
                                                 </View>
                                             </View>
                                             <Text style={{ fontSize: 11.5, color: isDark ? '#FDE68A' : '#78350F', fontFamily: 'Poppins-Regular', marginTop: 2, lineHeight: 16 }}>
-                                                {overdueTasks.length > 0
-                                                    ? `${overdueTasks.length} overdue from previous day${overdueTasks.length > 1 ? 's' : ''}${todayUnmarkedTasks.length > 0 ? ` • ${todayUnmarkedTasks.length} today` : ''}. Review and mark as done or skipped.`
-                                                    : `Review today's ${todayUnmarkedTasks.length} procedure${todayUnmarkedTasks.length > 1 ? 's' : ''} and mark as done or skipped.`}
+                                                You have {overdueTasks.length} procedure{overdueTasks.length > 1 ? 's' : ''} from previous days left unmarked. Please review and mark as done or skipped.{todayUnmarkedTasks.length > 0 ? ` (${todayUnmarkedTasks.length} task${todayUnmarkedTasks.length > 1 ? 's' : ''} for today can be marked throughout the day).` : ''}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                ) : todayUnmarkedTasks.length > 0 ? (
+                                    <View style={{
+                                        backgroundColor: isDark ? 'rgba(16, 185, 129, 0.08)' : '#F0FDF4',
+                                        borderWidth: 1,
+                                        borderColor: isDark ? 'rgba(16, 185, 129, 0.25)' : '#BBF7D0',
+                                        borderRadius: 14,
+                                        paddingHorizontal: 14,
+                                        paddingVertical: 11,
+                                        marginBottom: 16,
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 10,
+                                    }}>
+                                        <MaterialIcons name="check-circle" size={18} color="#10B981" />
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={{ fontSize: 12.5, fontFamily: 'Poppins-Bold', color: isDark ? '#34D399' : '#065F46' }}>
+                                                All Past Tasks Marked
+                                            </Text>
+                                            <Text style={{ fontSize: 11, fontFamily: 'Poppins-Regular', color: isDark ? '#A7F3D0' : '#047857', marginTop: 1, lineHeight: 15 }}>
+                                                No overdue tasks from previous days for {selectedBatch.name}. You have {todayUnmarkedTasks.length} procedure{todayUnmarkedTasks.length > 1 ? 's' : ''} scheduled for today (can be completed throughout the day).
                                             </Text>
                                         </View>
                                     </View>
@@ -1902,9 +1923,9 @@ export default function GuideScreen() {
                                         alignItems: 'center',
                                         gap: 10,
                                     }}>
-                                        <MaterialIcons name="check-circle" size={18} color="#10B981" />
+                                        <MaterialIcons name="verified" size={18} color="#10B981" />
                                         <Text style={{ fontSize: 12, fontFamily: 'Poppins-Medium', color: isDark ? '#34D399' : '#065F46', flex: 1 }}>
-                                            All Guide Tasks Up to Date • No pending procedures to mark for {selectedBatch.name}.
+                                            All Guide Tasks Up to Date • All past and today's procedures for {selectedBatch.name} are marked.
                                         </Text>
                                     </View>
                                 )}

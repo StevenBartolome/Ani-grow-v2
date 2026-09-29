@@ -56,15 +56,24 @@ function minutesDifference(timeStrA: string, timeStrB: string): number {
     return (hA * 60 + mA) - (hB * 60 + mB);
 }
 
+const inFlightAlertKeys = new Set<string>();
+
 async function alreadyAlerted(key: string): Promise<boolean> {
+    if (inFlightAlertKeys.has(key)) return true;
     try {
-        return (await AsyncStorage.getItem(key)) !== null;
+        const val = await AsyncStorage.getItem(key);
+        if (val !== null) {
+            inFlightAlertKeys.add(key);
+            return true;
+        }
+        return false;
     } catch {
         return false;
     }
 }
 
 async function markAlerted(key: string): Promise<void> {
+    inFlightAlertKeys.add(key);
     try {
         await AsyncStorage.setItem(key, '1');
     } catch {
@@ -73,6 +82,7 @@ async function markAlerted(key: string): Promise<void> {
 }
 
 async function clearAlerted(key: string): Promise<void> {
+    inFlightAlertKeys.delete(key);
     try {
         await AsyncStorage.removeItem(key);
     } catch {
@@ -806,13 +816,12 @@ export function NotificationWatcher() {
 
                 // Filter phases applicable up to currentDay
                 const availablePhases = phases.filter(p => currentDay >= p.dayStart);
-                let unmarkedCount = 0;
                 let overdueCount = 0;
 
                 for (const phase of availablePhases) {
                     const sorted = sortActionsByDay(phase.fullGuideActions || []);
                     const startDay = Math.max(1, phase.dayStart);
-                    const endDay = Math.min(phase.dayEnd, currentDay);
+                    const endDay = Math.min(phase.dayEnd, currentDay - 1); // Only check past days before today
 
                     for (let d = startDay; d <= endDay; d++) {
                         const matchingActions = sorted.filter(act => isDayMatching(act.dayTag, d));
@@ -822,28 +831,26 @@ export function NotificationWatcher() {
                             const log = actionLogs[logKey] || actionLogs[generalKey];
                             const isMarked = log && (log.status === 'completed' || log.status === 'rejected');
                             if (!isMarked) {
-                                unmarkedCount++;
-                                if (d < currentDay) overdueCount++;
+                                overdueCount++;
                             }
                         }
                     }
                 }
 
-                if (unmarkedCount > 0) {
-                    const alertKey = `unmarked_guide_tasks_${b.id}_${today}_count_${unmarkedCount}`;
+                if (overdueCount > 0) {
+                    const alertKey = `overdue_guide_tasks_${b.id}_${today}`;
                     if (!(await alreadyAlerted(alertKey))) {
-                        const taskWord = unmarkedCount === 1 ? 'task' : 'tasks';
-                        const overdueNote = overdueCount > 0 ? ` (${overdueCount} overdue from previous day${overdueCount > 1 ? 's' : ''})` : '';
+                        await markAlerted(alertKey);
+                        const taskWord = overdueCount === 1 ? 'task' : 'tasks';
                         await dispatchNotification({
                             farmId,
                             category: 'ai_suggestion',
                             type: 'warning',
-                            title: 'Unmarked Guide Tasks',
-                            message: `You have ${unmarkedCount} unmarked ${taskWord}${overdueNote} for ${animalLabel} in ${housingName} (${b.name}). Please review and mark as completed or skipped.`,
+                            title: 'Overdue Guide Tasks',
+                            message: `You have ${overdueCount} overdue ${taskWord} from previous days for ${animalLabel} in ${housingName} (${b.name}). Please review and mark as completed or skipped.`,
                             actionUrl: '/(guide)/GuideScreen',
                             skipLocalPush: false, // Fire local device push notification
                         });
-                        await markAlerted(alertKey);
                     }
                 }
             }
@@ -852,19 +859,29 @@ export function NotificationWatcher() {
         }
     }, [dispatchNotification]);
 
+    const isRunningDailyChecksRef = useRef(false);
+
     // ── Run all periodic daily checks ───────────────────────────────────
-    const runDailyChecks = useCallback(() => {
-        fetchFarmNames();
-        checkFeeds();
-        checkVaccinations();
-        checkScheduledVetVisits();
-        checkBatchLifecycle();
-        checkGrowthAnalytics();
-        checkDailyMorningBriefing();
-        checkUnmarkedGuideTasks();
-        checkUpcomingFeedDispenses();
-        checkAndTriggerWeighingReminders(farmIdsRef.current);
-        syncAllScheduledNotifications(farmIdsRef.current);
+    const runDailyChecks = useCallback(async () => {
+        if (isRunningDailyChecksRef.current) return;
+        isRunningDailyChecksRef.current = true;
+        try {
+            await fetchFarmNames();
+            await Promise.allSettled([
+                checkFeeds(),
+                checkVaccinations(),
+                checkScheduledVetVisits(),
+                checkBatchLifecycle(),
+                checkGrowthAnalytics(),
+                checkDailyMorningBriefing(),
+                checkUnmarkedGuideTasks(),
+                checkUpcomingFeedDispenses(),
+                checkAndTriggerWeighingReminders(farmIdsRef.current),
+                syncAllScheduledNotifications(farmIdsRef.current),
+            ]);
+        } finally {
+            isRunningDailyChecksRef.current = false;
+        }
     }, [
         fetchFarmNames,
         checkFeeds,

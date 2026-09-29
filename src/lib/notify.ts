@@ -194,12 +194,41 @@ interface CreateNotificationInput {
     skipLocalPush?: boolean;
 }
 
+const recentNotificationCache = new Set<string>();
+
 /** Inserts a notification row into `notifications` table and fires a formal, local device push notification. */
 export async function createNotification(input: CreateNotificationInput): Promise<void> {
     // Format formal title with Farm Name prefix if available and not already formatted
     let formattedTitle = input.title.trim();
     if (input.farmName && !formattedTitle.startsWith('[')) {
         formattedTitle = `[${input.farmName}] ${formattedTitle}`;
+    }
+
+    // Deduplication key per farm, title, message within the current day
+    const today = new Date().toLocaleDateString('en-CA');
+    const dedupeKey = `${input.farmId}::${input.category}::${formattedTitle}::${input.message.trim()}::${today}`;
+    if (recentNotificationCache.has(dedupeKey)) {
+        return; // Prevent duplicate dispatch within the same session/day
+    }
+    recentNotificationCache.add(dedupeKey);
+
+    // Also check Supabase DB for recent identical notification within the last 1 hour
+    try {
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { data: existing } = await supabase
+            .from('notifications')
+            .select('id')
+            .eq('farm_id', input.farmId)
+            .eq('title', formattedTitle)
+            .eq('message', input.message)
+            .gte('created_at', oneHourAgo)
+            .limit(1);
+
+        if (existing && existing.length > 0) {
+            return; // Duplicate already exists in DB
+        }
+    } catch {
+        /* proceed to insert if select check encounters network error */
     }
 
     try {
