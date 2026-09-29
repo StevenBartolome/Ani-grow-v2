@@ -24,21 +24,12 @@ interface ManualCategory {
     sectionId: string;
 }
 
-const CATEGORIES: ManualCategory[] = [
-    { id: 'all', label: 'All Pages', icon: 'auto-stories', sectionId: 'sec-cover' },
-    { id: 'overview', label: 'Overview', icon: 'menu-book', sectionId: 'sec-cover' },
-    { id: 'hardware', label: '1.0 Hardware', icon: 'memory', sectionId: 'sec-hardware' },
-    { id: 'wifi', label: '2.0 Wi-Fi Setup', icon: 'wifi', sectionId: 'sec-wifi' },
-    { id: 'anifeed', label: '3.0 AniFeed', icon: 'restaurant', sectionId: 'sec-anifeed' },
-    { id: 'aniweigh', label: '4.0 AniWeigh', icon: 'scale', sectionId: 'sec-aniweigh' },
-    { id: 'troubleshoot', label: '5.0 Troubleshooting', icon: 'help-outline', sectionId: 'sec-troubleshoot' },
-];
-
 export default function UserManualScreen() {
     const textStyles = useTextStyles();
     const insets = useSafeAreaInsets();
-    const { colors } = useTheme();
+    const { colors, language } = useTheme();
     const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
+    const isFilipino = language === 'fil';
 
     const [activeCategory, setActiveCategory] = useState<string>('all');
     const [isExporting, setIsExporting] = useState(false);
@@ -47,7 +38,17 @@ export default function UserManualScreen() {
     const webViewRef = useRef<WebView>(null);
     const iframeRef = useRef<any>(null);
 
-    const manualHtml = useMemo(() => getManualHtmlWithAnchors(), []);
+    const categories: ManualCategory[] = useMemo(() => [
+        { id: 'all', label: isFilipino ? 'Lahat ng Pahina' : 'All Pages', icon: 'auto-stories', sectionId: 'sec-cover' },
+        { id: 'overview', label: isFilipino ? 'Pangkalahatan' : 'Overview', icon: 'menu-book', sectionId: 'sec-cover' },
+        { id: 'hardware', label: isFilipino ? '1.0 Hardware' : '1.0 Hardware', icon: 'memory', sectionId: 'sec-hardware' },
+        { id: 'wifi', label: isFilipino ? '2.0 Wi-Fi' : '2.0 Wi-Fi Setup', icon: 'wifi', sectionId: 'sec-wifi' },
+        { id: 'anifeed', label: isFilipino ? '3.0 Pagpapakain' : '3.0 AniFeed', icon: 'restaurant', sectionId: 'sec-anifeed' },
+        { id: 'aniweigh', label: isFilipino ? '4.0 Pagtitimbang' : '4.0 AniWeigh', icon: 'scale', sectionId: 'sec-aniweigh' },
+        { id: 'troubleshoot', label: isFilipino ? '5.0 Pag-aayos' : '5.0 Troubleshooting', icon: 'help-outline', sectionId: 'sec-troubleshoot' },
+    ], [isFilipino]);
+
+    const manualHtml = useMemo(() => getManualHtmlWithAnchors(language), [language]);
 
     const handleSelectCategory = (cat: ManualCategory) => {
         setActiveCategory(cat.id);
@@ -87,7 +88,7 @@ export default function UserManualScreen() {
     const handleExport = async () => {
         setIsExporting(true);
         try {
-            await openUserManual();
+            await openUserManual(language);
         } finally {
             setIsExporting(false);
         }
@@ -103,10 +104,10 @@ export default function UserManualScreen() {
 
                 <View style={styles.headerTitleContainer}>
                     <Text style={[textStyles.h1, styles.headerTitle, { color: colors.primary }]}>
-                        User Manual
+                        {isFilipino ? 'Gabay sa Paggamit' : 'User Manual'}
                     </Text>
                     <Text style={[styles.headerSubtitle, { color: colors.textGrey }]}>
-                        Official Hardware & Software Guide
+                        {isFilipino ? 'Opisyal na Gabay sa Hardware at Software' : 'Official Hardware & Software Guide'}
                     </Text>
                 </View>
 
@@ -134,7 +135,7 @@ export default function UserManualScreen() {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.categoriesScrollContent}
                 >
-                    {CATEGORIES.map((cat) => {
+                    {categories.map((cat) => {
                         const isActive = activeCategory === cat.id;
                         return (
                             <TouchableOpacity
