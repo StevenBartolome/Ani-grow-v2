@@ -23,16 +23,106 @@ export function getManualHtmlWithAnchors(): string {
         .replace('<h2>5.0 Troubleshooting & Support</h2>', '<h2 id="sec-troubleshoot">5.0 Troubleshooting & Support</h2>')
         .replace('<div class="paper-page cover-page">', '<div id="sec-cover" class="paper-page cover-page">');
 
-    // Inject smooth scrolling and cross-platform message listener
+    // Inject smooth scrolling, mobile responsive layout fixes, and cross-platform message listener
     const injection = `
     <style>
       html {
         scroll-behavior: smooth !important;
+        box-sizing: border-box !important;
+      }
+      *, *:before, *:after {
+        box-sizing: inherit !important;
       }
       body {
         -webkit-overflow-scrolling: touch !important;
         overscroll-behavior-y: contain;
-        padding-top: 10px !important;
+        padding: 8px 4px !important;
+        background-color: #f1f5f9 !important;
+        max-width: 100vw !important;
+        overflow-x: hidden !important;
+        margin: 0 !important;
+      }
+      .paper-page {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: auto !important;
+        margin: 0 0 16px 0 !important;
+        padding: 16px 12px !important;
+        box-sizing: border-box !important;
+        overflow-x: hidden !important;
+      }
+      .toc-block {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 12px 10px !important;
+        box-sizing: border-box !important;
+        overflow-x: hidden !important;
+      }
+      .toc-table {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        table-layout: fixed !important;
+        border-collapse: collapse !important;
+      }
+      .toc-table td {
+        padding: 6px 2px !important;
+        font-size: 0.82rem !important;
+        vertical-align: top !important;
+        word-wrap: break-word !important;
+        overflow-wrap: break-word !important;
+      }
+      .toc-sec-num {
+        width: 32px !important;
+        min-width: 32px !important;
+        max-width: 36px !important;
+        font-size: 0.8rem !important;
+        font-weight: 700 !important;
+      }
+      .toc-sec-title {
+        font-size: 0.8rem !important;
+        line-height: 1.3 !important;
+        padding-right: 4px !important;
+      }
+      .toc-page-num {
+        width: 52px !important;
+        min-width: 48px !important;
+        font-size: 0.76rem !important;
+        white-space: nowrap !important;
+        text-align: right !important;
+      }
+      .cover-meta-grid {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+        padding: 12px !important;
+        box-sizing: border-box !important;
+      }
+      .cover-title {
+        font-size: 1.65rem !important;
+        line-height: 1.2 !important;
+        word-break: break-word !important;
+      }
+      .cover-subtitle {
+        font-size: 0.95rem !important;
+      }
+      .step-card {
+        padding: 10px 12px !important;
+        gap: 10px !important;
+        box-sizing: border-box !important;
+      }
+      .callout {
+        padding: 10px 12px !important;
+        gap: 8px !important;
+        box-sizing: border-box !important;
+      }
+      .table-frame {
+        width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        box-sizing: border-box !important;
+      }
+      .doc-table {
+        min-width: 100% !important;
       }
       .no-print {
         display: none !important;
