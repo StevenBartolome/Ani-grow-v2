@@ -24,15 +24,15 @@ export function getManualHtmlWithAnchors(): string {
         .replace('<div class="paper-page cover-page">', '<div id="sec-cover" class="paper-page cover-page">');
 
     // Inject data-label on doc-table cells for responsive card view without horizontal scrolling
-    html = html.replace(/<table class="doc-table">([\s\S]*?)<\/table>/g, (match, inner) => {
+    html = html.replace(/<table class="doc-table">([\s\S]*?)<\/table>/g, (match: string, inner: string) => {
         const headMatch = inner.match(/<thead>[\s\S]*?<tr>([\s\S]*?)<\/tr>[\s\S]*?<\/thead>/);
         if (!headMatch) return match;
         const headers = [...headMatch[1].matchAll(/<th>([\s\S]*?)<\/th>/g)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
 
-        let body = inner.replace(/<tbody>([\s\S]*?)<\/tbody>/, (bMatch, bInner) => {
-            let rows = bInner.replace(/<tr>([\s\S]*?)<\/tr>/g, (rMatch, rInner) => {
+        let body = inner.replace(/<tbody>([\s\S]*?)<\/tbody>/, (_bMatch: string, bInner: string) => {
+            let rows = bInner.replace(/<tr>([\s\S]*?)<\/tr>/g, (_rMatch: string, rInner: string) => {
                 let colIdx = 0;
-                let newCells = rInner.replace(/<td>([\s\S]*?)<\/td>/g, (tdMatch, tdInner) => {
+                let newCells = rInner.replace(/<td>([\s\S]*?)<\/td>/g, (_tdMatch: string, tdInner: string) => {
                     const label = headers[colIdx] || '';
                     colIdx++;
                     return `<td data-label="${label}">${tdInner}</td>`;
