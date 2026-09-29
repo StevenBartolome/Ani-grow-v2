@@ -1890,23 +1890,48 @@ export default function GuideScreen() {
                                 ) : todayUnmarkedTasks.length > 0 ? (
                                     <View style={{
                                         backgroundColor: isDark ? 'rgba(16, 185, 129, 0.08)' : '#F0FDF4',
-                                        borderWidth: 1,
-                                        borderColor: isDark ? 'rgba(16, 185, 129, 0.25)' : '#BBF7D0',
+                                        borderWidth: 1.2,
+                                        borderColor: isDark ? 'rgba(16, 185, 129, 0.28)' : '#BBF7D0',
                                         borderRadius: 14,
                                         paddingHorizontal: 14,
-                                        paddingVertical: 11,
+                                        paddingVertical: 12,
                                         marginBottom: 16,
                                         flexDirection: 'row',
                                         alignItems: 'center',
-                                        gap: 10,
+                                        gap: 12,
                                     }}>
-                                        <MaterialIcons name="check-circle" size={18} color="#10B981" />
+                                        <View style={{
+                                            width: 38,
+                                            height: 38,
+                                            borderRadius: 10,
+                                            backgroundColor: isDark ? 'rgba(16, 185, 129, 0.18)' : 'rgba(16, 185, 129, 0.12)',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1,
+                                            borderColor: isDark ? 'rgba(16, 185, 129, 0.35)' : '#86EFAC',
+                                        }}>
+                                            <MaterialIcons name="check-circle" size={20} color="#10B981" />
+                                        </View>
                                         <View style={{ flex: 1 }}>
-                                            <Text style={{ fontSize: 12.5, fontFamily: 'Poppins-Bold', color: isDark ? '#34D399' : '#065F46' }}>
-                                                All Past Tasks Marked
-                                            </Text>
-                                            <Text style={{ fontSize: 11, fontFamily: 'Poppins-Regular', color: isDark ? '#A7F3D0' : '#047857', marginTop: 1, lineHeight: 15 }}>
-                                                No overdue tasks from previous days for {selectedBatch.name}. You have {todayUnmarkedTasks.length} procedure{todayUnmarkedTasks.length > 1 ? 's' : ''} scheduled for today (can be completed throughout the day).
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                                <Text style={{ fontSize: 13, fontFamily: 'Poppins-Bold', color: isDark ? '#34D399' : '#065F46' }}>
+                                                    All Previous Tasks Marked
+                                                </Text>
+                                                <View style={{
+                                                    backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#DCFCE7',
+                                                    paddingHorizontal: 7,
+                                                    paddingVertical: 1.5,
+                                                    borderRadius: 6,
+                                                    borderWidth: 1,
+                                                    borderColor: isDark ? 'rgba(16, 185, 129, 0.4)' : '#86EFAC',
+                                                }}>
+                                                    <Text style={{ color: isDark ? '#34D399' : '#166534', fontSize: 10, fontFamily: 'Poppins-Bold' }}>
+                                                        {todayUnmarkedTasks.length} FOR TODAY
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                            <Text style={{ fontSize: 11.5, fontFamily: 'Poppins-Regular', color: isDark ? '#A7F3D0' : '#047857', marginTop: 2, lineHeight: 16 }}>
+                                                No previous tasks found unmarked. You have {todayUnmarkedTasks.length} task{todayUnmarkedTasks.length > 1 ? 's' : ''} for today that can be marked throughout the day.
                                             </Text>
                                         </View>
                                     </View>
