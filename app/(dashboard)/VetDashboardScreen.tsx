@@ -403,149 +403,194 @@ export default function VetDashboardScreen() {
         </TouchableOpacity>
     );
 
-    // ── Follow-up & Booster Item Row ──────────────────────────────────────────
-    const FollowUpItem = ({ item, isToday, isLast }: { item: FollowUp; isToday: boolean; isLast: boolean }) => {
+    // ── Follow-up & Booster Card ──────────────────────────────────────────────
+    const FollowUpCard = ({ item, isToday }: { item: FollowUp; isToday: boolean }) => {
         const meta = RECORD_META[item.record_type] ?? RECORD_META.observation;
         const sevColor = SEVERITY_COLOR[item.severity] ?? '#888';
         const days = daysUntil(item.followup_date);
         const isPrev = ['vaccination', 'deworming', 'vitamins'].includes(item.record_type);
         const noun = item.record_type === 'vaccination' ? 'Booster' : item.record_type === 'deworming' ? 'Repeat Deworm' : item.record_type === 'vitamins' ? 'Next Dose' : 'Follow-up';
 
+        const borderColor = isToday ? colors.error + '50' : days <= 3 ? '#F59E0B50' : colors.stroke;
+
         return (
-            <View>
-                <Pressable
-                    onPress={() => router.push('/(animals)/HealthRecordsScreen' as any)}
-                    style={({ pressed }) => ({
-                        paddingVertical: 14,
-                        opacity: pressed ? 0.75 : 1,
-                    })}
-                >
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-                        {/* Icon Box */}
-                        <View style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 12,
-                            backgroundColor: meta.color + '18',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                            marginTop: 1,
-                        }}>
-                            <MaterialIcons name={meta.icon as any} size={20} color={meta.color} />
-                        </View>
-
-                        {/* Content */}
-                        <View style={{ flex: 1, paddingRight: 4 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-                                <Text
-                                    style={[textStyles.h3, { color: colors.text, fontSize: 13.5, fontFamily: 'Poppins-SemiBold', flex: 1 }]}
-                                    numberOfLines={1}
-                                >
-                                    {item.title}
-                                </Text>
-                                <View style={{
-                                    backgroundColor: isToday ? colors.error + '1E' : days <= 3 ? '#F59E0B1E' : colors.cardFill,
-                                    borderRadius: 6,
-                                    paddingHorizontal: 8,
-                                    paddingVertical: 3,
-                                    marginLeft: 8,
-                                }}>
-                                    <Text style={[textStyles.body, {
-                                        fontSize: 10,
-                                        fontFamily: 'Poppins-Bold',
-                                        color: isToday ? colors.error : days <= 3 ? '#D97706' : colors.textGrey,
-                                    }]}>
-                                        {isToday ? `${noun} Today` : `${noun} in ${days}d`}
-                                    </Text>
-                                </View>
-                            </View>
-
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5 }]}>
-                                {item.batch_name} · {item.housing_name}
-                            </Text>
-
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
-                                <View style={{
-                                    backgroundColor: meta.color + '15',
-                                    borderRadius: 6,
-                                    paddingHorizontal: 7,
-                                    paddingVertical: 2.5,
-                                }}>
-                                    <Text style={{ color: meta.color, fontSize: 9.5, fontFamily: 'Poppins-Bold' }}>
-                                        {meta.label}
-                                    </Text>
-                                </View>
-                                {!isPrev && (
-                                    <View style={{
-                                        backgroundColor: sevColor + '15',
-                                        borderRadius: 6,
-                                        paddingHorizontal: 7,
-                                        paddingVertical: 2.5,
-                                    }}>
-                                        <Text style={{ color: sevColor, fontSize: 9.5, fontFamily: 'Poppins-Bold', textTransform: 'capitalize' }}>
-                                            {item.severity}
-                                        </Text>
-                                    </View>
-                                )}
-                                {item.medication && (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>
-                                        💊 {item.medication}
-                                    </Text>
-                                )}
-                            </View>
-
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 6 }]}>
-                                {isPrev ? `${noun} Due:` : 'Follow-up:'} <Text style={{ color: colors.text, fontFamily: 'Poppins-Medium' }}>{fmtDate(item.followup_date)}</Text>
-                            </Text>
-                        </View>
+            <TouchableOpacity
+                activeOpacity={0.82}
+                onPress={() => router.push('/(animals)/HealthRecordsScreen' as any)}
+                style={{
+                    backgroundColor: colors.surface,
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: borderColor,
+                    padding: 16,
+                    marginBottom: 12,
+                    ...Platform.select({
+                        ios: { shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+                        android: { elevation: 2 },
+                        default: { boxShadow: '0px 2px 8px rgba(0,0,0,0.04)' } as any,
+                    }),
+                }}
+            >
+                {/* Top row: Icon + Title + Status Pill */}
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                    <View style={{
+                        width: 42,
+                        height: 42,
+                        borderRadius: 12,
+                        backgroundColor: meta.color + '18',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                    }}>
+                        <MaterialIcons name={meta.icon as any} size={22} color={meta.color} />
                     </View>
-                </Pressable>
-                {!isLast && <View style={{ height: 1, backgroundColor: colors.stroke }} />}
-            </View>
-        );
-    };
 
-    // ── Health Case Row ───────────────────────────────────────────────────────
-    const CaseRow = ({ item, isLast }: { item: HealthCase; isLast: boolean }) => {
-        const meta = RECORD_META[item.record_type] ?? RECORD_META.observation;
-        const sevColor = SEVERITY_COLOR[item.severity] ?? '#888';
-
-        return (
-            <View>
-                <Pressable
-                    onPress={() => router.push('/(animals)/HealthRecordsScreen' as any)}
-                    style={({ pressed }) => ({
-                        paddingVertical: 14,
-                        opacity: pressed ? 0.75 : 1,
-                    })}
-                >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                        <View style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 12,
-                            backgroundColor: meta.color + '18',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                        }}>
-                            <MaterialIcons name={meta.icon as any} size={20} color={meta.color} />
-                        </View>
-
-                        <View style={{ flex: 1, paddingRight: 8 }}>
+                    <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 2 }}>
                             <Text
-                                style={[textStyles.h3, { color: colors.text, fontSize: 13.5, lineHeight: 18, fontFamily: 'Poppins-SemiBold' }]}
+                                style={[textStyles.h3, { color: colors.text, fontSize: 14, fontFamily: 'Poppins-SemiBold', flex: 1 }]}
                                 numberOfLines={1}
                             >
                                 {item.title}
                             </Text>
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5, marginTop: 2 }]} numberOfLines={1}>
+                            <View style={{
+                                backgroundColor: isToday ? colors.error + '1E' : days <= 3 ? '#F59E0B1E' : colors.cardFill,
+                                borderRadius: 6,
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                            }}>
+                                <Text style={{
+                                    fontSize: 10,
+                                    fontFamily: 'Poppins-Bold',
+                                    color: isToday ? colors.error : days <= 3 ? '#D97706' : colors.textGrey,
+                                }}>
+                                    {isToday ? `${noun} Today` : `${noun} in ${days}d`}
+                                </Text>
+                            </View>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                            <MaterialIcons name="home-work" size={13} color={colors.textGrey} />
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5 }]} numberOfLines={1}>
                                 {item.batch_name} · {item.housing_name}
                             </Text>
                         </View>
+                    </View>
+                </View>
 
-                        <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                {/* Tags Row */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
+                    <View style={{
+                        backgroundColor: meta.color + '15',
+                        borderRadius: 6,
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                    }}>
+                        <Text style={{ color: meta.color, fontSize: 10, fontFamily: 'Poppins-Bold' }}>
+                            {meta.label}
+                        </Text>
+                    </View>
+
+                    {!isPrev && (
+                        <View style={{
+                            backgroundColor: sevColor + '15',
+                            borderRadius: 6,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                        }}>
+                            <Text style={{ color: sevColor, fontSize: 10, fontFamily: 'Poppins-Bold', textTransform: 'capitalize' }}>
+                                {item.severity} Severity
+                            </Text>
+                        </View>
+                    )}
+
+                    {item.medication && (
+                        <View style={{
+                            backgroundColor: colors.cardFill,
+                            borderRadius: 6,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                        }}>
+                            <MaterialIcons name="medication" size={12} color={colors.textGrey} />
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 11, fontFamily: 'Poppins-Medium' }]} numberOfLines={1}>
+                                {item.medication}
+                            </Text>
+                        </View>
+                    )}
+                </View>
+
+                {/* Bottom Footer */}
+                <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 12,
+                    paddingTop: 10,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.stroke,
+                }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <MaterialIcons name="event" size={14} color={colors.textGrey} />
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5 }]}>
+                            {isPrev ? `${noun} Due: ` : 'Follow-up: '}
+                            <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>{fmtDate(item.followup_date)}</Text>
+                        </Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={16} color={colors.textGrey} />
+                </View>
+            </TouchableOpacity>
+        );
+    };
+
+    // ── Health Case Card ──────────────────────────────────────────────────────
+    const HealthCaseCard = ({ item }: { item: HealthCase }) => {
+        const meta = RECORD_META[item.record_type] ?? RECORD_META.observation;
+        const sevColor = SEVERITY_COLOR[item.severity] ?? '#888';
+
+        return (
+            <TouchableOpacity
+                activeOpacity={0.82}
+                onPress={() => router.push('/(animals)/HealthRecordsScreen' as any)}
+                style={{
+                    backgroundColor: colors.surface,
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: colors.stroke,
+                    padding: 16,
+                    marginBottom: 12,
+                    ...Platform.select({
+                        ios: { shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+                        android: { elevation: 2 },
+                        default: { boxShadow: '0px 2px 8px rgba(0,0,0,0.04)' } as any,
+                    }),
+                }}
+            >
+                {/* Header: Icon + Title + Severity Badge */}
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                    <View style={{
+                        width: 42,
+                        height: 42,
+                        borderRadius: 12,
+                        backgroundColor: meta.color + '18',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                    }}>
+                        <MaterialIcons name={meta.icon as any} size={22} color={meta.color} />
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 2 }}>
+                            <Text
+                                style={[textStyles.h3, { color: colors.text, fontSize: 14, fontFamily: 'Poppins-SemiBold', flex: 1 }]}
+                                numberOfLines={1}
+                            >
+                                {item.title}
+                            </Text>
+
                             <View style={{
                                 backgroundColor: sevColor + '18',
                                 borderRadius: 6,
@@ -556,14 +601,91 @@ export default function VetDashboardScreen() {
                                     {item.severity}
                                 </Text>
                             </View>
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10.5, marginTop: 2 }]}>
-                                {fmtDate(item.record_date)}
+                        </View>
+
+                        {/* Location */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                            <MaterialIcons name="home-work" size={13} color={colors.textGrey} />
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5 }]} numberOfLines={1}>
+                                {item.batch_name} · {item.housing_name}
                             </Text>
                         </View>
                     </View>
-                </Pressable>
-                {!isLast && <View style={{ height: 1, backgroundColor: colors.stroke }} />}
-            </View>
+                </View>
+
+                {/* Tags Row */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
+                    <View style={{
+                        backgroundColor: meta.color + '15',
+                        borderRadius: 6,
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                    }}>
+                        <Text style={{ color: meta.color, fontSize: 10, fontFamily: 'Poppins-Bold' }}>
+                            {meta.label}
+                        </Text>
+                    </View>
+
+                    {item.medication && (
+                        <View style={{
+                            backgroundColor: colors.cardFill,
+                            borderRadius: 6,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                        }}>
+                            <MaterialIcons name="medication" size={12} color={colors.textGrey} />
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 11, fontFamily: 'Poppins-Medium' }]} numberOfLines={1}>
+                                {item.medication}
+                            </Text>
+                        </View>
+                    )}
+
+                    {item.affected_count != null && item.affected_count > 0 && (
+                        <View style={{
+                            backgroundColor: colors.cardFill,
+                            borderRadius: 6,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                        }}>
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                                {item.affected_count} affected
+                            </Text>
+                        </View>
+                    )}
+                </View>
+
+                {/* Notes preview if available */}
+                {item.notes ? (
+                    <Text
+                        style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5, marginTop: 8, fontStyle: 'italic' }]}
+                        numberOfLines={2}
+                    >
+                        "{item.notes}"
+                    </Text>
+                ) : null}
+
+                {/* Bottom Footer with Recorded Date */}
+                <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 12,
+                    paddingTop: 10,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.stroke,
+                }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <MaterialIcons name="schedule" size={14} color={colors.textGrey} />
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11.5 }]}>
+                            Recorded: <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>{fmtDate(item.record_date)}</Text>
+                        </Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={16} color={colors.textGrey} />
+                </View>
+            </TouchableOpacity>
         );
     };
 
@@ -780,8 +902,8 @@ export default function VetDashboardScreen() {
 
                         {/* ── Today's Follow-ups ───────────────────────────── */}
                         {todayFollowUps.length > 0 && (
-                            <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <View style={{ paddingHorizontal: 20, marginBottom: 20 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                                         <MaterialIcons name="today" size={16} color={colors.error} />
                                         <Text style={[homeStyles.sectionTitle, { color: colors.text, marginBottom: 0, paddingHorizontal: 0, fontSize: 16 }]}>
@@ -803,35 +925,20 @@ export default function VetDashboardScreen() {
                                     </View>
                                 </View>
 
-                                <View style={{
-                                    backgroundColor: colors.surface,
-                                    borderRadius: 18,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    paddingHorizontal: 16,
-                                    paddingVertical: 4,
-                                    ...Platform.select({
-                                        ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
-                                        android: { elevation: 2 },
-                                        default: { boxShadow: '0px 2px 8px rgba(0,0,0,0.04)' } as any,
-                                    }),
-                                }}>
-                                    {todayFollowUps.map((fu, idx) => (
-                                        <FollowUpItem
-                                            key={fu.id}
-                                            item={fu}
-                                            isToday={true}
-                                            isLast={idx === todayFollowUps.length - 1}
-                                        />
-                                    ))}
-                                </View>
+                                {todayFollowUps.map((fu) => (
+                                    <FollowUpCard
+                                        key={fu.id}
+                                        item={fu}
+                                        isToday={true}
+                                    />
+                                ))}
                             </View>
                         )}
 
                         {/* ── Upcoming Follow-ups ──────────────────────────── */}
                         {upcomingFollowUps.length > 0 && (
-                            <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <View style={{ paddingHorizontal: 20, marginBottom: 20 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                                         <MaterialIcons name="event" size={16} color="#2980B9" />
                                         <Text style={[homeStyles.sectionTitle, { color: colors.text, marginBottom: 0, paddingHorizontal: 0, fontSize: 16 }]}>
@@ -864,44 +971,29 @@ export default function VetDashboardScreen() {
                                     </TouchableOpacity>
                                 </View>
 
-                                <View style={{
-                                    backgroundColor: colors.surface,
-                                    borderRadius: 18,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    paddingHorizontal: 16,
-                                    paddingVertical: 4,
-                                    ...Platform.select({
-                                        ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
-                                        android: { elevation: 2 },
-                                        default: { boxShadow: '0px 2px 8px rgba(0,0,0,0.04)' } as any,
-                                    }),
-                                }}>
-                                    {upcomingFollowUps.map((fu, idx) => (
-                                        <FollowUpItem
-                                            key={fu.id}
-                                            item={fu}
-                                            isToday={false}
-                                            isLast={idx === upcomingFollowUps.length - 1}
-                                        />
-                                    ))}
-                                </View>
+                                {upcomingFollowUps.map((fu) => (
+                                    <FollowUpCard
+                                        key={fu.id}
+                                        item={fu}
+                                        isToday={false}
+                                    />
+                                ))}
                             </View>
                         )}
 
                         {/* ── No follow-ups scheduled placeholder ─────────── */}
                         {!isLoading && todayFollowUps.length === 0 && upcomingFollowUps.length === 0 && (
-                            <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
+                            <View style={{ paddingHorizontal: 20, marginBottom: 20 }}>
                                 <View style={{
                                     backgroundColor: colors.surface,
                                     borderRadius: 18,
                                     borderWidth: 1,
                                     borderColor: colors.stroke,
-                                    padding: 20,
+                                    padding: 22,
                                     alignItems: 'center',
                                     gap: 8,
                                     ...Platform.select({
-                                        ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+                                        ios: { shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
                                         android: { elevation: 2 },
                                         default: { boxShadow: '0px 2px 8px rgba(0,0,0,0.04)' } as any,
                                     }),
@@ -927,8 +1019,8 @@ export default function VetDashboardScreen() {
                         )}
 
                         {/* ── Recent Health Cases ──────────────────────────── */}
-                        <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <View style={{ paddingHorizontal: 20, marginBottom: 24 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                                     <MaterialIcons name="healing" size={16} color="#E74C3C" />
                                     <Text style={[homeStyles.sectionTitle, { color: colors.text, marginBottom: 0, paddingHorizontal: 0, fontSize: 16 }]}>
@@ -961,49 +1053,61 @@ export default function VetDashboardScreen() {
                                 </TouchableOpacity>
                             </View>
 
-                            <View style={{
-                                backgroundColor: colors.surface,
-                                borderRadius: 18,
-                                borderWidth: 1,
-                                borderColor: colors.stroke,
-                                paddingHorizontal: 16,
-                                paddingVertical: 4,
-                                ...Platform.select({
-                                    ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
-                                    android: { elevation: 2 },
-                                    default: { boxShadow: '0px 2px 8px rgba(0,0,0,0.04)' } as any,
-                                }),
-                            }}>
-                                {isLoading ? (
-                                    <View style={{ paddingVertical: 12, gap: 14 }}>
-                                        {[0, 1, 2].map(i => (
-                                            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                                                <Skeleton w={36} h={36} radius={11} />
-                                                <View style={{ flex: 1, gap: 6 }}>
-                                                    <Skeleton w="60%" h={12} />
-                                                    <Skeleton w="40%" h={10} />
-                                                </View>
-                                                <Skeleton w={44} h={20} radius={6} />
+                            {isLoading ? (
+                                [0, 1, 2].map(i => (
+                                    <View
+                                        key={i}
+                                        style={{
+                                            backgroundColor: colors.surface,
+                                            borderRadius: 18,
+                                            borderWidth: 1,
+                                            borderColor: colors.stroke,
+                                            padding: 16,
+                                            marginBottom: 12,
+                                            gap: 10,
+                                        }}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                            <Skeleton w={42} h={42} radius={12} />
+                                            <View style={{ flex: 1, gap: 6 }}>
+                                                <Skeleton w="60%" h={14} />
+                                                <Skeleton w="40%" h={11} />
                                             </View>
-                                        ))}
+                                            <Skeleton w={48} h={22} radius={6} />
+                                        </View>
                                     </View>
-                                ) : recentCases.length === 0 ? (
-                                    <View style={{ alignItems: 'center', paddingVertical: 20, gap: 6 }}>
-                                        <MaterialIcons name="health-and-safety" size={28} color={colors.primary} />
-                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, textAlign: 'center' }]}>
-                                            No health cases recorded in the last 30 days
-                                        </Text>
-                                    </View>
-                                ) : (
-                                    recentCases.map((item, idx) => (
-                                        <CaseRow
-                                            key={item.id}
-                                            item={item}
-                                            isLast={idx === recentCases.length - 1}
-                                        />
-                                    ))
-                                )}
-                            </View>
+                                ))
+                            ) : recentCases.length === 0 ? (
+                                <View style={{
+                                    backgroundColor: colors.surface,
+                                    borderRadius: 18,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    padding: 24,
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    ...Platform.select({
+                                        ios: { shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+                                        android: { elevation: 2 },
+                                        default: { boxShadow: '0px 2px 8px rgba(0,0,0,0.04)' } as any,
+                                    }),
+                                }}>
+                                    <MaterialIcons name="health-and-safety" size={30} color={colors.primary} />
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, fontFamily: 'Poppins-SemiBold', textAlign: 'center' }]}>
+                                        No recent health cases
+                                    </Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, textAlign: 'center' }]}>
+                                        No health cases recorded in the last 30 days
+                                    </Text>
+                                </View>
+                            ) : (
+                                recentCases.map((item) => (
+                                    <HealthCaseCard
+                                        key={item.id}
+                                        item={item}
+                                    />
+                                ))
+                            )}
                         </View>
 
                     </View>

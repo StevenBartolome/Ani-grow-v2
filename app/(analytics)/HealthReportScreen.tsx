@@ -12,7 +12,7 @@ import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
-import { ReportDocument } from '@/lib/pdfReport';
+import { ReportDocument, ReportChart } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -752,6 +752,21 @@ export default function HealthReportScreen() {
             || (managedFarms.length > 0 ? managedFarms[0]?.name : '')
             || 'Farm Operations';
 
+        const healthCategoryChart: ReportChart = {
+            type: 'bar',
+            title: 'Biosecurity & Health Surveillance Breakdown',
+            labels: ['Vaccinations', 'Routine Care', 'Active Illness', 'Mortality Loss'],
+            series: [
+                {
+                    name: 'Count / Events',
+                    data: [vaccinationCount, routineCareCount, activeIllnesses, totalDeceased],
+                    color: '#16492a',
+                },
+            ],
+            unit: 'events',
+            yAxisLabel: 'Record Count',
+        };
+
         return {
             reportTitle: 'Comprehensive Health & Biosecurity Report',
             farmName: selectedFarmDisplayName,
@@ -776,6 +791,7 @@ export default function HealthReportScreen() {
                         { label: 'Active Illnesses', value: String(activeIllnesses), accent: activeIllnesses > 0 ? 'warn' : undefined },
                         { label: 'Mortality Rate', value: `${mortalityRate}%`, accent: parseFloat(mortalityRate) > 3 ? 'bad' : 'good' },
                     ],
+                    chart: healthCategoryChart,
                     paragraphs: [
                         biosecurityInsights.narrative,
                         getHealthAnalysis(),

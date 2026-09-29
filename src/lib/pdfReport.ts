@@ -8,6 +8,7 @@
 // - Formal Arial typography throughout
 // - Vector AniGrow logo embedded in letterhead
 // - Print-friendly A4 layout with clean black borders
+// - Interactive section customization & embedded vector charts
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
@@ -32,12 +33,31 @@ export interface ReportTable {
     columnAlignments?: ('left' | 'center' | 'right')[];
 }
 
+export interface ReportChartSeries {
+    name: string;
+    color?: string;
+    data: number[];
+}
+
+export interface ReportChart {
+    type: 'line' | 'bar';
+    title?: string;
+    labels: string[];
+    series: ReportChartSeries[];
+    yAxisLabel?: string;
+    unit?: string;
+    height?: number;
+}
+
 export interface ReportSection {
+    id?: string;
     heading: string;
     stats?: ReportStat[];
     table?: ReportTable;
+    chart?: ReportChart;
     paragraphs?: string[];
     bullets?: string[];
+    isChartSection?: boolean;
 }
 
 export interface ReportSignature {
@@ -55,8 +75,17 @@ export interface ReportDocument {
     meta: ReportMetaRow[];
     summaryText?: string;
     sections: ReportSection[];
+    charts?: ReportChart[];
     signatures?: ReportSignature[];
     generatedByName?: string;
+}
+
+export interface ReportExportOptions {
+    includeMeta?: boolean;
+    includeSummary?: boolean;
+    includeCharts?: boolean;
+    includeSignatures?: boolean;
+    selectedSectionHeadings?: string[];
 }
 
 const ANIGROW_LOGO_SVG = `<svg version="1.2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1080" width="58" height="58" style="display: block; width: 58px; height: 58px;">
@@ -169,6 +198,146 @@ function renderTable(table: ReportTable): string {
         ${table.note ? `<div class="table-note">${escapeHtml(table.note)}</div>` : ''}`;
 }
 
+export function renderChartSvg(chart: ReportChart): string {
+    if (!chart || !chart.labels || chart.labels.length === 0 || !chart.series || chart.series.length === 0) {
+        return '';
+    }
+
+    const svgWidth = 640;
+    const svgHeight = chart.height || 210;
+    const padLeft = 45;
+    const padRight = 20;
+    const padTop = chart.title ? 28 : 18;
+    const padBottom = 34;
+
+    const plotWidth = svgWidth - padLeft - padRight;
+    const plotHeight = svgHeight - padTop - padBottom;
+
+    // Determine min and max across all series data
+    let allValues: number[] = [];
+    chart.series.forEach(s => {
+        allValues.push(...(s.data || []));
+    });
+    if (allValues.length === 0) allValues = [0];
+
+    let minVal = Math.min(0, ...allValues);
+    let maxVal = Math.max(...allValues);
+    if (maxVal === minVal) {
+        maxVal = minVal + 10;
+    }
+    // Add 12% headroom
+    maxVal = maxVal > 0 ? maxVal * 1.12 : 10;
+
+    // Grid ticks (4 intervals)
+    const gridCount = 4;
+    const gridLines: string[] = [];
+    for (let i = 0; i <= gridCount; i++) {
+        const val = minVal + (maxVal - minVal) * (i / gridCount);
+        const y = padTop + plotHeight - (plotHeight * (i / gridCount));
+        const formattedVal = val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val % 1 === 0 ? val.toString() : val.toFixed(1);
+        gridLines.push(`
+            <line x1="${padLeft}" y1="${y}" x2="${padLeft + plotWidth}" y2="${y}" stroke="#d1d5db" stroke-dasharray="${i === 0 ? 'none' : '3,3'}" stroke-width="${i === 0 ? '1.5' : '1'}" />
+            <text x="${padLeft - 6}" y="${y + 3.5}" font-size="8" fill="#374151" text-anchor="end" font-family="Arial, sans-serif">${formattedVal}${chart.unit ? ' ' + chart.unit : ''}</text>
+        `);
+    }
+
+    // X-axis step
+    const xCount = chart.labels.length;
+    const xLabels: string[] = [];
+    const labelStep = Math.max(1, Math.ceil(xCount / 10));
+    chart.labels.forEach((label, idx) => {
+        if (idx % labelStep === 0 || idx === xCount - 1) {
+            const x = padLeft + (xCount > 1 ? idx * (plotWidth / (xCount - 1)) : plotWidth / 2);
+            xLabels.push(`
+                <text x="${x}" y="${padTop + plotHeight + 16}" font-size="8" fill="#374151" text-anchor="middle" font-family="Arial, sans-serif">${escapeHtml(label)}</text>
+            `);
+        }
+    });
+
+    const defaultColors = ['#16492a', '#2980b9', '#e74c3c', '#e67e22', '#8e44ad', '#10b981'];
+    let seriesSvg = '';
+
+    if (chart.type === 'bar') {
+        const barGroupWidth = plotWidth / xCount;
+        const seriesCount = chart.series.length;
+        const barWidth = Math.max(4, Math.min(24, (barGroupWidth * 0.7) / seriesCount));
+        const groupInnerPad = (barGroupWidth - (barWidth * seriesCount)) / 2;
+
+        chart.series.forEach((s, sIdx) => {
+            const color = s.color || defaultColors[sIdx % defaultColors.length];
+            (s.data || []).forEach((val, dIdx) => {
+                if (dIdx >= xCount) return;
+                const h = Math.max(2, ((val - minVal) / (maxVal - minVal)) * plotHeight);
+                const x = padLeft + (dIdx * barGroupWidth) + groupInnerPad + (sIdx * barWidth);
+                const y = padTop + plotHeight - h;
+                const valLabel = val % 1 === 0 ? val.toString() : val.toFixed(1);
+
+                seriesSvg += `
+                    <rect x="${x}" y="${y}" width="${barWidth}" height="${h}" fill="${color}" rx="2" />
+                    ${val > 0 && xCount <= 12 ? `<text x="${x + barWidth / 2}" y="${y - 4}" font-size="7.5" fill="#111827" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif">${valLabel}</text>` : ''}
+                `;
+            });
+        });
+    } else {
+        // Line chart
+        chart.series.forEach((s, sIdx) => {
+            const color = s.color || defaultColors[sIdx % defaultColors.length];
+            const points: { x: number; y: number; val: number }[] = [];
+
+            (s.data || []).forEach((val, dIdx) => {
+                if (dIdx >= xCount) return;
+                const x = padLeft + (xCount > 1 ? dIdx * (plotWidth / (xCount - 1)) : plotWidth / 2);
+                const y = padTop + plotHeight - (((val - minVal) / (maxVal - minVal)) * plotHeight);
+                points.push({ x, y, val });
+            });
+
+            if (points.length > 0) {
+                const pathD = points.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+                seriesSvg += `<path d="${pathD}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />`;
+
+                // Data point dots
+                points.forEach(p => {
+                    const valLabel = p.val % 1 === 0 ? p.val.toString() : p.val.toFixed(1);
+                    seriesSvg += `
+                        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#ffffff" stroke="${color}" stroke-width="2" />
+                        ${xCount <= 12 ? `<text x="${p.x.toFixed(1)}" y="${(p.y - 6).toFixed(1)}" font-size="7.5" fill="#111827" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif">${valLabel}</text>` : ''}
+                    `;
+                });
+            }
+        });
+    }
+
+    // Legend
+    let legendHtml = '';
+    if (chart.series.length > 1 || (chart.series.length === 1 && chart.series[0].name)) {
+        const legendItems = chart.series.map((s, idx) => {
+            const color = s.color || defaultColors[idx % defaultColors.length];
+            return `
+                <div style="display:inline-flex; align-items:center; margin-right:14px; font-size:8pt; font-family:Arial, sans-serif; color:#000;">
+                    <span style="display:inline-block; width:10px; height:10px; background-color:${color}; border-radius:2px; margin-right:4px;"></span>
+                    <span>${escapeHtml(s.name)}</span>
+                </div>
+            `;
+        }).join('');
+        legendHtml = `<div style="text-align:right; margin-bottom:4px; margin-top:2px;">${legendItems}</div>`;
+    }
+
+    return `
+        <div class="chart-container no-break" style="margin-top:10px; margin-bottom:12px; border:1pt solid #000; padding:10px; background-color:#fff;">
+            ${chart.title ? `<div style="font-weight:bold; font-size:8.5pt; text-transform:uppercase; margin-bottom:4px; font-family:Arial, sans-serif; color:#000;">${escapeHtml(chart.title)}</div>` : ''}
+            ${legendHtml}
+            <div style="width:100%; overflow:hidden;">
+                <svg viewBox="0 0 ${svgWidth} ${svgHeight}" width="100%" height="${svgHeight}" style="display:block; width:100%; max-width:${svgWidth}px; margin:0 auto;">
+                    ${gridLines.join('')}
+                    ${seriesSvg}
+                    ${xLabels.join('')}
+                </svg>
+            </div>
+            ${chart.yAxisLabel ? `<div style="font-size:7.5pt; color:#6b7280; font-style:italic; text-align:left; margin-top:3px;">Vertical scale: ${escapeHtml(chart.yAxisLabel)}</div>` : ''}
+        </div>
+    `;
+}
+
 function renderSignatures(signatures?: ReportSignature[], generatedByName?: string): string {
     const items = signatures && signatures.length > 0 ? signatures : [
         { title: 'PREPARED BY:', name: generatedByName || 'OPERATIONAL LEAD', role: 'Livestock Data & Telemetry', date: 'Date: ________________________' },
@@ -194,7 +363,7 @@ function renderSignatures(signatures?: ReportSignature[], generatedByName?: stri
         </div>`;
 }
 
-function renderSection(section: ReportSection, index: number): string {
+function renderSection(section: ReportSection, index: number, options?: ReportExportOptions): string {
     const sectionNum = `${index + 1}.0`;
     const parts: string[] = [`<div class="section-title">${sectionNum} ${escapeHtml(section.heading.toUpperCase())}</div>`];
     
@@ -203,6 +372,9 @@ function renderSection(section: ReportSection, index: number): string {
     }
     if (section.stats && section.stats.length > 0) {
         parts.push(renderStats(section.stats));
+    }
+    if (options?.includeCharts !== false && section.chart) {
+        parts.push(renderChartSvg(section.chart));
     }
     if (section.bullets && section.bullets.length > 0) {
         parts.push(`<ul class="bullet-list">${section.bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`);
@@ -213,7 +385,7 @@ function renderSection(section: ReportSection, index: number): string {
     return `<div class="report-section no-break">${parts.join('')}</div>`;
 }
 
-export function buildReportHtml(doc: ReportDocument): string {
+export function buildReportHtml(doc: ReportDocument, options?: ReportExportOptions): string {
     const now = new Date();
     const generatedAt = now.toLocaleDateString('en-US', {
         month: 'long', day: 'numeric', year: 'numeric',
@@ -221,6 +393,12 @@ export function buildReportHtml(doc: ReportDocument): string {
 
     const reportId = doc.documentRef || `ANIGROW-RPT-${now.getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const farmDisplayName = (doc.farmName || 'FARM OPERATIONS').trim().toUpperCase();
+
+    // Filter sections if user specified custom selection
+    let filteredSections = doc.sections || [];
+    if (options?.selectedSectionHeadings && options.selectedSectionHeadings.length > 0) {
+        filteredSections = filteredSections.filter(s => options.selectedSectionHeadings!.includes(s.heading));
+    }
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -231,7 +409,7 @@ export function buildReportHtml(doc: ReportDocument): string {
     /* ── Formal Word Document Print Layout: Pure Black Arial ─────────── */
     @page {
         size: A4 portrait;
-        margin: 15mm 14mm 16mm 14mm;
+        margin: 20mm 18mm 20mm 18mm;
     }
     
     * {
@@ -241,14 +419,34 @@ export function buildReportHtml(doc: ReportDocument): string {
         print-color-adjust: exact !important;
     }
     
+    html {
+        background-color: #f3f4f6;
+    }
+
     body {
         font-family: Arial, "Helvetica Neue", Helvetica, sans-serif !important;
         color: #000000;
         font-size: 9.5pt;
         line-height: 1.45;
-        margin: 0;
-        padding: 0;
+        margin: 20px auto;
+        padding: 32px 36px 48px 36px;
         background-color: #ffffff;
+        max-width: 820px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+        border: 1px solid #e5e7eb;
+    }
+
+    @media print {
+        html {
+            background-color: #ffffff !important;
+        }
+        body {
+            margin: 0 !important;
+            padding: 0 !important;
+            max-width: 100% !important;
+            box-shadow: none !important;
+            border: none !important;
+        }
     }
     
     /* ── Formal Letterhead Header with Logo & Prominent Farm Name ────── */
@@ -448,41 +646,39 @@ export function buildReportHtml(doc: ReportDocument): string {
     }
     
     .stat-table td {
-        padding: 6px 9px;
-        border: 1pt solid #000000;
+        padding: 6px 8px;
+        border: 0.75pt solid #000000;
         color: #000000;
     }
     
     .stat-table td.stat-name {
-        background-color: #ffffff;
         font-weight: bold;
-        color: #000000;
-        width: 26%;
+        width: 24%;
+        background-color: #ffffff;
+        font-size: 8pt;
+        text-transform: uppercase;
     }
     
     .stat-table td.stat-val {
-        background-color: #ffffff;
-        color: #000000;
         font-weight: bold;
-        width: 24%;
+        width: 26%;
+        background-color: #ffffff;
+        font-size: 9.5pt;
     }
 
-    /* ── Data Tables ─────────────────────────────────────────────────── */
+    /* ── Formal Data Table ───────────────────────────────────────────── */
     .table-heading {
-        font-family: Arial, "Helvetica Neue", Helvetica, sans-serif !important;
-        font-size: 8.5pt;
         font-weight: bold;
-        color: #000000;
-        margin: 8px 0 3px 0;
+        font-size: 8.5pt;
         text-transform: uppercase;
-        letter-spacing: 0.3px;
+        margin-bottom: 4px;
+        color: #000000;
     }
     
     .data-table {
         width: 100%;
         border-collapse: collapse;
         font-size: 8pt;
-        margin-top: 3px;
         margin-bottom: 4px;
         border: 1.5pt solid #000000;
     }
@@ -490,13 +686,12 @@ export function buildReportHtml(doc: ReportDocument): string {
     .data-table th {
         background-color: #000000;
         color: #ffffff;
-        padding: 6px 8px;
         font-weight: bold;
-        font-size: 7.5pt;
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
+        padding: 5px 6px;
         border: 1pt solid #000000;
-        font-family: Arial, "Helvetica Neue", Helvetica, sans-serif !important;
+        text-transform: uppercase;
+        font-size: 7.5pt;
+        letter-spacing: 0.3px;
     }
     
     .data-table td {
@@ -655,16 +850,19 @@ export function buildReportHtml(doc: ReportDocument): string {
     </div>
 
     <!-- Executive Summary Narrative -->
-    ${doc.summaryText ? `<div class="executive-summary-box">${escapeHtml(doc.summaryText)}</div>` : ''}
+    ${options?.includeSummary !== false && doc.summaryText ? `<div class="executive-summary-box">${escapeHtml(doc.summaryText)}</div>` : ''}
 
     <!-- Specifications Table -->
-    ${renderMeta(doc.meta)}
+    ${options?.includeMeta !== false ? renderMeta(doc.meta) : ''}
+
+    <!-- Standalone Document Level Charts (if any) -->
+    ${options?.includeCharts !== false && doc.charts && doc.charts.length > 0 ? doc.charts.map(c => renderChartSvg(c)).join('') : ''}
 
     <!-- Formal Sections -->
-    ${doc.sections.map((section, idx) => renderSection(section, idx)).join('')}
+    ${filteredSections.map((section, idx) => renderSection(section, idx, options)).join('')}
 
     <!-- Document Authorization Sign-off -->
-    ${renderSignatures(doc.signatures, doc.generatedByName)}
+    ${options?.includeSignatures !== false ? renderSignatures(doc.signatures, doc.generatedByName) : ''}
 
     <!-- Formal Footer -->
     <div class="formal-footer">
@@ -680,9 +878,9 @@ export interface ExportResult {
     error?: string;
 }
 
-export async function exportReportPdf(doc: ReportDocument): Promise<ExportResult> {
+export async function exportReportPdf(doc: ReportDocument, options?: ReportExportOptions): Promise<ExportResult> {
     try {
-        const html = buildReportHtml(doc);
+        const html = buildReportHtml(doc, options);
 
         if (Platform.OS === 'web') {
             try {

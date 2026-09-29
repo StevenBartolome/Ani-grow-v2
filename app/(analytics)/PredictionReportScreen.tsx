@@ -22,7 +22,7 @@ import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
-import { ReportDocument, ReportStat } from '@/lib/pdfReport';
+import { ReportDocument, ReportStat, ReportChart } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -987,6 +987,26 @@ export default function PredictionReportScreen() {
             || (managedFarms.length > 0 ? managedFarms[0]?.name : '')
             || 'Farm Operations';
 
+        const trajectoryChart: ReportChart | undefined = forecastChartData.detailedPoints.length > 0 ? {
+            type: 'line',
+            title: `Projected Live Weight Progression vs Harvest Goal (${timeframe})`,
+            labels: forecastChartData.detailedPoints.map(p => p.label),
+            series: [
+                {
+                    name: 'Projected Weight (kg)',
+                    data: forecastChartData.detailedPoints.map(p => Math.round(p.weight * 100) / 100),
+                    color: '#16492a',
+                },
+                {
+                    name: 'Harvest Target (kg)',
+                    data: forecastChartData.detailedPoints.map(() => harvestTargetKg),
+                    color: '#e74c3c',
+                },
+            ],
+            unit: 'kg',
+            yAxisLabel: 'Live Weight (kg)',
+        } : undefined;
+
         return {
             reportTitle: 'Growth Prediction Report',
             farmName: selectedFarmDisplayName,
@@ -1005,6 +1025,7 @@ export default function PredictionReportScreen() {
                 { heading: 'Harvest Prediction', stats: harvestStats, paragraphs: [getInsightText()] },
                 {
                     heading: `Projected Growth Trajectory Milestones — ${timeframe}`,
+                    chart: trajectoryChart,
                     table: {
                         headers: ['Timeline Milestone', 'Projected Weight', 'Target Weight', 'Variance to Target'],
                         rows: projectionRows,

@@ -23,7 +23,7 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
-import { exportReportPdf, ReportDocument } from '@/lib/pdfReport';
+import { exportReportPdf, ReportDocument, ReportChart } from '@/lib/pdfReport';
 import { supabase } from '@/lib/supabase';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
@@ -687,6 +687,37 @@ export default function BatchHistoryScreen() {
         const isPig = selectedBatch.animal_type === 'pig';
         const animalLabel = isPig ? 'Swine / Pig' : 'Poultry / Broiler';
 
+        const inventoryChart: ReportChart = {
+            type: 'bar',
+            title: 'Lifecycle Population Balance (Head Count)',
+            labels: ['Initial Stock', 'Harvested / Sold', 'Mortality Loss'],
+            series: [
+                {
+                    name: 'Head Count',
+                    data: [detailMetrics.initialHeads, detailMetrics.finalHeads, detailMetrics.totalMortalities],
+                    color: '#16492a',
+                },
+            ],
+            unit: 'heads',
+            yAxisLabel: 'Heads',
+        };
+
+        const validWeights = weighSessions.filter(w => getWeighGrams(w) > 0);
+        const weightTrendChart: ReportChart | undefined = validWeights.length > 0 ? {
+            type: 'line',
+            title: 'Batch Live Weight History (kg)',
+            labels: validWeights.slice(-15).map(w => w.recorded_at ? new Date(w.recorded_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) : '—'),
+            series: [
+                {
+                    name: 'Recorded Live Weight (kg)',
+                    data: validWeights.slice(-15).map(w => Math.round((getWeighGrams(w) / 1000) * 100) / 100),
+                    color: '#16492a',
+                },
+            ],
+            unit: 'kg',
+            yAxisLabel: 'Live Weight (kg)',
+        } : undefined;
+
         return {
             reportTitle: `Batch Performance Dossier: ${selectedBatch.name}`,
             farmName: (profile as any)?.farm_name || 'AniGrow Smart Livestock System',
@@ -714,9 +745,11 @@ export default function BatchHistoryScreen() {
                         { label: 'Average Daily Gain (ADG)', value: detailMetrics.adgGrams !== null ? `${detailMetrics.adgGrams} g/day` : 'N/A' },
                         { label: 'Total Feed Dispensed', value: `${detailMetrics.totalFeedKg.toFixed(1)} kg` },
                     ],
+                    chart: inventoryChart,
                 },
                 {
                     heading: 'Weight Sampling & Scale Logs',
+                    chart: weightTrendChart,
                     table: {
                         headers: ['Date & Time', 'Head Count', 'Avg Weight', 'Gross Weight', 'Classification'],
                         rows: weighSessions.map(w => [

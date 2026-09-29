@@ -15,7 +15,7 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { ReportDocument } from '@/lib/pdfReport';
+import { ReportDocument, ReportChart } from '@/lib/pdfReport';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
 import { useAnimalStyles } from '@/styles/animalStyles';
 
@@ -136,7 +136,7 @@ export default function SessionReportScreen() {
                 setPreviousSession(prev);
                 const { data: prevRows } = await supabase.from('weigh_sessions').select('net_weight_grams').eq('weighing_session_id', prev.id);
                 if (prevRows && prevRows.length > 0) {
-                    const avg = prevRows.reduce((s, r: any) => s + r.net_weight_grams, 0) / prevRows.length;
+                    const avg = prevRows.reduce((s: number, r: any) => s + (r.net_weight_grams || 0), 0) / prevRows.length;
                     setPreviousAvgGrams(avg);
                 }
                 // Feed consumed strictly between the previous and current session —
@@ -148,7 +148,7 @@ export default function SessionReportScreen() {
                     .gte('dispensed_at', prev.created_at)
                     .lt('dispensed_at', currentSession.created_at);
                 if (feedRows) {
-                    setFeedConsumedGrams(feedRows.reduce((s, r: any) => s + r.grams_dispensed, 0));
+                    setFeedConsumedGrams(feedRows.reduce((s: number, r: any) => s + (r.grams_dispensed || 0), 0));
                 }
             }
         } catch (err) {
@@ -233,6 +233,39 @@ export default function SessionReportScreen() {
             ? new Date(session.completed_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
             : new Date(session.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
+        const sessionDistributionChart: ReportChart = {
+            type: 'bar',
+            title: 'Session Weight Classification (Head Count)',
+            labels: ['Underweight', 'Normal', 'Overweight'],
+            series: [
+                {
+                    name: 'Sampled Animals',
+                    data: [underCount, normalCount, overCount],
+                    color: '#16492a',
+                },
+            ],
+            unit: 'heads',
+            yAxisLabel: 'Animals',
+        };
+
+        const comparisonChart: ReportChart | undefined = hasComparison ? {
+            type: 'bar',
+            title: 'Average Weight Progression vs Previous Session',
+            labels: [`Prev (Day ${previousSession!.farm_day ?? '?'})`, `Current (Day ${session.farm_day ?? '?'})`],
+            series: [
+                {
+                    name: 'Avg Weight (kg)',
+                    data: [
+                        Math.round(((previousAvgGrams as number) / 1000) * 100) / 100,
+                        Math.round((currentAvgGrams / 1000) * 100) / 100,
+                    ],
+                    color: '#2980b9',
+                },
+            ],
+            unit: 'kg',
+            yAxisLabel: 'Weight (kg)',
+        } : undefined;
+
         return {
             reportTitle: 'Weighing Session Report',
             farmName,
@@ -255,6 +288,7 @@ export default function SessionReportScreen() {
                         { label: 'Normal', value: String(normalCount), accent: 'good' },
                         { label: 'Overweight', value: String(overCount), accent: overCount > 0 ? 'bad' : undefined },
                     ],
+                    chart: sessionDistributionChart,
                 },
                 {
                     heading: 'Compared With Previous Session',
@@ -266,6 +300,7 @@ export default function SessionReportScreen() {
                             { label: 'Growth Rate', value: growthRateGramsPerDay !== null ? `${(growthRateGramsPerDay / 1000).toFixed(3)} kg/day` : '—' },
                             ...(feedConsumedGrams !== null ? [{ label: 'Feed Consumed This Period', value: `${(feedConsumedGrams / 1000).toFixed(2)} kg` }] : []),
                         ],
+                        chart: comparisonChart,
                     } : {
                         paragraphs: ['Not enough previous data — this is the first recorded weighing session for this batch.'],
                     }),

@@ -12,7 +12,7 @@ import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
 import { AniFeedIcon } from '@/components/AniFeedIcon';
-import { ReportDocument } from '@/lib/pdfReport';
+import { ReportDocument, ReportChart } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -734,6 +734,36 @@ export default function FeedReportScreen() {
             item.stockKg > 0 ? `${item.stockKg} kg` : 'N/A',
         ]);
 
+        const feedTrendChart: ReportChart | undefined = chartData && chartData.labels.length > 0 ? {
+            type: 'bar',
+            title: `Daily Feed Consumption Trend (${timeframe})`,
+            labels: chartData.labels,
+            series: [
+                {
+                    name: 'Dispensed (kg)',
+                    data: chartData.datasets[0]?.data || [],
+                    color: '#16492a',
+                },
+            ],
+            unit: 'kg',
+            yAxisLabel: 'Dispensed (kg)',
+        } : undefined;
+
+        const feedBreakdownChart: ReportChart | undefined = sorted.length > 0 ? {
+            type: 'bar',
+            title: 'Feed Ration Consumption Distribution (kg)',
+            labels: sorted.map(i => i.feedName),
+            series: [
+                {
+                    name: 'Consumption (kg)',
+                    data: sorted.map(i => Math.round(i.consumption * 10) / 10),
+                    color: '#2980b9',
+                },
+            ],
+            unit: 'kg',
+            yAxisLabel: 'Kilograms',
+        } : undefined;
+
         return {
             reportTitle: 'Feed Dispensed & Nutritional Report',
             farmName,
@@ -755,6 +785,7 @@ export default function FeedReportScreen() {
                         { label: 'Appetite Rating', value: feedAnalysis?.appetiteStatus || 'Normal' },
                         { label: 'Feed Runway', value: feedAnalysis ? `~${feedAnalysis.estimatedRunwayDays} days` : 'N/A' },
                     ],
+                    chart: feedTrendChart,
                     paragraphs: [
                         getBotAnalysis(),
                         feedAnalysis ? feedAnalysis.stageDesc : '',
@@ -762,6 +793,7 @@ export default function FeedReportScreen() {
                 },
                 {
                     heading: 'Feed Ration Breakdown',
+                    chart: feedBreakdownChart,
                     table: {
                         headers: ['Feed & Brand', 'Category', 'Dispensed', '% of Total', 'Stock Left'],
                         rows,
@@ -770,7 +802,7 @@ export default function FeedReportScreen() {
                 },
             ],
         };
-    }, [selectedHousing, selectedBatch, selectedBatchId, activeBatch, batchAgeDays, animalType, headCount, timeframe, totalDispenses, reportData, totalConsumption, feedAnalysis, farmName]);
+    }, [selectedHousing, selectedBatch, selectedBatchId, activeBatch, batchAgeDays, animalType, headCount, timeframe, totalDispenses, reportData, totalConsumption, feedAnalysis, farmName, chartData]);
 
     return (
         <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>

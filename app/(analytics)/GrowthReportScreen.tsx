@@ -12,7 +12,7 @@ import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
-import { ReportDocument } from '@/lib/pdfReport';
+import { ReportDocument, ReportChart } from '@/lib/pdfReport';
 import { createNotification } from '@/lib/notify';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -692,6 +692,44 @@ export default function GrowthReportScreen() {
 
         const summaryText = `This official livestock growth and biometric performance report documents the weighing records and weight progression for Batch "${selectedBatch.name}" (${animalType === 'pig' ? 'Swine Herd' : 'Poultry Flock'}), situated at ${selectedHousing?.name ?? 'Assigned Facility'} in ${selectedFarmDisplayName}. Current rearing age is Day ${currentDay !== null ? currentDay : 'N/A'}, with an active cohort population of ${selectedBatch.current_count} head. Across all recorded telemetry sessions, a cumulative sample of ${totalWeighs} weigh events has been logged, establishing a mean cohort live weight of ${meanWeightKg.toFixed(2)} kg. Biometric categorization demonstrates that ${normalPct}% (${normalCount} head) conform to optimal growth target standards, ${underPct}% (${underweightCount} head) are classified as underweight, and ${overPct}% (${overweightCount} head) fall into the overweight/advanced category. Overall herd uniformity is indexed at ${uniformityPct}%.`;
 
+        // Growth Progression Chart & Classification Distribution Chart
+        const growthProgressionChart: ReportChart | undefined = sortedDates.length > 0 ? {
+            type: 'line',
+            title: `Mean Live Weight Progression (${sortedDates.length} Monitored Points)`,
+            labels: sortedDates.map(d => {
+                const parts = d.split('-');
+                return parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
+            }),
+            series: [
+                {
+                    name: 'Average Live Weight (kg)',
+                    data: sortedDates.map(d => {
+                        const entry = dateMap.get(d)!;
+                        const avgG = entry.weights.reduce((a, b) => a + b, 0) / entry.weights.length;
+                        return Math.round((avgG / 1000) * 100) / 100;
+                    }),
+                    color: '#16492a'
+                }
+            ],
+            unit: 'kg',
+            yAxisLabel: 'Live Weight (kg)',
+        } : undefined;
+
+        const classificationChart: ReportChart = {
+            type: 'bar',
+            title: 'Biometric Classification Distribution (Head Count)',
+            labels: ['Underweight', 'Normal Target', 'Overweight'],
+            series: [
+                {
+                    name: 'Head Count',
+                    data: [underweightCount, normalCount, overweightCount],
+                    color: '#16492a',
+                }
+            ],
+            unit: 'heads',
+            yAxisLabel: 'Number of animals'
+        };
+
         return {
             reportTitle: 'LIVESTOCK GROWTH PERFORMANCE & BIOMETRIC AUDIT REPORT',
             farmName: selectedFarmDisplayName,
@@ -726,6 +764,7 @@ export default function GrowthReportScreen() {
                 },
                 {
                     heading: 'Biometric Classification & Cohort Uniformity Matrix',
+                    chart: classificationChart,
                     table: {
                         heading: 'Cohort Weight Classification Matrix',
                         headers: ['Classification', 'Head Sampled', 'Proportion (%)', 'Clinical Benchmark Criteria', 'Management Status & Evaluation'],
@@ -769,6 +808,7 @@ export default function GrowthReportScreen() {
                 },
                 {
                     heading: 'Chronological Weigh-In Progression Ledger',
+                    chart: growthProgressionChart,
                     table: {
                         heading: 'Day-by-Day Telemetry Log',
                         headers: ['Calendar Date', 'Head Weighed', 'Average Weight', 'Min - Max Range', 'Session Gain', 'Under', 'Normal', 'Over'],

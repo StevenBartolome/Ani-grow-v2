@@ -14,7 +14,7 @@ import { SelectionModal } from '@/components/SelectionModal';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
-import { ReportDocument, ReportSection } from '@/lib/pdfReport';
+import { ReportDocument, ReportSection, ReportChart } from '@/lib/pdfReport';
 import { createNotification } from '@/lib/notify';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -708,6 +708,36 @@ export default function WeighingSessionsScreen() {
             g.under, g.normal, g.over,
         ]);
 
+        const dayProgressionChart: ReportChart | undefined = dayGroups.length > 0 ? {
+            type: 'line',
+            title: 'Daily Average Live Weight Progression (kg)',
+            labels: dayGroups.map(g => g.label),
+            series: [
+                {
+                    name: 'Average Weight (kg)',
+                    data: dayGroups.map(g => Math.round((g.avgG / 1000) * 100) / 100),
+                    color: '#16492a',
+                },
+            ],
+            unit: 'kg',
+            yAxisLabel: 'Live Weight (kg)',
+        } : undefined;
+
+        const classificationDistributionChart: ReportChart = {
+            type: 'bar',
+            title: 'Weight Classification Distribution (Range Total)',
+            labels: ['Underweight', 'Normal', 'Overweight'],
+            series: [
+                {
+                    name: 'Animals Sampled',
+                    data: [rangeUnder, rangeNormal, rangeOver],
+                    color: '#16492a',
+                },
+            ],
+            unit: 'heads',
+            yAxisLabel: 'Animals',
+        };
+
         const sections: ReportSection[] = [
             {
                 heading: 'Summary',
@@ -720,9 +750,11 @@ export default function WeighingSessionsScreen() {
                     { label: 'Normal', value: String(rangeNormal), accent: 'good' as const },
                     { label: 'Overweight', value: String(rangeOver), accent: rangeOver > 0 ? 'bad' as const : undefined },
                 ],
+                chart: classificationDistributionChart,
             },
             {
                 heading: 'Day-by-Day Breakdown',
+                chart: dayProgressionChart,
                 table: {
                     headers: ['Date', 'Weighed', 'Avg', 'Min / Max', 'Under', 'Normal', 'Over'],
                     rows: dayRows,
