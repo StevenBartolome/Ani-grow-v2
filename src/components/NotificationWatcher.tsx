@@ -257,12 +257,27 @@ export function NotificationWatcher() {
             })
             .subscribe();
 
-        // B. Realtime Feed Dispensed Successfully
+        // B. Realtime Feed Dispensed / Dispense Failed
         const feedChannel = supabase
             .channel(`notif-watch-dispense-${uid}`)
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dispense_records' }, (payload) => {
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dispense_records' }, async (payload) => {
                 const row = payload.new as any;
                 if (!farmIdsRef.current.includes(row.farm_id)) return;
+
+                let feederName = 'Feeder';
+                let isDeviceOffline = false;
+                if (row.device_id) {
+                    const { data: dev } = await supabase
+                        .from('devices')
+                        .select('name, status, last_seen')
+                        .eq('id', row.device_id)
+                        .maybeSingle();
+                    if (dev) {
+                        if (dev.name) feederName = dev.name;
+                        isDeviceOffline = getDeviceDisplayStatus(dev.status, dev.last_seen) === 'offline';
+                    }
+                }
+
                 if (row.status === 'success') {
                     const time = row.dispensed_at ? new Date(row.dispensed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : currentTimeString();
                     const kg = (Number(row.grams_dispensed || 0) / 1000).toFixed(2);
@@ -271,17 +286,32 @@ export function NotificationWatcher() {
                         category: 'feed_alert',
                         type: 'success',
                         title: 'Feed Dispensed',
-                        message: `Feeder dispensed ${kg} kg of feed successfully at ${time}.`,
+                        message: `Feeder '${feederName}' dispensed ${kg} kg of feed successfully at ${time}.`,
                         actionUrl: '/(devices)/DispenseRecordsScreen',
                     });
-                } else if (row.status === 'error') {
+                } else if (row.status === 'error' || row.status === 'failed') {
+                    const reason = (row.reason || row.error_message || row.notes || '').toLowerCase();
+                    let failureTitle = 'Feed Dispense Failed';
+                    let failureMessage = `A scheduled feed dispense failed on '${feederName}'. Please check the feeder connection and mechanism.`;
+
+                    if (reason.includes('offline') || isDeviceOffline) {
+                        failureTitle = 'Feed Dispense Failed (Device Offline)';
+                        failureMessage = `Feeder '${feederName}' failed to dispense scheduled feed because the device is offline and unreachable.`;
+                    } else if (reason.includes('empty') || reason.includes('low') || reason.includes('stock') || reason.includes('hopper')) {
+                        failureTitle = 'Feed Dispense Failed (Empty Hopper)';
+                        failureMessage = `Feeder '${feederName}' could not dispense feed because the feed hopper is empty. Please refill feed stock.`;
+                    } else if (reason.includes('jam') || reason.includes('motor') || reason.includes('mechanism') || reason.includes('hardware')) {
+                        failureTitle = 'Feed Dispense Failed (Mechanism Error)';
+                        failureMessage = `Feeder '${feederName}' encountered a mechanical obstruction or dispensing error.`;
+                    }
+
                     dispatchNotification({
                         farmId: row.farm_id,
                         category: 'feed_alert',
                         type: 'error',
-                        title: 'Feed Dispense Failed',
-                        message: 'A scheduled feed dispense failed. Please check feeder mechanism and feed stock.',
-                        actionUrl: '/(devices)/DispenseRecordsScreen',
+                        title: failureTitle,
+                        message: failureMessage,
+                        actionUrl: row.device_id ? `/(devices)/AniFeedScreen?deviceId=${row.device_id}` : '/(devices)/DispenseRecordsScreen',
                     });
                 }
             })
@@ -356,7 +386,7 @@ export function NotificationWatcher() {
         };
     }, [dispatchNotification]);
 
-    // ── 3. Scheduled Feed Dispense (1-Hr Before Reminder) ────────────────
+    // ── 3. Scheduled Feed Dispense (1-Hr Before Reminder & Offline Warnings) ────────────────
     const checkUpcomingFeedDispenses = useCallback(async () => {
         if (farmIdsRef.current.length === 0) return;
         const now = currentTimeString();
@@ -365,32 +395,70 @@ export function NotificationWatcher() {
         try {
             const { data: schedules } = await supabase
                 .from('feed_schedules')
-                .select('id, farm_id, dispense_times, grams_per_dispense, devices(name), housings(name)')
+                .select('id, farm_id, device_id, dispense_times, grams_per_dispense, devices(id, name, status, last_seen), housings(name)')
                 .in('farm_id', farmIdsRef.current);
 
             if (!schedules) return;
 
             for (const sch of schedules as any[]) {
                 const times: string[] = sch.dispense_times || [];
-                const feederName = sch.devices?.name || 'Feeder';
+                const dev = sch.devices;
+                const feederName = dev?.name || 'Feeder';
+                const housingName = sch.housings?.name || 'Housing';
+                const isOffline = dev ? getDeviceDisplayStatus(dev.status, dev.last_seen) === 'offline' : false;
                 const kg = (Number(sch.grams_per_dispense || 0) / 1000).toFixed(2);
 
                 for (const t of times) {
                     const diff = minutesDifference(t, now);
                     // 1-hour before window (between 55 and 60 minutes prior)
                     if (diff >= 55 && diff <= 60) {
-                        const key = `feed_dispense_1hr_${sch.id}_${t}_${today}`;
-                        if (!(await alreadyAlerted(key))) {
-                            await dispatchNotification({
-                                farmId: sch.farm_id,
-                                category: 'feed_alert',
-                                type: 'info',
-                                title: 'Upcoming Feed Dispense',
-                                message: `${feederName} is scheduled to dispense ${kg} kg in 1 hour (at ${t}).`,
-                                actionUrl: '/(devices)/ManageFeedsScreen',
-                                skipLocalPush: true, // OS level push is pre-scheduled by notificationScheduler at exact hour:minute
-                            });
-                            await markAlerted(key);
+                        if (isOffline) {
+                            const key = `feed_dispense_1hr_offline_${sch.id}_${t}_${today}`;
+                            if (!(await alreadyAlerted(key))) {
+                                await dispatchNotification({
+                                    farmId: sch.farm_id,
+                                    category: 'feed_alert',
+                                    type: 'warning',
+                                    title: 'Warning: Feeder Offline Before Dispense',
+                                    message: `Attention: '${feederName}' in ${housingName} is scheduled to dispense ${kg} kg in 1 hour (at ${t}), but the device is currently offline. Please check power and WiFi to prevent a missed feeding.`,
+                                    actionUrl: sch.device_id ? `/(devices)/AniFeedScreen?deviceId=${sch.device_id}` : '/(devices)/ManageFeedsScreen',
+                                    skipLocalPush: false, // Ensure local push fires to alert the user
+                                });
+                                await markAlerted(key);
+                            }
+                        } else {
+                            const key = `feed_dispense_1hr_${sch.id}_${t}_${today}`;
+                            if (!(await alreadyAlerted(key))) {
+                                await dispatchNotification({
+                                    farmId: sch.farm_id,
+                                    category: 'feed_alert',
+                                    type: 'info',
+                                    title: 'Upcoming Feed Dispense',
+                                    message: `${feederName} is scheduled to dispense ${kg} kg in 1 hour (at ${t}).`,
+                                    actionUrl: '/(devices)/ManageFeedsScreen',
+                                    skipLocalPush: true, // OS level push is pre-scheduled by notificationScheduler at exact hour:minute
+                                });
+                                await markAlerted(key);
+                            }
+                        }
+                    }
+
+                    // Missed / Failed scheduled dispense when device is offline at scheduled time (0 to 10 minutes past time)
+                    if (diff <= 0 && diff >= -10) {
+                        if (isOffline) {
+                            const key = `feed_dispense_missed_offline_${sch.id}_${t}_${today}`;
+                            if (!(await alreadyAlerted(key))) {
+                                await dispatchNotification({
+                                    farmId: sch.farm_id,
+                                    category: 'feed_alert',
+                                    type: 'error',
+                                    title: 'Feed Dispense Failed (Device Offline)',
+                                    message: `Feeder '${feederName}' failed to dispense scheduled feed at ${t} because the device is offline and unreachable.`,
+                                    actionUrl: sch.device_id ? `/(devices)/AniFeedScreen?deviceId=${sch.device_id}` : '/(devices)/DispenseRecordsScreen',
+                                    skipLocalPush: false,
+                                });
+                                await markAlerted(key);
+                            }
                         }
                     }
                 }

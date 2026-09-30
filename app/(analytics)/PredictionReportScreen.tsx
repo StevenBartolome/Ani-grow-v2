@@ -7,6 +7,7 @@ import {
     Platform,
     RefreshControl,
     ScrollView,
+    TextInput,
     TouchableOpacity,
     View,
     useWindowDimensions,
@@ -22,6 +23,7 @@ import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
+import { AnimalIcon } from '@/components/AnimalIcon';
 import { ReportDocument, ReportStat, ReportChart } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -53,6 +55,7 @@ interface BatchInfo {
     age_at_arrival_days: number;
     status: string;
     housing_id: string;
+    harvest_target_kg?: number | null;
     housings?: {
         farm_id?: string;
         farms?: { id?: string; name?: string } | null;
@@ -62,7 +65,7 @@ interface BatchInfo {
 interface WeighSession {
     id: string;
     net_weight_grams: number;
-    status: 'underweight' | 'normal' | 'overweight';
+    status: 'underweight' | 'normal' | 'overweight' | string;
     animal_type?: 'pig' | 'chicken';
     recorded_at: string;
     batch_id: string;
@@ -87,6 +90,18 @@ interface HealthRecord {
     record_date: string;
 }
 
+interface MilestonePoint {
+    weight: number;
+    dayOffset: number;
+    dateStr: string;
+    shortLabel: string;
+    label: string;
+    diff: number;
+    targetPct: number;
+    isTargetMet: boolean;
+    gainFromNow: number;
+}
+
 // ─── Harvest targets ────────────────────────────────────────────────────────
 
 const HARVEST_TARGET_KG: Record<string, number> = {
@@ -105,10 +120,24 @@ function formatDate(d: Date | null | undefined): string {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function getLocalDateKey(dateStr?: string | null): string {
+    if (!dateStr) return '';
+    try {
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr.slice(0, 10);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    } catch (_) {
+        return dateStr.slice(0, 10);
+    }
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function PredictionReportScreen() {
-    const { colors } = useTheme();
+    const { colors, isDark } = useTheme();
     const textStyles = useTextStyles();
     const styles = useAnalyticsStyles();
     const animalStyles = useAnimalStyles();
@@ -130,7 +159,6 @@ export default function PredictionReportScreen() {
     }, [currentFarm?.name]);
 
     // batchId (e.g. linked from a Weighing Session Report) takes priority
-    // over the default "first housing, most recent batch" auto-pick below.
     const { type, batchId: requestedBatchId } = useLocalSearchParams<{ type?: string; batchId?: string }>();
     const initialType = typeof type === 'string'
         ? (type.toLowerCase().includes('chicken') ? 'chicken' : 'pig')
@@ -145,7 +173,12 @@ export default function PredictionReportScreen() {
     const [weighSessions, setWeighSessions] = useState<WeighSession[]>([]);
     const [weighingSessionEnvelopes, setWeighingSessionEnvelopes] = useState<WeighingSessionEnvelope[]>([]);
     const [healthRecords, setHealthRecords] = useState<HealthRecord[]>([]);
-    const [timeframe, setTimeframe] = useState<'30 Days' | '60 Days'>('30 Days');
+
+    // ─── Custom Harvest Target (per-batch override synced with web) ─────────
+    const [customTargetKg, setCustomTargetKg] = useState<number | null>(null);
+    const [isSavingTarget, setIsSavingTarget] = useState(false);
+    const [isEditingTarget, setIsEditingTarget] = useState(false);
+    const [targetInputValue, setTargetInputValue] = useState<string>('');
 
     const [isLoading, setIsLoading] = useState(true);
     const [isDataLoading, setIsDataLoading] = useState(false);
@@ -192,14 +225,21 @@ export default function PredictionReportScreen() {
     }, [farmId]);
 
     // ─── Derived lists ───────────────────────────────────────────────────────
-    const filteredHousings = allHousings.filter(h => h.animal_type === animalType);
-    const selectedHousing = allHousings.find(h => h.id === selectedHousingId) ?? null;
+    const filteredHousings = useMemo(() => {
+        return allHousings.filter(h => h.animal_type === animalType);
+    }, [allHousings, animalType]);
+
+    const selectedHousing = useMemo(() => {
+        return allHousings.find(h => h.id === selectedHousingId) ?? null;
+    }, [allHousings, selectedHousingId]);
 
     const filteredBatches = useMemo(() => {
         return allBatches.filter(b => b.housing_id === selectedHousingId);
     }, [allBatches, selectedHousingId]);
 
-    const selectedBatch = filteredBatches.find(b => b.id === selectedBatchId) ?? null;
+    const selectedBatch = useMemo(() => {
+        return filteredBatches.find(b => b.id === selectedBatchId) ?? null;
+    }, [filteredBatches, selectedBatchId]);
 
     const fetchBatchData = useCallback(async (batchId: string) => {
         setIsDataLoading(true);
@@ -216,8 +256,8 @@ export default function PredictionReportScreen() {
                     .from('weighing_sessions')
                     .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                     .eq('batch_id', batchId)
-                    .eq('status', 'completed')
-                    .gt('completed_quantity', 0)
+                    .neq('status', 'in_progress')
+                    .neq('status', 'cancelled')
                     .order('created_at', { ascending: true }),
                 supabase
                     .from('health_records')
@@ -236,7 +276,7 @@ export default function PredictionReportScreen() {
         }
     }, []);
 
-    // ─── Data Fetching (Synchronized with GrowthReportScreen) ─────────────────
+    // ─── Data Fetching ───────────────────────────────────────────────────────
     const fetchReportMetadata = useCallback(async () => {
         if (!farmId) {
             setIsLoading(false);
@@ -249,13 +289,13 @@ export default function PredictionReportScreen() {
                     .from('housings')
                     .select('id, name, animal_type, status, current_count, farm_id, farms(id, name)')
                     .eq('farm_id', farmId)
-                    .eq('status', 'Active')
+                    .ilike('status', 'Active')
                     .order('name', { ascending: true }),
                 supabase
                     .from('batches')
-                    .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, housings!inner(farm_id, farms(id, name))')
+                    .select('id, name, estimated_count, current_count, arrival_date, age_at_arrival_days, status, housing_id, harvest_target_kg, housings!inner(farm_id, farms(id, name))')
                     .eq('housings.farm_id', farmId)
-                    .eq('status', 'active') // sold/completed batches shouldn't clutter this picker
+                    .ilike('status', 'active')
                     .order('arrival_date', { ascending: false }),
                 supabase
                     .from('farms')
@@ -447,7 +487,7 @@ export default function PredictionReportScreen() {
 
     useEffect(() => { fetchReportMetadata(); }, [fetchReportMetadata]);
 
-    // Load batch data when batch changes
+    // Load batch data when selectedBatchId changes
     useEffect(() => {
         if (selectedBatchId) {
             if (lastLoadedBatchIdRef.current !== selectedBatchId) {
@@ -461,7 +501,69 @@ export default function PredictionReportScreen() {
         }
     }, [selectedBatchId, fetchBatchData]);
 
-    // ─── Realtime: Live update prediction when new weights or health logs land ───
+    // Sync custom target weight when batch changes
+    useEffect(() => {
+        if (selectedBatch) {
+            const saved = selectedBatch.harvest_target_kg != null ? Number(selectedBatch.harvest_target_kg) : null;
+            setCustomTargetKg(saved);
+            const defaultVal = HARVEST_TARGET_KG[animalType] ?? (animalType === 'pig' ? 95 : 2.2);
+            setTargetInputValue(String(saved ?? defaultVal));
+        } else {
+            setCustomTargetKg(null);
+            setTargetInputValue('');
+        }
+        setIsEditingTarget(false);
+    }, [selectedBatch, animalType]);
+
+    const saveHarvestTarget = useCallback(async (newTargetKg: number) => {
+        if (!selectedBatchId) return;
+        const clampedPig = { min: 50, max: 130 };
+        const clampedChicken = { min: 0.5, max: 3.5 };
+        const range = animalType === 'pig' ? clampedPig : clampedChicken;
+        const clamped = Math.max(range.min, Math.min(range.max, parseFloat(newTargetKg.toFixed(2))));
+
+        setIsSavingTarget(true);
+        try {
+            const { error } = await supabase
+                .from('batches')
+                .update({ harvest_target_kg: clamped })
+                .eq('id', selectedBatchId);
+
+            if (error) throw error;
+            setCustomTargetKg(clamped);
+            setTargetInputValue(String(clamped));
+            setIsEditingTarget(false);
+            setAllBatches(prev => prev.map(b => b.id === selectedBatchId ? { ...b, harvest_target_kg: clamped } : b));
+        } catch (err) {
+            console.error('[PredictionReportScreen] Failed to save harvest target:', err);
+        } finally {
+            setIsSavingTarget(false);
+        }
+    }, [selectedBatchId, animalType]);
+
+    const resetToDefault = useCallback(async () => {
+        if (!selectedBatchId) return;
+        setIsSavingTarget(true);
+        try {
+            const { error } = await supabase
+                .from('batches')
+                .update({ harvest_target_kg: null })
+                .eq('id', selectedBatchId);
+
+            if (error) throw error;
+            setCustomTargetKg(null);
+            const def = HARVEST_TARGET_KG[animalType] ?? (animalType === 'pig' ? 95 : 2.2);
+            setTargetInputValue(String(def));
+            setIsEditingTarget(false);
+            setAllBatches(prev => prev.map(b => b.id === selectedBatchId ? { ...b, harvest_target_kg: null } : b));
+        } catch (err) {
+            console.error('[PredictionReportScreen] Failed to reset harvest target:', err);
+        } finally {
+            setIsSavingTarget(false);
+        }
+    }, [selectedBatchId, animalType]);
+
+    // Realtime listener
     useEffect(() => {
         if (!selectedBatchId) return;
 
@@ -517,7 +619,7 @@ export default function PredictionReportScreen() {
         setRefreshing(false);
     }, [fetchReportMetadata, selectedBatchId, fetchBatchData]);
 
-    // ─── Current Age (Day Calculation synchronized with GrowthReportScreen) ───
+    // ─── Current Age ────────────────────────────────────────────────────────
     const currentAgeDays = useMemo(() => {
         if (!selectedBatch?.arrival_date) return null;
         const arrival = new Date(selectedBatch.arrival_date);
@@ -528,13 +630,23 @@ export default function PredictionReportScreen() {
         return Math.max(0, diff) + (selectedBatch.age_at_arrival_days || 0);
     }, [selectedBatch]);
 
-    // ─── Session Breakdown (Synchronized with GrowthReportScreen) ──────────────
+    // ─── Session Breakdown ──────────────────────────────────────────────────
     const sessionItems = useMemo(() => {
         if (weighSessions.length === 0) return [];
 
-        const completedEnvelopes = weighingSessionEnvelopes.filter(env => env.status === 'completed');
-        if (completedEnvelopes.length > 0) {
-            return completedEnvelopes.map((env, idx) => {
+        if (weighingSessionEnvelopes.length > 0) {
+            const activeEnvelopes = weighingSessionEnvelopes.filter(env => {
+                if (env.status === 'in_progress' || env.status === 'cancelled') return false;
+                const hasLinkedWeights = weighSessions.some(s => s.weighing_session_id === env.id);
+                if (hasLinkedWeights) return true;
+                const anyHasSessionId = weighSessions.some(s => !!s.weighing_session_id);
+                if (!anyHasSessionId) {
+                    return weighSessions.some(s => getLocalDateKey(s.recorded_at) === getLocalDateKey(env.created_at));
+                }
+                return false;
+            });
+
+            return activeEnvelopes.map((env, idx) => {
                 const num = idx + 1;
                 const ordinal = getOrdinal(num);
                 let dateLabel = env.created_at ? env.created_at.slice(0, 10) : '';
@@ -545,7 +657,7 @@ export default function PredictionReportScreen() {
                     }
                 } catch (_) {}
 
-                const isLatest = idx === completedEnvelopes.length - 1;
+                const isLatest = idx === activeEnvelopes.length - 1;
                 const dayPart = env.farm_day !== null ? ` (Day ${env.farm_day})` : '';
                 const latestPart = isLatest ? ' · Latest' : '';
                 const label = `${ordinal} Session · ${dateLabel}${dayPart}${latestPart}`;
@@ -559,7 +671,7 @@ export default function PredictionReportScreen() {
                     label,
                     isLatest,
                     sessionIds: [env.id],
-                    dateKeys: [env.created_at ? env.created_at.slice(0, 10) : ''],
+                    dateKeys: [getLocalDateKey(env.created_at), env.created_at ? env.created_at.slice(0, 10) : ''],
                 };
             });
         }
@@ -567,7 +679,7 @@ export default function PredictionReportScreen() {
         const dateMap = new Map<string, typeof weighSessions>();
         weighSessions.forEach(s => {
             if (!s.recorded_at) return;
-            const dateKey = s.recorded_at.slice(0, 10);
+            const dateKey = getLocalDateKey(s.recorded_at);
             if (!dateMap.has(dateKey)) {
                 dateMap.set(dateKey, []);
             }
@@ -625,7 +737,7 @@ export default function PredictionReportScreen() {
                 if (s.weighing_session_id && item.sessionIds?.includes(s.weighing_session_id)) {
                     return true;
                 }
-                const dk = s.recorded_at ? s.recorded_at.slice(0, 10) : '';
+                const dk = s.recorded_at ? getLocalDateKey(s.recorded_at) : '';
                 return item.dateKeys?.includes(dk);
             });
 
@@ -679,11 +791,15 @@ export default function PredictionReportScreen() {
     }, [latestSession, weighSessions]);
 
     const effectiveBaseWeightKg = useMemo(() => {
-        return latestAvgWeightKg ?? benchmarkWeightKg;
-    }, [latestAvgWeightKg, benchmarkWeightKg]);
+        return latestAvgWeightKg;
+    }, [latestAvgWeightKg]);
 
     // ─── Robust Average Daily Gain (ADG) Computation ────────────────────────
     const { dailyGainKg, isBenchmarkGain } = useMemo(() => {
+        if (latestAvgWeightKg === null) {
+            return { dailyGainKg: null, isBenchmarkGain: false };
+        }
+
         if (sessionStatsList.length >= 2) {
             const first = sessionStatsList[0];
             const latest = sessionStatsList[sessionStatsList.length - 1];
@@ -705,34 +821,89 @@ export default function PredictionReportScreen() {
             const minRealistic = animalType === 'pig' ? 0.20 : 0.020;
             const maxRealistic = animalType === 'pig' ? 1.50 : 0.150;
 
-            // If we have distinct dates with physiologically plausible positive gain:
             if (totalDays >= 2 && rawAdgKg >= minRealistic && rawAdgKg <= maxRealistic) {
                 return { dailyGainKg: rawAdgKg, isBenchmarkGain: false };
             }
         }
 
-        // Fallback to industry standard ADG for current rearing week
         return { dailyGainKg: benchmarkAdgKg, isBenchmarkGain: true };
-    }, [sessionStatsList, animalType, benchmarkAdgKg]);
+    }, [sessionStatsList, animalType, benchmarkAdgKg, latestAvgWeightKg]);
 
-    // Harvest target matching web (95 kg for pig, 2.2 kg for chicken)
-    const harvestTargetKg = HARVEST_TARGET_KG[animalType] || (animalType === 'pig' ? 95 : 2.2);
+    // Effective harvest target: custom DB value > biological default
+    const harvestTargetKg = customTargetKg
+        ?? HARVEST_TARGET_KG[animalType]
+        ?? (animalType === 'pig' ? 95 : 2.2);
 
     // ─── Days to Harvest Calculation ────────────────────────────────────────
-    const daysToHarvest = useMemo(() => {
-        const remainingKg = harvestTargetKg - effectiveBaseWeightKg;
-        if (remainingKg <= 0) return 0;
-        const effectiveGain = Math.max(animalType === 'pig' ? 0.35 : 0.03, dailyGainKg);
-        const calcDays = Math.ceil(remainingKg / effectiveGain);
-        return calcDays;
-    }, [harvestTargetKg, effectiveBaseWeightKg, dailyGainKg, animalType]);
+    const readySession = useMemo(() => {
+        return sessionStatsList.find(s => s.avgWeightKg >= harvestTargetKg) || null;
+    }, [sessionStatsList, harvestTargetKg]);
 
-    const estimatedHarvestDate = useMemo(() => {
-        if (daysToHarvest === null) return null;
-        const d = new Date();
-        d.setDate(d.getDate() + daysToHarvest);
-        return d;
-    }, [daysToHarvest]);
+    const { daysToHarvest, estimatedHarvestDate, isHarvestReady } = useMemo(() => {
+        if (effectiveBaseWeightKg === null || dailyGainKg === null) {
+            return { daysToHarvest: null, estimatedHarvestDate: null, isHarvestReady: false };
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Case 1: Session achieved target weight
+        if (readySession && readySession.dateKeys?.[0]) {
+            const [y, m, d] = readySession.dateKeys[0].split('-').map(Number);
+            const targetAchievedDate = new Date(y, m - 1, d);
+            return {
+                daysToHarvest: 0,
+                estimatedHarvestDate: targetAchievedDate,
+                isHarvestReady: true
+            };
+        }
+
+        // Case 2: Project from the latest scale reading date
+        const baseDateKey = latestSession?.dateKeys?.[0];
+        let baseDate: Date;
+        if (baseDateKey) {
+            const [y, m, d] = baseDateKey.split('-').map(Number);
+            baseDate = new Date(y, m - 1, d);
+        } else {
+            baseDate = new Date(today);
+        }
+
+        const remainingKg = Math.max(0, harvestTargetKg - effectiveBaseWeightKg);
+        if (remainingKg <= 0) {
+            return {
+                daysToHarvest: 0,
+                estimatedHarvestDate: baseDate,
+                isHarvestReady: true
+            };
+        }
+
+        const effectiveGain = Math.max(animalType === 'pig' ? 0.35 : 0.03, dailyGainKg);
+        const daysNeededFromBase = Math.ceil(remainingKg / effectiveGain);
+        const projectedDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + daysNeededFromBase);
+
+        const diffDays = Math.round((projectedDate.getTime() - today.getTime()) / 86400000);
+        if (diffDays <= 0) {
+            return {
+                daysToHarvest: 0,
+                estimatedHarvestDate: projectedDate,
+                isHarvestReady: true
+            };
+        }
+
+        return {
+            daysToHarvest: diffDays,
+            estimatedHarvestDate: projectedDate,
+            isHarvestReady: false
+        };
+    }, [effectiveBaseWeightKg, dailyGainKg, readySession, harvestTargetKg, latestSession, animalType]);
+
+    const harvestFulfilledDateStr = useMemo(() => {
+        if (readySession?.dateLabel) return readySession.dateLabel;
+        if (estimatedHarvestDate) {
+            return estimatedHarvestDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+        return new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }, [readySession, estimatedHarvestDate]);
 
     const totalDeceased = useMemo(() => {
         return healthRecords
@@ -746,60 +917,7 @@ export default function PredictionReportScreen() {
         return ((alive / selectedBatch.estimated_count) * 100).toFixed(1);
     }, [selectedBatch, totalDeceased]);
 
-    // ─── Forecast chart data matching web ────────────────────────────────────
-    const forecastChartData = useMemo(() => {
-        const totalDays = timeframe === '30 Days' ? 30 : 60;
-        const stepDays = 5;
-        const stepCount = Math.round(totalDays / stepDays);
-
-        const labels: string[] = [];
-        const projectedData: number[] = [];
-        const targetLine: number[] = [];
-
-        const baseWeight = effectiveBaseWeightKg;
-        const gainPerDay = dailyGainKg;
-
-        for (let i = 0; i <= stepCount; i++) {
-            const d = new Date();
-            d.setDate(d.getDate() + i * stepDays);
-            labels.push(i === 0 ? 'Today' : `${d.getMonth() + 1}/${d.getDate()}`);
-            const projWeight = Math.max(0, baseWeight + i * stepDays * gainPerDay);
-            projectedData.push(parseFloat(projWeight.toFixed(2)));
-            targetLine.push(harvestTargetKg);
-        }
-
-        const detailedPoints = projectedData.map((weight, i) => {
-            const d = new Date();
-            d.setDate(d.getDate() + i * stepDays);
-            const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            const dayOffset = i * stepDays;
-            const shortLabel = i === 0 ? 'Today' : `+${dayOffset}d`;
-            const label = i === 0 ? `Today (${dateStr})` : `+${dayOffset}d (${dateStr})`;
-            const diff = parseFloat((weight - harvestTargetKg).toFixed(2));
-            const targetPct = Math.round((weight / harvestTargetKg) * 100);
-            const isTargetMet = weight >= harvestTargetKg;
-            const gainFromNow = parseFloat((weight - baseWeight).toFixed(2));
-            return { weight, dayOffset, dateStr, shortLabel, label, diff, targetPct, isTargetMet, gainFromNow };
-        });
-
-        const predictionColor = (colors as any).prediction ?? '#8B5CF6';
-
-        return {
-            labels,
-            datasets: [
-                { data: projectedData, color: () => predictionColor, strokeWidth: 3 },
-                { data: targetLine, color: () => '#EF4444', strokeWidth: 1.5, withDots: false },
-                { data: Array(stepCount + 1).fill(0), color: () => 'transparent', strokeWidth: 0, withDots: false },
-            ],
-            hasData: gainPerDay > 0 || baseWeight > 0,
-            detailedPoints,
-            stepDays,
-            projectedData,
-            targetLine,
-        };
-    }, [effectiveBaseWeightKg, dailyGainKg, timeframe, colors, harvestTargetKg]);
-
-    // ─── Feed Stage ─────────────────────────────────────────────────────────
+    // Feed Stage
     const currentFeedStage = useMemo(() => {
         if (currentAgeDays === null) return null;
         if (animalType === 'chicken') {
@@ -819,14 +937,163 @@ export default function PredictionReportScreen() {
         }
     }, [animalType, currentAgeDays]);
 
-    // ─── Friendly Forecast Milestones Timeline (Synced with Web) ───────────────
+    // ─── Dynamic Forecast Trajectory Data (Synced 1:1 with Web) ─────────────
+    const forecastChartData = useMemo(() => {
+        if (effectiveBaseWeightKg === null || dailyGainKg === null) {
+            return {
+                labels: [],
+                datasets: [{ data: [0], color: () => colors.prediction ?? '#8B5CF6', strokeWidth: 3 }],
+                detailedPoints: [],
+                stepDays: 0,
+                hasData: false,
+                projectedData: [],
+                targetLine: [],
+            };
+        }
+
+        const baseWeight = effectiveBaseWeightKg;
+        const gainPerDay = Math.max(animalType === 'pig' ? 0.35 : 0.03, dailyGainKg);
+        const remainingKg = Math.max(0, harvestTargetKg - baseWeight);
+        const harvestDays = daysToHarvest ?? (remainingKg <= 0 ? 0 : Math.ceil(remainingKg / gainPerDay));
+
+        const predictionColor = colors.prediction ?? '#8B5CF6';
+
+        // Cohort is already at or past harvest target weight
+        if (harvestDays === 0 || remainingKg <= 0) {
+            const readyDate = estimatedHarvestDate ?? new Date();
+            const dateStr = readyDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const diff = parseFloat((baseWeight - harvestTargetKg).toFixed(2));
+            const targetPct = Math.max(100, Math.round((baseWeight / harvestTargetKg) * 100));
+            const singlePoint: MilestonePoint = {
+                weight: parseFloat(baseWeight.toFixed(2)),
+                dayOffset: 0,
+                dateStr,
+                shortLabel: 'Ready',
+                label: `Ready (${dateStr}) - Market Ready`,
+                diff,
+                targetPct,
+                isTargetMet: true,
+                gainFromNow: 0,
+            };
+            return {
+                labels: ['Ready'],
+                datasets: [
+                    { data: [parseFloat(baseWeight.toFixed(2))], color: () => '#10B981', strokeWidth: 3 },
+                    { data: [harvestTargetKg], color: () => '#EF4444', strokeWidth: 1.5, withDots: false },
+                ],
+                detailedPoints: [singlePoint],
+                stepDays: 0,
+                hasData: true,
+                projectedData: [parseFloat(baseWeight.toFixed(2))],
+                targetLine: [harvestTargetKg],
+            };
+        }
+
+        const targetEndDay = harvestDays;
+
+        let stepCount: number;
+        if (targetEndDay <= 3) {
+            stepCount = 1;
+        } else if (targetEndDay <= 7) {
+            stepCount = 2;
+        } else if (targetEndDay <= 14) {
+            stepCount = 3;
+        } else if (targetEndDay <= 28) {
+            stepCount = 4;
+        } else if (targetEndDay <= 45) {
+            stepCount = 5;
+        } else {
+            stepCount = 6;
+        }
+
+        const dayOffsets: number[] = [0];
+        for (let i = 1; i < stepCount; i++) {
+            const offset = Math.round((i * targetEndDay) / stepCount);
+            if (offset > dayOffsets[dayOffsets.length - 1] && offset < targetEndDay) {
+                dayOffsets.push(offset);
+            }
+        }
+        if (!dayOffsets.includes(targetEndDay)) {
+            dayOffsets.push(targetEndDay);
+        }
+
+        const detailedPoints: MilestonePoint[] = dayOffsets.map((offset, idx) => {
+            const isFirst = idx === 0;
+            const isLast = idx === dayOffsets.length - 1;
+
+            const d = new Date();
+            d.setDate(d.getDate() + offset);
+            const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+            let weight: number;
+            if (isFirst) {
+                weight = parseFloat(baseWeight.toFixed(2));
+            } else if (isLast) {
+                weight = harvestTargetKg;
+            } else {
+                const calcWeight = baseWeight + offset * gainPerDay;
+                weight = parseFloat(Math.min(harvestTargetKg, calcWeight).toFixed(2));
+            }
+
+            const isTargetMet = weight >= harvestTargetKg;
+            const diff = parseFloat((weight - harvestTargetKg).toFixed(2));
+            const targetPct = Math.min(100, Math.round((weight / harvestTargetKg) * 100));
+            const gainFromNow = parseFloat((weight - baseWeight).toFixed(2));
+
+            let shortLabel: string;
+            let label: string;
+
+            if (isFirst) {
+                shortLabel = 'Today';
+                label = `Today (${dateStr})`;
+            } else if (isLast) {
+                shortLabel = `+${offset}d (Harvest)`;
+                label = `Harvest Target (+${offset}d, ${dateStr})`;
+            } else {
+                shortLabel = `+${offset}d`;
+                label = `+${offset}d (${dateStr})`;
+            }
+
+            return {
+                weight,
+                dayOffset: offset,
+                dateStr,
+                shortLabel,
+                label,
+                diff,
+                targetPct,
+                isTargetMet,
+                gainFromNow,
+            };
+        });
+
+        const labels = detailedPoints.map((p, idx) => idx === 0 ? 'Today' : p.dateStr);
+        const projectedData = detailedPoints.map(p => p.weight);
+        const targetLine = detailedPoints.map(() => harvestTargetKg);
+        const stepDays = dayOffsets.length > 1 ? Math.round(targetEndDay / (dayOffsets.length - 1)) : 0;
+
+        return {
+            labels,
+            datasets: [
+                { data: projectedData, color: () => predictionColor, strokeWidth: 3 },
+                { data: targetLine, color: () => '#EF4444', strokeWidth: 1.5, withDots: false },
+            ],
+            detailedPoints,
+            stepDays,
+            hasData: gainPerDay > 0 || baseWeight > 0,
+            projectedData,
+            targetLine,
+        };
+    }, [effectiveBaseWeightKg, dailyGainKg, harvestTargetKg, daysToHarvest, estimatedHarvestDate, animalType, colors]);
+
+    // Friendly Forecast Milestones Timeline
     const forecastMilestones = useMemo(() => {
         return forecastChartData.detailedPoints || [];
     }, [forecastChartData]);
 
     // ─── Factor Analysis (What is happening & what to expect) ───────────────
     const factorAnalysis = useMemo(() => {
-        if (!selectedBatch) return null;
+        if (!selectedBatch || effectiveBaseWeightKg === null || dailyGainKg === null) return null;
 
         const currentWeightKg = effectiveBaseWeightKg;
         const gainGrams = Math.round(dailyGainKg * 1000);
@@ -909,19 +1176,21 @@ export default function PredictionReportScreen() {
         };
     }, [selectedBatch, effectiveBaseWeightKg, dailyGainKg, isBenchmarkGain, harvestTargetKg, currentAgeDays, currentFeedStage, animalType, survivalRate, daysToHarvest, estimatedHarvestDate]);
 
-    // ─── Confidence score based on data quality ──────────────────────────────
+    // ─── Confidence score ──────────────────────────────────────────────────
     const confidencePct = useMemo(() => {
-        if (weighSessions.length === 0) return 65; // standard benchmark projection
-        // More weigh sessions = higher confidence (caps at 95%)
+        if (effectiveBaseWeightKg === null || weighSessions.length === 0) return 0;
         const base = Math.min(95, 60 + sessionStatsList.length * 10);
         return base;
-    }, [weighSessions, sessionStatsList]);
+    }, [effectiveBaseWeightKg, weighSessions, sessionStatsList]);
 
     // ─── AI Insight text ────────────────────────────────────────────────────
     const getInsightText = () => {
         if (!selectedBatch) return 'Select a batch to view AI predictions.';
+        if (effectiveBaseWeightKg === null) {
+            return `"${selectedBatch.name}" does not have any recorded scale weights yet. Conduct an initial weighing session using the AniWeigh scale to generate real-time growth curves, calculate average daily gain (ADG), and unlock harvest predictions.`;
+        }
         const currentStr = effectiveBaseWeightKg.toFixed(2);
-        const gainStr = dailyGainKg.toFixed(3);
+        const gainStr = dailyGainKg !== null ? dailyGainKg.toFixed(3) : '—';
 
         let insight = `"${selectedBatch.name}" is tracking at an average weight of ${currentStr} kg with an estimated gain of ${gainStr} kg/day (${isBenchmarkGain ? 'breed standard' : 'actual recorded ADG'}). `;
 
@@ -946,20 +1215,19 @@ export default function PredictionReportScreen() {
         return insight;
     };
 
-
     // ─── PDF Report Builder ──────────────────────────────────────────────────
     const buildPredictionReport = useCallback((): ReportDocument | null => {
         if (!selectedBatch) return null;
 
         const growthStats: ReportStat[] = [
-            { label: 'Avg Weight', value: `${effectiveBaseWeightKg.toFixed(2)} kg` },
-            { label: 'Daily Gain', value: `${dailyGainKg.toFixed(3)} kg/day (${isBenchmarkGain ? 'Benchmark' : 'Actual'})` },
-            { label: 'Harvest Target', value: `${harvestTargetKg} kg` },
+            { label: 'Avg Weight', value: effectiveBaseWeightKg !== null ? `${effectiveBaseWeightKg.toFixed(2)} kg` : 'No scale recordings' },
+            { label: 'Daily Gain', value: dailyGainKg !== null ? `${dailyGainKg.toFixed(3)} kg/day (${isBenchmarkGain ? 'Benchmark' : 'Actual'})` : 'No scale recordings' },
+            { label: 'Harvest Target', value: `${harvestTargetKg} kg${customTargetKg ? ' (Custom)' : ' (Standard)'}` },
             { label: 'Prediction Confidence', value: `${confidencePct}%` },
         ];
 
         const harvestStats: ReportStat[] = [
-            { label: 'Days To Harvest', value: daysToHarvest !== null ? (daysToHarvest === 0 ? 'Ready' : `${daysToHarvest} days`) : 'Calculating...', accent: daysToHarvest === 0 ? 'good' : undefined },
+            { label: 'Days To Harvest', value: daysToHarvest !== null ? (daysToHarvest === 0 ? 'Harvest Ready' : `${daysToHarvest} days`) : 'Pending initial weighing', accent: daysToHarvest === 0 ? 'good' : undefined },
             { label: 'Estimated Harvest Date', value: formatDate(estimatedHarvestDate) },
             { label: 'Survival Rate', value: survivalRate !== null ? `${survivalRate}%` : '—', accent: survivalRate !== null ? (parseFloat(survivalRate) < 90 ? 'warn' : 'good') : undefined },
             { label: 'Recorded Deaths', value: String(totalDeceased), accent: totalDeceased > 0 ? 'bad' : undefined },
@@ -989,7 +1257,7 @@ export default function PredictionReportScreen() {
 
         const trajectoryChart: ReportChart | undefined = forecastChartData.detailedPoints.length > 0 ? {
             type: 'line',
-            title: `Projected Live Weight Progression vs Harvest Goal (${timeframe})`,
+            title: `Projected Growth Trajectory Milestones (${daysToHarvest !== null && daysToHarvest > 0 ? `${daysToHarvest}d to Harvest` : 'Market Ready'})`,
             labels: forecastChartData.detailedPoints.map(p => p.label),
             series: [
                 {
@@ -1019,24 +1287,26 @@ export default function PredictionReportScreen() {
                 { label: 'Current Age', value: currentAgeDays !== null ? `Day ${currentAgeDays}` : '—' },
                 { label: 'Head Count', value: String(selectedBatch.current_count) },
                 ...(currentFeedStage ? [{ label: 'Feed Stage', value: currentFeedStage }] : []),
+                { label: 'Harvest Target', value: `${harvestTargetKg} kg${customTargetKg ? ' (Custom)' : ' (Standard)'}` },
             ],
             sections: [
                 { heading: 'Current Growth Status', stats: growthStats },
                 { heading: 'Harvest Prediction', stats: harvestStats, paragraphs: [getInsightText()] },
-                {
-                    heading: `Projected Growth Trajectory Milestones — ${timeframe}`,
+                ...(!isHarvestReady ? [{
+                    heading: `Projected Growth Trajectory Milestones (${daysToHarvest !== null && daysToHarvest > 0 ? `${daysToHarvest}d to Harvest` : 'Market Ready'})`,
                     chart: trajectoryChart,
                     table: {
                         headers: ['Timeline Milestone', 'Projected Weight', 'Target Weight', 'Variance to Target'],
                         rows: projectionRows,
                         note: isBenchmarkGain ? 'Projection utilizes standard commercial breed growth curves and targets.' : undefined,
                     },
-                },
+                }] : []),
             ],
         };
-    }, [selectedBatch, selectedHousing, animalType, currentAgeDays, effectiveBaseWeightKg, dailyGainKg, isBenchmarkGain, harvestTargetKg, confidencePct, daysToHarvest, estimatedHarvestDate, survivalRate, totalDeceased, forecastChartData, timeframe, currentFeedStage, farmName, profile, managedFarms, selectedFarmIds, activeFarmIds, farmId]);
+    }, [selectedBatch, selectedHousing, animalType, currentAgeDays, effectiveBaseWeightKg, dailyGainKg, isBenchmarkGain, harvestTargetKg, customTargetKg, confidencePct, daysToHarvest, estimatedHarvestDate, isHarvestReady, survivalRate, totalDeceased, forecastChartData, currentFeedStage, farmName, profile, managedFarms, selectedFarmIds, activeFarmIds, farmId]);
 
     const activeColor = animalType === 'pig' ? (colors.pig ?? '#EC4899') : (colors.chicken ?? '#F97316');
+    const predictionColor = colors.prediction ?? '#8B5CF6';
 
     const housingsOptions = filteredHousings.map(h => h.name);
     const selectedHousingStr = selectedHousing?.name ?? 'No House Selected';
@@ -1083,16 +1353,16 @@ export default function PredictionReportScreen() {
                             flexDirection: 'row',
                             alignItems: 'center',
                             gap: 6,
-                            backgroundColor: (colors.prediction ?? '#8B5CF6') + '15',
+                            backgroundColor: predictionColor + '15',
                             borderWidth: 1,
-                            borderColor: (colors.prediction ?? '#8B5CF6') + '30',
+                            borderColor: predictionColor + '30',
                             paddingHorizontal: 10,
                             paddingVertical: 6,
                             borderRadius: 20,
                             flexShrink: 0,
                         }}>
-                            <MaterialIcons name="psychology" size={16} color={colors.prediction ?? '#8B5CF6'} />
-                            <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 12, color: colors.prediction ?? '#8B5CF6' }}>
+                            <MaterialIcons name="psychology" size={16} color={predictionColor} />
+                            <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 12, color: predictionColor }}>
                                 {confidencePct}% {daysToHarvest !== null ? `· ${daysToHarvest === 0 ? 'Harvest Ready' : `${daysToHarvest}d to Harvest`}` : ''}
                             </Text>
                         </View>
@@ -1169,710 +1439,970 @@ export default function PredictionReportScreen() {
                             <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Loading predictions...</Text>
                         </View>
                     ) : filteredHousings.length === 0 ? (
-                    /* No Houses */
-                    <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
-                        <MaterialIcons name="home" size={48} color={colors.textGrey} />
-                        <Text style={[textStyles.h3, { color: colors.text, marginTop: 16, textAlign: 'center' }]}>No Houses Found</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
-                            No active {animalType === 'pig' ? 'pig' : 'chicken'} houses are registered on this farm yet.
-                        </Text>
-                    </View>
-                ) : filteredBatches.length === 0 ? (
-                    /* No Batches */
-                    <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
-                        <MaterialIcons name="layers" size={48} color={colors.textGrey} />
-                        <Text style={[textStyles.h3, { color: colors.text, marginTop: 16, textAlign: 'center' }]}>No Active Batches</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
-                            No batches are currently registered in {selectedHousing?.name ?? 'this housing'}.
-                        </Text>
-                    </View>
-                ) : (
-                    <>
-                        {/* ── Key Prediction Metrics ─────────────────────────── */}
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, marginBottom: 12 }]}>
-                            Prediction Summary
-                        </Text>
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
-
-                            {/* Current Average Weight */}
-                            <View style={{
-                                flex: 1, minWidth: '45%',
-                                backgroundColor: colors.surface,
-                                borderWidth: 1, borderColor: colors.stroke,
-                                borderRadius: 16, padding: 14,
-                                elevation: 1, shadowColor: colors.shadow, shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
-                            }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.textGrey }}>Avg Weight</Text>
-                                    <AniWeighIcon size={16} />
-                                </View>
-                                <Text style={[textStyles.h1, { fontSize: 22, color: activeColor }]}>
-                                    {latestAvgWeightKg !== null ? `${latestAvgWeightKg.toFixed(2)} kg` : `${effectiveBaseWeightKg.toFixed(2)} kg`}
-                                </Text>
-                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
-                                    {latestSession
-                                        ? `${latestSession.ordinal} Session${latestSession.farmDay !== null ? ` (Day ${latestSession.farmDay})` : ''}`
-                                        : weighSessions.length > 0
-                                            ? `Across ${weighSessions.length} logs`
-                                            : `Breed standard (Day ${currentAgeDays ?? 1})`}
-                                </Text>
-                            </View>
-
-                            {/* Daily Gain */}
-                            <View style={{
-                                flex: 1, minWidth: '45%',
-                                backgroundColor: colors.surface,
-                                borderWidth: 1, borderColor: colors.stroke,
-                                borderRadius: 16, padding: 14,
-                                elevation: 1, shadowColor: colors.shadow, shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
-                            }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.textGrey }}>Daily Gain</Text>
-                                    <MaterialIcons name="trending-up" size={16} color="#27AE60" />
-                                </View>
-                                <Text style={[textStyles.h1, { fontSize: 22, color: '#27AE60' }]}>
-                                    {`${dailyGainKg.toFixed(3)} kg`}
-                                </Text>
-                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
-                                    {isBenchmarkGain ? 'Breed standard / day' : 'Actual recorded ADG'}
-                                </Text>
-                            </View>
-
-                            {/* Days to Harvest */}
-                            <View style={{
-                                flex: 1, minWidth: '45%',
-                                backgroundColor: colors.surface,
-                                borderWidth: 1, borderColor: colors.stroke,
-                                borderRadius: 16, padding: 14,
-                                elevation: 1, shadowColor: colors.shadow, shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
-                            }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.textGrey }}>Days to Harvest</Text>
-                                    <MaterialIcons name="event" size={16} color={colors.prediction ?? '#8B5CF6'} />
-                                </View>
-                                <Text style={[textStyles.h1, { fontSize: 22, color: colors.prediction ?? '#8B5CF6' }]}>
-                                    {daysToHarvest === null ? '—' : daysToHarvest === 0 ? 'Ready' : `${daysToHarvest}d`}
-                                </Text>
-                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
-                                    Target: {harvestTargetKg} kg
-                                </Text>
-                            </View>
-
-                            {/* Survival Rate */}
-                            <View style={{
-                                flex: 1, minWidth: '45%',
-                                backgroundColor: colors.surface,
-                                borderWidth: 1, borderColor: colors.stroke,
-                                borderRadius: 16, padding: 14,
-                                elevation: 1, shadowColor: colors.shadow, shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
-                            }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.textGrey }}>Survival Rate</Text>
-                                    <MaterialIcons name="favorite" size={16} color="#EF4444" />
-                                </View>
-                                <Text style={[textStyles.h1, { fontSize: 22, color: survivalRate !== null && parseFloat(survivalRate) >= 90 ? '#27AE60' : '#EF4444' }]}>
-                                    {survivalRate !== null ? `${survivalRate}%` : '—'}
-                                </Text>
-                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
-                                    {selectedBatch ? `${selectedBatch.current_count}/${selectedBatch.estimated_count} heads` : '—'}
-                                </Text>
-                            </View>
+                        /* No Houses */
+                        <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
+                            <MaterialIcons name="home" size={48} color={colors.textGrey} />
+                            <Text style={[textStyles.h3, { color: colors.text, marginTop: 16, textAlign: 'center' }]}>No Houses Found</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
+                                No active {animalType === 'pig' ? 'pig' : 'chicken'} houses are registered on this farm yet.
+                            </Text>
                         </View>
-
-                        {/* ── Harvest Projection Card ────────────────────────── */}
-                        {estimatedHarvestDate !== null && (
-                            <View style={{
-                                backgroundColor: colors.surface,
-                                borderWidth: 1, borderColor: colors.stroke,
-                                borderRadius: 16, padding: 16, marginBottom: 24,
-                                flexDirection: 'row', alignItems: 'center', gap: 16,
-                                elevation: 1, shadowColor: colors.shadow, shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
-                            }}>
-                                <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: (colors.prediction ?? '#8B5CF6') + '1A', alignItems: 'center', justifyContent: 'center' }}>
-                                    <MaterialIcons name="calendar-today" size={24} color={colors.prediction ?? '#8B5CF6'} />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 13, color: colors.textGrey, marginBottom: 2 }}>
-                                        Estimated Harvest Date
-                                    </Text>
-                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
-                                        {daysToHarvest === 0 ? 'Harvest Ready Now' : formatDate(estimatedHarvestDate)}
-                                    </Text>
-                                    {currentAgeDays !== null && (
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
-                                            Current batch age: Day {currentAgeDays}
-                                            {currentFeedStage ? ` · ${currentFeedStage} stage` : ''}
-                                        </Text>
-                                    )}
-                                </View>
-                            </View>
-                        )}
-
-                        {/* ── Forecast Chart Section ─────────────────────────── */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
-                            <View style={{ flex: 1, minWidth: 150, marginRight: 8 }}>
-                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 0 }]}>
-                                    Weight Forecast &amp; Harvest Trajectory
-                                </Text>
-                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
-                                    {estimatedHarvestDate
-                                        ? `Estimated target completion: ${formatDate(estimatedHarvestDate)} (${daysToHarvest === 0 ? 'Harvest Ready Now' : `${daysToHarvest} days remaining`})`
-                                        : 'Simulated growth curve based on latest average daily gain.'}
-                                </Text>
-                            </View>
-
-                            {/* Timeframe Toggle */}
-                            <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2, flexShrink: 0 }}>
-                                {(['30 Days', '60 Days'] as const).map(tf => (
-                                    <TouchableOpacity
-                                        key={tf}
-                                        onPress={() => setTimeframe(tf)}
-                                        style={{
-                                            paddingHorizontal: 10,
-                                            paddingVertical: 5,
-                                            borderRadius: 6,
-                                            backgroundColor: timeframe === tf ? (colors.prediction ?? '#8B5CF6') + '1A' : 'transparent',
-                                        }}
-                                    >
-                                        <Text style={[textStyles.label, { color: timeframe === tf ? (colors.prediction ?? '#8B5CF6') : colors.textGrey, fontSize: 11, textAlign: 'center', textTransform: 'capitalize' }]}>
-                                            {tf}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
+                    ) : filteredBatches.length === 0 ? (
+                        /* No Batches */
+                        <View style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, padding: 32, alignItems: 'center', marginBottom: 24 }}>
+                            <MaterialIcons name="layers" size={48} color={colors.textGrey} />
+                            <Text style={[textStyles.h3, { color: colors.text, marginTop: 16, textAlign: 'center' }]}>No Active Batches</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
+                                No batches are currently registered in {selectedHousing?.name ?? 'this housing'}.
+                            </Text>
                         </View>
+                    ) : (
+                        <>
+                            {/* ── Key Prediction Metrics Grid ─────────────────────────── */}
+                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, marginBottom: 12 }]}>
+                                Prediction Summary
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
 
-                        {/* Quick Forecast Glance (Milestone Timeline Cards) */}
-                        {forecastMilestones.length > 0 && (
-                            <View style={{ marginTop: 12, marginBottom: 16 }}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text }}>
-                                        Quick Forecast Glance
-                                    </Text>
-                                    <View style={{
-                                        backgroundColor: (colors.prediction ?? '#8B5CF6') + '15',
-                                        paddingHorizontal: 8,
-                                        paddingVertical: 2,
-                                        borderRadius: 6,
-                                    }}>
-                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.prediction ?? '#8B5CF6' }}>
-                                            Target: {harvestTargetKg} kg
-                                        </Text>
+                                {/* Current Average Weight */}
+                                <View style={{
+                                    flex: 1, minWidth: '45%',
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1, borderColor: colors.stroke,
+                                    borderRadius: 16, padding: 14,
+                                    elevation: 1, shadowColor: colors.shadow, shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: activeColor, textTransform: 'uppercase' }}>Avg Weight</Text>
+                                        <AniWeighIcon size={16} />
                                     </View>
-                                </View>
-
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 2 }}>
-                                    {forecastMilestones.map((m, idx) => (
-                                        <View
-                                            key={idx}
-                                            style={{
-                                                width: 90,
-                                                backgroundColor: m.isTargetMet ? (colors.primary + '12') : colors.surface,
-                                                borderRadius: 12,
-                                                padding: 10,
-                                                borderWidth: 1,
-                                                borderColor: m.isTargetMet ? (colors.primary + '35') : colors.stroke,
-                                                alignItems: 'center',
-                                            }}
-                                        >
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 11, color: m.isTargetMet ? colors.primary : colors.text }}>
-                                                {m.shortLabel}
-                                            </Text>
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginBottom: 2 }}>
-                                                {m.dateStr}
-                                            </Text>
-                                            <Text style={[textStyles.h2, { fontSize: 15, color: m.isTargetMet ? colors.primary : colors.text, marginTop: 2, marginBottom: 0 }]}>
-                                                {m.weight.toFixed(2)}
-                                            </Text>
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey }}>
-                                                kg
-                                            </Text>
-                                            <View style={{
-                                                backgroundColor: m.isTargetMet ? (colors.primary + '20') : (colors.prediction ?? '#8B5CF6') + '15',
-                                                paddingHorizontal: 5,
-                                                paddingVertical: 2,
-                                                borderRadius: 4,
-                                                marginTop: 4,
-                                            }}>
-                                                <Text style={{
-                                                    fontFamily: 'Poppins-Medium',
-                                                    fontSize: 8,
-                                                    color: m.isTargetMet ? colors.primary : (colors.prediction ?? '#8B5CF6'),
-                                                }}>
-                                                    {m.isTargetMet ? 'Goal Met' : `${m.targetPct}%`}
-                                                </Text>
-                                            </View>
-                                        </View>
-                                    ))}
-                                </ScrollView>
-                            </View>
-                        )}
-
-                        {/* Forecast Line Chart Container */}
-                        <View style={{ alignItems: 'center', marginBottom: 16, alignSelf: 'stretch' }}>
-                            {weighSessions.length === 0 ? (
-                                <View style={{
-                                    width: '100%',
-                                    height: 200,
-                                    backgroundColor: colors.surface,
-                                    borderRadius: 20,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                }}>
-                                    <MaterialIcons name="show-chart" size={40} color={colors.stroke} style={{ marginBottom: 8 }} />
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 13, color: colors.textGrey, textAlign: 'center' }}>
-                                        No weight data available.{'\n'}Record weights to see projections.
+                                    <Text style={[textStyles.h1, { fontSize: 22, color: activeColor }]}>
+                                        {latestAvgWeightKg !== null ? `${latestAvgWeightKg.toFixed(2)} kg` : '—'}
+                                    </Text>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
+                                        {latestSession
+                                            ? `Latest (${Math.min(5, weighSessions.length)} sessions)`
+                                            : weighSessions.length > 0
+                                                ? `Across ${weighSessions.length} logs`
+                                                : '(no scale data)'}
                                     </Text>
                                 </View>
-                            ) : (
-                                <View style={{
-                                    borderRadius: 20,
-                                    backgroundColor: colors.surface,
-                                    paddingTop: 16,
-                                    paddingBottom: 4,
-                                    paddingRight: 16,
-                                    elevation: 4,
-                                    shadowColor: colors.shadow,
-                                    shadowOffset: { width: 0, height: 4 },
-                                    shadowOpacity: 0.1,
-                                    shadowRadius: 12,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    width: '100%',
-                                }}>
-                                {(() => {
-                                    const baseChartWidth = width - hPad * 2 - 18;
-                                    const pointSpacing = 68;
-                                    const forecastChartWidth = Math.max(baseChartWidth, forecastChartData.labels.length * pointSpacing);
-                                    const isScrollable = forecastChartWidth > baseChartWidth;
 
-                                    return (
-                                        <>
-                                            {isScrollable && (
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 16, marginBottom: 6 }}>
-                                                    <MaterialIcons name="swipe" size={14} color={colors.textGrey} />
-                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Scroll for full timeline</Text>
-                                                </View>
-                                            )}
-                                            <ScrollView
-                                                horizontal
-                                                showsHorizontalScrollIndicator={false}
-                                                contentContainerStyle={{ minWidth: baseChartWidth }}
-                                            >
-                                                <LineChart
-                                                    data={forecastChartData}
-                                                    width={forecastChartWidth}
-                                                    height={240}
-                                                    yAxisLabel=""
-                                                    yAxisSuffix="kg"
-                                                    withDots={true}
-                                                    withInnerLines={true}
-                                                    withOuterLines={false}
-                                                    withVerticalLines={false}
-                                                    withHorizontalLines={true}
-                                                    onDataPointClick={({ x, y, value, index }) => {
-                                                        if (value === 0 && index === 0) return;
-                                                        const pt = forecastChartData.detailedPoints?.[index];
-                                                        const label = pt ? pt.label : forecastChartData.labels?.[index] ?? `#${index + 1}`;
-                                                        setForecastTooltip(prev =>
-                                                            prev && Math.abs(prev.x - x) < 5 && Math.abs(prev.y - y) < 5 ? null : { x, y, value, label }
-                                                        );
-                                                    }}
-                                                    decorator={() => {
-                                                        if (!forecastTooltip) return null;
-                                                        const { x, y, value, label } = forecastTooltip;
-                                                        const tipW = 126;
-                                                        const tipH = 58;
-                                                        const offsetX = Math.max(6, Math.min(x - tipW / 2, forecastChartWidth - tipW - 6));
-                                                        const offsetY = y - tipH - 10 < 0 ? y + 10 : y - tipH - 10;
-                                                        const isTargetMet = value >= harvestTargetKg;
-                                                        return (
-                                                            <View
-                                                                pointerEvents="none"
+                                {/* Daily Gain */}
+                                <View style={{
+                                    flex: 1, minWidth: '45%',
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1, borderColor: colors.stroke,
+                                    borderRadius: 16, padding: 14,
+                                    elevation: 1, shadowColor: colors.shadow, shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: '#27AE60', textTransform: 'uppercase' }}>ADG</Text>
+                                        <MaterialIcons name="trending-up" size={16} color="#27AE60" />
+                                    </View>
+                                    <Text style={[textStyles.h1, { fontSize: 22, color: '#27AE60' }]}>
+                                        {dailyGainKg !== null ? `${dailyGainKg.toFixed(3)} kg` : '—'}
+                                    </Text>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
+                                        {dailyGainKg !== null ? 'Per animal / day' : 'Awaiting weighings'}
+                                    </Text>
+                                </View>
+
+                                {/* Days to Harvest */}
+                                <View style={{
+                                    flex: 1, minWidth: '45%',
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1, borderColor: colors.stroke,
+                                    borderRadius: 16, padding: 14,
+                                    elevation: 1, shadowColor: colors.shadow, shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: predictionColor, textTransform: 'uppercase' }}>To Harvest</Text>
+                                        <MaterialIcons name="event" size={16} color={predictionColor} />
+                                    </View>
+                                    <Text style={[textStyles.h1, { fontSize: 22, color: predictionColor }]}>
+                                        {daysToHarvest === null ? '—' : daysToHarvest === 0 ? 'Ready' : `${daysToHarvest}d`}
+                                    </Text>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
+                                        Target: {harvestTargetKg} kg{customTargetKg ? ' (custom)' : ''}
+                                    </Text>
+                                </View>
+
+                                {/* Survival Rate */}
+                                <View style={{
+                                    flex: 1, minWidth: '45%',
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1, borderColor: colors.stroke,
+                                    borderRadius: 16, padding: 14,
+                                    elevation: 1, shadowColor: colors.shadow, shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: survivalRate !== null && parseFloat(survivalRate) >= 90 ? '#27AE60' : '#EF4444', textTransform: 'uppercase' }}>Survival</Text>
+                                        <MaterialIcons name="favorite" size={16} color={survivalRate !== null && parseFloat(survivalRate) >= 90 ? '#27AE60' : '#EF4444'} />
+                                    </View>
+                                    <Text style={[textStyles.h1, { fontSize: 22, color: survivalRate !== null && parseFloat(survivalRate) >= 90 ? '#27AE60' : '#EF4444' }]}>
+                                        {survivalRate !== null ? `${survivalRate}%` : '—'}
+                                    </Text>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
+                                        {selectedBatch ? `${selectedBatch.current_count}/${selectedBatch.estimated_count} heads` : '—'}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {/* ── ESTIMATED HARVEST DATE BANNER (With Target Weight Customizer) ── */}
+                            {(estimatedHarvestDate !== null || selectedBatch !== null) && (
+                                <View style={{
+                                    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF',
+                                    borderWidth: 1.5,
+                                    borderColor: predictionColor + '35',
+                                    borderRadius: 16,
+                                    padding: 16,
+                                    marginBottom: 24,
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
+                                        <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: predictionColor + '18', alignItems: 'center', justifyContent: 'center' }}>
+                                            <MaterialIcons name="calendar-today" size={22} color={predictionColor} />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 11, color: colors.textGrey, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                                Estimated Harvest Date
+                                            </Text>
+                                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 19, marginTop: 2 }]}>
+                                                {effectiveBaseWeightKg === null
+                                                    ? 'Awaiting Initial Weighing Session'
+                                                    : daysToHarvest === 0
+                                                        ? 'Harvest Ready Now'
+                                                        : estimatedHarvestDate
+                                                            ? formatDate(estimatedHarvestDate)
+                                                            : 'Awaiting weigh-in data'}
+                                            </Text>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11.5, color: colors.textGrey, marginTop: 2 }}>
+                                                {effectiveBaseWeightKg === null
+                                                    ? 'Log live animal weights to generate an accurate, data-driven harvest forecast.'
+                                                    : currentAgeDays !== null
+                                                        ? `Current batch age: Day ${currentAgeDays}${currentFeedStage ? ` · ${currentFeedStage} stage` : ''}`
+                                                        : ''}
+                                            </Text>
+
+                                            {/* Inline Target Weight Editor */}
+                                            {selectedBatch && (
+                                                <View style={{ marginTop: 10, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                                                    {!isEditingTarget ? (
+                                                        <>
+                                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey }}>
+                                                                Harvest target:{' '}
+                                                                <Text style={{ fontFamily: 'Poppins-Bold', color: customTargetKg ? predictionColor : colors.text }}>
+                                                                    {harvestTargetKg} kg
+                                                                </Text>
+                                                            </Text>
+                                                            {customTargetKg ? (
+                                                                <View style={{ backgroundColor: predictionColor + '18', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                                                    <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 10, color: predictionColor }}>Custom</Text>
+                                                                </View>
+                                                            ) : (
+                                                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.textGrey }}>(Standard)</Text>
+                                                            )}
+                                                            <TouchableOpacity
+                                                                onPress={() => {
+                                                                    setIsEditingTarget(true);
+                                                                    setTargetInputValue(String(harvestTargetKg));
+                                                                }}
                                                                 style={{
-                                                                    position: 'absolute',
-                                                                    left: offsetX,
-                                                                    top: offsetY,
-                                                                    backgroundColor: '#182232',
-                                                                    borderRadius: 12,
-                                                                    paddingHorizontal: 10,
-                                                                    paddingVertical: 7,
-                                                                    width: tipW,
+                                                                    flexDirection: 'row',
                                                                     alignItems: 'center',
-                                                                    shadowColor: '#000',
-                                                                    shadowOffset: { width: 0, height: 4 },
-                                                                    shadowOpacity: 0.35,
-                                                                    shadowRadius: 8,
-                                                                    elevation: 10,
+                                                                    gap: 4,
+                                                                    backgroundColor: predictionColor + '15',
                                                                     borderWidth: 1,
-                                                                    borderColor: 'rgba(255, 255, 255, 0.12)',
-                                                                    zIndex: 999,
+                                                                    borderColor: predictionColor + '30',
+                                                                    paddingHorizontal: 8,
+                                                                    paddingVertical: 3,
+                                                                    borderRadius: 6,
                                                                 }}
                                                             >
-                                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 13, color: '#FFFFFF' }}>
-                                                                    {value.toFixed(2)} kg
+                                                                <MaterialIcons name="edit" size={13} color={predictionColor} />
+                                                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 11, color: predictionColor }}>Edit</Text>
+                                                            </TouchableOpacity>
+                                                        </>
+                                                    ) : (
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.textGrey }}>Target:</Text>
+                                                            <TouchableOpacity
+                                                                onPress={() => {
+                                                                    const step = animalType === 'pig' ? 1 : 0.1;
+                                                                    const min = animalType === 'pig' ? 50 : 0.5;
+                                                                    const cur = parseFloat(targetInputValue) || harvestTargetKg;
+                                                                    const nextVal = Math.max(min, parseFloat((cur - step).toFixed(1)));
+                                                                    setTargetInputValue(String(nextVal));
+                                                                }}
+                                                                style={{
+                                                                    width: 28, height: 28, borderRadius: 8,
+                                                                    borderWidth: 1.5, borderColor: colors.stroke,
+                                                                    backgroundColor: predictionColor + '12',
+                                                                    alignItems: 'center', justifyContent: 'center',
+                                                                }}
+                                                            >
+                                                                <MaterialIcons name="remove" size={16} color={predictionColor} />
+                                                            </TouchableOpacity>
+                                                            <TextInput
+                                                                value={targetInputValue}
+                                                                onChangeText={setTargetInputValue}
+                                                                keyboardType="numeric"
+                                                                style={{
+                                                                    width: 64,
+                                                                    paddingVertical: 3,
+                                                                    paddingHorizontal: 6,
+                                                                    borderRadius: 8,
+                                                                    borderWidth: 1.5,
+                                                                    borderColor: predictionColor,
+                                                                    backgroundColor: colors.surface,
+                                                                    color: colors.text,
+                                                                    fontSize: 13,
+                                                                    fontFamily: 'Poppins-Bold',
+                                                                    textAlign: 'center',
+                                                                }}
+                                                            />
+                                                            <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 12, color: colors.textGrey }}>kg</Text>
+                                                            <TouchableOpacity
+                                                                onPress={() => {
+                                                                    const step = animalType === 'pig' ? 1 : 0.1;
+                                                                    const max = animalType === 'pig' ? 130 : 3.5;
+                                                                    const cur = parseFloat(targetInputValue) || harvestTargetKg;
+                                                                    const nextVal = Math.min(max, parseFloat((cur + step).toFixed(1)));
+                                                                    setTargetInputValue(String(nextVal));
+                                                                }}
+                                                                style={{
+                                                                    width: 28, height: 28, borderRadius: 8,
+                                                                    borderWidth: 1.5, borderColor: colors.stroke,
+                                                                    backgroundColor: predictionColor + '12',
+                                                                    alignItems: 'center', justifyContent: 'center',
+                                                                }}
+                                                            >
+                                                                <MaterialIcons name="add" size={16} color={predictionColor} />
+                                                            </TouchableOpacity>
+                                                            <TouchableOpacity
+                                                                onPress={() => {
+                                                                    const val = parseFloat(targetInputValue);
+                                                                    if (!isNaN(val) && val > 0) saveHarvestTarget(val);
+                                                                }}
+                                                                disabled={isSavingTarget}
+                                                                style={{
+                                                                    paddingHorizontal: 10,
+                                                                    paddingVertical: 5,
+                                                                    borderRadius: 8,
+                                                                    backgroundColor: predictionColor,
+                                                                    opacity: isSavingTarget ? 0.6 : 1,
+                                                                }}
+                                                            >
+                                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 12, color: '#FFFFFF' }}>
+                                                                    {isSavingTarget ? 'Saving...' : 'Save'}
                                                                 </Text>
-                                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: '#94A3B8', textAlign: 'center' }}>
-                                                                    {label}
-                                                                </Text>
-                                                                <Text style={{
-                                                                    fontFamily: 'Poppins-SemiBold',
-                                                                    fontSize: 9,
-                                                                    color: isTargetMet ? '#34D399' : '#FBBF24',
-                                                                    marginTop: 2,
-                                                                }}>
-                                                                    {isTargetMet ? 'Goal Met' : `${(harvestTargetKg - value).toFixed(2)}kg to goal`}
-                                                                </Text>
-                                                            </View>
-                                                        );
-                                                    }}
-                                                    chartConfig={{
-                                                        backgroundColor: colors.surface,
-                                                        backgroundGradientFrom: colors.surface,
-                                                        backgroundGradientTo: colors.surface,
-                                                        decimalPlaces: 1,
-                                                        color: (opacity = 1) => colors.stroke,
-                                                        labelColor: (opacity = 1) => colors.textGrey,
-                                                        strokeWidth: 3,
-                                                        fillShadowGradientFrom: (colors as any).prediction ?? '#8B5CF6',
-                                                        fillShadowGradientFromOpacity: 0.2,
-                                                        fillShadowGradientTo: (colors as any).prediction ?? '#8B5CF6',
-                                                        fillShadowGradientToOpacity: 0.04,
-                                                        style: { borderRadius: 16 },
-                                                        propsForDots: {
-                                                            r: '4',
-                                                            strokeWidth: '2',
-                                                            stroke: colors.surface,
-                                                        },
-                                                    }}
-                                                    bezier
-                                                    style={{ borderRadius: 16 }}
-                                                />
-                                            </ScrollView>
-                                        </>
-                                    );
-                                })()}
-                                    {/* Legend */}
-                                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 8, paddingLeft: 16, paddingBottom: 6 }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.prediction ?? '#8B5CF6' }} />
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>Projected Weight</Text>
-                                        </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                            <View style={{ width: 10, height: 3, borderRadius: 2, backgroundColor: '#EF4444' }} />
-                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>Harvest Target ({harvestTargetKg} kg)</Text>
+                                                            </TouchableOpacity>
+                                                            <TouchableOpacity
+                                                                onPress={() => {
+                                                                    setIsEditingTarget(false);
+                                                                    setTargetInputValue(String(harvestTargetKg));
+                                                                }}
+                                                                disabled={isSavingTarget}
+                                                                style={{
+                                                                    paddingHorizontal: 8,
+                                                                    paddingVertical: 5,
+                                                                    borderRadius: 8,
+                                                                    borderWidth: 1,
+                                                                    borderColor: colors.stroke,
+                                                                }}
+                                                            >
+                                                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 12, color: colors.textGrey }}>Cancel</Text>
+                                                            </TouchableOpacity>
+                                                            {customTargetKg !== null && (
+                                                                <TouchableOpacity
+                                                                    onPress={resetToDefault}
+                                                                    disabled={isSavingTarget}
+                                                                    style={{
+                                                                        paddingHorizontal: 8,
+                                                                        paddingVertical: 5,
+                                                                        borderRadius: 8,
+                                                                        borderWidth: 1,
+                                                                        borderColor: '#EF444440',
+                                                                    }}
+                                                                >
+                                                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: '#EF4444' }}>Reset standard</Text>
+                                                                </TouchableOpacity>
+                                                            )}
+                                                        </View>
+                                                    )}
+                                                </View>
+                                            )}
                                         </View>
                                     </View>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey, textAlign: 'center', paddingBottom: 10, opacity: 0.7 }}>
-                                        Tap any point on the curve to inspect weight details
-                                    </Text>
                                 </View>
                             )}
-                        </View>
 
-                        {/* ── Projected Growth Trajectory Milestones Table (Synced with Web) ── */}
-                        {forecastMilestones.length > 0 && (
-                            <View style={{
-                                backgroundColor: colors.surface,
-                                borderRadius: 18,
-                                borderWidth: 1,
-                                borderColor: colors.stroke,
-                                padding: 16,
-                                marginBottom: 20,
-                                shadowColor: colors.shadow,
-                                shadowOffset: { width: 0, height: 2 },
-                                shadowOpacity: 0.06,
-                                shadowRadius: 6,
-                                elevation: 2,
-                            }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                    <View style={{ flex: 1, marginRight: 8 }}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text }}>
-                                            Projected Growth Trajectory Milestones
-                                        </Text>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
-                                            {timeframe} simulation with target variance
-                                        </Text>
-                                    </View>
-                                    <View style={{
-                                        backgroundColor: (colors.prediction ?? '#8B5CF6') + '15',
-                                        paddingHorizontal: 8,
-                                        paddingVertical: 3,
-                                        borderRadius: 6,
-                                    }}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10, color: colors.prediction ?? '#8B5CF6' }}>
-                                            Goal: {harvestTargetKg} kg
-                                        </Text>
-                                    </View>
-                                </View>
-
-                                {/* Table Column Header */}
+                            {/* ── DEDICATED MARKET-READY SHOWCASE CARD (When Target Met) ── */}
+                            {isHarvestReady && (
                                 <View style={{
-                                    flexDirection: 'row',
-                                    backgroundColor: colors.bgLight,
-                                    paddingVertical: 8,
-                                    paddingHorizontal: 10,
-                                    borderRadius: 8,
-                                    marginBottom: 4,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
+                                    backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : '#F0FDF4',
+                                    borderWidth: 1.5,
+                                    borderColor: '#10B98140',
+                                    borderRadius: 18,
+                                    padding: 20,
+                                    marginBottom: 24,
                                 }}>
-                                    <Text style={{ flex: 1.3, fontFamily: 'Poppins-SemiBold', fontSize: 10, color: colors.textGrey, textTransform: 'uppercase' }}>
-                                        Milestone
-                                    </Text>
-                                    <Text style={{ flex: 1.1, fontFamily: 'Poppins-SemiBold', fontSize: 10, color: colors.textGrey, textAlign: 'center', textTransform: 'uppercase' }}>
-                                        Projected
-                                    </Text>
-                                    <Text style={{ flex: 1, fontFamily: 'Poppins-SemiBold', fontSize: 10, color: colors.textGrey, textAlign: 'center', textTransform: 'uppercase' }}>
-                                        Target
-                                    </Text>
-                                    <Text style={{ flex: 1.1, fontFamily: 'Poppins-SemiBold', fontSize: 10, color: colors.textGrey, textAlign: 'right', textTransform: 'uppercase' }}>
-                                        Variance
-                                    </Text>
-                                </View>
+                                    {/* Top Tag & Status */}
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                                        <View style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            backgroundColor: '#10B98120',
+                                            borderColor: '#10B98140',
+                                            borderWidth: 1,
+                                            paddingHorizontal: 10,
+                                            paddingVertical: 4,
+                                            borderRadius: 20,
+                                        }}>
+                                            <MaterialIcons name="verified" size={15} color="#10B981" />
+                                            <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 11, color: '#10B981', textTransform: 'uppercase' }}>
+                                                Ready for Harvest
+                                            </Text>
+                                        </View>
+                                        <View style={{ backgroundColor: '#10B98118', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#10B98135' }}>
+                                            <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 11, color: '#10B981' }}>
+                                                100% Target Weight Fulfilled
+                                            </Text>
+                                        </View>
+                                    </View>
 
-                                {/* Table Rows */}
-                                {forecastMilestones.map((m, idx) => {
-                                    const isTargetMet = m.isTargetMet;
-                                    const varianceStr = m.diff >= 0 ? `+${m.diff.toFixed(2)}` : `${m.diff.toFixed(2)}`;
-                                    const isLast = idx === forecastMilestones.length - 1;
-                                    return (
-                                        <View
-                                            key={idx}
-                                            style={{
-                                                flexDirection: 'row',
-                                                alignItems: 'center',
-                                                paddingVertical: 9,
-                                                paddingHorizontal: 10,
-                                                borderBottomWidth: isLast ? 0 : 1,
-                                                borderBottomColor: colors.stroke,
-                                                backgroundColor: isTargetMet ? (colors.primary + '08') : 'transparent',
-                                                borderRadius: isTargetMet ? 6 : 0,
-                                            }}
-                                        >
-                                            <View style={{ flex: 1.3 }}>
-                                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11.5, color: colors.text }}>
-                                                    {m.label}
-                                                </Text>
+                                    {/* Hero Section */}
+                                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
+                                        <View style={{
+                                            width: 54,
+                                            height: 54,
+                                            borderRadius: 27,
+                                            backgroundColor: '#10B98122',
+                                            borderWidth: 2,
+                                            borderColor: '#10B98145',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            flexShrink: 0,
+                                        }}>
+                                            <MaterialIcons name="task-alt" size={32} color="#10B981" />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[textStyles.h2, { fontSize: 18, color: colors.text, marginBottom: 4 }]}>
+                                                Batch is Ready for Harvest!
+                                            </Text>
+                                            <Text style={[textStyles.body, { fontSize: 13, color: colors.textGrey, lineHeight: 19 }]}>
+                                                <Text style={{ fontFamily: 'Poppins-Bold' }}>{selectedBatch?.name}</Text> has achieved an average weight of{' '}
+                                                <Text style={{ fontFamily: 'Poppins-Bold', color: '#10B981' }}>{effectiveBaseWeightKg?.toFixed(2)} kg</Text>, successfully meeting and exceeding the target weight of{' '}
+                                                <Text style={{ fontFamily: 'Poppins-Bold' }}>{harvestTargetKg.toFixed(2)} kg</Text>. The cohort is in optimal market-ready condition for sales.
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    {/* 4 Stat Highlights Grid */}
+                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+                                        {/* Current Avg Weight */}
+                                        <View style={{ flex: 1, minWidth: '45%', backgroundColor: colors.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                                <MaterialIcons name="scale" size={16} color="#10B981" />
+                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 10, color: colors.textGrey, textTransform: 'uppercase' }}>Avg Weight</Text>
                                             </View>
-                                            <View style={{ flex: 1.1, alignItems: 'center' }}>
-                                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: isTargetMet ? colors.primary : colors.text }}>
-                                                    {m.weight.toFixed(2)} kg
-                                                </Text>
+                                            <Text style={[textStyles.h2, { fontSize: 19, color: '#10B981' }]}>
+                                                {effectiveBaseWeightKg?.toFixed(2)} <Text style={{ fontSize: 12 }}>kg</Text>
+                                            </Text>
+                                            <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 10, color: '#10B981', marginTop: 2 }}>
+                                                +{Math.max(0, (effectiveBaseWeightKg ?? 0) - harvestTargetKg).toFixed(2)} kg over target
+                                            </Text>
+                                        </View>
+
+                                        {/* Harvest Target */}
+                                        <View style={{ flex: 1, minWidth: '45%', backgroundColor: colors.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                                <MaterialIcons name="flag" size={16} color={colors.primary} />
+                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 10, color: colors.textGrey, textTransform: 'uppercase' }}>Target</Text>
                                             </View>
-                                            <View style={{ flex: 1, alignItems: 'center' }}>
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11.5, color: colors.textGrey }}>
-                                                    {harvestTargetKg.toFixed(2)} kg
-                                                </Text>
+                                            <Text style={[textStyles.h2, { fontSize: 19, color: colors.text }]}>
+                                                {harvestTargetKg.toFixed(2)} <Text style={{ fontSize: 12 }}>kg</Text>
+                                            </Text>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey, marginTop: 2 }}>
+                                                Commercial goal
+                                            </Text>
+                                        </View>
+
+                                        {/* Active Heads */}
+                                        <View style={{ flex: 1, minWidth: '45%', backgroundColor: colors.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                                <AnimalIcon type={animalType} size={16} color="#3B82F6" />
+                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 10, color: colors.textGrey, textTransform: 'uppercase' }}>Heads</Text>
                                             </View>
-                                            <View style={{ flex: 1.1, alignItems: 'flex-end' }}>
+                                            <Text style={[textStyles.h2, { fontSize: 19, color: colors.text }]}>
+                                                {selectedBatch?.current_count ?? 0} <Text style={{ fontSize: 12 }}>heads</Text>
+                                            </Text>
+                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10, color: '#3B82F6', marginTop: 2 }}>
+                                                {survivalRate !== null ? `${survivalRate}% survival` : 'Active cohort'}
+                                            </Text>
+                                        </View>
+
+                                        {/* Cohort Age */}
+                                        <View style={{ flex: 1, minWidth: '45%', backgroundColor: colors.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                                <MaterialIcons name="calendar-month" size={16} color="#F59E0B" />
+                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 10, color: colors.textGrey, textTransform: 'uppercase' }}>Age &amp; Stage</Text>
+                                            </View>
+                                            <Text style={[textStyles.h2, { fontSize: 19, color: colors.text }]}>
+                                                Day {currentAgeDays ?? '—'}
+                                            </Text>
+                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10, color: '#F59E0B', marginTop: 2 }}>
+                                                {currentFeedStage ?? 'Market Finisher'}
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Advice Box */}
+                                    <View style={{
+                                        flexDirection: 'row',
+                                        gap: 10,
+                                        alignItems: 'center',
+                                        backgroundColor: '#10B98118',
+                                        borderWidth: 1,
+                                        borderColor: '#10B98130',
+                                        borderRadius: 12,
+                                        padding: 12,
+                                    }}>
+                                        <MaterialIcons name="lightbulb" size={20} color="#10B981" />
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: '#10B981', flex: 1, lineHeight: 17 }}>
+                                            Harvest Window Open: The cohort has met commercial weight. Plan harvest and market transport within the next 2–5 days to maximize feed-to-profit conversion.
+                                        </Text>
+                                    </View>
+                                </View>
+                            )}
+
+                            {/* ── Forecast Chart Section (Hidden when harvest ready) ── */}
+                            {!isHarvestReady && (
+                                <>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+                                        <View style={{ flex: 1, minWidth: 150, marginRight: 8 }}>
+                                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 0 }]}>
+                                                Weight Forecast &amp; Harvest Trajectory
+                                            </Text>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2 }}>
+                                                {daysToHarvest === 0
+                                                    ? 'Target fulfilled — ready for commercial harvest.'
+                                                    : estimatedHarvestDate
+                                                        ? `Estimated target completion: ${formatDate(estimatedHarvestDate)} (${daysToHarvest} days remaining)`
+                                                        : 'Growth trajectory based on latest daily gain.'}
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Quick Forecast Glance (Milestone Timeline Cards) */}
+                                    {forecastMilestones.length > 0 && (
+                                        <View style={{ marginTop: 10, marginBottom: 16 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text }}>
+                                                    Projected Growth Milestones
+                                                </Text>
                                                 <View style={{
-                                                    backgroundColor: isTargetMet ? '#27AE6018' : '#EF444415',
-                                                    paddingHorizontal: 6,
+                                                    backgroundColor: predictionColor + '15',
+                                                    paddingHorizontal: 8,
                                                     paddingVertical: 2,
-                                                    borderRadius: 4,
+                                                    borderRadius: 6,
                                                 }}>
-                                                    <Text style={{
-                                                        fontFamily: 'Poppins-SemiBold',
-                                                        fontSize: 10,
-                                                        color: isTargetMet ? '#27AE60' : '#EF4444',
-                                                    }}>
-                                                        {varianceStr} kg
+                                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: predictionColor }}>
+                                                        Goal: {harvestTargetKg} kg
                                                     </Text>
                                                 </View>
                                             </View>
-                                        </View>
-                                    );
-                                })}
-                            </View>
-                        )}
 
-                        {/* ── What Is Happening Now & What To Expect (Factor Analysis Card) ── */}
-                        {factorAnalysis && (
+                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 2 }}>
+                                                {forecastMilestones.map((m, idx) => (
+                                                    <View
+                                                        key={idx}
+                                                        style={{
+                                                            width: 96,
+                                                            backgroundColor: m.isTargetMet ? (colors.primary + '12') : colors.surface,
+                                                            borderRadius: 12,
+                                                            padding: 10,
+                                                            borderWidth: 1,
+                                                            borderColor: m.isTargetMet ? (colors.primary + '35') : colors.stroke,
+                                                            alignItems: 'center',
+                                                        }}
+                                                    >
+                                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 11, color: m.isTargetMet ? colors.primary : colors.text }}>
+                                                            {m.shortLabel}
+                                                        </Text>
+                                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginBottom: 2 }}>
+                                                            {m.dateStr}
+                                                        </Text>
+                                                        <Text style={[textStyles.h2, { fontSize: 15, color: m.isTargetMet ? colors.primary : colors.text, marginTop: 2, marginBottom: 0 }]}>
+                                                            {m.weight.toFixed(2)}
+                                                        </Text>
+                                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey }}>
+                                                            kg
+                                                        </Text>
+                                                        <View style={{
+                                                            backgroundColor: m.isTargetMet ? (colors.primary + '20') : predictionColor + '15',
+                                                            paddingHorizontal: 5,
+                                                            paddingVertical: 2,
+                                                            borderRadius: 4,
+                                                            marginTop: 4,
+                                                        }}>
+                                                            <Text style={{
+                                                                fontFamily: 'Poppins-Medium',
+                                                                fontSize: 8,
+                                                                color: m.isTargetMet ? colors.primary : predictionColor,
+                                                            }}>
+                                                                {m.isTargetMet ? 'Goal Met' : `${m.targetPct}%`}
+                                                            </Text>
+                                                        </View>
+                                                    </View>
+                                                ))}
+                                            </ScrollView>
+                                        </View>
+                                    )}
+
+                                    {/* Forecast Line Chart Container */}
+                                    <View style={{ alignItems: 'center', marginBottom: 20, alignSelf: 'stretch' }}>
+                                        {effectiveBaseWeightKg === null ? (
+                                            <View style={{
+                                                width: '100%',
+                                                height: 180,
+                                                backgroundColor: colors.surface,
+                                                borderRadius: 20,
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                                justifyContent: 'center',
+                                                alignItems: 'center',
+                                                padding: 20,
+                                            }}>
+                                                <MaterialIcons name="show-chart" size={40} color={colors.stroke} style={{ marginBottom: 8 }} />
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 13, color: colors.textGrey, textAlign: 'center' }}>
+                                                    No weight data available.{'\n'}Record weighings to view forecast curve.
+                                                </Text>
+                                            </View>
+                                        ) : (
+                                            <View style={{
+                                                borderRadius: 20,
+                                                backgroundColor: colors.surface,
+                                                paddingTop: 16,
+                                                paddingBottom: 4,
+                                                paddingRight: 16,
+                                                elevation: 2,
+                                                shadowColor: colors.shadow,
+                                                shadowOffset: { width: 0, height: 2 },
+                                                shadowOpacity: 0.1,
+                                                shadowRadius: 8,
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                                width: '100%',
+                                            }}>
+                                            {(() => {
+                                                const baseChartWidth = width - hPad * 2 - 18;
+                                                const pointSpacing = 68;
+                                                const forecastChartWidth = Math.max(baseChartWidth, forecastChartData.labels.length * pointSpacing);
+                                                const isScrollable = forecastChartWidth > baseChartWidth;
+
+                                                return (
+                                                    <>
+                                                        {isScrollable && (
+                                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 16, marginBottom: 6 }}>
+                                                                <MaterialIcons name="swipe" size={14} color={colors.textGrey} />
+                                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Scroll for full timeline</Text>
+                                                            </View>
+                                                        )}
+                                                        <ScrollView
+                                                            horizontal
+                                                            showsHorizontalScrollIndicator={false}
+                                                            contentContainerStyle={{ minWidth: baseChartWidth }}
+                                                        >
+                                                            <LineChart
+                                                                data={forecastChartData}
+                                                                width={forecastChartWidth}
+                                                                height={230}
+                                                                yAxisLabel=""
+                                                                yAxisSuffix="kg"
+                                                                withDots={true}
+                                                                withInnerLines={true}
+                                                                withOuterLines={false}
+                                                                withVerticalLines={false}
+                                                                withHorizontalLines={true}
+                                                                onDataPointClick={({ x, y, value, index }) => {
+                                                                    if (value === 0 && index === 0) return;
+                                                                    const pt = forecastChartData.detailedPoints?.[index];
+                                                                    const label = pt ? pt.label : forecastChartData.labels?.[index] ?? `#${index + 1}`;
+                                                                    setForecastTooltip(prev =>
+                                                                        prev && Math.abs(prev.x - x) < 5 && Math.abs(prev.y - y) < 5 ? null : { x, y, value, label }
+                                                                    );
+                                                                }}
+                                                                decorator={() => {
+                                                                    if (!forecastTooltip) return null;
+                                                                    const { x, y, value, label } = forecastTooltip;
+                                                                    const tipW = 126;
+                                                                    const tipH = 58;
+                                                                    const offsetX = Math.max(6, Math.min(x - tipW / 2, forecastChartWidth - tipW - 6));
+                                                                    const offsetY = y - tipH - 10 < 0 ? y + 10 : y - tipH - 10;
+                                                                    const isTargetMet = value >= harvestTargetKg;
+                                                                    return (
+                                                                        <View
+                                                                            pointerEvents="none"
+                                                                            style={{
+                                                                                position: 'absolute',
+                                                                                left: offsetX,
+                                                                                top: offsetY,
+                                                                                backgroundColor: '#182232',
+                                                                                borderRadius: 12,
+                                                                                paddingHorizontal: 10,
+                                                                                paddingVertical: 7,
+                                                                                width: tipW,
+                                                                                alignItems: 'center',
+                                                                                shadowColor: '#000',
+                                                                                shadowOffset: { width: 0, height: 4 },
+                                                                                shadowOpacity: 0.35,
+                                                                                shadowRadius: 8,
+                                                                                elevation: 10,
+                                                                                borderWidth: 1,
+                                                                                borderColor: 'rgba(255, 255, 255, 0.12)',
+                                                                                zIndex: 999,
+                                                                            }}
+                                                                        >
+                                                                            <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 13, color: '#FFFFFF' }}>
+                                                                                {value.toFixed(2)} kg
+                                                                            </Text>
+                                                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: '#94A3B8', textAlign: 'center' }}>
+                                                                                {label}
+                                                                            </Text>
+                                                                            <Text style={{
+                                                                                fontFamily: 'Poppins-SemiBold',
+                                                                                fontSize: 9,
+                                                                                color: isTargetMet ? '#34D399' : '#FBBF24',
+                                                                                marginTop: 2,
+                                                                            }}>
+                                                                                {isTargetMet ? 'Goal Met' : `${(harvestTargetKg - value).toFixed(2)}kg to goal`}
+                                                                            </Text>
+                                                                        </View>
+                                                                    );
+                                                                }}
+                                                                chartConfig={{
+                                                                    backgroundColor: colors.surface,
+                                                                    backgroundGradientFrom: colors.surface,
+                                                                    backgroundGradientTo: colors.surface,
+                                                                    decimalPlaces: 1,
+                                                                    color: (opacity = 1) => colors.stroke,
+                                                                    labelColor: (opacity = 1) => colors.textGrey,
+                                                                    strokeWidth: 3,
+                                                                    fillShadowGradientFrom: predictionColor,
+                                                                    fillShadowGradientFromOpacity: 0.2,
+                                                                    fillShadowGradientTo: predictionColor,
+                                                                    fillShadowGradientToOpacity: 0.04,
+                                                                    style: { borderRadius: 16 },
+                                                                    propsForDots: {
+                                                                        r: '4',
+                                                                        strokeWidth: '2',
+                                                                        stroke: colors.surface,
+                                                                    },
+                                                                }}
+                                                                bezier
+                                                                style={{ borderRadius: 16 }}
+                                                            />
+                                                        </ScrollView>
+                                                    </>
+                                                );
+                                            })()}
+                                                {/* Legend */}
+                                                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 8, paddingLeft: 16, paddingBottom: 6 }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: predictionColor }} />
+                                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>Projected Weight</Text>
+                                                    </View>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                        <View style={{ width: 10, height: 3, borderRadius: 2, backgroundColor: '#EF4444' }} />
+                                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>Harvest Target ({harvestTargetKg} kg)</Text>
+                                                    </View>
+                                                </View>
+                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey, textAlign: 'center', paddingBottom: 10, opacity: 0.7 }}>
+                                                    Tap any point on the curve to inspect weight details
+                                                </Text>
+                                            </View>
+                                        )}
+                                    </View>
+
+                                    {/* ── Projected Growth Trajectory Milestones Table ── */}
+                                    {forecastMilestones.length > 0 && (
+                                        <View style={{
+                                            backgroundColor: colors.surface,
+                                            borderRadius: 18,
+                                            borderWidth: 1,
+                                            borderColor: colors.stroke,
+                                            padding: 16,
+                                            marginBottom: 20,
+                                            shadowColor: colors.shadow,
+                                            shadowOffset: { width: 0, height: 2 },
+                                            shadowOpacity: 0.06,
+                                            shadowRadius: 6,
+                                            elevation: 2,
+                                        }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                                                <View style={{ flex: 1, marginRight: 8 }}>
+                                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text }}>
+                                                        Projected Growth Trajectory Milestones
+                                                    </Text>
+                                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                                        Estimated {daysToHarvest}-day trajectory to {harvestTargetKg} kg target
+                                                    </Text>
+                                                </View>
+                                                <View style={{
+                                                    backgroundColor: predictionColor + '15',
+                                                    paddingHorizontal: 8,
+                                                    paddingVertical: 3,
+                                                    borderRadius: 6,
+                                                }}>
+                                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10, color: predictionColor }}>
+                                                        Goal: {harvestTargetKg} kg
+                                                    </Text>
+                                                </View>
+                                            </View>
+
+                                            {/* Table Column Header */}
+                                            <View style={{
+                                                flexDirection: 'row',
+                                                backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F9FAFB',
+                                                paddingVertical: 8,
+                                                paddingHorizontal: 10,
+                                                borderRadius: 8,
+                                                marginBottom: 4,
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                            }}>
+                                                <Text style={{ flex: 1.4, fontFamily: 'Poppins-Bold', fontSize: 10, color: colors.textGrey, textTransform: 'uppercase' }}>Milestone</Text>
+                                                <Text style={{ flex: 1, fontFamily: 'Poppins-Bold', fontSize: 10, color: colors.textGrey, textAlign: 'center', textTransform: 'uppercase' }}>Projected</Text>
+                                                <Text style={{ flex: 1, fontFamily: 'Poppins-Bold', fontSize: 10, color: colors.textGrey, textAlign: 'center', textTransform: 'uppercase' }}>Target</Text>
+                                                <Text style={{ flex: 1.2, fontFamily: 'Poppins-Bold', fontSize: 10, color: colors.textGrey, textAlign: 'right', textTransform: 'uppercase' }}>Variance</Text>
+                                            </View>
+
+                                            {/* Rows */}
+                                            {forecastMilestones.map((m, idx) => {
+                                                const isTargetMet = m.isTargetMet;
+                                                const varianceStr = m.diff >= 0 ? `+${m.diff.toFixed(2)}` : `${m.diff.toFixed(2)}`;
+                                                const isLast = idx === forecastMilestones.length - 1;
+
+                                                return (
+                                                    <View
+                                                        key={idx}
+                                                        style={{
+                                                            flexDirection: 'row',
+                                                            alignItems: 'center',
+                                                            paddingVertical: 10,
+                                                            paddingHorizontal: 10,
+                                                            borderBottomWidth: isLast ? 0 : 1,
+                                                            borderBottomColor: colors.stroke,
+                                                            backgroundColor: isTargetMet ? (colors.primary + '08') : 'transparent',
+                                                        }}
+                                                    >
+                                                        <Text style={{ flex: 1.4, fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
+                                                            {m.label}
+                                                        </Text>
+                                                        <Text style={{ flex: 1, fontFamily: 'Poppins-Bold', fontSize: 12, color: isTargetMet ? colors.primary : colors.text, textAlign: 'center' }}>
+                                                            {m.weight.toFixed(2)} kg
+                                                        </Text>
+                                                        <Text style={{ flex: 1, fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, textAlign: 'center' }}>
+                                                            {harvestTargetKg.toFixed(2)} kg
+                                                        </Text>
+                                                        <View style={{ flex: 1.2, alignItems: 'flex-end' }}>
+                                                            <View style={{
+                                                                backgroundColor: isTargetMet ? '#27AE6018' : '#EF444415',
+                                                                paddingHorizontal: 6,
+                                                                paddingVertical: 2,
+                                                                borderRadius: 4,
+                                                            }}>
+                                                                <Text style={{
+                                                                    fontFamily: 'Poppins-Bold',
+                                                                    fontSize: 10,
+                                                                    color: isTargetMet ? '#27AE60' : '#EF4444',
+                                                                }}>
+                                                                    {isTargetMet ? (m.diff === 0 ? 'Goal Met' : `${varianceStr}kg`) : `${varianceStr}kg`}
+                                                                </Text>
+                                                            </View>
+                                                        </View>
+                                                    </View>
+                                                );
+                                            })}
+                                        </View>
+                                    )}
+                                </>
+                            )}
+
+                            {/* ── Factor Analysis: What Is Happening Now & What To Expect ── */}
+                            {factorAnalysis && (
+                                <View style={{
+                                    backgroundColor: colors.surface,
+                                    borderRadius: 18,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    padding: 16,
+                                    marginBottom: 20,
+                                    elevation: 2,
+                                    shadowColor: colors.shadow,
+                                    shadowOffset: { width: 0, height: 2 },
+                                    shadowOpacity: 0.06,
+                                    shadowRadius: 6,
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                                        <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: predictionColor + '18', alignItems: 'center', justifyContent: 'center' }}>
+                                            <MaterialIcons name="insights" size={18} color={predictionColor} />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 14, color: colors.text }}>
+                                                What Is Happening Now &amp; What To Expect
+                                            </Text>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                                Real-world factors shaping your flock's growth trajectory
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    {/* 4 Factor Cards */}
+                                    <View style={{ gap: 10, marginBottom: 14 }}>
+                                        {/* Factor 1: Growth & Gain */}
+                                        <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : '#F9FAFB', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                                <MaterialIcons name="trending-up" size={16} color="#27AE60" />
+                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 12, color: colors.text }}>
+                                                    {factorAnalysis.growthHeading}
+                                                </Text>
+                                            </View>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, lineHeight: 16 }}>
+                                                {factorAnalysis.growthText}
+                                            </Text>
+                                        </View>
+
+                                        {/* Factor 2: Feed & Nutrition */}
+                                        <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : '#F9FAFB', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                                <MaterialIcons name="restaurant" size={16} color={colors.secondary} />
+                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 12, color: colors.text }}>
+                                                    {factorAnalysis.feedHeading}
+                                                </Text>
+                                            </View>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, lineHeight: 16 }}>
+                                                {factorAnalysis.feedText}
+                                            </Text>
+                                        </View>
+
+                                        {/* Factor 3: Flock Health & Uniformity */}
+                                        <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : '#F9FAFB', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                                <MaterialIcons name="health-and-safety" size={16} color="#3B82F6" />
+                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 12, color: colors.text }}>
+                                                    {factorAnalysis.healthHeading}
+                                                </Text>
+                                            </View>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, lineHeight: 16 }}>
+                                                {factorAnalysis.healthText}
+                                            </Text>
+                                        </View>
+
+                                        {/* Factor 4: Barn Climate & Comfort */}
+                                        <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : '#F9FAFB', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                                <MaterialIcons name="wb-sunny" size={16} color="#F59E0B" />
+                                                <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 12, color: colors.text }}>
+                                                    {factorAnalysis.envHeading}
+                                                </Text>
+                                            </View>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, lineHeight: 16 }}>
+                                                {factorAnalysis.envText}
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Action Recommendation Banner */}
+                                    <View style={{
+                                        flexDirection: 'row',
+                                        gap: 10,
+                                        alignItems: 'center',
+                                        backgroundColor: factorAnalysis.isTargetMet ? (colors.primary + '12') : (predictionColor + '12'),
+                                        borderWidth: 1,
+                                        borderColor: factorAnalysis.isTargetMet ? (colors.primary + '30') : (predictionColor + '30'),
+                                        borderRadius: 12,
+                                        padding: 12,
+                                    }}>
+                                        <MaterialIcons name="lightbulb" size={20} color={factorAnalysis.isTargetMet ? colors.primary : predictionColor} />
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 11.5, color: factorAnalysis.isTargetMet ? colors.primary : predictionColor, flex: 1, lineHeight: 16 }}>
+                                            {factorAnalysis.actionRecommendation}
+                                        </Text>
+                                    </View>
+                                </View>
+                            )}
+
+                            {/* ── Batch Overview (Total Heads) ─────────────────────────── */}
                             <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
                                 backgroundColor: colors.surface,
-                                borderRadius: 18,
                                 borderWidth: 1,
                                 borderColor: colors.stroke,
+                                borderRadius: 16,
                                 padding: 16,
-                                shadowColor: colors.shadow,
-                                shadowOffset: { width: 0, height: 3 },
-                                shadowOpacity: 0.08,
-                                shadowRadius: 8,
-                                elevation: 2,
                                 marginBottom: 24,
+                                gap: 12,
+                                elevation: 1,
+                                shadowColor: colors.shadow,
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.5,
+                                shadowRadius: 4,
                             }}>
-                                {/* Header */}
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                                    <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: (colors.prediction ?? '#8B5CF6') + '18', alignItems: 'center', justifyContent: 'center' }}>
-                                        <MaterialIcons name="insights" size={20} color={colors.prediction ?? '#8B5CF6'} />
+                                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: activeColor + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12, flexShrink: 0 }}>
+                                        <AnimalIcon
+                                            type={animalType}
+                                            size={22}
+                                            color={activeColor}
+                                        />
                                     </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.text }}>
-                                            What Is Happening Now & What To Expect
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text numberOfLines={1} style={[textStyles.body, { color: colors.textGrey, fontSize: 12, lineHeight: 16 }]}>
+                                            {selectedBatch?.name ?? 'Batch'}
                                         </Text>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
-                                            Real-world factors shaping your flock's growth trajectory
-                                        </Text>
-                                    </View>
-                                </View>
-
-                                {/* 4 Factor Sections */}
-                                <View style={{ gap: 10, marginBottom: 14 }}>
-                                    {/* Factor 1: Growth & Gain */}
-                                    <View style={{ backgroundColor: colors.bgLight, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                            <MaterialIcons name="trending-up" size={16} color="#27AE60" />
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
-                                                {factorAnalysis.growthHeading}
-                                            </Text>
-                                        </View>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, lineHeight: 17 }}>
-                                            {factorAnalysis.growthText}
-                                        </Text>
-                                    </View>
-
-                                    {/* Factor 2: Feed & Nutrition */}
-                                    <View style={{ backgroundColor: colors.bgLight, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                            <MaterialIcons name="restaurant" size={16} color={colors.secondary} />
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
-                                                {factorAnalysis.feedHeading}
-                                            </Text>
-                                        </View>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, lineHeight: 17 }}>
-                                            {factorAnalysis.feedText}
-                                        </Text>
-                                    </View>
-
-                                    {/* Factor 3: Flock Health & Uniformity */}
-                                    <View style={{ backgroundColor: colors.bgLight, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                            <MaterialIcons name="health-and-safety" size={16} color="#3B82F6" />
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
-                                                {factorAnalysis.healthHeading}
-                                            </Text>
-                                        </View>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, lineHeight: 17 }}>
-                                            {factorAnalysis.healthText}
-                                        </Text>
-                                    </View>
-
-                                    {/* Factor 4: Environment & Housing */}
-                                    <View style={{ backgroundColor: colors.bgLight, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                            <MaterialIcons name="wb-sunny" size={16} color="#F59E0B" />
-                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text }}>
-                                                {factorAnalysis.envHeading}
-                                            </Text>
-                                        </View>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, lineHeight: 17 }}>
-                                            {factorAnalysis.envText}
+                                        <Text numberOfLines={1} style={[textStyles.h3, { color: colors.text, fontSize: 14, lineHeight: 19 }]}>
+                                            {animalType === 'pig' ? 'Pigs' : 'Chickens'} · {selectedHousing?.name ?? '—'}
                                         </Text>
                                     </View>
                                 </View>
-
-                                {/* Harvest & Action Recommendation Banner */}
-                                <View style={{
-                                    flexDirection: 'row',
-                                    gap: 10,
-                                    alignItems: 'center',
-                                    backgroundColor: factorAnalysis.isTargetMet ? (colors.primary + '12') : ((colors.prediction ?? '#8B5CF6') + '12'),
-                                    borderWidth: 1,
-                                    borderColor: factorAnalysis.isTargetMet ? (colors.primary + '30') : ((colors.prediction ?? '#8B5CF6') + '30'),
-                                    borderRadius: 12,
-                                    padding: 12,
-                                }}>
-                                    <MaterialIcons
-                                        name="lightbulb"
-                                        size={20}
-                                        color={factorAnalysis.isTargetMet ? colors.primary : (colors.prediction ?? '#8B5CF6')}
-                                    />
-                                    <Text style={{
-                                        fontFamily: 'Poppins-Medium',
-                                        fontSize: 12,
-                                        color: factorAnalysis.isTargetMet ? colors.primary : (colors.prediction ?? '#8B5CF6'),
-                                        flex: 1,
-                                        lineHeight: 18,
-                                    }}>
-                                        {factorAnalysis.actionRecommendation}
+                                <View style={{ alignItems: 'flex-end', flexShrink: 0, minWidth: 48 }}>
+                                    <Text style={[textStyles.h1, { color: activeColor, fontSize: 26, lineHeight: 30 }]}>
+                                        {selectedBatch?.current_count ?? 0}
                                     </Text>
+                                    <Text numberOfLines={1} style={[textStyles.label, { color: activeColor, fontSize: 11, opacity: 0.8 }]}>Heads</Text>
                                 </View>
                             </View>
-                        )}
 
-                        {/* ── Batch Overview (Total Heads) ─────────────────────────── */}
-                        <View style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            backgroundColor: colors.surface,
-                            borderWidth: 1,
-                            borderColor: colors.stroke,
-                            borderRadius: 16,
-                            padding: 16,
-                            marginBottom: 24,
-                            marginTop: 12,
-                            gap: 12,
-                            elevation: 1,
-                            shadowColor: colors.shadow,
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.5,
-                            shadowRadius: 4,
-                        }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: activeColor + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12, flexShrink: 0 }}>
-                                    <Image
-                                        source={require('../../assets/icons/animals-filled.svg')}
-                                        style={{ width: 22, height: 22 }}
-                                        contentFit="contain"
-                                    />
-                                </View>
-                                <View style={{ flex: 1, minWidth: 0 }}>
-                                    <Text numberOfLines={1} style={[textStyles.body, { color: colors.textGrey, fontSize: 12, lineHeight: 16 }]}>
-                                        {selectedBatch?.name ?? 'Batch'}
-                                    </Text>
-                                    <Text numberOfLines={1} style={[textStyles.h3, { color: colors.text, fontSize: 14, lineHeight: 19 }]}>
-                                        {animalType === 'pig' ? 'Pigs' : 'Chickens'} · {selectedHousing?.name ?? '—'}
-                                    </Text>
-                                </View>
-                            </View>
-                            <View style={{ alignItems: 'flex-end', flexShrink: 0, minWidth: 48 }}>
-                                <Text style={[textStyles.h1, { color: activeColor, fontSize: 26, lineHeight: 30 }]}>
-                                    {selectedBatch?.current_count ?? 0}
-                                </Text>
-                                <Text numberOfLines={1} style={[textStyles.label, { color: activeColor, fontSize: 11, opacity: 0.8 }]}>Heads</Text>
-                            </View>
-                        </View>
-
-                        {/* AI Insight */}
-                        <AIInsightCard
-                            title="AniBot Prediction"
-                            category="prediction_report"
-                            farmId={farmId}
-                            subKey={selectedBatchId ? `${selectedBatchId}_${animalType}` : (selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType)}
-                            staticContent={getInsightText()}
-                            context={{
-                                type: 'animal',
-                                animalType,
-                                housingName: selectedHousing?.name,
-                                data: {
-                                    batchId: selectedBatchId,
-                                    housingId: selectedHousingId,
-                                    batchName: selectedBatch?.name,
-                                    currentCount: selectedBatch?.current_count,
-                                    weighCount: weighSessions.length,
-                                    healthCount: healthRecords.length,
-                                    mortalityCount: healthRecords.filter(r => r.record_type === 'mortality').reduce((s, r) => s + (r.affected_count || 1), 0),
-                                }
-                            }}
-                            variant="purple"
-                        />
-                    </>
-                )}
-            </ScrollView>
+                            {/* AI Insight */}
+                            <AIInsightCard
+                                title="AniBot Prediction"
+                                category="prediction_report"
+                                farmId={farmId}
+                                subKey={selectedBatchId ? `${selectedBatchId}_${animalType}` : (selectedHousingId ? `${selectedHousingId}_${animalType}` : animalType)}
+                                staticContent={getInsightText()}
+                                context={{
+                                    type: 'animal',
+                                    animalType,
+                                    housingName: selectedHousing?.name,
+                                    data: {
+                                        batchId: selectedBatchId,
+                                        housingId: selectedHousingId,
+                                        batchName: selectedBatch?.name,
+                                        currentCount: selectedBatch?.current_count,
+                                        weighCount: weighSessions.length,
+                                        healthCount: healthRecords.length,
+                                        mortalityCount: healthRecords.filter(r => r.record_type === 'mortality').reduce((s, r) => s + (r.affected_count || 1), 0),
+                                    }
+                                }}
+                                variant="purple"
+                            />
+                        </>
+                    )}
+                </ScrollView>
             )}
 
             {/* Modals */}
