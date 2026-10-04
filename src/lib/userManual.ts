@@ -97,11 +97,14 @@ const FILIPINO_MANUAL_DICTIONARY: [string, string][] = [
  * and language translation for in-app WebView / iframe rendering.
  */
 export function getManualHtmlWithAnchors(language: string = 'en'): string {
+    if (!USER_MANUAL_HTML || !USER_MANUAL_HTML.trim()) {
+        return '';
+    }
     const isFilipino = language === 'fil';
     if (isFilipino && cachedHtmlFil) return cachedHtmlFil;
     if (!isFilipino && cachedHtmlEn) return cachedHtmlEn;
 
-    let html = USER_MANUAL_HTML;
+    let html: string = USER_MANUAL_HTML;
 
     // Inject anchor IDs for section jumping
     html = html
@@ -350,6 +353,13 @@ export function getManualHtmlWithAnchors(language: string = 'en'): string {
 export async function openUserManual(language: string = 'en'): Promise<boolean> {
     try {
         const manualHtml = getManualHtmlWithAnchors(language);
+        if (!manualHtml) {
+            Alert.alert(
+                language === 'fil' ? 'Paalala' : 'Notice',
+                language === 'fil' ? 'Kasalukuyang walang nakaimbak na gabay sa paggamit.' : 'No user manual is currently available.'
+            );
+            return false;
+        }
         if (Platform.OS === 'web') {
             if (typeof window !== 'undefined') {
                 const newTab = window.open('', '_blank');
