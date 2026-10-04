@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ani-Grow™ Official Printable User Manual</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Floating PDF Download & Print Control Bar -->
+  <div class="no-print" style="position: fixed; top: 16px; right: 16px; z-index: 9999; display: flex; gap: 10px;">
+    <a href="Ani-Grow_User_Manual.pdf" download="Ani-Grow_User_Manual.pdf" class="btn-download-pdf">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download PDF Manual
+    </a>
+    <button onclick="window.print()" class="btn-print-manual">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      Print / Save PDF
+    </button>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 1: COVER PAGE & DOCUMENT INDEX
+       ========================================================================== -->
+  <div class="paper-page cover-page">
+    <div class="page-content">
+      <div class="cover-header">
+        <div class="cover-brand-row">
+          <span class="cover-badge">Official Product Manual</span>
+          <img src="anigrow-logo.png" alt="Ani-Grow Logo" class="cover-logo" />
+        </div>
+        <h1 class="cover-title">Ani-Grow™</h1>
+        <p class="cover-subtitle">Poultry & Livestock Farm Admin & Device Setup Guide</p>
+      </div>
+
+      <div class="cover-meta-grid">
+        <div class="meta-item">
+          <label>Document Reference</label>
+          <span>DOC-AG-MAN-2026</span>
+        </div>
+        <div class="meta-item">
+          <label>Manual Revision</label>
+          <span>Version 2.5 (Print Ready)</span>
+        </div>
+        <div class="meta-item">
+          <label>Applicable Hardware</label>
+          <span>AniFeed & AniWeigh Units (Poultry & Livestock)</span>
+        </div>
+        <div class="meta-item">
+          <label>System Platform</label>
+          <span>Web Farm Portal & Mobile App</span>
+        </div>
+      </div>
+
+      <div class="toc-block">
+        <h3>Manual Table of Contents</h3>
+        <table class="toc-table">
+          <tbody>
+            <tr>
+              <td class="toc-sec-num">1.0</td>
+              <td class="toc-sec-title">Hardware Device Registration (Web Portal)</td>
+              <td class="toc-page-num">Page 2</td>
+            </tr>
+            <tr>
+              <td class="toc-sec-num">2.0</td>
+              <td class="toc-sec-title">Wi-Fi Setup & Network Connection (Mobile App)</td>
+              <td class="toc-page-num">Page 3</td>
+            </tr>
+            <tr>
+              <td class="toc-sec-num">3.0</td>
+              <td class="toc-sec-title">Automated Feed Scheduling for Poultry & Livestock</td>
+              <td class="toc-page-num">Page 4</td>
+            </tr>
+            <tr>
+              <td class="toc-sec-num">4.0</td>
+              <td class="toc-sec-title">Smart Poultry & Livestock Weighing (AniWeigh)</td>
+              <td class="toc-page-num">Page 5</td>
+            </tr>
+            <tr>
+              <td class="toc-sec-num">5.0</td>
+              <td class="toc-sec-title">Troubleshooting & Frequently Asked Questions</td>
+              <td class="toc-page-num">Page 5</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ — Operational Manual</span>
+      <span class="page-number-badge">Page 1 of 5</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 2: SECTION 1.0 - HARDWARE REGISTRATION
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <img src="anigrow-logo.png" alt="Ani-Grow Logo" class="header-logo" />
+        <span>Ani-Grow™ User Manual — Section 1.0</span>
+      </div>
+      <span>Document Ref: DOC-AG-MAN-2026</span>
+    </div>
+
+    <div class="page-content">
+      <div class="section-header">
+        <h2>1.0 Hardware Device Registration</h2>
+        <p>Registering physical Ani-Grow poultry and livestock equipment to your online farm account using the Web Portal.</p>
+      </div>
+
+      <p>Before installing your <strong>AniFeed</strong> (automated feed dispenser) or <strong>AniWeigh</strong> (smart weighing scale) in your poultry coops or livestock pens, each device must be registered in your online farm account.</p>
+
+      <h3 class="subsection-title">1.1 Finding Your Device Registration Code</h3>
+      <p>Every physical Ani-Grow device features an official factory sticker on its enclosure or packaging. Look for the unique code printed on the sticker:</p>
+
+      <div class="table-frame">
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>Equipment Type</th>
+              <th>Sample Sticker Code</th>
+              <th>Device Function Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>AniFeed Unit</strong></td>
+              <td><span class="code-pill">AF-8842-P1</span></td>
+              <td>Automated feeding dispenser for poultry & livestock</td>
+            </tr>
+            <tr>
+              <td><strong>AniWeigh Scale</strong></td>
+              <td><span class="code-pill">AW-3321-S4</span></td>
+              <td>Smart weighing platform scale for poultry & livestock</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size: 0.82rem; color: var(--text-muted); text-align: right; margin-top: -8px;">Table 1.1 — Hardware equipment identification formats for poultry and livestock.</p>
+
+      <div class="callout callout-info">
+        <svg class="callout-svg-icon" viewBox="0 0 24 24" fill="#0284c7"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+        <div><strong>Note:</strong> Write down your device code. You will need this code whenever managing hardware settings or transferring equipment across coops or pens.</div>
+      </div>
+
+      <h3 class="subsection-title">1.2 Registering Equipment in the Web Portal</h3>
+
+      <div class="steps-list">
+        <div class="step-card">
+          <div class="step-number">1</div>
+          <div class="step-body">
+            <h4>Open the Devices Screen</h4>
+            <p>Log into your <strong>Ani-Grow Web Portal</strong> on your desktop computer. Click <strong>Devices</strong> from the main left navigation bar.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">2</div>
+          <div class="step-body">
+            <h4>Click "Link Hardware"</h4>
+            <p>Click the green <strong>+ Link Hardware</strong> button located at the top right of the screen.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">3</div>
+          <div class="step-body">
+            <h4>Enter Device Sticker Code</h4>
+            <p>Type the registration code found on your hardware sticker (e.g. <span class="code-pill">AF-8842-P1</span>) into the prompt field.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">4</div>
+          <div class="step-body">
+            <h4>Confirm & Save Link</h4>
+            <p>Click <strong>Link Device</strong>. The system verifies the code and binds the hardware to your farm account.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="figure-box">
+        <img src="web-link-device.png" alt="Web Portal Devices Screen & Link Hardware Modal" class="figure-img" />
+        <div class="figure-caption">Figure 1.1 — Registering device code in the Web Farm Admin portal.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ — Operational Manual</span>
+      <span class="page-number-badge">Page 2 of 5</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 3: SECTION 2.0 - WI-FI SETUP & CONNECTION
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <img src="anigrow-logo.png" alt="Ani-Grow Logo" class="header-logo" />
+        <span>Ani-Grow™ User Manual — Section 2.0</span>
+      </div>
+      <span>Document Ref: DOC-AG-MAN-2026</span>
+    </div>
+
+    <div class="page-content">
+      <div class="section-header">
+        <h2>2.0 Wi-Fi Setup & Network Connection</h2>
+        <p>Connecting physical poultry and livestock hardware to your farm Wi-Fi using the Mobile App.</p>
+      </div>
+
+      <p>After registering your device code in the Web Portal, you must connect the device to your local farm Wi-Fi network so it can operate online. Setup is performed using the <strong>Ani-Grow Mobile App</strong>.</p>
+
+      <div class="callout callout-warning">
+        <svg class="callout-svg-icon" viewBox="0 0 24 24" fill="#854d0e"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+        <div>
+          <strong>Pre-Setup Checklist (Required):</strong>
+          <ul style="margin-top: 4px; padding-left: 18px;">
+            <li>Turn <strong>ON</strong> the physical device power switch.</li>
+            <li>Turn <strong>OFF Mobile Cellular Data</strong> on your phone (Prevents phone from dropping the setup network).</li>
+            <li>Turn <strong>OFF any active VPN</strong> apps on your smartphone.</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3 class="subsection-title">2.1 Mobile App Connection Workflow</h3>
+
+      <div class="steps-list">
+        <div class="step-card">
+          <div class="step-number">1</div>
+          <div class="step-body">
+            <h4>Open Mobile App & Go to Devices</h4>
+            <p>Launch the <strong>Ani-Grow Mobile App</strong> on your smartphone and tap <strong>Devices</strong> on the bottom menu.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">2</div>
+          <div class="step-body">
+            <h4>Start Setup</h4>
+            <p>Tap the <strong>+ Add Device</strong> button, or tap the offline Wi-Fi icon next to your device name.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">3</div>
+          <div class="step-body">
+            <h4>Connect Phone to Device Setup Wi-Fi</h4>
+            <p>Open your mobile phone's Wi-Fi settings. Select the temporary network broadcasted by your device:</p>
+            <p style="margin-top: 4px;"><strong>Setup Network Name:</strong> <span class="code-pill">AniGrow_Setup_AF8842P1</span></p>
+            <p style="margin-top: 4px;">Tap to connect (No password required).</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">4</div>
+          <div class="step-body">
+            <h4>Enter Farm Wi-Fi Credentials</h4>
+            <p>Return to the Ani-Grow Mobile App. Enter your local farm Wi-Fi <strong>Network Name (SSID)</strong> and <strong>Password</strong>, then tap <strong>Send Wi-Fi Config</strong>.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">5</div>
+          <div class="step-body">
+            <h4>Reconnect Phone & Name Equipment</h4>
+            <p>Switch your smartphone's Wi-Fi back to your regular farm Internet Wi-Fi. Return to the app, enter a nickname (e.g., <em>"Poultry Coop 1 Feeder"</em> or <em>"Pig Pen 1 Scale"</em>), and tap <strong>Finish</strong>.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="figure-box">
+        <img src="mobile-wifi-setup.png" alt="Mobile App Wi-Fi Network Setup Screens" class="figure-img" />
+        <div class="figure-caption">Figure 2.1 — Wi-Fi hotspot connection and credentials setup in the Ani-Grow Mobile App.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ — Operational Manual</span>
+      <span class="page-number-badge">Page 3 of 5</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 4: SECTION 3.0 - AUTOMATED FEED SCHEDULING
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <img src="anigrow-logo.png" alt="Ani-Grow Logo" class="header-logo" />
+        <span>Ani-Grow™ User Manual — Section 3.0</span>
+      </div>
+      <span>Document Ref: DOC-AG-MAN-2026</span>
+    </div>
+
+    <div class="page-content">
+      <div class="section-header">
+        <h2>3.0 Automated Feed Scheduling for Poultry & Livestock (AniFeed)</h2>
+        <p>Configuring feeding times, portion amounts, and coop or pen assignments for poultry and livestock.</p>
+      </div>
+
+      <p>The <strong>AniFeed</strong> system allows you to schedule exact feeding times and portion sizes (in grams) for each poultry coop or livestock pen. Feed is dispensed automatically according to your saved schedule.</p>
+
+      <h3 class="subsection-title">3.1 Configuring a Feed Schedule</h3>
+
+      <div class="steps-list">
+        <div class="step-card">
+          <div class="step-number">1</div>
+          <div class="step-body">
+            <h4>Open Feed Schedule Manager</h4>
+            <p>From the Web Portal or Mobile App, navigate to <strong>Devices</strong>, select your <strong>AniFeed</strong> unit, and click <strong>Feed Schedule</strong>.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">2</div>
+          <div class="step-body">
+            <h4>Assign Housing (Coop / Pen)</h4>
+            <p>Select which housing unit (e.g. <em>Chicken-HS1</em> or <em>Pig Pen 1</em>) is connected to this feeder.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">3</div>
+          <div class="step-body">
+            <h4>Set Daily Frequency & Portion Grams</h4>
+            <p>Choose how many times feed should be served per day (1 to 12 times) and specify the amount per dispense in <strong>grams (g)</strong>.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">4</div>
+          <div class="step-body">
+            <h4>Set Feeding Hours & Save</h4>
+            <p>Specify the exact dispense hours (e.g., 08:00 AM, 12:00 PM, 06:00 PM) and click <strong>Save Schedule</strong>.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="figure-box">
+        <img src="feed-schedule-setup.png" alt="Feed Schedule Configuration Screens" class="figure-img" />
+        <div class="figure-caption">Figure 3.1 — Feed schedule selection and portion configuration in the Ani-Grow Mobile App.</div>
+      </div>
+
+      <h3 class="subsection-title">3.2 Recommended Feed Schedule Examples (Poultry & Livestock)</h3>
+
+      <div class="table-frame">
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>Animal Category</th>
+              <th>Housing Location</th>
+              <th>Daily Frequency</th>
+              <th>Portion / Meal</th>
+              <th>Scheduled Feeding Times</th>
+              <th>Total Daily Feed</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Broiler Chickens (Poultry)</strong></td>
+              <td>Chicken-HS1</td>
+              <td>4 times daily</td>
+              <td>100 grams</td>
+              <td>08:00 AM, 12:00 PM, 06:00 PM, 11:40 PM</td>
+              <td>400g daily</td>
+            </tr>
+            <tr>
+              <td><strong>Grower Pigs (Livestock)</strong></td>
+              <td>Pig Pen 1</td>
+              <td>3 times daily</td>
+              <td>750 grams</td>
+              <td>07:00 AM, 12:00 PM, 05:30 PM</td>
+              <td>2,250g (2.25 kg)</td>
+            </tr>
+            <tr>
+              <td><strong>Breeding Sows (Livestock)</strong></td>
+              <td>Pen 4</td>
+              <td>2 times daily</td>
+              <td>1,200 grams</td>
+              <td>08:00 AM, 04:00 PM</td>
+              <td>2,400g (2.40 kg)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size: 0.82rem; color: var(--text-muted); text-align: right; margin-top: -8px;">Table 3.1 — Recommended feeding schedules by animal category (Poultry & Livestock).</p>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ — Operational Manual</span>
+      <span class="page-number-badge">Page 4 of 5</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 5: SECTION 4.0 & SECTION 5.0 - WEIGHING & TROUBLESHOOTING
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <img src="anigrow-logo.png" alt="Ani-Grow Logo" class="header-logo" />
+        <span>Ani-Grow™ User Manual — Section 4.0 & 5.0</span>
+      </div>
+      <span>Document Ref: DOC-AG-MAN-2026</span>
+    </div>
+
+    <div class="page-content">
+      <div class="section-header">
+        <h2>4.0 Smart Poultry & Livestock Weighing (AniWeigh)</h2>
+        <p>Live weight scaling, animal type & housing selection, session controls, and weight categories for poultry and livestock.</p>
+      </div>
+
+      <h3 class="subsection-title" style="margin-top: 10px;">4.1 Animal Type, Housing & Batch Selection</h3>
+      <p>Before beginning a weighing session, set the exact animal details on the AniWeigh screen:</p>
+      <ul style="margin-left: 18px; margin-bottom: 12px; font-size: 0.88rem; color: var(--text-body);">
+        <li><strong>Animal Type Selector:</strong> Choose between <strong>Chicken (Poultry)</strong> or <strong>Pig (Livestock)</strong> to load the appropriate target growth standards.</li>
+        <li><strong>Housing Selection:</strong> Assign the scale to your active coop or pen (e.g. <em>Chicken-HS1</em> or <em>Pig Pen A</em>).</li>
+        <li><strong>Batch / Tag Selection:</strong> Select the active animal batch (e.g. <em>Batch C1</em> or <em>Batch P4</em>) to log records under specific animal groups.</li>
+      </ul>
+
+      <h3 class="subsection-title">4.2 Weight Categories Breakdown (Poultry & Livestock)</h3>
+
+      <div class="table-frame">
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>Weight Category</th>
+              <th>Target Condition Rule</th>
+              <th>Poultry Setting (Chicken)</th>
+              <th>Livestock Setting (Pig)</th>
+              <th>Recommended Farm Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="badge-status badge-underweight">Underweight</span></td>
+              <td>Below target minimum</td>
+              <td>Below 0.38 kg</td>
+              <td>Below 0.80 kg</td>
+              <td>Flag for extra feed & health check</td>
+            </tr>
+            <tr>
+              <td><span class="badge-status badge-normal">Normal</span></td>
+              <td>Within healthy range</td>
+              <td>0.38 kg – 0.52 kg</td>
+              <td>0.80 kg – 1.50 kg</td>
+              <td>Continue standard feeding & growth plan</td>
+            </tr>
+            <tr>
+              <td><span class="badge-status badge-overweight">Overweight</span></td>
+              <td>Above target maximum</td>
+              <td>Above 0.52 kg</td>
+              <td>Above 1.50 kg</td>
+              <td>Adjust portion size for balanced growth</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size: 0.82rem; color: var(--text-muted); text-align: right; margin-top: -8px; margin-bottom: 12px;">Table 4.1 — Weight category classification for poultry and livestock.</p>
+
+      <div class="figure-box">
+        <img src="aniweigh-session-setup.png" alt="AniWeigh Live Scaling & Controls Screen" class="figure-img" />
+        <div class="figure-caption">Figure 4.1 — AniWeigh live scaling, animal/housing/batch selection, and session controls.</div>
+      </div>
+
+      <h3 class="subsection-title">4.3 Weighing Session Controls & Buttons</h3>
+
+      <div class="steps-list">
+        <div class="step-card">
+          <div class="step-number">1</div>
+          <div class="step-body">
+            <h4><span class="btn-tag btn-tag-start">Start</span> Start Button</h4>
+            <p>Activates the scale sensor to begin live weight readings and real-time animal weight scaling.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">2</div>
+          <div class="step-body">
+            <h4><span class="btn-tag btn-tag-stop">Stop</span> Stop Button</h4>
+            <p>Temporarily pauses continuous live scale readings during the weighing session.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">3</div>
+          <div class="step-body">
+            <h4><span class="btn-tag btn-tag-tare">Tare Scale</span> Tare Scale Button</h4>
+            <p>Zeroes out platform offset (e.g. mud or bedding material on platform) to recalibrate scale baseline to 0.00 kg.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">4</div>
+          <div class="step-body">
+            <h4><span class="btn-tag btn-tag-reset">Reset</span> Reset Button</h4>
+            <p>Clears temporary unstable scale readings or resets sensor input calibration.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">5</div>
+          <div class="step-body">
+            <h4><span class="btn-tag btn-tag-finish">Finish Session</span> Finish Session Button</h4>
+            <p>Finalizes session, records total animal counts (Underweight, Normal, Overweight), saves data to farm report database, and exports summary report.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-header" style="margin-top: 20px;">
+        <h2>5.0 Troubleshooting & Support</h2>
+        <p>Quick operational guide for poultry and livestock farming questions.</p>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="background: #f8fafc; padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border-color);">
+          <strong style="color: var(--text-main); font-size: 0.88rem;">Q: System reports "Device code not found" during web linking.</strong>
+          <p style="margin-top: 2px; color: var(--text-body); font-size: 0.82rem;">A: Verify the sticker letters and numbers carefully. Make sure not to mix up letter 'O' with number '0'.</p>
+        </div>
+
+        <div style="background: #f8fafc; padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border-color);">
+          <strong style="color: var(--text-main); font-size: 0.88rem;">Q: Phone cannot reach setup Wi-Fi network.</strong>
+          <p style="margin-top: 2px; color: var(--text-body); font-size: 0.82rem;">A: Ensure mobile cellular data is turned OFF on your smartphone before connecting to the device Wi-Fi.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ — Operational Manual</span>
+      <span class="page-number-badge">Page 5 of 5</span>
+    </div>
+  </div>
+
+</body>
+</html>

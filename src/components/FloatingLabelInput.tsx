@@ -2,19 +2,17 @@ import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimalIcon } from './AnimalIcon';
 import {
+  Animated,
   Pressable,
+  StyleProp,
   StyleSheet,
+  Text,
   TextInput,
   TextInputProps,
   TouchableOpacity,
   View,
+  ViewStyle,
 } from 'react-native';
-import Animated, {
-  interpolate,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 
 import { useTextStyles } from '@/constants/textStyles';
 import { createTheme } from '@/constants/theme';
@@ -25,7 +23,9 @@ interface FloatingLabelInputProps extends TextInputProps {
   icon?: keyof typeof MaterialIcons.glyphMap | 'pig' | 'chicken';
   isPassword?: boolean;
   error?: string;
+  helperText?: string;
   backgroundColor?: string;
+  containerStyle?: StyleProp<ViewStyle>;
 }
 
 export default function FloatingLabelInput({
@@ -33,9 +33,11 @@ export default function FloatingLabelInput({
   icon,
   isPassword,
   error,
+  helperText,
   value,
   onChangeText,
   backgroundColor,
+  containerStyle,
   ...rest
 }: FloatingLabelInputProps) {
 
@@ -48,24 +50,34 @@ export default function FloatingLabelInput({
   const [isFocused, setIsFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const progress = useSharedValue(value ? 1 : 0);
+  const progress = useRef(new Animated.Value(value ? 1 : 0)).current;
 
   useEffect(() => {
-    progress.value = withTiming(isFocused || !!value ? 1 : 0, { duration: 160 });
-  }, [isFocused, value]);
+    Animated.timing(progress, {
+      toValue: isFocused || !!value ? 1 : 0,
+      duration: 160,
+      useNativeDriver: true,
+    }).start();
+  }, [isFocused, value, progress]);
 
-  const labelAnimatedStyle = useAnimatedStyle(() => {
-    const translateY = interpolate(progress.value, [0, 1], [18, -12]);
-    const scale = interpolate(progress.value, [0, 1], [1, 0.85]);
-    return {
-      transform: [{ translateY }, { scale }],
-    };
+  const translateY = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [18, -12],
   });
+
+  const scale = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.85],
+  });
+
+  const labelAnimatedStyle = {
+    transform: [{ translateY }, { scale }],
+  };
 
   const borderColor = error ? colors.error : (isFocused ? colors.primary : colors.stroke);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
 
       <Pressable
         onPress={() => inputRef.current?.focus()}
@@ -158,6 +170,10 @@ export default function FloatingLabelInput({
         <Animated.Text style={[textStyles.label, { color: colors.error, marginTop: 4, marginLeft: 16, fontSize: 12 }]}>
           {error}
         </Animated.Text>
+      ) : helperText ? (
+        <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 4, marginLeft: 16, fontSize: 11 }]}>
+          {helperText}
+        </Text>
       ) : null}
 
     </View>

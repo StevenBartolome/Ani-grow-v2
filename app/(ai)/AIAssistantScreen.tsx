@@ -25,6 +25,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { Audio } from '@/lib/nativeAudio';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -40,7 +42,7 @@ import {
     View,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
@@ -293,7 +295,19 @@ function NavButton({ link }: { link: NavLink }) {
             marginTop: 8, alignSelf: 'flex-start',
             backgroundColor: colors.cardFill,
         }}>
-            <MaterialIcons name={link.icon as any} size={15} color={colors.primary} />
+            {link.icon === 'pets' ? (
+                <Image
+                    source={require('../../assets/icons/animals-filled.svg')}
+                    style={{ width: 16, height: 16 }}
+                    contentFit="contain"
+                />
+            ) : link.icon === 'monitor-weight' ? (
+                <AniWeighIcon size={16} />
+            ) : link.icon === 'grain' ? (
+                <AniFeedIcon size={16} />
+            ) : (
+                <MaterialIcons name={link.icon as any} size={15} color={colors.primary} />
+            )}
             <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 13, color: colors.primary }}>{link.label}</Text>
             <MaterialIcons name="arrow-forward" size={13} color={colors.primary} />
         </TouchableOpacity>
@@ -465,6 +479,8 @@ interface SidebarProps {
 }
 
 function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, onDelete }: SidebarProps) {
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors, isDark } = useTheme();
     const slideX = useRef(new Animated.Value(-SIDEBAR_W)).current;
     const backdropO = useRef(new Animated.Value(0)).current;
@@ -506,7 +522,7 @@ function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, o
                 transform: [{ translateX: slideX }],
                 zIndex: 101,
             }}>
-                <SafeAreaView style={{ flex: 1 }}>
+                <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }}>
                     {/* Drawer header */}
                     <View style={{
                         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -615,7 +631,7 @@ function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, o
                         )}
                         <View style={{ height: 32 }} />
                     </ScrollView>
-                </SafeAreaView>
+                </View>
             </Animated.View>
         </>
     );
@@ -624,6 +640,8 @@ function Sidebar({ visible, conversations, activeId, onClose, onSelect, onNew, o
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AIAssistantScreen() {
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors, isDark } = useTheme();
     const { profile } = useAuth();
     const router = useRouter();
@@ -1124,7 +1142,7 @@ export default function AIAssistantScreen() {
     const isEmpty = messages.length === 0;
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
 
             {/* ── Header ─────────────────────────────────────────────────────── */}
             <View style={styles.header}>
@@ -1528,6 +1546,6 @@ export default function AIAssistantScreen() {
                 onRegenerate={regenerate}
                 onDelete={deleteMessage}
             />
-        </SafeAreaView>
+        </View>
     );
 }

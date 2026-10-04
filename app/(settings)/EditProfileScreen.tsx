@@ -1,9 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect } from 'react';
-import { ScrollView, TouchableOpacity, View, TextInput } from 'react-native';
+import { Platform, RefreshControl, ScrollView, TouchableOpacity, View, TextInput } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
@@ -17,6 +17,8 @@ import { supabase } from '@/lib/supabase';
 export default function EditProfileScreen() {
     const styles = useSettingsSubPageStyles();
     const textStyles = useTextStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors } = useTheme();
     const router = useRouter();
 
@@ -28,6 +30,7 @@ export default function EditProfileScreen() {
     const [isEditingUsername, setIsEditingUsername] = useState(false);
 
     const { profile, refreshProfile } = useAuth();
+    const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
         if (profile) {
@@ -46,6 +49,17 @@ export default function EditProfileScreen() {
             setPhoneNumber(profile.phoneNumber || (profile as any).phone || '');
         }
     }, [profile]);
+
+    const onRefresh = async () => {
+        setRefreshing(true);
+        try {
+            await refreshProfile();
+        } catch (e) {
+            console.error('[EditProfileScreen] refresh error:', e);
+        } finally {
+            setRefreshing(false);
+        }
+    };
 
     // Snackbar State
     const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -135,7 +149,7 @@ export default function EditProfileScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -149,7 +163,18 @@ export default function EditProfileScreen() {
                 </View>
 
                 {/* Content */}
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 100 }}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                        />
+                    }
+                >
 
                     <View style={styles.profileAvatarContainer}>
                         <View>
@@ -313,6 +338,6 @@ export default function EditProfileScreen() {
                 onConfirm={confirmSave}
                 onCancel={() => setConfirmModalVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

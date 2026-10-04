@@ -5,7 +5,8 @@ import { useTheme } from '@/context/ThemeContext';
 const getHPad = (width: number) => {
     if (width >= 900) return Math.round(width * 0.12);
     if (width >= 600) return Math.round(width * 0.07);
-    return 20;
+    if (width <= 360) return 12;
+    return 16;
 };
 
 export const useNotificationStyles = () => {
@@ -20,6 +21,7 @@ export const useNotificationStyles = () => {
         },
         container: {
             flex: 1,
+            width: '100%',
         },
 
         // ─── Header ─────────────────────────────────────────────────────────────
@@ -30,61 +32,72 @@ export const useNotificationStyles = () => {
             paddingHorizontal: hPad,
             paddingTop: 16,
             paddingBottom: 16,
-            backgroundColor: colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.stroke,
+            width: '100%',
         },
 
         // ─── List ───────────────────────────────────────────────────────────────
         listContent: {
-            paddingTop: 16,
+            paddingTop: 8,
             paddingBottom: 100,
             paddingHorizontal: hPad,
         },
-        notificationCard: {
-            flexDirection: 'row',
-            paddingVertical: 16,
-            paddingHorizontal: 16,
+        listContainer: {
             backgroundColor: colors.surface,
-            borderRadius: 20,
-            borderWidth: 1.5,
+            borderRadius: 16,
+            borderWidth: 1,
             borderColor: colors.stroke,
-            marginBottom: 12,
-            alignItems: 'flex-start',
-            elevation: 2,
-            shadowColor: '#000',
-            shadowOpacity: 0.05,
-            shadowRadius: 12,
-            shadowOffset: { width: 0, height: 4 },
+            overflow: 'hidden',
+            width: '100%',
+        },
+        notificationItem: {
+            width: '100%',
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingVertical: 13,
+            paddingHorizontal: 14,
+        },
+        divider: {
+            height: 1,
+            backgroundColor: colors.stroke,
+            marginLeft: 58,
+            marginRight: 0,
         },
         iconBox: {
-            width: 48,
-            height: 48,
-            borderRadius: 24,
+            width: 38,
+            height: 38,
+            borderRadius: 19,
             justifyContent: 'center',
             alignItems: 'center',
-            marginRight: 16,
+            marginRight: 12,
+            flexShrink: 0,
         },
         contentContainer: {
             flex: 1,
+            minWidth: 0,
+            justifyContent: 'center',
         },
         titleRow: {
             flexDirection: 'row',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginBottom: 4,
+            width: '100%',
+            minWidth: 0,
+            marginBottom: 2,
         },
         unreadDot: {
-            width: 8,
-            height: 8,
+            width: 7,
+            height: 7,
             borderRadius: 4,
+            backgroundColor: colors.primary,
             marginLeft: 6,
+            flexShrink: 0,
         },
         emptyContainer: {
             alignItems: 'center',
             justifyContent: 'center',
             paddingTop: 80,
             paddingHorizontal: hPad,
+            width: '100%',
         }
     });
 };

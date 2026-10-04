@@ -3,11 +3,13 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Alert,
+    Platform,
+    RefreshControl,
     ScrollView,
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/Text';
 import { useAuth } from '@/context/AuthContext';
 import { BackButton } from '@/components/BackButton';
@@ -18,9 +20,11 @@ import ActionModal from '@/components/ActionModal';
 import { ConfirmationModal } from '@/components/ConfirmationModal';
 
 export default function SettingsScreen() {
-    const { profile, signOut } = useAuth();
+    const { profile, signOut, refreshProfile } = useAuth();
     const settingsStyles = useSettingsStyles();
     const textStyles = useTextStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors, isDark, themeMode, setThemeMode, language } = useTheme();
     const router = useRouter();
 
@@ -31,6 +35,7 @@ export default function SettingsScreen() {
 
     const [isLogoutModalVisible, setLogoutModalVisible] = useState(false);
     const [themeDropdownOpen, setThemeDropdownOpen] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     const themeOptions: { mode: ThemeMode; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name'] }[] = [
         { mode: 'device', label: 'Device Default', icon: 'phone-android' },
@@ -54,8 +59,19 @@ export default function SettingsScreen() {
 
     const languageLabel = language === 'fil' ? 'Filipino' : 'English';
 
+    const onRefresh = async () => {
+        setRefreshing(true);
+        try {
+            await refreshProfile();
+        } catch (e) {
+            console.error('[SettingsScreen] refresh error:', e);
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
     return (
-        <SafeAreaView style={settingsStyles.safeArea}>
+        <View style={[settingsStyles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={settingsStyles.container}>
 
                 {/* Header */}
@@ -69,7 +85,18 @@ export default function SettingsScreen() {
                     <View style={{ width: 44, height: 44 }} />
                 </View>
 
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 100 }}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                        />
+                    }
+                >
 
                     {/* Profile Section */}
                     <View style={settingsStyles.profileSection}>
@@ -317,6 +344,16 @@ export default function SettingsScreen() {
                     <View style={settingsStyles.section}>
                         <Text style={settingsStyles.sectionTitle}>Information</Text>
                         <View style={settingsStyles.card}>
+                            <TouchableOpacity style={settingsStyles.row} activeOpacity={0.7} onPress={() => router.push('/(settings)/UserManualScreen' as any)}>
+                                <View style={settingsStyles.rowContent}>
+                                    <View style={[settingsStyles.iconBox, { backgroundColor: '#10B981' + '1A' }]}>
+                                        <MaterialIcons name="menu-book" size={22} color="#10B981" />
+                                    </View>
+                                    <Text style={settingsStyles.rowTitle}>User Manual</Text>
+                                </View>
+                                <MaterialIcons name="chevron-right" size={22} color={colors.textGrey} />
+                            </TouchableOpacity>
+
                             <TouchableOpacity style={settingsStyles.row} activeOpacity={0.7} onPress={() => router.push('/(settings)/AboutAppScreen')}>
                                 <View style={settingsStyles.rowContent}>
                                     <View style={[settingsStyles.iconBox, { backgroundColor: '#64748B' + '1A' }]}>
@@ -375,6 +412,6 @@ export default function SettingsScreen() {
             />
 
 
-        </SafeAreaView>
+        </View>
     );
 }

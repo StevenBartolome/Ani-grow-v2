@@ -144,19 +144,26 @@ export default function RegisterScreen() {
 
 
     // ── Create user profile + mark invite used (post-auth) ────────
-    const createUserProfile = async (userId: string, userEmail: string) => {
-        if (!inviteData) return;
+    const createUserProfile = async (userId: string, userEmail: string, userMeta?: any) => {
+        const meta = userMeta || {};
+        const fName = firstName.trim() || meta.first_name || '';
+        const lName = lastName.trim() || meta.last_name || '';
+        const uName = username.trim().toLowerCase() || meta.username || '';
+        const role = inviteData?.role || meta.role || 'caretaker';
+        const farmId = inviteData?.farm_id || meta.farm_id || null;
+        const permissions = inviteData?.permissions || meta.permissions || {};
+        const inviteId = inviteData?.invite_id || meta.invite_id || null;
 
         const profilePayload: Record<string, any> = {
             id:          userId,
             email:       userEmail,
-            first_name:  firstName.trim(),
-            last_name:   lastName.trim(),
-            username:    username.trim().toLowerCase(),
-            role:        inviteData.role,
-            farm_id:     inviteData.farm_id,
-            permissions: inviteData.permissions,
-            status:      'active',
+            first_name:  fName,
+            last_name:   lName,
+            username:    uName,
+            role:        role,
+            farm_id:     farmId,
+            permissions: permissions,
+            status:      'Active',
             updated_at:  new Date().toISOString(),
             created_at:  new Date().toISOString(),
         };
@@ -171,9 +178,9 @@ export default function RegisterScreen() {
         }
 
         // Mark the invite code as used via SECURITY DEFINER RPC
-        if (inviteData.invite_id) {
+        if (inviteId) {
             try {
-                await supabase.rpc('mark_invite_used', { p_invite_id: inviteData.invite_id });
+                await supabase.rpc('mark_invite_used', { p_invite_id: inviteId });
             } catch (rpcErr) {
                 console.warn('[RegisterScreen] mark_invite_used RPC warning:', rpcErr);
             }
@@ -190,9 +197,13 @@ export default function RegisterScreen() {
                 password,
                 options: {
                     data: {
-                        first_name: firstName.trim(),
-                        last_name:  lastName.trim(),
-                        username:   username.trim().toLowerCase(),
+                        first_name:  firstName.trim(),
+                        last_name:   lastName.trim(),
+                        username:    username.trim().toLowerCase(),
+                        role:        inviteData?.role,
+                        farm_id:     inviteData?.farm_id,
+                        invite_id:   inviteData?.invite_id,
+                        permissions: inviteData?.permissions,
                     },
                 },
             });
@@ -204,7 +215,7 @@ export default function RegisterScreen() {
             if (data?.session) {
                 // Email confirmation disabled — active session immediately
                 if (data.user) {
-                    await createUserProfile(data.user.id, data.user.email ?? targetEmail);
+                    await createUserProfile(data.user.id, data.user.email ?? targetEmail, data.user.user_metadata);
                 }
                 showSnackbar('Account created successfully!', 'success');
                 setTimeout(() => router.replace('/(auth)/LoginScreen'), 1500);
@@ -260,7 +271,7 @@ export default function RegisterScreen() {
             if (error) throw error;
 
             if (data.user) {
-                await createUserProfile(data.user.id, data.user.email ?? pendingEmail);
+                await createUserProfile(data.user.id, data.user.email ?? pendingEmail, data.user.user_metadata);
                 showSnackbar('Email verified! Account created.', 'success');
                 setTimeout(() => router.replace('/(auth)/LoginScreen'), 1500);
             }

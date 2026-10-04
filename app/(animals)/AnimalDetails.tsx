@@ -1,15 +1,16 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Modal, RefreshControl, ScrollView, TouchableOpacity, View, KeyboardAvoidingView, Platform } from 'react-native';
+import { ActivityIndicator, Modal, RefreshControl, ScrollView, TouchableOpacity, View, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnimalIcon } from '@/components/AnimalIcon';
 import ActionModal, { ActionModalType } from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import { SelectionModal } from '@/components/SelectionModal';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -17,6 +18,7 @@ import { useAnimalStyles } from '@/styles/animalStyles';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
+import { checkBatchConnectedData } from '@/lib/dataProtection';
 
 interface Housing {
     id: string;
@@ -32,6 +34,7 @@ interface Batch {
     animal_type: 'chicken' | 'pig';
     estimated_count: number;
     current_count: number;
+    sold_count?: number;
     arrival_date: string;
     supplier: string | null;
     status: 'active' | 'completed' | 'archived';
@@ -44,6 +47,8 @@ export default function AnimalDetailsScreen() {
     const textStyles = useTextStyles();
     const { colors } = useTheme();
     const styles = useAnimalStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
 
@@ -52,26 +57,34 @@ export default function AnimalDetailsScreen() {
 
     const [housing, setHousing] = useState<Housing | null>(null);
     const [batches, setBatches] = useState<Batch[]>([]);
+    const [batchMortalityMap, setBatchMortalityMap] = useState<Record<string, number>>({});
     const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+    const [deletableBatchIds, setDeletableBatchIds] = useState<Set<string>>(new Set());
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+
+    const canDeleteSelectedBatch = selectedBatchId ? deletableBatchIds.has(selectedBatchId) : false;
 
     const selectedBatch = batches.find(b => b.id === selectedBatchId) ?? null;
     const isPig = housing?.animal_type === 'pig';
     const accentColor = isPig ? ((colors as any).pig ?? '#E67E22') : ((colors as any).chicken ?? '#F1C40F');
-    const deceasedCount = selectedBatch
-        ? Math.max(0, selectedBatch.estimated_count - selectedBatch.current_count)
+    const deceasedCount = selectedBatch ? (batchMortalityMap[selectedBatch.id] ?? 0) : 0;
+    const derivedSoldCount = selectedBatch
+        ? Math.max(0, selectedBatch.estimated_count - selectedBatch.current_count - deceasedCount)
         : 0;
+    const soldCount = selectedBatch ? Math.max(selectedBatch.sold_count ?? 0, derivedSoldCount) : 0;
 
     // ── Fetch ─────────────────────────────────────────────────────
     const fetchData = useCallback(async () => {
         if (!housingId) return;
         setIsLoading(true);
         try {
-            const [housingRes, batchRes] = await Promise.all([
+            const [housingRes, batchRes, mortalityRes] = await Promise.all([
                 supabase.from('housings').select('id, name, animal_type, capacity, current_count').eq('id', housingId).single(),
-                supabase.from('batches').select('id, name, animal_type, estimated_count, current_count, arrival_date, supplier, status, age_at_arrival_days')
+                supabase.from('batches').select('id, name, animal_type, estimated_count, current_count, sold_count, arrival_date, supplier, status, age_at_arrival_days')
                     .eq('housing_id', housingId).order('created_at', { ascending: false }),
+                supabase.from('health_records').select('batch_id, affected_count')
+                    .eq('housing_id', housingId).eq('record_type', 'mortality').is('deleted_at', null),
             ]);
 
             if (housingRes.error) throw housingRes.error;
@@ -79,6 +92,61 @@ export default function AnimalDetailsScreen() {
 
             const batchList = batchRes.data ?? [];
             setBatches(batchList);
+
+            const mMap: Record<string, number> = {};
+            (mortalityRes.data ?? []).forEach((r: any) => {
+                if (r.batch_id) {
+                    mMap[r.batch_id] = (mMap[r.batch_id] || 0) + (r.affected_count ?? 0);
+                }
+            });
+            setBatchMortalityMap(mMap);
+
+            // Precompute deletable batches in parallel with housing data
+            const batchIds = batchList.map(b => b.id);
+            const deletableSet = new Set<string>();
+
+            if (batchIds.length > 0) {
+                const [
+                    weighingRes,
+                    weighRes,
+                    healthRes,
+                    dispenseRes,
+                    vaccRecRes,
+                    vaccSchedRes,
+                    feedSchedRes,
+                ] = await Promise.all([
+                    supabase.from('weighing_sessions').select('batch_id').in('batch_id', batchIds),
+                    supabase.from('weigh_sessions').select('batch_id').in('batch_id', batchIds),
+                    supabase.from('health_records').select('batch_id').in('batch_id', batchIds).is('deleted_at', null),
+                    supabase.from('dispense_records').select('batch_id').in('batch_id', batchIds),
+                    supabase.from('vaccination_records').select('batch_id').in('batch_id', batchIds),
+                    supabase.from('vaccine_schedules').select('batch_id').in('batch_id', batchIds),
+                    supabase.from('feed_schedules').select('batch_id').in('batch_id', batchIds),
+                ]);
+
+                const busyBatchIds = new Set<string>();
+                [
+                    ...(weighingRes.data ?? []),
+                    ...(weighRes.data ?? []),
+                    ...(healthRes.data ?? []),
+                    ...(dispenseRes.data ?? []),
+                    ...(vaccRecRes.data ?? []),
+                    ...(vaccSchedRes.data ?? []),
+                    ...(feedSchedRes.data ?? []),
+                ].forEach((r: any) => {
+                    if (r.batch_id) busyBatchIds.add(r.batch_id);
+                });
+
+                batchList.forEach(b => {
+                    const hasMortality = (mMap[b.id] || 0) > 0;
+                    const hasSold = (b.sold_count || 0) > 0;
+                    const hasConnected = busyBatchIds.has(b.id);
+                    if (!hasMortality && !hasSold && !hasConnected) {
+                        deletableSet.add(b.id);
+                    }
+                });
+            }
+            setDeletableBatchIds(deletableSet);
 
             // Self-healing check for housing count
             const expectedHousingCount = batchList
@@ -129,7 +197,28 @@ export default function AnimalDetailsScreen() {
     const [confirmModalType, setConfirmModalType] = useState<ActionModalType>('confirmation');
     const [confirmModalTitle, setConfirmModalTitle] = useState('');
     const [confirmModalMessage, setConfirmModalMessage] = useState('');
-    const [confirmActionType, setConfirmActionType] = useState<'addHeads' | 'deceased' | 'newBatch' | 'editBatch' | 'completeBatch' | 'archiveBatch' | null>(null);
+    const [confirmActionType, setConfirmActionType] = useState<'addHeads' | 'deceased' | 'newBatch' | 'editBatch' | 'completeBatch' | 'archiveBatch' | 'sellDeduct' | 'deleteBatch' | null>(null);
+
+    // ── Sell / Deduct Modal ──────────────────────────────────────
+    const [sellDeductVisible, setSellDeductVisible] = useState(false);
+    const [sellDeductQuantity, setSellDeductQuantity] = useState('');
+    const [sellDeductReason, setSellDeductReason] = useState('Sold / Harvested');
+    const [sellDeductOtherReason, setSellDeductOtherReason] = useState('');
+    const [sellDeductMarkCompleted, setSellDeductMarkCompleted] = useState(false);
+    const [sellDeductReasonModalVisible, setSellDeductReasonModalVisible] = useState(false);
+    const [sellDeductError, setSellDeductError] = useState<string | null>(null);
+
+    const validateSellDeduct = (val: string) => {
+        const n = parseInt(val, 10);
+        const available = selectedBatch?.current_count ?? 0;
+        if (!val || isNaN(n) || n <= 0) {
+            setSellDeductError('Please enter a valid quantity.');
+        } else if (n > available) {
+            setSellDeductError(`Exceeds available count (${n}/${available}).`);
+        } else {
+            setSellDeductError(null);
+        }
+    };
 
     // ── Add Heads Modal ───────────────────────────────────────────
     const [addHeadsVisible, setAddHeadsVisible] = useState(false);
@@ -153,6 +242,55 @@ export default function AnimalDetailsScreen() {
     const [newBatchAge, setNewBatchAge] = useState('');
     const [newBatchAgeUnit, setNewBatchAgeUnit] = useState<'days' | 'months'>('days');
     const [newBatchCountError, setNewBatchCountError] = useState<string | null>(null);
+
+    // Draft for New Batch
+    const {
+        clearDraft: clearNewBatchDraft,
+    } = useFormDraft(
+        `new_batch_${housingId}`,
+        { newBatchName, newBatchCount, newBatchSupplier, newBatchAge, newBatchAgeUnit },
+        {
+            enabled: newBatchVisible,
+            onRestore: (draft) => {
+                if (draft.newBatchName) setNewBatchName(draft.newBatchName);
+                if (draft.newBatchCount) setNewBatchCount(draft.newBatchCount);
+                if (draft.newBatchSupplier) setNewBatchSupplier(draft.newBatchSupplier);
+                if (draft.newBatchAge) setNewBatchAge(draft.newBatchAge);
+                if (draft.newBatchAgeUnit) setNewBatchAgeUnit(draft.newBatchAgeUnit);
+            },
+        }
+    );
+
+    // Draft for Add Heads
+    const {
+        clearDraft: clearAddHeadsDraft,
+    } = useFormDraft(
+        `add_heads_${housingId}_${selectedBatchId || 'batch'}`,
+        { addHeadsNumber, addHeadsAge },
+        {
+            enabled: addHeadsVisible,
+            onRestore: (draft) => {
+                if (draft.addHeadsNumber) setAddHeadsNumber(draft.addHeadsNumber);
+                if (draft.addHeadsAge) setAddHeadsAge(draft.addHeadsAge);
+            },
+        }
+    );
+
+    // Draft for Deceased
+    const {
+        clearDraft: clearDeceasedDraft,
+    } = useFormDraft(
+        `animal_deceased_${selectedBatchId || 'batch'}`,
+        { deceasedNumber, deceasedReason, deceasedOtherReason },
+        {
+            enabled: deceasedVisible || deceasedReasonModalVisible,
+            onRestore: (draft) => {
+                if (draft.deceasedNumber) setDeceasedNumber(draft.deceasedNumber);
+                if (draft.deceasedReason) setDeceasedReason(draft.deceasedReason);
+                if (draft.deceasedOtherReason) setDeceasedOtherReason(draft.deceasedOtherReason);
+            },
+        }
+    );
 
     // ── Edit Batch Modal ──────────────────────────────────────────
     const [editBatchVisible, setEditBatchVisible] = useState(false);
@@ -252,12 +390,12 @@ export default function AnimalDetailsScreen() {
             return false;
         }
         if (!val.trim()) {
-            setNewBatchCountError('Remaining head count is required.');
+            setNewBatchCountError('Head count is required.');
             return false;
         }
         const num = parseInt(val.trim(), 10);
         if (isNaN(num) || num <= 0) {
-            setNewBatchCountError('Remaining head count must be greater than 0.');
+            setNewBatchCountError('Head count must be greater than 0.');
             return false;
         }
         if (housing && housing.capacity > 0 && num > remaining) {
@@ -311,11 +449,12 @@ export default function AnimalDetailsScreen() {
         if (!isValid) return;
         if (deceasedReason === 'Other' && !deceasedOtherReason) { showSnackbar('Please specify the reason.', 'error'); return; }
         if (!selectedBatchId) { showSnackbar('No batch selected.', 'error'); return; }
+        const causeOfDeath = deceasedReason === 'Other' ? deceasedOtherReason.trim() || 'Other' : deceasedReason;
         setDeceasedVisible(false);
         setConfirmActionType('deceased');
         setConfirmModalType('warning');
         setConfirmModalTitle('Record Deceased?');
-        setConfirmModalMessage(`Record ${deceasedNumber} deceased animals in "${selectedBatch?.name}"?`);
+        setConfirmModalMessage(`Record ${deceasedNumber} deceased animals (${causeOfDeath}) in "${selectedBatch?.name}"?`);
         setConfirmModalVisible(true);
     };
 
@@ -377,10 +516,94 @@ export default function AnimalDetailsScreen() {
         setConfirmModalVisible(true);
     };
 
+    const handleDeleteBatchClick = () => {
+        if (!selectedBatch) return;
+        setEditBatchVisible(false);
+        setConfirmActionType('deleteBatch');
+        setConfirmModalType('warning');
+        setConfirmModalTitle('Delete Batch Permanently?');
+        setConfirmModalMessage(
+            `Are you sure you want to permanently delete batch "${selectedBatch.name}"? This action cannot be undone.`
+        );
+        setConfirmModalVisible(true);
+    };
+
+    const isSellDeductDisabled = !sellDeductQuantity || !!sellDeductError || parseInt(sellDeductQuantity, 10) <= 0;
+
+    const handleSellDeductClick = () => {
+        if (isSellDeductDisabled || !selectedBatch) return;
+        const qty = parseInt(sellDeductQuantity, 10);
+        const available = selectedBatch.current_count ?? 0;
+        const remaining = Math.max(0, available - qty);
+        const willComplete = sellDeductMarkCompleted || remaining === 0;
+        const reasonText = sellDeductReason === 'Other' ? (sellDeductOtherReason.trim() || 'Deduction') : sellDeductReason;
+
+        setSellDeductVisible(false);
+        setConfirmActionType('sellDeduct');
+        setConfirmModalType('confirmation');
+        setConfirmModalTitle(willComplete ? 'Sell & Complete Batch?' : 'Sell / Deduct Animals?');
+        setConfirmModalMessage(
+            willComplete
+                ? `Deduct ${qty} animals (${reasonText}) and mark batch "${selectedBatch.name}" as completed?`
+                : `Deduct ${qty} animals (${reasonText}) from "${selectedBatch.name}"? ${remaining} head(s) will remain active.`
+        );
+        setConfirmModalVisible(true);
+    };
+
     const handleConfirmAction = async () => {
         setIsSaving(true);
         try {
-            if (confirmActionType === 'addHeads' && selectedBatchId) {
+            if (confirmActionType === 'sellDeduct' && selectedBatchId && selectedBatch) {
+                const qty = parseInt(sellDeductQuantity, 10);
+                const available = selectedBatch.current_count ?? 0;
+                const newCount = Math.max(0, available - qty);
+                const shouldComplete = sellDeductMarkCompleted || newCount === 0;
+
+                const currentSoldCount = Math.max(selectedBatch.sold_count ?? 0, derivedSoldCount);
+                const newSoldCount = currentSoldCount + qty;
+
+                // 1. Update batch record
+                const { error: bErr } = await supabase
+                    .from('batches')
+                    .update({
+                        current_count: newCount,
+                        sold_count: newSoldCount,
+                        status: shouldComplete ? 'completed' : 'active',
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', selectedBatchId);
+                if (bErr) throw bErr;
+
+                // 2. Recalculate housing current_count
+                const otherBatchesCount = batches
+                    .filter(b => b.id !== selectedBatchId && b.status === 'active')
+                    .reduce((sum: number, b: any) => sum + (b.current_count ?? 0), 0);
+                const newHousingCount = otherBatchesCount + (shouldComplete ? 0 : newCount);
+
+                const { error: hErr } = await supabase
+                    .from('housings')
+                    .update({
+                        current_count: newHousingCount,
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', housingId);
+                if (hErr) throw hErr;
+
+                const reasonText = sellDeductReason === 'Other' ? (sellDeductOtherReason.trim() || 'Deduction') : sellDeductReason;
+
+                if (shouldComplete) {
+                    showSnackbar(`Deducted ${qty} animals (${reasonText}). Batch "${selectedBatch.name}" marked as completed!`);
+                } else {
+                    showSnackbar(`Deducted ${qty} animals (${reasonText}). ${newCount} remaining in batch.`);
+                }
+
+                setSellDeductVisible(false);
+                setSellDeductQuantity('');
+                setSellDeductReason('Sold / Harvested');
+                setSellDeductOtherReason('');
+                setSellDeductMarkCompleted(false);
+
+            } else if (confirmActionType === 'addHeads' && selectedBatchId) {
                 const n = parseInt(addHeadsNumber, 10);
                 const { error: bErr } = await supabase
                     .from('batches')
@@ -389,6 +612,7 @@ export default function AnimalDetailsScreen() {
                 if (bErr) throw bErr;
                 const { error: hErr } = await supabase.from('housings').update({ current_count: (housing?.current_count ?? 0) + n, updated_at: new Date().toISOString() }).eq('id', housingId);
                 if (hErr) throw hErr;
+                await clearAddHeadsDraft();
                 showSnackbar(`Added ${n} heads successfully.`);
                 setAddHeadsNumber(''); setAddHeadsAge('');
 
@@ -446,6 +670,7 @@ export default function AnimalDetailsScreen() {
                 }).eq('id', housingId);
                 if (hErr) throw hErr;
 
+                await clearDeceasedDraft();
                 showSnackbar(`Recorded ${n} deceased.`);
                 setDeceasedNumber(''); setDeceasedReason('Illness'); setDeceasedOtherReason('');
 
@@ -476,6 +701,7 @@ export default function AnimalDetailsScreen() {
                 // Update housing count
                 const { error: hErr } = await supabase.from('housings').update({ current_count: (housing?.current_count ?? 0) + count, updated_at: new Date().toISOString() }).eq('id', housingId);
                 if (hErr) throw hErr;
+                await clearNewBatchDraft();
                 showSnackbar('New batch created successfully.');
                 setNewBatchName(''); setNewBatchCount(''); setNewBatchSupplier(''); setNewBatchAge(''); setNewBatchAgeUnit('days');
 
@@ -550,6 +776,29 @@ export default function AnimalDetailsScreen() {
                 if (hErr) throw hErr;
 
                 showSnackbar(`Batch "${selectedBatch?.name}" archived.`);
+
+            } else if (confirmActionType === 'deleteBatch' && selectedBatchId) {
+                const deletedBatchWasActive = selectedBatch?.status === 'active';
+
+                const { error: bErr } = await supabase
+                    .from('batches')
+                    .delete()
+                    .eq('id', selectedBatchId);
+                if (bErr) throw bErr;
+
+                // If active batch was deleted, recalculate housing count
+                if (deletedBatchWasActive) {
+                    const otherBatchesCount = batches
+                        .filter(b => b.id !== selectedBatchId && b.status === 'active')
+                        .reduce((sum: number, b: any) => sum + (b.current_count ?? 0), 0);
+                    const { error: hErr } = await supabase
+                        .from('housings')
+                        .update({ current_count: otherBatchesCount, updated_at: new Date().toISOString() })
+                        .eq('id', housingId);
+                    if (hErr) console.error('Failed to sync housing count after batch deletion:', hErr.message);
+                }
+
+                showSnackbar(`Batch "${selectedBatch?.name}" was permanently deleted.`);
             }
             await fetchData();
         } catch (err: any) {
@@ -590,20 +839,22 @@ export default function AnimalDetailsScreen() {
 
     if (isLoading) {
         return (
-            <SafeAreaView style={styles.safeArea}>
-                <View style={[styles.headerTopRow]}>
+            <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
+                <View style={styles.headerTopRow}>
                     <View style={{ width: 44, height: 44 }}><BackButton fallbackRoute="/(animals)/AnimalsScreen" /></View>
                     <View style={{ flex: 1 }} />
                     <View style={{ width: 44 }} />
                 </View>
-                <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 48 }} />
-            </SafeAreaView>
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+            </View>
         );
     }
 
     if (!housing) {
         return (
-            <SafeAreaView style={styles.safeArea}>
+            <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
                 <View style={styles.headerTopRow}>
                     <View style={{ width: 44, height: 44 }}><BackButton fallbackRoute="/(animals)/AnimalsScreen" /></View>
                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Housing</Text>
@@ -612,17 +863,17 @@ export default function AnimalDetailsScreen() {
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                     <Text style={[textStyles.body, { color: colors.textGrey }]}>Housing not found.</Text>
                 </View>
-            </SafeAreaView>
+            </View>
         );
     }
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.headerTopRow}>
                 <View style={{ width: 44, height: 44 }}>
                     <BackButton fallbackRoute="/(animals)/AnimalsScreen" />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]} numberOfLines={1}>
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
                     {housing.name}
                 </Text>
                 <View style={{ width: 44, height: 44 }} />
@@ -672,39 +923,85 @@ export default function AnimalDetailsScreen() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 }}>
                         <TouchableOpacity
                             activeOpacity={0.8}
-                            style={[styles.dropdownContainer, { flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, paddingVertical: 14, marginBottom: 0 }]}
+                            style={[
+                                styles.dropdownContainer,
+                                {
+                                    flex: 1,
+                                    height: 52,
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    borderRadius: 16,
+                                    elevation: 1,
+                                    shadowColor: colors.shadow,
+                                    shadowOffset: { width: 0, height: 2 },
+                                    shadowOpacity: 0.5,
+                                    shadowRadius: 4,
+                                    paddingVertical: 0,
+                                    paddingHorizontal: 14,
+                                    marginBottom: 0,
+                                    justifyContent: 'center',
+                                }
+                            ]}
                             onPress={() => setBatchModalVisible(true)}
                         >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                                <MaterialIcons name="layers" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
-                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 16, flex: 1 }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 4, overflow: 'hidden' }}>
+                                <MaterialIcons name="layers" size={20} color={colors.textGrey} style={{ marginRight: 10 }} />
+                                <Text
+                                    style={[textStyles.h3, { color: colors.text, fontSize: 15, flex: 1 }]}
+                                >
                                     {selectedBatchLabel || 'Select a batch'}
                                 </Text>
                             </View>
                             <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
                         </TouchableOpacity>
                         {selectedBatch && (
-                            <TouchableOpacity
-                                activeOpacity={0.8}
-                                style={{
-                                    width: 52,
-                                    height: 52,
-                                    borderRadius: 16,
-                                    backgroundColor: colors.surface,
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    elevation: 1,
-                                    shadowColor: colors.shadow,
-                                    shadowOffset: { width: 0, height: 2 },
-                                    shadowOpacity: 0.5,
-                                    shadowRadius: 4,
-                                }}
-                                onPress={openEditBatchModal}
-                            >
-                                <MaterialIcons name="edit" size={22} color={colors.primary} />
-                            </TouchableOpacity>
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={{
+                                        width: 52,
+                                        height: 52,
+                                        borderRadius: 16,
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        elevation: 1,
+                                        shadowColor: colors.shadow,
+                                        shadowOffset: { width: 0, height: 2 },
+                                        shadowOpacity: 0.5,
+                                        shadowRadius: 4,
+                                    }}
+                                    onPress={openEditBatchModal}
+                                >
+                                    <MaterialIcons name="edit" size={22} color={colors.primary} />
+                                </TouchableOpacity>
+                                {canDeleteSelectedBatch && (
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            width: 52,
+                                            height: 52,
+                                            borderRadius: 16,
+                                            backgroundColor: colors.surface,
+                                            borderWidth: 1,
+                                            borderColor: colors.stroke,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            elevation: 1,
+                                            shadowColor: colors.shadow,
+                                            shadowOffset: { width: 0, height: 2 },
+                                            shadowOpacity: 0.5,
+                                            shadowRadius: 4,
+                                        }}
+                                        onPress={handleDeleteBatchClick}
+                                    >
+                                        <MaterialIcons name="delete-outline" size={22} color={colors.error} />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
                         )}
                     </View>
                 )}
@@ -765,13 +1062,22 @@ export default function AnimalDetailsScreen() {
                             <Text style={[textStyles.body, { color: colors.text, fontSize: 14, marginTop: 2 }]}>
                                 Initial count: <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{selectedBatch.estimated_count}</Text>
                             </Text>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14, marginTop: 2 }]}>
+                                Sold / Harvested: <Text style={{ fontFamily: 'Poppins-SemiBold', color: '#27AE60' }}>{soldCount}</Text>
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14, marginTop: 2 }]}>
+                                Deceased: <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.error }}>{deceasedCount}</Text>
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.text, fontSize: 14, marginTop: 2 }]}>
+                                Current Live Heads: <Text style={{ fontFamily: 'Poppins-SemiBold', color: accentColor }}>{selectedBatch.current_count}</Text>
+                            </Text>
                         </View>
 
 
                         {/* Quick Actions */}
                         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
                             <TouchableOpacity
-                                style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
+                                style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 8, minHeight: 48, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
                                 onPress={() => {
                                     setAddHeadsNumber('');
                                     setAddHeadsAge('');
@@ -786,10 +1092,10 @@ export default function AnimalDetailsScreen() {
                                 disabled={selectedBatch.status !== 'active'}
                             >
                                 <MaterialIcons name="add" size={20} color={selectedBatch.status === 'active' ? colors.primary : colors.textGrey} style={{ marginRight: 6 }} />
-                                <Text style={[textStyles.h3, { color: selectedBatch.status === 'active' ? colors.primary : colors.textGrey, fontSize: 13 }]}>Add Heads</Text>
+                                <Text numberOfLines={2} style={[textStyles.h3, { color: selectedBatch.status === 'active' ? colors.primary : colors.textGrey, fontSize: 12.5, lineHeight: 15, textAlign: 'center', flexShrink: 1 }]}>Add Heads</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
+                                style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 8, minHeight: 48, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', elevation: 1, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
                                 onPress={() => {
                                     setDeceasedNumber('');
                                     setDeceasedReason('Illness');
@@ -800,7 +1106,7 @@ export default function AnimalDetailsScreen() {
                                 disabled={selectedBatch.status !== 'active'}
                             >
                                 <MaterialIcons name="warning" size={18} color={selectedBatch.status === 'active' ? colors.error : colors.textGrey} style={{ marginRight: 6 }} />
-                                <Text style={[textStyles.h3, { color: selectedBatch.status === 'active' ? colors.error : colors.textGrey, fontSize: 13 }]}>Deceased</Text>
+                                <Text numberOfLines={2} style={[textStyles.h3, { color: selectedBatch.status === 'active' ? colors.error : colors.textGrey, fontSize: 12.5, lineHeight: 15, textAlign: 'center', flexShrink: 1 }]}>Deceased</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -811,7 +1117,56 @@ export default function AnimalDetailsScreen() {
                             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
                                 <TouchableOpacity
                                     activeOpacity={0.8}
-                                    style={{ flex: 1, borderWidth: 1.5, borderColor: '#27AE60', borderRadius: 12, paddingVertical: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        borderRadius: 16,
+                                        paddingVertical: 14,
+                                        paddingHorizontal: 12,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexDirection: 'row',
+                                        elevation: 1,
+                                        shadowColor: colors.shadow,
+                                        shadowOffset: { width: 0, height: 2 },
+                                        shadowOpacity: 0.3,
+                                        shadowRadius: 4,
+                                    }}
+                                    onPress={() => {
+                                        const avail = selectedBatch.current_count ?? 0;
+                                        setSellDeductQuantity(String(avail > 0 ? avail : ''));
+                                        setSellDeductReason('Sold / Harvested');
+                                        setSellDeductOtherReason('');
+                                        setSellDeductMarkCompleted(true);
+                                        setSellDeductError(null);
+                                        setSellDeductVisible(true);
+                                    }}
+                                >
+                                    <MaterialIcons name="storefront" size={18} color="#27AE60" style={{ marginRight: 6 }} />
+                                    <Text style={[textStyles.h3, { color: '#27AE60', fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}>Sell / Deduct</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        borderRadius: 16,
+                                        paddingVertical: 14,
+                                        paddingHorizontal: 12,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexDirection: 'row',
+                                        elevation: 1,
+                                        shadowColor: colors.shadow,
+                                        shadowOffset: { width: 0, height: 2 },
+                                        shadowOpacity: 0.3,
+                                        shadowRadius: 4,
+                                    }}
                                     onPress={() => {
                                         setConfirmActionType('completeBatch');
                                         setConfirmModalType('confirmation');
@@ -820,8 +1175,8 @@ export default function AnimalDetailsScreen() {
                                         setConfirmModalVisible(true);
                                     }}
                                 >
-                                    <MaterialIcons name="check-circle-outline" size={18} color="#27AE60" style={{ marginRight: 6 }} />
-                                    <Text style={[textStyles.h3, { color: '#27AE60', fontSize: 13 }]}>Complete</Text>
+                                    <MaterialIcons name="check-circle-outline" size={18} color={colors.primary} style={{ marginRight: 6 }} />
+                                    <Text style={[textStyles.h3, { color: colors.primary, fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}>Complete</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
@@ -848,579 +1203,782 @@ export default function AnimalDetailsScreen() {
             />
 
             {/* Add Heads Modal */}
-            <Modal visible={addHeadsVisible} transparent animationType="fade">
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        style={{ width: '100%', maxWidth: 340, maxHeight: '90%' }}
-                    >
-                        <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 24, overflow: 'hidden' }}>
-                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
-                                <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
-                                    <MaterialIcons name="add" size={32} color={colors.primary} />
-                                </View>
-                                <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Add Heads</Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
-                                    Enter the number of new animals to add to this batch.
-                                </Text>
+            <Modal visible={addHeadsVisible} transparent animationType="fade" onRequestClose={() => setAddHeadsVisible(false)}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={() => setAddHeadsVisible(false)}
+                    />
+                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden' }}>
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ alignItems: 'center' }}>
+                            <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                <MaterialIcons name="add" size={32} color={colors.primary} />
+                            </View>
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Add Heads</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                Enter the number of new animals to add to this batch.
+                            </Text>
 
-                                <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                                    <View style={{ flex: 1 }}>
-                                        <FloatingLabelInput
-                                            label={housing && housing.capacity > 0 ? `Number of Heads (${addHeadsNumber || '0'}/${Math.max(0, housing.capacity - housing.current_count)})` : 'Number of Heads'}
-                                            icon={isPig ? 'pig' : 'chicken'}
-                                            value={addHeadsNumber}
-                                            onChangeText={t => {
-                                                const clean = t.replace(/[^0-9]/g, '');
-                                                setAddHeadsNumber(clean);
-                                                validateAddHeads(clean);
-                                            }}
-                                            keyboardType="numeric"
-                                            backgroundColor={colors.surface}
-                                            error={addHeadsError ?? undefined}
-                                        />
-                                    </View>
-
-                                    <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const maxAddable = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
-                                                if (maxAddable <= 0) return;
-                                                const current = parseInt(addHeadsNumber || '0', 10);
-                                                const next = Math.min(maxAddable, current + 1);
-                                                setAddHeadsNumber(String(next));
-                                                validateAddHeads(String(next));
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const maxAddable = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
-                                                if (maxAddable <= 0) return;
-                                                const current = parseInt(addHeadsNumber || '0', 10);
-                                                const next = Math.max(1, current - 1);
-                                                setAddHeadsNumber(String(next));
-                                                validateAddHeads(String(next));
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-
-                                <View style={{ width: '100%', marginBottom: 12 }}>
-                                    <FloatingLabelInput label="Age in Days (optional)" icon="calendar-today" value={addHeadsAge} onChangeText={t => setAddHeadsAge(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" backgroundColor={colors.surface} />
-                                </View>
-
-                                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
-                                    <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setAddHeadsVisible(false)} activeOpacity={0.7}>
-                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={{
-                                            flex: 1,
-                                            backgroundColor: isAddHeadsDisabled ? colors.cardFill : colors.primary,
-                                            paddingVertical: 14,
-                                            borderRadius: 30,
-                                            alignItems: 'center'
+                            <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                    <FloatingLabelInput
+                                        label={housing && housing.capacity > 0 ? `Number of Heads (${addHeadsNumber || '0'}/${Math.max(0, housing.capacity - housing.current_count)})` : 'Number of Heads'}
+                                        icon={isPig ? 'pig' : 'chicken'}
+                                        value={addHeadsNumber}
+                                        onChangeText={t => {
+                                            const clean = t.replace(/[^0-9]/g, '');
+                                            setAddHeadsNumber(clean);
+                                            validateAddHeads(clean);
                                         }}
-                                        onPress={handleAddHeadsClick}
-                                        disabled={isAddHeadsDisabled}
-                                        activeOpacity={isAddHeadsDisabled ? 1 : 0.7}
+                                        keyboardType="numeric"
+                                        backgroundColor={colors.surface}
+                                        error={addHeadsError ?? undefined}
+                                    />
+                                </View>
+
+                                <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const maxAddable = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
+                                            if (maxAddable <= 0) return;
+                                            const current = parseInt(addHeadsNumber || '0', 10);
+                                            const next = Math.min(maxAddable, current + 1);
+                                            setAddHeadsNumber(String(next));
+                                            validateAddHeads(String(next));
+                                        }}
                                     >
-                                        <Text style={[textStyles.h3, { color: isAddHeadsDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Add</Text>
+                                        <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const maxAddable = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
+                                            if (maxAddable <= 0) return;
+                                            const current = parseInt(addHeadsNumber || '0', 10);
+                                            const next = Math.max(1, current - 1);
+                                            setAddHeadsNumber(String(next));
+                                            validateAddHeads(String(next));
+                                        }}
+                                    >
+                                        <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
                                     </TouchableOpacity>
                                 </View>
-                            </ScrollView>
-                        </View>
-                    </KeyboardAvoidingView>
-                </View>
+                            </View>
+
+                            <View style={{ width: '100%', marginBottom: 12 }}>
+                                <FloatingLabelInput label="Age in Days (optional)" icon="calendar-today" value={addHeadsAge} onChangeText={t => setAddHeadsAge(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" backgroundColor={colors.surface} />
+                            </View>
+
+                            <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setAddHeadsVisible(false)} activeOpacity={0.7}>
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: '#27AE60',
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center'
+                                    }}
+                                    onPress={handleAddHeadsClick}
+                                    disabled={isAddHeadsDisabled}
+                                    activeOpacity={isAddHeadsDisabled ? 1 : 0.7}
+                                >
+                                    <Text style={[textStyles.h3, { color: '#FFF', fontSize: 14 }]}>Add</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* Record Deceased Modal */}
-            <Modal visible={deceasedVisible} transparent animationType="fade">
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        style={{ width: '100%', maxWidth: 340, maxHeight: '90%' }}
-                    >
-                        <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 24, overflow: 'hidden' }}>
-                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
-                                <View style={{ backgroundColor: colors.error + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
-                                    <MaterialIcons name="warning" size={32} color={colors.error} />
-                                </View>
-                                <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Record Deceased</Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
-                                    Enter the count and reason for the deceased animals.
-                                </Text>
+            <Modal visible={deceasedVisible} transparent animationType="fade" onRequestClose={() => setDeceasedVisible(false)}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={() => setDeceasedVisible(false)}
+                    />
+                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden' }}>
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ alignItems: 'center' }}>
+                            <View style={{ backgroundColor: colors.error + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                <MaterialIcons name="warning" size={32} color={colors.error} />
+                            </View>
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Record Deceased</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                Enter the count and reason for the deceased animals.
+                            </Text>
 
-                                <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                                    <View style={{ flex: 1 }}>
-                                        <FloatingLabelInput
-                                            label="Number of Deceased"
-                                            icon={isPig ? 'pig' : 'chicken'}
-                                            value={deceasedNumber}
-                                            onChangeText={t => {
-                                                const clean = t.replace(/[^0-9]/g, '');
-                                                setDeceasedNumber(clean);
-                                                validateDeceased(clean);
-                                            }}
-                                            keyboardType="numeric"
-                                            backgroundColor={colors.surface}
-                                            error={deceasedError ?? undefined}
-                                        />
-                                    </View>
-
-                                    <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const current = parseInt(deceasedNumber || '0', 10);
-                                                const maxLimit = selectedBatch?.current_count ?? 10000;
-                                                const next = Math.min(maxLimit, current + 1);
-                                                setDeceasedNumber(String(next));
-                                                validateDeceased(String(next));
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const current = parseInt(deceasedNumber || '0', 10);
-                                                const next = Math.max(1, current - 1);
-                                                setDeceasedNumber(String(next));
-                                                validateDeceased(String(next));
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-
-                                <View style={{ width: '100%', marginBottom: 28 }}>
-                                    <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', paddingLeft: 4, fontFamily: 'Poppins-SemiBold', fontSize: 11 }]}>
-                                        Cause of Mortality
-                                    </Text>
-                                    <TouchableOpacity
-                                        activeOpacity={0.8}
-                                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30, paddingHorizontal: 16, height: 58, backgroundColor: colors.surface }}
-                                        onPress={() => setDeceasedReasonModalVisible(true)}
-                                    >
-                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                            <MaterialIcons name="help-outline" size={20} color={colors.icon} style={{ marginRight: 12 }} />
-                                            <Text style={[textStyles.body, { color: colors.text }]}>{deceasedReason}</Text>
-                                        </View>
-                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
-                                    </TouchableOpacity>
-                                </View>
-
-                                {deceasedReason === 'Other' && (
-                                    <View style={{ width: '100%', marginBottom: 12 }}>
-                                        <FloatingLabelInput label="Specific Reason" icon="edit" value={deceasedOtherReason} onChangeText={setDeceasedOtherReason} backgroundColor={colors.surface} />
-                                    </View>
-                                )}
-
-                                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
-                                    <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setDeceasedVisible(false)} activeOpacity={0.7}>
-                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={{
-                                            flex: 1,
-                                            backgroundColor: isDeceasedDisabled ? colors.cardFill : colors.error,
-                                            paddingVertical: 14,
-                                            borderRadius: 30,
-                                            alignItems: 'center'
+                            <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                    <FloatingLabelInput
+                                        label="Number of Deceased"
+                                        icon={isPig ? 'pig' : 'chicken'}
+                                        value={deceasedNumber}
+                                        onChangeText={t => {
+                                            const clean = t.replace(/[^0-9]/g, '');
+                                            setDeceasedNumber(clean);
+                                            validateDeceased(clean);
                                         }}
-                                        onPress={handleDeceasedClick}
-                                        disabled={isDeceasedDisabled}
-                                        activeOpacity={isDeceasedDisabled ? 1 : 0.7}
+                                        keyboardType="numeric"
+                                        backgroundColor={colors.surface}
+                                        error={deceasedError ?? undefined}
+                                    />
+                                </View>
+
+                                <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const current = parseInt(deceasedNumber || '0', 10);
+                                            const maxLimit = selectedBatch?.current_count ?? 10000;
+                                            const next = Math.min(maxLimit, current + 1);
+                                            setDeceasedNumber(String(next));
+                                            validateDeceased(String(next));
+                                        }}
                                     >
-                                        <Text style={[textStyles.h3, { color: isDeceasedDisabled ? colors.textGrey : '#FFF', fontSize: 14 }]}>Record</Text>
+                                        <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const current = parseInt(deceasedNumber || '0', 10);
+                                            const next = Math.max(1, current - 1);
+                                            setDeceasedNumber(String(next));
+                                            validateDeceased(String(next));
+                                        }}
+                                    >
+                                        <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
                                     </TouchableOpacity>
                                 </View>
-                            </ScrollView>
-                        </View>
-                    </KeyboardAvoidingView>
-                </View>
+                            </View>
+
+                            <View style={{ width: '100%', marginBottom: 28 }}>
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30, paddingHorizontal: 16, height: 58, backgroundColor: colors.surface }}
+                                    onPress={() => { setDeceasedVisible(false); setDeceasedReasonModalVisible(true); }}
+                                >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <MaterialIcons name="help-outline" size={20} color={colors.icon} style={{ marginRight: 12 }} />
+                                        <Text style={[textStyles.body, { color: colors.text }]}>{deceasedReason}</Text>
+                                    </View>
+                                    <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                </TouchableOpacity>
+                            </View>
+
+                            {deceasedReason === 'Other' && (
+                                <View style={{ width: '100%', marginBottom: 12 }}>
+                                    <FloatingLabelInput label="Specific Reason" icon="edit" value={deceasedOtherReason} onChangeText={setDeceasedOtherReason} backgroundColor={colors.surface} />
+                                </View>
+                            )}
+
+                            <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setDeceasedVisible(false)} activeOpacity={0.7}>
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: isDeceasedDisabled ? colors.cardFill : colors.error,
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center'
+                                    }}
+                                    onPress={handleDeceasedClick}
+                                    disabled={isDeceasedDisabled}
+                                    activeOpacity={isDeceasedDisabled ? 1 : 0.7}
+                                >
+                                    <Text style={[textStyles.h3, { color: isDeceasedDisabled ? colors.textGrey : '#FFF', fontSize: 14 }]}>Record</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* New Batch Modal */}
-            <Modal visible={newBatchVisible} transparent animationType="fade">
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        style={{ width: '100%', maxWidth: 340, maxHeight: '90%' }}
-                    >
-                        <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 24, overflow: 'hidden' }}>
-                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
-                                <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
-                                    <MaterialIcons name="add-box" size={32} color={colors.primary} />
-                                </View>
-                                <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>New Batch</Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
-                                    Start a new batch of animals for {housing.name}.
-                                </Text>
+            <Modal visible={newBatchVisible} transparent animationType="fade" onRequestClose={() => setNewBatchVisible(false)}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={() => setNewBatchVisible(false)}
+                    />
+                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden' }}>
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ alignItems: 'center' }}>
+                            <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                <MaterialIcons name="add-box" size={32} color={colors.primary} />
+                            </View>
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>New Batch</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                Start a new batch of animals for {housing.name}.
+                            </Text>
 
-                                <View style={{ width: '100%' }}>
-                                    <FloatingLabelInput label="Batch Name" icon="layers" value={newBatchName} onChangeText={setNewBatchName} backgroundColor={colors.surface} />
-                                </View>
+                            <View style={{ width: '100%' }}>
+                                <FloatingLabelInput label="Batch Name" icon="layers" value={newBatchName} onChangeText={setNewBatchName} backgroundColor={colors.surface} />
+                            </View>
 
-                                <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                                    <View style={{ flex: 1 }}>
-                                        <FloatingLabelInput
-                                            label={housing && housing.capacity > 0 ? `Remaining Head Count (${newBatchCount || '0'}/${Math.max(0, housing.capacity - housing.current_count)})` : 'Remaining Head Count'}
-                                            icon={isPig ? 'pig' : 'chicken'}
-                                            value={newBatchCount}
-                                            onChangeText={t => {
-                                                const clean = t.replace(/[^0-9]/g, '');
-                                                setNewBatchCount(clean);
-                                                validateNewBatchCount(clean);
-                                            }}
-                                            keyboardType="numeric"
-                                            backgroundColor={colors.surface}
-                                            error={newBatchCountError ?? undefined}
-                                        />
-                                    </View>
-
-                                    <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const remaining = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
-                                                if (remaining <= 0) return;
-                                                const current = parseInt(newBatchCount || '0', 10);
-                                                const next = Math.min(remaining, current + 1);
-                                                setNewBatchCount(String(next));
-                                                validateNewBatchCount(String(next));
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const remaining = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
-                                                if (remaining <= 0) return;
-                                                const current = parseInt(newBatchCount || '0', 10);
-                                                const next = Math.max(1, current - 1);
-                                                setNewBatchCount(String(next));
-                                                validateNewBatchCount(String(next));
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-
-                                <View style={{ width: '100%', marginBottom: 12 }}>
-                                    <FloatingLabelInput label="Supplier (optional)" icon="store" value={newBatchSupplier} onChangeText={setNewBatchSupplier} backgroundColor={colors.surface} />
-                                </View>
-
-                                <View style={{ width: '100%', marginBottom: 12 }}>
+                            <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                                <View style={{ flex: 1 }}>
                                     <FloatingLabelInput
-                                        label={isPig ? `Age (${newBatchAgeUnit})` : "Age (Days)"}
-                                        icon="cake"
-                                        value={newBatchAge}
-                                        onChangeText={t => setNewBatchAge(t.replace(/[^0-9]/g, ''))}
+                                        label="Head Count"
+                                        icon={isPig ? 'pig' : 'chicken'}
+                                        value={newBatchCount}
+                                        onChangeText={t => {
+                                            const clean = t.replace(/[^0-9]/g, '');
+                                            setNewBatchCount(clean);
+                                            validateNewBatchCount(clean);
+                                        }}
                                         keyboardType="numeric"
                                         backgroundColor={colors.surface}
+                                        error={newBatchCountError ?? undefined}
+                                        helperText={housing && housing.capacity > 0 ? `Available: ${Math.max(0, housing.capacity - housing.current_count)} of ${housing.capacity} heads` : undefined}
                                     />
                                 </View>
 
-                                {isPig && (
-                                    <View style={{ flexDirection: 'row', width: '100%', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.8}
-                                            style={{
-                                                flex: 1,
-                                                paddingVertical: 8,
-                                                borderRadius: 16,
-                                                borderWidth: 1.5,
-                                                borderColor: newBatchAgeUnit === 'days' ? colors.primary : colors.stroke,
-                                                backgroundColor: newBatchAgeUnit === 'days' ? colors.primary + '10' : colors.surface,
-                                                alignItems: 'center'
-                                            }}
-                                            onPress={() => setNewBatchAgeUnit('days')}
-                                        >
-                                            <Text style={[textStyles.body, { color: newBatchAgeUnit === 'days' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Days</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            activeOpacity={0.8}
-                                            style={{
-                                                flex: 1,
-                                                paddingVertical: 8,
-                                                borderRadius: 16,
-                                                borderWidth: 1.5,
-                                                borderColor: newBatchAgeUnit === 'months' ? colors.primary : colors.stroke,
-                                                backgroundColor: newBatchAgeUnit === 'months' ? colors.primary + '10' : colors.surface,
-                                                alignItems: 'center'
-                                            }}
-                                            onPress={() => setNewBatchAgeUnit('months')}
-                                        >
-                                            <Text style={[textStyles.body, { color: newBatchAgeUnit === 'months' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Months</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                )}
-
-                                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
-                                    <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setNewBatchVisible(false)} activeOpacity={0.7}>
-                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                                    </TouchableOpacity>
+                                <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
                                     <TouchableOpacity
+                                        activeOpacity={0.7}
                                         style={{
-                                            flex: 1,
-                                            backgroundColor: isNewBatchDisabled ? colors.cardFill : colors.primary,
-                                            paddingVertical: 14,
-                                            borderRadius: 30,
-                                            alignItems: 'center'
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
                                         }}
-                                        onPress={handleNewBatchClick}
-                                        disabled={isNewBatchDisabled}
-                                        activeOpacity={isNewBatchDisabled ? 1 : 0.7}
+                                        onPress={() => {
+                                            const remaining = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
+                                            if (remaining <= 0) return;
+                                            const current = parseInt(newBatchCount || '0', 10);
+                                            const next = Math.min(remaining, current + 1);
+                                            setNewBatchCount(String(next));
+                                            validateNewBatchCount(String(next));
+                                        }}
                                     >
-                                        <Text style={[textStyles.h3, { color: isNewBatchDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Create</Text>
+                                        <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const remaining = housing && housing.capacity > 0 ? Math.max(0, housing.capacity - housing.current_count) : 999999;
+                                            if (remaining <= 0) return;
+                                            const current = parseInt(newBatchCount || '0', 10);
+                                            const next = Math.max(1, current - 1);
+                                            setNewBatchCount(String(next));
+                                            validateNewBatchCount(String(next));
+                                        }}
+                                    >
+                                        <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
                                     </TouchableOpacity>
                                 </View>
-                            </ScrollView>
-                        </View>
-                    </KeyboardAvoidingView>
-                </View>
+                            </View>
+
+                            <View style={{ width: '100%', marginBottom: 12 }}>
+                                <FloatingLabelInput label="Supplier (optional)" icon="store" value={newBatchSupplier} onChangeText={setNewBatchSupplier} backgroundColor={colors.surface} />
+                            </View>
+
+                            <View style={{ width: '100%', marginBottom: 12 }}>
+                                <FloatingLabelInput
+                                    label={isPig ? `Age (${newBatchAgeUnit})` : "Age (Days)"}
+                                    icon="cake"
+                                    value={newBatchAge}
+                                    onChangeText={t => setNewBatchAge(t.replace(/[^0-9]/g, ''))}
+                                    keyboardType="numeric"
+                                    backgroundColor={colors.surface}
+                                />
+                            </View>
+
+                            {isPig && (
+                                <View style={{ flexDirection: 'row', width: '100%', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            flex: 1,
+                                            paddingVertical: 8,
+                                            borderRadius: 16,
+                                            borderWidth: 1.5,
+                                            borderColor: newBatchAgeUnit === 'days' ? colors.primary : colors.stroke,
+                                            backgroundColor: newBatchAgeUnit === 'days' ? colors.primary + '10' : colors.surface,
+                                            alignItems: 'center'
+                                        }}
+                                        onPress={() => setNewBatchAgeUnit('days')}
+                                    >
+                                        <Text style={[textStyles.body, { color: newBatchAgeUnit === 'days' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Days</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            flex: 1,
+                                            paddingVertical: 8,
+                                            borderRadius: 16,
+                                            borderWidth: 1.5,
+                                            borderColor: newBatchAgeUnit === 'months' ? colors.primary : colors.stroke,
+                                            backgroundColor: newBatchAgeUnit === 'months' ? colors.primary + '10' : colors.surface,
+                                            alignItems: 'center'
+                                        }}
+                                        onPress={() => setNewBatchAgeUnit('months')}
+                                    >
+                                        <Text style={[textStyles.body, { color: newBatchAgeUnit === 'months' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Months</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+
+                            <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setNewBatchVisible(false)} activeOpacity={0.7}>
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: '#27AE60',
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center'
+                                    }}
+                                    onPress={handleNewBatchClick}
+                                    disabled={isNewBatchDisabled}
+                                    activeOpacity={isNewBatchDisabled ? 1 : 0.7}
+                                >
+                                    <Text style={[textStyles.h3, { color: '#FFF', fontSize: 14 }]}>Create</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* Edit Batch Modal */}
-            <Modal visible={editBatchVisible} transparent animationType="fade">
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        style={{ width: '100%', maxWidth: 340, maxHeight: '90%' }}
-                    >
-                        <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 24, overflow: 'hidden' }}>
-                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
-                                <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
-                                    <MaterialIcons name="edit" size={32} color={colors.primary} />
-                                </View>
-                                <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Edit Batch</Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
-                                    Update batch details for {selectedBatch?.name}.
-                                </Text>
+            <Modal visible={editBatchVisible} transparent animationType="fade" onRequestClose={() => setEditBatchVisible(false)}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={() => setEditBatchVisible(false)}
+                    />
+                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden' }}>
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ alignItems: 'center' }}>
+                            <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                <MaterialIcons name="edit" size={32} color={colors.primary} />
+                            </View>
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Edit Batch</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                Update batch details for {selectedBatch?.name}.
+                            </Text>
 
-                                <View style={{ width: '100%' }}>
-                                    <FloatingLabelInput label="Batch Name" icon="layers" value={editBatchName} onChangeText={setEditBatchName} backgroundColor={colors.surface} />
-                                </View>
+                            <View style={{ width: '100%' }}>
+                                <FloatingLabelInput label="Batch Name" icon="layers" value={editBatchName} onChangeText={setEditBatchName} backgroundColor={colors.surface} />
+                            </View>
 
-                                <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                                    <View style={{ flex: 1 }}>
-                                        <FloatingLabelInput
-                                            label={housing && housing.capacity > 0 ? `Head Count (${editBatchCount || '0'}/${housing.capacity})` : 'Head Count'}
-                                            icon={isPig ? 'pig' : 'chicken'}
-                                            value={editBatchCount}
-                                            onChangeText={t => {
-                                                const clean = t.replace(/[^0-9]/g, '');
-                                                setEditBatchCount(clean);
-                                                validateEditBatchCount(clean);
-                                            }}
-                                            keyboardType="numeric"
-                                            backgroundColor={colors.surface}
-                                            error={editBatchCountError ?? undefined}
-                                        />
-                                    </View>
-
-                                    <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const current = parseInt(editBatchCount || '0', 10);
-                                                const next = current + 1;
-                                                setEditBatchCount(String(next));
-                                                validateEditBatchCount(String(next));
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const current = parseInt(editBatchCount || '0', 10);
-                                                const next = Math.max(1, current - 1);
-                                                setEditBatchCount(String(next));
-                                                validateEditBatchCount(String(next));
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-
-                                <View style={{ width: '100%', marginBottom: 12 }}>
-                                    <FloatingLabelInput label="Supplier (optional)" icon="store" value={editBatchSupplier} onChangeText={setEditBatchSupplier} backgroundColor={colors.surface} />
-                                </View>
-
-                                <View style={{ width: '100%', marginBottom: 12 }}>
+                            <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                                <View style={{ flex: 1 }}>
                                     <FloatingLabelInput
-                                        label={isPig ? `Age (${editBatchAgeUnit})` : "Age (Days)"}
-                                        icon="cake"
-                                        value={editBatchAge}
-                                        onChangeText={t => setEditBatchAge(t.replace(/[^0-9]/g, ''))}
+                                        label={housing && housing.capacity > 0 ? `Head Count (${editBatchCount || '0'}/${housing.capacity})` : 'Head Count'}
+                                        icon={isPig ? 'pig' : 'chicken'}
+                                        value={editBatchCount}
+                                        onChangeText={t => {
+                                            const clean = t.replace(/[^0-9]/g, '');
+                                            setEditBatchCount(clean);
+                                            validateEditBatchCount(clean);
+                                        }}
                                         keyboardType="numeric"
                                         backgroundColor={colors.surface}
+                                        error={editBatchCountError ?? undefined}
                                     />
                                 </View>
 
-                                {isPig && (
-                                    <View style={{ flexDirection: 'row', width: '100%', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.8}
-                                            style={{
-                                                flex: 1,
-                                                paddingVertical: 8,
-                                                borderRadius: 16,
-                                                borderWidth: 1.5,
-                                                borderColor: editBatchAgeUnit === 'days' ? colors.primary : colors.stroke,
-                                                backgroundColor: editBatchAgeUnit === 'days' ? colors.primary + '10' : colors.surface,
-                                                alignItems: 'center'
-                                            }}
-                                            onPress={() => setEditBatchAgeUnit('days')}
-                                        >
-                                            <Text style={[textStyles.body, { color: editBatchAgeUnit === 'days' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Days</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            activeOpacity={0.8}
-                                            style={{
-                                                flex: 1,
-                                                paddingVertical: 8,
-                                                borderRadius: 16,
-                                                borderWidth: 1.5,
-                                                borderColor: editBatchAgeUnit === 'months' ? colors.primary : colors.stroke,
-                                                backgroundColor: editBatchAgeUnit === 'months' ? colors.primary + '10' : colors.surface,
-                                                alignItems: 'center'
-                                            }}
-                                            onPress={() => setEditBatchAgeUnit('months')}
-                                        >
-                                            <Text style={[textStyles.body, { color: editBatchAgeUnit === 'months' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Months</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                )}
-
-                                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
-                                    <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditBatchVisible(false)} activeOpacity={0.7}>
-                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                                    </TouchableOpacity>
+                                <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
                                     <TouchableOpacity
+                                        activeOpacity={0.7}
                                         style={{
-                                            flex: 1,
-                                            backgroundColor: isEditBatchDisabled ? colors.cardFill : colors.primary,
-                                            paddingVertical: 14,
-                                            borderRadius: 30,
-                                            alignItems: 'center'
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
                                         }}
-                                        onPress={handleEditBatchClick}
-                                        disabled={isEditBatchDisabled}
-                                        activeOpacity={isEditBatchDisabled ? 1 : 0.7}
+                                        onPress={() => {
+                                            const current = parseInt(editBatchCount || '0', 10);
+                                            const next = current + 1;
+                                            setEditBatchCount(String(next));
+                                            validateEditBatchCount(String(next));
+                                        }}
                                     >
-                                        <Text style={[textStyles.h3, { color: isEditBatchDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Save</Text>
+                                        <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const current = parseInt(editBatchCount || '0', 10);
+                                            const next = Math.max(1, current - 1);
+                                            setEditBatchCount(String(next));
+                                            validateEditBatchCount(String(next));
+                                        }}
+                                    >
+                                        <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
                                     </TouchableOpacity>
                                 </View>
-                            </ScrollView>
-                        </View>
-                    </KeyboardAvoidingView>
-                </View>
+                            </View>
+
+                            <View style={{ width: '100%', marginBottom: 12 }}>
+                                <FloatingLabelInput label="Supplier (optional)" icon="store" value={editBatchSupplier} onChangeText={setEditBatchSupplier} backgroundColor={colors.surface} />
+                            </View>
+
+                            <View style={{ width: '100%', marginBottom: 12 }}>
+                                <FloatingLabelInput
+                                    label={isPig ? `Age (${editBatchAgeUnit})` : "Age (Days)"}
+                                    icon="cake"
+                                    value={editBatchAge}
+                                    onChangeText={t => setEditBatchAge(t.replace(/[^0-9]/g, ''))}
+                                    keyboardType="numeric"
+                                    backgroundColor={colors.surface}
+                                />
+                            </View>
+
+                            {isPig && (
+                                <View style={{ flexDirection: 'row', width: '100%', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            flex: 1,
+                                            paddingVertical: 8,
+                                            borderRadius: 16,
+                                            borderWidth: 1.5,
+                                            borderColor: editBatchAgeUnit === 'days' ? colors.primary : colors.stroke,
+                                            backgroundColor: editBatchAgeUnit === 'days' ? colors.primary + '10' : colors.surface,
+                                            alignItems: 'center'
+                                        }}
+                                        onPress={() => setEditBatchAgeUnit('days')}
+                                    >
+                                        <Text style={[textStyles.body, { color: editBatchAgeUnit === 'days' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Days</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            flex: 1,
+                                            paddingVertical: 8,
+                                            borderRadius: 16,
+                                            borderWidth: 1.5,
+                                            borderColor: editBatchAgeUnit === 'months' ? colors.primary : colors.stroke,
+                                            backgroundColor: editBatchAgeUnit === 'months' ? colors.primary + '10' : colors.surface,
+                                            alignItems: 'center'
+                                        }}
+                                        onPress={() => setEditBatchAgeUnit('months')}
+                                    >
+                                        <Text style={[textStyles.body, { color: editBatchAgeUnit === 'months' ? colors.primary : colors.textGrey, fontFamily: 'Poppins-SemiBold', fontSize: 13 }]}>Months</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+
+                            <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditBatchVisible(false)} activeOpacity={0.7}>
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: '#27AE60',
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center'
+                                    }}
+                                    onPress={handleEditBatchClick}
+                                    disabled={isEditBatchDisabled}
+                                    activeOpacity={isEditBatchDisabled ? 1 : 0.7}
+                                >
+                                    <Text style={[textStyles.h3, { color: '#FFF', fontSize: 14 }]}>Save</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
             </Modal>
+
+            {/* Sell / Deduct Animals Modal */}
+            <Modal visible={sellDeductVisible} transparent animationType="fade" onRequestClose={() => setSellDeductVisible(false)}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={() => setSellDeductVisible(false)}
+                    />
+                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden' }}>
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ alignItems: 'center' }}>
+                            <View style={{ backgroundColor: '#27AE601A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                <MaterialIcons name="storefront" size={32} color="#27AE60" />
+                            </View>
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>Sell / Deduct Animals</Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                Enter the count and reason to deduct animals from batch "{selectedBatch?.name}".
+                            </Text>
+
+                            <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                    <FloatingLabelInput
+                                        label={`Quantity (Max: ${selectedBatch?.current_count ?? 0})`}
+                                        icon={isPig ? 'pig' : 'chicken'}
+                                        value={sellDeductQuantity}
+                                        onChangeText={t => {
+                                            const clean = t.replace(/[^0-9]/g, '');
+                                            setSellDeductQuantity(clean);
+                                            validateSellDeduct(clean);
+                                            const num = parseInt(clean, 10);
+                                            const avail = selectedBatch?.current_count ?? 0;
+                                            if (!isNaN(num) && num >= avail && avail > 0) {
+                                                setSellDeductMarkCompleted(true);
+                                            }
+                                        }}
+                                        keyboardType="numeric"
+                                        backgroundColor={colors.surface}
+                                        error={sellDeductError ?? undefined}
+                                    />
+                                </View>
+
+                                <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const current = parseInt(sellDeductQuantity || '0', 10);
+                                            const maxLimit = selectedBatch?.current_count ?? 0;
+                                            const next = Math.min(maxLimit, current + 1);
+                                            setSellDeductQuantity(String(next));
+                                            validateSellDeduct(String(next));
+                                            if (next >= maxLimit && maxLimit > 0) setSellDeductMarkCompleted(true);
+                                        }}
+                                    >
+                                        <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const current = parseInt(sellDeductQuantity || '0', 10);
+                                            const next = Math.max(1, current - 1);
+                                            setSellDeductQuantity(String(next));
+                                            validateSellDeduct(String(next));
+                                            const avail = selectedBatch?.current_count ?? 0;
+                                            if (next < avail) setSellDeductMarkCompleted(false);
+                                        }}
+                                    >
+                                        <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+
+                            <View style={{ width: '100%', marginBottom: 16 }}>
+                                <Text style={[textStyles.label, { color: colors.textGrey, marginBottom: 8, alignSelf: 'flex-start', paddingLeft: 4, fontFamily: 'Poppins-SemiBold', fontSize: 11 }]}>
+                                    Reason / Action
+                                </Text>
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30, paddingHorizontal: 16, height: 58, backgroundColor: colors.surface }}
+                                    onPress={() => { setSellDeductVisible(false); setSellDeductReasonModalVisible(true); }}
+                                >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <MaterialIcons name="storefront" size={20} color={colors.icon} style={{ marginRight: 12 }} />
+                                        <Text style={[textStyles.body, { color: colors.text }]}>{sellDeductReason}</Text>
+                                    </View>
+                                    <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                </TouchableOpacity>
+                            </View>
+
+                            {sellDeductReason === 'Other' && (
+                                <View style={{ width: '100%', marginBottom: 16 }}>
+                                    <FloatingLabelInput label="Specific Reason" icon="edit" value={sellDeductOtherReason} onChangeText={setSellDeductOtherReason} backgroundColor={colors.surface} />
+                                </View>
+                            )}
+
+                            {/* Mark Batch Cycle Completed Toggle */}
+                            <TouchableOpacity
+                                activeOpacity={0.8}
+                                style={{
+                                    width: '100%',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    padding: 12,
+                                    borderRadius: 16,
+                                    borderWidth: 1.5,
+                                    borderColor: sellDeductMarkCompleted ? '#27AE60' : colors.stroke,
+                                    backgroundColor: sellDeductMarkCompleted ? '#27AE600D' : colors.surface,
+                                    marginBottom: 24,
+                                }}
+                                onPress={() => setSellDeductMarkCompleted(!sellDeductMarkCompleted)}
+                            >
+                                <MaterialIcons
+                                    name={sellDeductMarkCompleted ? 'check-box' : 'check-box-outline-blank'}
+                                    size={22}
+                                    color={sellDeductMarkCompleted ? '#27AE60' : colors.textGrey}
+                                />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 13 }]}>Mark Batch as Completed</Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>End batch cycle (all animals sold / harvested)</Text>
+                                </View>
+                            </TouchableOpacity>
+
+                            <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setSellDeductVisible(false)} activeOpacity={0.7}>
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: '#27AE60',
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center'
+                                    }}
+                                    onPress={handleSellDeductClick}
+                                    disabled={isSellDeductDisabled}
+                                    activeOpacity={isSellDeductDisabled ? 1 : 0.7}
+                                >
+                                    <Text style={[textStyles.h3, { color: '#FFF', fontSize: 14 }]}>Proceed</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
+
+            {/* Sell / Deduct Reason Selection */}
+            <SelectionModal
+                visible={sellDeductReasonModalVisible}
+                onClose={() => { setSellDeductReasonModalVisible(false); setSellDeductVisible(true); }}
+                onSelect={val => {
+                    setSellDeductReason(val);
+                    if (val !== 'Other') setSellDeductOtherReason('');
+                    setSellDeductReasonModalVisible(false);
+                    setSellDeductVisible(true);
+                }}
+                title="Select Action / Reason"
+                description="Choose why animals are being sold or deducted."
+                icon="storefront"
+                options={['Sold / Harvested', 'Culling / Reduction', 'Transfer', 'Other']}
+                selectedValue={sellDeductReason}
+                enableSearch={false}
+                requireConfirm={false}
+            />
 
             {/* Deceased Reason Selection */}
             <SelectionModal
                 visible={deceasedReasonModalVisible}
-                onClose={() => setDeceasedReasonModalVisible(false)}
-                onSelect={val => { setDeceasedReason(val); setDeceasedReasonModalVisible(false); }}
-                title="Select Reason"
+                onClose={() => { setDeceasedReasonModalVisible(false); setDeceasedVisible(true); }}
+                onSelect={val => {
+                    setDeceasedReason(val);
+                    if (val !== 'Other') setDeceasedOtherReason('');
+                    setDeceasedReasonModalVisible(false);
+                    setDeceasedVisible(true);
+                }}
+                title="Cause of Mortality"
                 description="Choose the reason for the deceased animals."
                 icon="help-outline"
                 options={['Illness', 'Injury', 'Predator', 'Unknown', 'Other']}
@@ -1429,27 +1987,31 @@ export default function AnimalDetailsScreen() {
                 requireConfirm={false}
             />
 
+
             <ActionModal
                 visible={confirmModalVisible}
                 type={confirmModalType}
                 title={confirmModalTitle}
                 message={confirmModalMessage}
                 confirmText={
+                    confirmModalType === 'info' ? 'Got it' :
                     confirmActionType === 'deceased' ? 'Record' :
                     confirmActionType === 'newBatch' ? 'Create' :
                     confirmActionType === 'editBatch' ? 'Update' :
                     confirmActionType === 'completeBatch' ? 'Complete' :
                     confirmActionType === 'archiveBatch' ? 'Archive' :
+                    confirmActionType === 'sellDeduct' ? 'Deduct' :
+                    confirmActionType === 'deleteBatch' ? 'Delete' :
                     'Add'
                 }
                 cancelText="Cancel"
-                onConfirm={handleConfirmAction}
+                onConfirm={confirmActionType ? handleConfirmAction : () => setConfirmModalVisible(false)}
                 onCancel={() => setConfirmModalVisible(false)}
                 isLoading={isSaving}
             />
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -1466,7 +2028,7 @@ function StatusCard({ title, value, icon, bgColor, iconColor, isCustomIcon, show
                         : <MaterialIcons name={icon} size={20} color={iconColor} />
                     }
                 </View>
-                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, flex: 1 }]} numberOfLines={1}>{title}</Text>
+                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, flex: 1 }]}>{title}</Text>
                 {showChevron && <MaterialIcons name="chevron-right" size={16} color={colors.textGrey} />}
             </View>
             <Text style={[textStyles.h2, { color: colors.text, fontSize: 24 }]}>{value}</Text>

@@ -604,7 +604,7 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
 
         let query = db
           .from('batches')
-          .select('id, name, animal_type, estimated_count, current_count, arrival_date, age_at_arrival_days, supplier, status, housing_id, housings(id, name)')
+          .select('id, name, animal_type, estimated_count, current_count, sold_count, arrival_date, age_at_arrival_days, supplier, status, housing_id, housings(id, name)')
           .order('created_at', { ascending: false });
 
         if (input.housing_id) {
@@ -619,9 +619,10 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
           farm_id: effectiveFarmId,
           batches: (data ?? []).map((b: any) => ({
             ...b,
-            total_deceased: Math.max(0, (b.estimated_count ?? 0) - (b.current_count ?? 0)),
+            sold_count: b.sold_count ?? 0,
+            total_deceased: Math.max(0, (b.estimated_count ?? 0) - (b.current_count ?? 0) - (b.sold_count ?? 0)),
             mortality_rate_pct: b.estimated_count > 0
-              ? (((b.estimated_count - b.current_count) / b.estimated_count) * 100).toFixed(1) + '%'
+              ? (((Math.max(0, b.estimated_count - b.current_count - (b.sold_count ?? 0))) / b.estimated_count) * 100).toFixed(1) + '%'
               : '0.0%',
           })),
         };
@@ -688,9 +689,10 @@ async function executeTool(db: any, farmId: string, userId: string, name: string
           housing_name: (b.housings as any)?.name,
           estimated_count: b.estimated_count,
           current_count: b.current_count,
-          total_deceased: Math.max(0, (b.estimated_count ?? 0) - (b.current_count ?? 0)),
+          sold_count: b.sold_count ?? 0,
+          total_deceased: Math.max(0, (b.estimated_count ?? 0) - (b.current_count ?? 0) - (b.sold_count ?? 0)),
           mortality_rate_pct: b.estimated_count > 0
-            ? (((b.estimated_count - b.current_count) / b.estimated_count) * 100).toFixed(1) + '%'
+            ? (((Math.max(0, b.estimated_count - b.current_count - (b.sold_count ?? 0))) / b.estimated_count) * 100).toFixed(1) + '%'
             : '0.0%',
         }));
 

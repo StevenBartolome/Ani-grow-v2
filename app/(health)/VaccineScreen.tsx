@@ -1,33 +1,38 @@
 /**
  * VaccineScreen
  *
- * Three-tab vaccine management screen:
- *   Records   — full vaccination history with withdrawal tracking
- *   Schedule  — upcoming & overdue vaccinations
- *   Inventory — vaccine stock, low-stock & expiry alerts
+ * Vaccination Schedule & Planner screen:
+ *   - View upcoming, overdue, and completed vaccination schedules
+ *   - Filter schedules by status (All, Overdue, Pending, Completed)
+ *   - Add vaccination schedules for real housings from database
+ *   - Uses exact same flow & pill-shaped form inputs as ManageHousingsScreen (using SelectionModal, single active modal with fade)
+ *   - Circular floating add button
+ *   - Mark schedules as completed
  */
 
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     KeyboardAvoidingView,
     Modal,
     Platform,
-    Pressable,
+    RefreshControl,
     ScrollView,
     TextInput,
     TouchableOpacity,
     View,
-    Animated,
-    PanResponder,
-    Easing,
 } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import ActionModal from '@/components/ActionModal';
 import { BackButton } from '@/components/BackButton';
+import { CalendarPickerModal } from '@/components/CalendarPickerModal';
+import { SelectionModal } from '@/components/SelectionModal';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
@@ -35,70 +40,62 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTheme } from '@/context/ThemeContext';
 import { supabase } from '@/lib/supabase';
+import { createNotification } from '@/lib/notify';
+import { scheduleUpcomingVaccinations } from '@/lib/notificationScheduler';
 import { useVaccineStyles } from '@/styles/vaccineStyles';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-type Tab = 'records' | 'schedule' | 'inventory';
 
 interface VaccineItem {
     id: string;
     name: string;
     vaccine_type?: string;
     species: string;
-    stock_quantity: number;
-    unit: string;
+    route?: string;
     dose_per_animal?: number;
-    withdrawal_days: number;
-    reorder_threshold: number;
-    storage_temp?: string;
-    route: string;
-}
-
-interface VaccinationRecord {
-    id: string;
-    vaccine_name: string;
-    administered_date: string;
-    housing_id?: string;
-    housing?: { name: string } | null;
-    animals_vaccinated?: number;
-    total_dose_used?: number;
-    unit: string;
-    lot_number?: string;
-    withdrawal_end_date?: string;
-    administered_by?: string;
-    notes?: string;
+    unit?: string;
 }
 
 interface VaccinationSchedule {
     id: string;
+    farm_id?: string;
     vaccine_id?: string;
     vaccine_name: string;
     scheduled_date: string;
     housing_id?: string;
-    housing?: { name: string } | null;
+    housing?: { id: string; name: string; animal_type?: string } | null;
     status: 'pending' | 'completed' | 'overdue' | 'cancelled';
     interval_days?: number;
     notes?: string;
 }
 
-interface BatchOption {
+interface HousingItem {
     id: string;
-    housing_id: string;
-    housing_name: string;
-    species: string;
+    farm_id: string;
+    name: string;
+    animal_type: 'chicken' | 'pig';
+    capacity: number;
     current_count: number;
+    status: string;
+    batches?: {
+        id: string;
+        name: string;
+        current_count: number;
+        status: string;
+    }[];
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+type ScheduleFilter = 'all' | 'pending' | 'overdue' | 'completed';
+
+// ─── Calendar Helpers ─────────────────────────────────────────────────────────
+
+const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+];
+const DAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 const TODAY = new Date().toISOString().split('T')[0];
-
-const addDays = (dateStr: string, days: number): string => {
-    const d = new Date(dateStr);
-    d.setDate(d.getDate() + days);
-    return d.toISOString().split('T')[0];
-};
 
 const formatDate = (dateStr?: string) => {
     if (!dateStr) return '—';
@@ -112,13 +109,6 @@ const daysUntil = (dateStr: string): number => {
     return Math.ceil((target.getTime() - now.getTime()) / 86400000);
 };
 
-const withdrawalLabel = (endDate?: string): { label: string; color: string } => {
-    if (!endDate) return { label: 'No withdrawal', color: '#6B7280' };
-    const days = daysUntil(endDate);
-    if (days <= 0) return { label: 'Cleared for sale', color: '#10B981' };
-    return { label: `${days}d withdrawal left`, color: '#F59E0B' };
-};
-
 const scheduleColor = (status: string, date: string): string => {
     if (status === 'completed') return '#10B981';
     if (status === 'cancelled') return '#6B7280';
@@ -127,7 +117,7 @@ const scheduleColor = (status: string, date: string): string => {
     return '#3B82F6';
 };
 
-// ─── Screen ───────────────────────────────────────────────────────────────────
+// ─── Screen Component ─────────────────────────────────────────────────────────
 
 export default function VaccineScreen() {
     const { profile } = useAuth();
@@ -135,310 +125,119 @@ export default function VaccineScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useVaccineStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router = useRouter();
 
     const primaryFarmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
-    const userName = (profile as any)?.displayName || (profile as any)?.firstName || 'Admin';
-
-    // ── Tabs ──────────────────────────────────────────────────────────────────
-    const [activeTab, setActiveTab] = useState<Tab>('records');
 
     // ── Data ──────────────────────────────────────────────────────────────────
-    const [records, setRecords]       = useState<VaccinationRecord[]>([]);
-    const [schedules, setSchedules]   = useState<VaccinationSchedule[]>([]);
-    const [inventory, setInventory]   = useState<VaccineItem[]>([]);
-    const [batches, setBatches]       = useState<BatchOption[]>([]);
-    const [isLoading, setIsLoading]   = useState(true);
+    const [schedules, setSchedules]       = useState<VaccinationSchedule[]>([]);
+    const [vaccineList, setVaccineList]   = useState<VaccineItem[]>([]);
+    const [housings, setHousings]         = useState<HousingItem[]>([]);
+    const [isLoading, setIsLoading]       = useState(true);
+    const [refreshing, setRefreshing]     = useState(false);
+    const [filter, setFilter]             = useState<ScheduleFilter>('pending');
 
     // ── Snackbar ──────────────────────────────────────────────────────────────
-    const [snackVisible, setSnackVisible]   = useState(false);
-    const [snackMessage, setSnackMessage]   = useState('');
-    const [snackType, setSnackType]         = useState<SnackbarType>('success');
+    const [snackVisible, setSnackVisible] = useState(false);
+    const [snackMessage, setSnackMessage] = useState('');
+    const [snackType, setSnackType]       = useState<SnackbarType>('success');
     const showSnack = (msg: string, type: SnackbarType = 'success') => {
-        setSnackMessage(msg); setSnackType(type); setSnackVisible(true);
+        setSnackMessage(msg);
+        setSnackType(type);
+        setSnackVisible(true);
     };
 
-    // ── Modal: Log Vaccination ────────────────────────────────────────────────
-    const [showRecModal, setShowRecModal] = useState(false);
-    const [recBatchId,  setRecBatchId]    = useState('');
-    const [recVaccineId, setRecVaccineId] = useState('');
-    const [recDate,     setRecDate]       = useState(TODAY);
-    const [recAnimals,  setRecAnimals]    = useState('');
-    const [recDose,     setRecDose]       = useState('');
-    const [recLot,      setRecLot]        = useState('');
-    const [recExpiry,   setRecExpiry]     = useState('');
-    const [recBy,       setRecBy]         = useState(userName);
-    const [recNotes,    setRecNotes]      = useState('');
-    const [savingRec,   setSavingRec]     = useState(false);
+    // ── Modal State: Main Add Schedule ────────────────────────────────────────
+    const [showSchModal, setShowSchModal]               = useState(false);
+    const [schHousingId, setSchHousingId]               = useState('');
+    const [schHousingName, setSchHousingName]           = useState('');
+    const [schVaccineId, setSchVaccineId]               = useState('');
+    const [schVaccineName, setSchVaccineName]           = useState('');
+    const [schDate, setSchDate]                         = useState(TODAY);
+    const [schInterval, setSchInterval]                 = useState('');
+    const [schNotes, setSchNotes]                       = useState('');
+    const [savingSch, setSavingSch]                     = useState(false);
 
-    // ── Modal: Add Schedule ───────────────────────────────────────────────────
-    const [showSchModal, setShowSchModal] = useState(false);
-    const [schBatchId,  setSchBatchId]    = useState('');
-    const [schVaccineId, setSchVaccineId] = useState('');
-    const [schDate,     setSchDate]       = useState(TODAY);
-    const [schInterval, setSchInterval]   = useState('');
-    const [schNotes,    setSchNotes]      = useState('');
-    const [savingSch,   setSavingSch]     = useState(false);
+    // ── Single Active Sub-Modals (Same Exact Pattern as ManageHousingsScreen) ──
+    const [vaccineModalVisible, setVaccineModalVisible] = useState(false);
+    const [housingModalVisible, setHousingModalVisible] = useState(false);
+    const [dateModalVisible, setDateModalVisible]       = useState(false);
 
-    // ── Modal: Add Vaccine Inventory ──────────────────────────────────────────
-    const [showInvModal, setShowInvModal] = useState(false);
-    const [invName,       setInvName]       = useState('');
-    const [invType,       setInvType]       = useState('');
-    const [invSpecies,    setInvSpecies]    = useState<'chicken' | 'pig' | 'both'>('both');
-    const [invStock,      setInvStock]      = useState('');
-    const [invUnit,       setInvUnit]       = useState<'dose' | 'ml' | 'vial'>('dose');
-    const [invDose,       setInvDose]       = useState('');
-    const [invWithdrawal, setInvWithdrawal] = useState('0');
-    const [invReorder,    setInvReorder]    = useState('10');
-    const [invRoute,      setInvRoute]      = useState('injection');
-    const [invTemp,       setInvTemp]       = useState('');
-    const [invNotes,      setInvNotes]      = useState('');
-    const [savingInv,     setSavingInv]     = useState(false);
+    // ── Form Draft Checkpointing ──────────────────────────────────
+    const isSchFormActive = showSchModal || dateModalVisible || vaccineModalVisible || housingModalVisible;
 
-    // ── Animations for Log Vaccination Modal ──
-    const slideRec = useRef(new Animated.Value(600)).current;
-    const panYRec = useRef(new Animated.Value(0)).current;
-    const closeRecModalRef = useRef<() => void>(undefined);
-    const isScrollAtTopRec = useRef(true);
-
-    const panRecResponder = useRef(
-        PanResponder.create({
-            onStartShouldSetPanResponder: () => false,
-            onMoveShouldSetPanResponder: (_, gestureState) => {
-                return gestureState.dy > 5 && isScrollAtTopRec.current;
+    const {
+        clearDraft,
+    } = useFormDraft(
+        `vaccine_schedule_${primaryFarmId || 'farm'}`,
+        { schHousingId, schHousingName, schVaccineId, schVaccineName, schDate, schInterval, schNotes },
+        {
+            enabled: isSchFormActive,
+            onRestore: (draft) => {
+                if (draft.schHousingId) setSchHousingId(draft.schHousingId);
+                if (draft.schHousingName) setSchHousingName(draft.schHousingName);
+                if (draft.schVaccineId) setSchVaccineId(draft.schVaccineId);
+                if (draft.schVaccineName) setSchVaccineName(draft.schVaccineName);
+                if (draft.schDate && draft.schDate >= TODAY) setSchDate(draft.schDate);
+                if (draft.schInterval) setSchInterval(draft.schInterval);
+                if (draft.schNotes) setSchNotes(draft.schNotes);
             },
-            onPanResponderGrant: () => {
-                panYRec.setOffset(0);
-            },
-            onPanResponderMove: (_, gestureState) => {
-                if (gestureState.dy > 0) {
-                    panYRec.setValue(gestureState.dy);
-                } else {
-                    panYRec.setValue(gestureState.dy * 0.2);
-                }
-            },
-            onPanResponderRelease: (_, gestureState) => {
-                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
-                    Animated.timing(panYRec, {
-                        toValue: 600,
-                        duration: 150,
-                        easing: Easing.linear,
-                        useNativeDriver: Platform.OS !== 'web',
-                    }).start(() => {
-                        slideRec.setValue(600);
-                        panYRec.setValue(0);
-                        closeRecModalRef.current?.();
-                    });
-                } else {
-                    Animated.spring(panYRec, {
-                        toValue: 0,
-                        useNativeDriver: Platform.OS !== 'web',
-                        tension: 50,
-                        friction: 9,
-                    }).start();
-                }
-            },
-        })
-    ).current;
-
-    useEffect(() => {
-        if (showRecModal) {
-            panYRec.setValue(0);
-            Animated.spring(slideRec, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
-        } else {
-            slideRec.setValue(600);
         }
-    }, [showRecModal]);
+    );
 
-    closeRecModalRef.current = () => {
-        setShowRecModal(false);
-        resetRecForm();
-    };
+    // ── Search & Filter State ─────────────────────────────────────────────────
+    const [searchQuery, setSearchQuery]                 = useState('');
+    const [selectedFilterDate, setSelectedFilterDate]   = useState<string | null>(null);
+    const [filterHousingId, setFilterHousingId]         = useState<string>('all');
+    const [filtersCollapsed, setFiltersCollapsed]       = useState(true);
+    const [showCalendar, setShowCalendar]               = useState(false);
 
-    const handleCloseRecModal = () => {
-        Animated.timing(slideRec, {
-            toValue: 600,
-            duration: 220,
-            useNativeDriver: Platform.OS !== 'web',
-        }).start(() => {
-            closeRecModalRef.current?.();
-        });
-    };
+    // ── Delete Confirmation Modal ────────────────────────────────────────────
+    const [deleteModalVisible, setDeleteModalVisible]   = useState(false);
+    const [scheduleToDelete, setScheduleToDelete]       = useState<VaccinationSchedule | null>(null);
+    const [isDeleting, setIsDeleting]                   = useState(false);
 
-    // ── Animations for Add Schedule Modal ──
-    const slideSch = useRef(new Animated.Value(600)).current;
-    const panYSch = useRef(new Animated.Value(0)).current;
-    const closeSchModalRef = useRef<() => void>(undefined);
-    const isScrollAtTopSch = useRef(true);
+    // Date Modal Calendar State
+    const todayObj = new Date();
+    const [calYear, setCalYear]   = useState(todayObj.getFullYear());
+    const [calMonth, setCalMonth] = useState(todayObj.getMonth());
 
-    const panSchResponder = useRef(
-        PanResponder.create({
-            onStartShouldSetPanResponder: () => false,
-            onMoveShouldSetPanResponder: (_, gestureState) => {
-                return gestureState.dy > 5 && isScrollAtTopSch.current;
-            },
-            onPanResponderGrant: () => {
-                panYSch.setOffset(0);
-            },
-            onPanResponderMove: (_, gestureState) => {
-                if (gestureState.dy > 0) {
-                    panYSch.setValue(gestureState.dy);
-                } else {
-                    panYSch.setValue(gestureState.dy * 0.2);
-                }
-            },
-            onPanResponderRelease: (_, gestureState) => {
-                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
-                    Animated.timing(panYSch, {
-                        toValue: 600,
-                        duration: 150,
-                        easing: Easing.linear,
-                        useNativeDriver: Platform.OS !== 'web',
-                    }).start(() => {
-                        slideSch.setValue(600);
-                        panYSch.setValue(0);
-                        closeSchModalRef.current?.();
-                    });
-                } else {
-                    Animated.spring(panYSch, {
-                        toValue: 0,
-                        useNativeDriver: Platform.OS !== 'web',
-                        tension: 50,
-                        friction: 9,
-                    }).start();
-                }
-            },
-        })
-    ).current;
-
-    useEffect(() => {
-        if (showSchModal) {
-            panYSch.setValue(0);
-            Animated.spring(slideSch, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
-        } else {
-            slideSch.setValue(600);
-        }
-    }, [showSchModal]);
-
-    closeSchModalRef.current = () => {
-        setShowSchModal(false);
-        resetSchForm();
-    };
-
-    const handleCloseSchModal = () => {
-        Animated.timing(slideSch, {
-            toValue: 600,
-            duration: 220,
-            useNativeDriver: Platform.OS !== 'web',
-        }).start(() => {
-            closeSchModalRef.current?.();
-        });
-    };
-
-    // ── Animations for Add Vaccine Modal ──
-    const slideInv = useRef(new Animated.Value(600)).current;
-    const panYInv = useRef(new Animated.Value(0)).current;
-    const closeInvModalRef = useRef<() => void>(undefined);
-    const isScrollAtTopInv = useRef(true);
-
-    const panInvResponder = useRef(
-        PanResponder.create({
-            onStartShouldSetPanResponder: () => false,
-            onMoveShouldSetPanResponder: (_, gestureState) => {
-                return gestureState.dy > 5 && isScrollAtTopInv.current;
-            },
-            onPanResponderGrant: () => {
-                panYInv.setOffset(0);
-            },
-            onPanResponderMove: (_, gestureState) => {
-                if (gestureState.dy > 0) {
-                    panYInv.setValue(gestureState.dy);
-                } else {
-                    panYInv.setValue(gestureState.dy * 0.2);
-                }
-            },
-            onPanResponderRelease: (_, gestureState) => {
-                if (gestureState.dy > 120 || gestureState.vy > 0.5) {
-                    Animated.timing(panYInv, {
-                        toValue: 600,
-                        duration: 150,
-                        easing: Easing.linear,
-                        useNativeDriver: Platform.OS !== 'web',
-                    }).start(() => {
-                        slideInv.setValue(600);
-                        panYInv.setValue(0);
-                        closeInvModalRef.current?.();
-                    });
-                } else {
-                    Animated.spring(panYInv, {
-                        toValue: 0,
-                        useNativeDriver: Platform.OS !== 'web',
-                        tension: 50,
-                        friction: 9,
-                    }).start();
-                }
-            },
-        })
-    ).current;
-
-    useEffect(() => {
-        if (showInvModal) {
-            panYInv.setValue(0);
-            Animated.spring(slideInv, { toValue: 0, useNativeDriver: Platform.OS !== 'web', tension: 50, friction: 9 }).start();
-        } else {
-            slideInv.setValue(600);
-        }
-    }, [showInvModal]);
-
-    closeInvModalRef.current = () => {
-        setShowInvModal(false);
-        resetInvForm();
-    };
-
-    const handleCloseInvModal = () => {
-        Animated.timing(slideInv, {
-            toValue: 600,
-            duration: 220,
-            useNativeDriver: Platform.OS !== 'web',
-        }).start(() => {
-            closeInvModalRef.current?.();
-        });
-    };
+    // On-Page Interactive Calendar State
+    const [pageCalYear, setPageCalYear]   = useState(todayObj.getFullYear());
+    const [pageCalMonth, setPageCalMonth] = useState(todayObj.getMonth());
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Data loading
+    // Database Queries
     // ─────────────────────────────────────────────────────────────────────────
 
-    const loadBatches = useCallback(async () => {
-        if (!primaryFarmId) return;
-        const { data } = await supabase
-            .from('batches')
-            .select('id, housing_id, species, current_count, housings(name)')
-            .in('farm_id', activeFarmIds)
-            .eq('status', 'active');
-        setBatches((data || []).map((b: any) => ({
-            id: b.id,
-            housing_id: b.housing_id,
-            housing_name: b.housings?.name || 'Unknown',
-            species: b.species,
-            current_count: b.current_count || 0,
-        })));
-    }, [activeFarmIds, primaryFarmId]);
-
-    const loadRecords = useCallback(async () => {
+    const loadHousings = useCallback(async () => {
         if (!primaryFarmId) return;
         const { data, error } = await supabase
-            .from('vaccination_records')
-            .select('*, housings(name)')
+            .from('housings')
+            .select('id, farm_id, name, animal_type, capacity, current_count, status, batches(id, name, current_count, status)')
             .in('farm_id', activeFarmIds)
-            .order('administered_date', { ascending: false })
-            .limit(100);
-        if (!error) setRecords(data || []);
+            .eq('status', 'Active')
+            .order('name', { ascending: true });
+        if (!error && data) {
+            setHousings(data as any);
+        }
+    }, [activeFarmIds, primaryFarmId]);
+
+    const loadVaccines = useCallback(async () => {
+        if (!primaryFarmId) return;
+        const { data, error } = await supabase
+            .from('vaccines')
+            .select('id, name, vaccine_type, species, route, dose_per_animal, unit')
+            .in('farm_id', activeFarmIds)
+            .order('name', { ascending: true });
+        if (!error) setVaccineList(data || []);
     }, [activeFarmIds, primaryFarmId]);
 
     const loadSchedules = useCallback(async () => {
         if (!primaryFarmId) return;
-        // Mark overdue before fetching
+        // Mark overdue schedules in database before fetching
         await supabase
             .from('vaccination_schedules')
             .update({ status: 'overdue' })
@@ -448,114 +247,133 @@ export default function VaccineScreen() {
 
         const { data, error } = await supabase
             .from('vaccination_schedules')
-            .select('*, housings(name)')
+            .select('*, housings(id, name, animal_type)')
             .in('farm_id', activeFarmIds)
             .neq('status', 'cancelled')
             .order('scheduled_date', { ascending: true });
         if (!error) setSchedules(data || []);
     }, [activeFarmIds, primaryFarmId]);
 
-    const loadInventory = useCallback(async () => {
-        if (!primaryFarmId) return;
-        const { data, error } = await supabase
-            .from('vaccines')
-            .select('*')
-            .in('farm_id', activeFarmIds)
-            .order('name', { ascending: true });
-        if (!error) setInventory(data || []);
-    }, [activeFarmIds, primaryFarmId]);
+    const vaccinesLoadedRef = React.useRef(false);
 
-    const loadAll = useCallback(async () => {
-        setIsLoading(true);
-        await Promise.all([loadRecords(), loadSchedules(), loadInventory(), loadBatches()]);
+    const loadAll = useCallback(async (isSilent = false) => {
+        if (!isSilent && !vaccinesLoadedRef.current) {
+            setIsLoading(true);
+        }
+        await Promise.all([loadSchedules(), loadVaccines(), loadHousings()]);
+        vaccinesLoadedRef.current = true;
         setIsLoading(false);
-    }, [loadRecords, loadSchedules, loadInventory, loadBatches]);
+    }, [loadSchedules, loadVaccines, loadHousings]);
+
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await Promise.all([loadSchedules(), loadVaccines(), loadHousings()]);
+        setRefreshing(false);
+    }, [loadSchedules, loadVaccines, loadHousings]);
 
     useFocusEffect(
         useCallback(() => {
-            loadAll();
+            loadAll(true);
         }, [loadAll])
     );
 
+    // Live Supabase Realtime channel for vaccines & schedules
+    useEffect(() => {
+        if (!activeFarmIds.length) return;
+        let debounceTimer: any = null;
+        const triggerSync = () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                loadAll(true);
+            }, 300);
+        };
+
+        const channel = supabase
+            .channel(`vaccine-live-${activeFarmIds.join('-')}-${Date.now()}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'vaccines' }, triggerSync)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'vaccination_schedules' }, triggerSync)
+            .subscribe();
+
+        return () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            supabase.removeChannel(channel);
+        };
+    }, [activeFarmIds, loadAll]);
+
     // ─────────────────────────────────────────────────────────────────────────
-    // Actions
+    // Actions & Form Validation
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** Log a vaccination event */
-    const handleLogVaccination = async () => {
-        if (!recVaccineId) { showSnack('Select a vaccine.', 'error'); return; }
-        if (!recDate)      { showSnack('Enter the date.', 'error'); return; }
-        setSavingRec(true);
-        try {
-            const vaccineItem = inventory.find(v => v.id === recVaccineId);
-            const batch       = batches.find(b => b.id === recBatchId);
-            const animals     = parseInt(recAnimals) || batch?.current_count || 0;
-            const dose        = parseFloat(recDose)  || vaccineItem?.dose_per_animal || 0;
-            const totalDose   = animals && dose ? animals * dose : undefined;
-            const wdDays      = vaccineItem?.withdrawal_days || 0;
-            const wdEnd       = wdDays > 0 ? addDays(recDate, wdDays) : undefined;
-
-            const { error: recErr } = await supabase.from('vaccination_records').insert({
-                farm_id:             primaryFarmId,
-                batch_id:            recBatchId || null,
-                housing_id:          batch?.housing_id || null,
-                vaccine_id:          recVaccineId,
-                vaccine_name:        vaccineItem?.name || 'Unknown',
-                administered_date:   recDate,
-                administered_by:     recBy || null,
-                animals_vaccinated:  animals || null,
-                dose_per_animal:     dose || null,
-                total_dose_used:     totalDose || null,
-                unit:                vaccineItem?.unit || 'dose',
-                lot_number:          recLot || null,
-                expiry_date:         recExpiry || null,
-                withdrawal_days:     wdDays,
-                withdrawal_end_date: wdEnd || null,
-                route:               vaccineItem?.route || null,
-                notes:               recNotes || null,
-            });
-            if (recErr) throw recErr;
-
-            // Deduct from stock
-            if (totalDose && vaccineItem) {
-                await supabase
-                    .from('vaccines')
-                    .update({ stock_quantity: Math.max(0, vaccineItem.stock_quantity - totalDose) })
-                    .eq('id', recVaccineId);
-            }
-
-            handleCloseRecModal();
-            showSnack('Vaccination logged successfully!');
-            loadRecords(); loadInventory();
-        } catch (err: any) {
-            showSnack(err?.message || 'Failed to log vaccination.', 'error');
-        } finally {
-            setSavingRec(false);
-        }
+    const handleCloseSchModal = () => {
+        setShowSchModal(false);
     };
 
-    /** Add a scheduled vaccination */
+    /** Add a scheduled vaccination with input validation */
     const handleAddSchedule = async () => {
-        if (!schVaccineId) { showSnack('Select a vaccine.', 'error'); return; }
-        if (!schDate)      { showSnack('Select a date.', 'error'); return; }
+        // Validation: Vaccine Selection
+        if (!schVaccineId) {
+            showSnack('Please select a vaccine.', 'error');
+            return;
+        }
+
+        // Validation: Scheduled Date
+        if (!schDate || !/^\d{4}-\d{2}-\d{2}$/.test(schDate)) {
+            showSnack('Please select a valid scheduled date.', 'error');
+            return;
+        }
+
+        if (schDate < TODAY) {
+            showSnack('Scheduled date must be today or a future date.', 'error');
+            return;
+        }
+
+        // Validation: Repeat interval (numbers only & positive)
+        let intervalNum: number | null = null;
+        if (schInterval.trim()) {
+            const parsed = parseInt(schInterval.trim(), 10);
+            if (isNaN(parsed) || parsed <= 0) {
+                showSnack('Repeat interval must be a valid positive number of days.', 'error');
+                return;
+            }
+            intervalNum = parsed;
+        }
+
         setSavingSch(true);
         try {
-            const vaccineItem = inventory.find(v => v.id === schVaccineId);
-            const batch       = batches.find(b => b.id === schBatchId);
+            const vaccineItem = vaccineList.find(v => v.id === schVaccineId);
+            const selectedHousing = housings.find(h => h.id === schHousingId);
+            const activeBatch = selectedHousing?.batches?.find(b => b.status === 'active');
+
             const { error } = await supabase.from('vaccination_schedules').insert({
-                farm_id:       primaryFarmId,
-                batch_id:      schBatchId || null,
-                housing_id:    batch?.housing_id || null,
-                vaccine_id:    schVaccineId,
-                vaccine_name:  vaccineItem?.name || 'Unknown',
+                farm_id:        primaryFarmId,
+                housing_id:     schHousingId || null,
+                batch_id:       activeBatch?.id || null,
+                vaccine_id:     schVaccineId,
+                vaccine_name:   vaccineItem?.name || schVaccineName || 'Unknown',
                 scheduled_date: schDate,
-                interval_days: schInterval ? parseInt(schInterval) : null,
-                status:        'pending',
-                notes:         schNotes || null,
+                interval_days:  intervalNum,
+                status:         'pending',
+                notes:          schNotes.trim() || null,
             });
+
             if (error) throw error;
+
+            if (primaryFarmId) {
+                createNotification({
+                    farmId: primaryFarmId,
+                    category: 'health_alert',
+                    type: 'info',
+                    title: `Vaccine Scheduled: ${vaccineItem?.name || schVaccineName || 'Vaccination'}`,
+                    message: `Scheduled for ${schDate}${selectedHousing ? ` in ${selectedHousing.name}` : ''}.`,
+                    actionUrl: '/(health)/VaccineScreen',
+                });
+                scheduleUpcomingVaccinations([primaryFarmId]);
+            }
+
+            await clearDraft();
+            resetSchForm();
             handleCloseSchModal();
-            showSnack('Schedule added!');
+            showSnack('Vaccine schedule added successfully!');
             loadSchedules();
         } catch (err: any) {
             showSnack(err?.message || 'Failed to add schedule.', 'error');
@@ -564,380 +382,232 @@ export default function VaccineScreen() {
         }
     };
 
-    /** Mark a scheduled vaccination as done — opens log form pre-filled */
+    /** Mark a scheduled vaccination as completed */
     const handleMarkDone = async (schedule: VaccinationSchedule) => {
-        // Pre-fill log form from schedule
-        setRecVaccineId(schedule.vaccine_id || '');
-        setRecDate(TODAY);
-        setRecNotes(schedule.notes || '');
-        setShowRecModal(true);
-        // Also update schedule status
-        await supabase
-            .from('vaccination_schedules')
-            .update({ status: 'completed' })
-            .eq('id', schedule.id);
-        loadSchedules();
-    };
-
-    /** Add vaccine to inventory */
-    const handleAddVaccine = async () => {
-        if (!invName.trim()) { showSnack('Vaccine name is required.', 'error'); return; }
-        setSavingInv(true);
         try {
-            const { error } = await supabase.from('vaccines').insert({
-                farm_id:           primaryFarmId,
-                name:              invName.trim(),
-                vaccine_type:      invType || null,
-                species:           invSpecies,
-                stock_quantity:    parseFloat(invStock) || 0,
-                unit:              invUnit,
-                dose_per_animal:   parseFloat(invDose) || null,
-                withdrawal_days:   parseInt(invWithdrawal) || 0,
-                reorder_threshold: parseFloat(invReorder) || 10,
-                route:             invRoute,
-                storage_temp:      invTemp || null,
-                notes:             invNotes || null,
-            });
+            const { error } = await supabase
+                .from('vaccination_schedules')
+                .update({ status: 'completed' })
+                .eq('id', schedule.id);
+
             if (error) throw error;
-            handleCloseInvModal();
-            showSnack(`"${invName}" added to inventory!`);
-            loadInventory();
+            if (schedule.farm_id) {
+                createNotification({
+                    farmId: schedule.farm_id,
+                    category: 'health_alert',
+                    type: 'success',
+                    title: `Vaccination Completed: ${schedule.vaccine_name}`,
+                    message: `Marked as completed on ${TODAY}.`,
+                    actionUrl: '/(health)/VaccineScreen',
+                });
+                scheduleUpcomingVaccinations([schedule.farm_id]);
+            }
+            showSnack(`Marked "${schedule.vaccine_name}" as completed!`);
+            loadSchedules();
         } catch (err: any) {
-            showSnack(err?.message || 'Failed to add vaccine.', 'error');
-        } finally {
-            setSavingInv(false);
+            showSnack(err?.message || 'Failed to update schedule status.', 'error');
         }
     };
 
-    // ── Form reset helpers ────────────────────────────────────────────────────
-    const resetRecForm = () => { setRecBatchId(''); setRecVaccineId(''); setRecDate(TODAY); setRecAnimals(''); setRecDose(''); setRecLot(''); setRecExpiry(''); setRecBy(userName); setRecNotes(''); };
-    const resetSchForm = () => { setSchBatchId(''); setSchVaccineId(''); setSchDate(TODAY); setSchInterval(''); setSchNotes(''); };
-    const resetInvForm = () => { setInvName(''); setInvType(''); setInvSpecies('both'); setInvStock(''); setInvUnit('dose'); setInvDose(''); setInvWithdrawal('0'); setInvReorder('10'); setInvRoute('injection'); setInvTemp(''); setInvNotes(''); };
+    /** Revert / Undo a completed vaccination schedule back to pending/overdue */
+    const handleUndoComplete = async (schedule: VaccinationSchedule) => {
+        try {
+            const revertedStatus = schedule.scheduled_date < TODAY ? 'overdue' : 'pending';
+            const { error } = await supabase
+                .from('vaccination_schedules')
+                .update({ status: revertedStatus })
+                .eq('id', schedule.id);
+
+            if (error) throw error;
+            showSnack(`Reopened "${schedule.vaccine_name}" as ${revertedStatus}!`);
+            loadSchedules();
+        } catch (err: any) {
+            showSnack(err?.message || 'Failed to undo completion.', 'error');
+        }
+    };
+
+    /** Open delete confirmation modal */
+    const confirmDeleteSchedule = (schedule: VaccinationSchedule) => {
+        setScheduleToDelete(schedule);
+        setDeleteModalVisible(true);
+    };
+
+    /** Execute delete action from ActionModal */
+    const executeDeleteSchedule = async () => {
+        if (!scheduleToDelete) return;
+        setIsDeleting(true);
+        try {
+            const { error } = await supabase
+                .from('vaccination_schedules')
+                .delete()
+                .eq('id', scheduleToDelete.id);
+
+            if (error) throw error;
+            setDeleteModalVisible(false);
+            setScheduleToDelete(null);
+            showSnack('Schedule deleted successfully.');
+            loadSchedules();
+        } catch (err: any) {
+            showSnack(err?.message || 'Failed to delete schedule.', 'error');
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const resetSchForm = () => {
+        setSchHousingId('');
+        setSchHousingName('');
+        setSchVaccineId('');
+        setSchVaccineName('');
+        setSchDate(TODAY);
+        setSchInterval('');
+        setSchNotes('');
+    };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Render helpers
+    // Calendar Helpers & Dots Calculation
     // ─────────────────────────────────────────────────────────────────────────
 
-    const lowStockCount  = inventory.filter(v => v.stock_quantity <= v.reorder_threshold).length;
-    const overdueCount   = schedules.filter(s => s.status === 'overdue').length;
-    const dueSoonCount   = schedules.filter(s => s.status === 'pending' && daysUntil(s.scheduled_date) <= 3).length;
+    /** Retrieve colored dots for a given date indicating scheduled vaccine statuses */
+    const getDateScheduleDots = (year: number, month: number, day: number) => {
+        const mm = String(month + 1).padStart(2, '0');
+        const dd = String(day).padStart(2, '0');
+        const dateKey = `${year}-${mm}-${dd}`;
+        const daySchedules = schedules.filter(s => s.scheduled_date === dateKey);
+        if (daySchedules.length === 0) return [];
 
-    const renderTab = (id: Tab, label: string, badge?: number) => (
-        <TouchableOpacity
-            key={id}
-            style={[styles.tabItem, activeTab === id && styles.tabItemActive]}
-            onPress={() => setActiveTab(id)}
-            activeOpacity={0.7}
-        >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <Text style={[textStyles.label, {
-                    fontSize: 12,
-                    color: activeTab === id ? colors.text : colors.textGrey,
-                    fontFamily: activeTab === id ? 'Poppins-SemiBold' : 'Poppins-Regular',
-                }]}>
-                    {label}
-                </Text>
-                {!!badge && (
-                    <View style={{ backgroundColor: '#EF4444', borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
-                        <Text style={{ color: '#FFF', fontSize: 9, fontFamily: 'Poppins-Bold' }}>{badge > 9 ? '9+' : badge}</Text>
-                    </View>
-                )}
-            </View>
-        </TouchableOpacity>
-    );
+        const dotColors: string[] = [];
+        const hasOverdue   = daySchedules.some(s => s.status === 'overdue' || (s.status === 'pending' && daysUntil(s.scheduled_date) < 0));
+        const hasDueSoon   = daySchedules.some(s => s.status === 'pending' && daysUntil(s.scheduled_date) <= 2 && daysUntil(s.scheduled_date) >= 0);
+        const hasPending   = daySchedules.some(s => s.status === 'pending' && daysUntil(s.scheduled_date) > 2);
+        const hasCompleted = daySchedules.some(s => s.status === 'completed');
 
-    const BatchSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-        <View>
-            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 6 }]}>Housing (optional)</Text>
-            <TouchableOpacity style={styles.selectRow} activeOpacity={0.7}
-                onPress={() => {
-                    // Cycle through housings or show a simple alert picker
-                    const opts = [{ id: '', label: '— None —' }, ...batches.map(b => ({ id: b.id, label: b.housing_name }))];
-                    const currentIdx = opts.findIndex(o => o.id === value);
-                    const next = opts[(currentIdx + 1) % opts.length];
-                    onChange(next.id);
-                }}
-            >
-                <Text style={[textStyles.body, { color: value ? colors.text : colors.textGrey, fontSize: 14 }]}>
-                    {value ? batches.find(b => b.id === value)
-                        ? batches.find(b => b.id === value)!.housing_name
-                        : '—' : '— Select housing —'}
-                </Text>
-                <MaterialIcons name="expand-more" size={20} color={colors.textGrey} />
-            </TouchableOpacity>
-        </View>
-    );
+        if (hasOverdue) dotColors.push('#EF4444');
+        if (hasDueSoon) dotColors.push('#F97316');
+        if (hasPending && !hasDueSoon) dotColors.push('#3B82F6');
+        if (hasCompleted) dotColors.push('#10B981');
 
-    const VaccineSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-        <View>
-            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 6 }]}>Vaccine *</Text>
-            <TouchableOpacity style={[styles.selectRow, { borderColor: value ? colors.stroke : '#EF4444' + '60' }]} activeOpacity={0.7}
-                onPress={() => {
-                    const opts = [{ id: '', label: '— Select vaccine —' }, ...inventory.map(v => ({ id: v.id, label: `${v.name} (${v.stock_quantity} ${v.unit})` }))];
-                    const currentIdx = opts.findIndex(o => o.id === value);
-                    const next = opts[(currentIdx + 1) % opts.length];
-                    onChange(next.id);
-                }}
-            >
-                <Text style={[textStyles.body, { color: value ? colors.text : colors.textGrey, fontSize: 14 }]}>
-                    {value ? inventory.find(v => v.id === value)?.name || '—' : '— Select vaccine —'}
-                </Text>
-                <MaterialIcons name="expand-more" size={20} color={colors.textGrey} />
-            </TouchableOpacity>
-            {inventory.length === 0 && (
-                <Text style={[textStyles.body, { color: '#F59E0B', fontSize: 11, marginTop: 4 }]}>
-                    No vaccines in inventory. Add one in the Inventory tab first.
-                </Text>
-            )}
-        </View>
-    );
+        return dotColors.slice(0, 3);
+    };
 
-    const FormInput = ({ label, value, onChange, placeholder, keyboardType = 'default', editable = true }: any) => (
-        <View>
-            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 6 }]}>{label}</Text>
-            <View style={styles.inputRow}>
-                <TextInput
-                    value={value} onChangeText={onChange}
-                    placeholder={placeholder} placeholderTextColor={colors.textGrey}
-                    keyboardType={keyboardType} editable={editable}
-                    style={[textStyles.body, { flex: 1, color: colors.text, fontSize: 14, padding: 0 }]}
-                />
-            </View>
-        </View>
-    );
+    // Date Modal Calendar Handlers
+    const openDatePickerModal = () => {
+        setShowSchModal(false);
+        setDateModalVisible(true);
+    };
+
+    const closeDatePickerModal = () => {
+        setDateModalVisible(false);
+        setShowSchModal(true);
+    };
+
+    // Page Calendar Handlers
+    const prevPageCalMonth = () => {
+        if (pageCalMonth === 0) {
+            setPageCalMonth(11);
+            setPageCalYear(y => y - 1);
+        } else {
+            setPageCalMonth(m => m - 1);
+        }
+    };
+
+    const nextPageCalMonth = () => {
+        if (pageCalMonth === 11) {
+            setPageCalMonth(0);
+            setPageCalYear(y => y + 1);
+        } else {
+            setPageCalMonth(m => m + 1);
+        }
+    };
+
+    const pageCalFirstDayIndex = new Date(pageCalYear, pageCalMonth, 1).getDay();
+    const pageDaysInCalMonth = new Date(pageCalYear, pageCalMonth + 1, 0).getDate();
+    const pageCalCells: (number | null)[] = [
+        ...Array(pageCalFirstDayIndex).fill(null),
+        ...Array.from({ length: pageDaysInCalMonth }, (_, i) => i + 1),
+    ];
+    while (pageCalCells.length % 7 !== 0) pageCalCells.push(null);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Tab content
+    // Counts & Filtered Schedules
     // ─────────────────────────────────────────────────────────────────────────
 
-    const RecordsTab = () => (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}>
-            {records.length === 0 ? (
-                <View style={styles.emptyState}>
-                    <View style={[styles.emptyIcon, { backgroundColor: colors.primary + '15' }]}>
-                        <MaterialIcons name="vaccines" size={30} color={colors.primary} />
-                    </View>
-                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>No Records Yet</Text>
-                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, textAlign: 'center' }]}>
-                        Tap + to log your first vaccination.
-                    </Text>
-                </View>
-            ) : records.map(rec => {
-                const wd = withdrawalLabel(rec.withdrawal_end_date);
-                return (
-                    <View key={rec.id} style={styles.card}>
-                        <View style={styles.cardRow}>
-                            <View style={[styles.iconBox, { backgroundColor: colors.primary + '15' }]}>
-                                <MaterialIcons name="vaccines" size={20} color={colors.primary} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>{rec.vaccine_name}</Text>
-                                {rec.housing && (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{rec.housing.name}</Text>
-                                )}
-                            </View>
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{formatDate(rec.administered_date)}</Text>
-                        </View>
+    const overdueCount = schedules.filter(s => s.status === 'overdue').length;
+    const dueSoonCount = schedules.filter(s => s.status === 'pending' && daysUntil(s.scheduled_date) <= 3 && daysUntil(s.scheduled_date) >= 0).length;
+    const pendingCount = schedules.filter(s => s.status === 'pending').length;
+    const completedCount = schedules.filter(s => s.status === 'completed').length;
 
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                            {rec.animals_vaccinated != null && (
-                                <View style={[styles.chip, { backgroundColor: colors.primary + '12' }]}>
-                                    <MaterialIcons name="pets" size={12} color={colors.primary} />
-                                    <Text style={[textStyles.label, { color: colors.primary, fontSize: 11 }]}>{rec.animals_vaccinated} animals</Text>
-                                </View>
-                            )}
-                            {rec.total_dose_used != null && (
-                                <View style={[styles.chip, { backgroundColor: '#6C63FF' + '12' }]}>
-                                    <MaterialIcons name="science" size={12} color="#6C63FF" />
-                                    <Text style={[textStyles.label, { color: '#6C63FF', fontSize: 11 }]}>{rec.total_dose_used} {rec.unit} used</Text>
-                                </View>
-                            )}
-                            <View style={[styles.chip, { backgroundColor: wd.color + '12' }]}>
-                                <MaterialIcons name="timer" size={12} color={wd.color} />
-                                <Text style={[textStyles.label, { color: wd.color, fontSize: 11 }]}>{wd.label}</Text>
-                            </View>
-                        </View>
+    const isStatusFiltered  = filter !== 'pending';
+    const isHousingFiltered = filterHousingId !== 'all';
+    const isDateFiltered    = !!selectedFilterDate;
+    const isSearchFiltered  = !!searchQuery.trim();
+    const isFiltered        = isStatusFiltered || isHousingFiltered || isDateFiltered || isSearchFiltered;
 
-                        {(rec.lot_number || rec.administered_by) && (
-                            <View style={{ marginTop: 8, gap: 2 }}>
-                                {rec.lot_number && (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Lot: {rec.lot_number}</Text>
-                                )}
-                                {rec.administered_by && (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>By: {rec.administered_by}</Text>
-                                )}
-                            </View>
-                        )}
-                    </View>
-                );
-            })}
-        </ScrollView>
-    );
+    const activeFilterSummary = useMemo(() => {
+        const parts: string[] = [];
+        if (filter === 'all') {
+            parts.push('All Statuses');
+        } else if (filter) {
+            parts.push(filter.charAt(0).toUpperCase() + filter.slice(1));
+        }
+        if (isHousingFiltered) {
+            const foundHousing = housings.find(h => h.id === filterHousingId);
+            if (foundHousing) parts.push(foundHousing.name);
+        }
+        if (isDateFiltered) {
+            parts.push(formatDate(selectedFilterDate!));
+        }
+        if (isSearchFiltered) {
+            parts.push(`"${searchQuery.trim()}"`);
+        }
+        if (parts.length === 0) {
+            return 'Pending';
+        }
+        return parts.join(' · ');
+    }, [filter, isHousingFiltered, filterHousingId, isDateFiltered, selectedFilterDate, isSearchFiltered, searchQuery, housings]);
 
-    const ScheduleTab = () => (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}>
-            {schedules.length === 0 ? (
-                <View style={styles.emptyState}>
-                    <View style={[styles.emptyIcon, { backgroundColor: '#3B82F6' + '15' }]}>
-                        <MaterialIcons name="event" size={30} color="#3B82F6" />
-                    </View>
-                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>No Schedule Yet</Text>
-                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, textAlign: 'center' }]}>
-                        Tap + to plan upcoming vaccinations.
-                    </Text>
-                </View>
-            ) : schedules.map(sch => {
-                const color  = scheduleColor(sch.status, sch.scheduled_date);
-                const d      = daysUntil(sch.scheduled_date);
-                const dLabel = sch.status === 'completed' ? 'Done'
-                    : sch.status === 'overdue' ? `${Math.abs(d)}d overdue`
-                    : d === 0 ? 'Today!'
-                    : d === 1 ? 'Tomorrow'
-                    : `In ${d} days`;
-                return (
-                    <View key={sch.id} style={[styles.card, { borderLeftWidth: 3, borderLeftColor: color }]}>
-                        <View style={styles.cardRow}>
-                            <View style={[styles.iconBox, { backgroundColor: color + '15' }]}>
-                                <MaterialIcons name="event" size={20} color={color} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>{sch.vaccine_name}</Text>
-                                {sch.housing && (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{sch.housing.name}</Text>
-                                )}
-                            </View>
-                            <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>{formatDate(sch.scheduled_date)}</Text>
-                                <View style={[styles.chip, { backgroundColor: color + '15' }]}>
-                                    <Text style={[textStyles.label, { color, fontSize: 10 }]}>{dLabel}</Text>
-                                </View>
-                            </View>
-                        </View>
+    const filteredSchedules = schedules.filter(sch => {
+        // Status filter
+        if (filter === 'overdue' && sch.status !== 'overdue') return false;
+        if (filter === 'pending' && sch.status !== 'pending') return false;
+        if (filter === 'completed' && sch.status !== 'completed') return false;
 
-                        {sch.interval_days && (
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 6 }]}>
-                                🔁 Recurring every {sch.interval_days} days
-                            </Text>
-                        )}
+        // Housing filter
+        if (filterHousingId !== 'all' && sch.housing_id !== filterHousingId) return false;
 
-                        {sch.status === 'pending' || sch.status === 'overdue' ? (
-                            <TouchableOpacity
-                                onPress={() => handleMarkDone(sch)}
-                                style={{
-                                    marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                                    gap: 6, paddingVertical: 9,
-                                    backgroundColor: '#10B981' + '12',
-                                    borderRadius: 10, borderWidth: 1, borderColor: '#10B981' + '30',
-                                }}
-                                activeOpacity={0.7}
-                            >
-                                <MaterialIcons name="check-circle" size={16} color="#10B981" />
-                                <Text style={[textStyles.label, { color: '#10B981', fontSize: 12 }]}>Mark as Done</Text>
-                            </TouchableOpacity>
-                        ) : null}
-                    </View>
-                );
-            })}
-        </ScrollView>
-    );
+        // Calendar date filter
+        if (selectedFilterDate && sch.scheduled_date !== selectedFilterDate) return false;
 
-    const InventoryTab = () => (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}>
-            {lowStockCount > 0 && (
-                <View style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 10,
-                    backgroundColor: '#F59E0B' + '12',
-                    borderRadius: 14, padding: 14, marginHorizontal: 20, marginBottom: 12,
-                    borderWidth: 1, borderColor: '#F59E0B' + '30',
-                }}>
-                    <MaterialIcons name="warning" size={16} color="#F59E0B" />
-                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, flex: 1 }]}>
-                        <Text style={{ color: '#F59E0B', fontFamily: 'Poppins-SemiBold' }}>{lowStockCount} vaccine{lowStockCount > 1 ? 's' : ''}</Text> below reorder threshold.
-                    </Text>
-                </View>
-            )}
-            {inventory.length === 0 ? (
-                <View style={styles.emptyState}>
-                    <View style={[styles.emptyIcon, { backgroundColor: '#10B981' + '15' }]}>
-                        <MaterialIcons name="medication" size={30} color="#10B981" />
-                    </View>
-                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>No Vaccines</Text>
-                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, textAlign: 'center' }]}>
-                        Tap + to add vaccines to your inventory.
-                    </Text>
-                </View>
-            ) : inventory.map((vax, idx) => {
-                const isLow    = vax.stock_quantity <= vax.reorder_threshold;
-                const color    = isLow ? '#EF4444' : '#10B981';
-                const specColor = vax.species === 'chicken' ? '#F59E0B' : vax.species === 'pig' ? '#F97316' : '#6C63FF';
-                return (
-                    <View key={vax.id} style={[styles.card, isLow && { borderColor: '#EF4444' + '40' }]}>
-                        <View style={styles.cardRow}>
-                            <View style={[styles.iconBox, { backgroundColor: color + '15' }]}>
-                                <MaterialIcons name="medication" size={20} color={color} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 14 }]}>{vax.name}</Text>
-                                {vax.vaccine_type && (
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{vax.vaccine_type}</Text>
-                                )}
-                            </View>
-                            <View style={{ alignItems: 'flex-end' }}>
-                                <Text style={[textStyles.h3, { color: isLow ? '#EF4444' : colors.text, fontSize: 18 }]}>
-                                    {vax.stock_quantity}
-                                </Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>{vax.unit}</Text>
-                            </View>
-                        </View>
+        // Search text filter
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase().trim();
+            const matchVaccine = sch.vaccine_name?.toLowerCase().includes(q);
+            const matchHousing = sch.housing?.name?.toLowerCase().includes(q);
+            const matchAnimal  = sch.housing?.animal_type?.toLowerCase().includes(q);
+            const matchNotes   = sch.notes?.toLowerCase().includes(q);
+            const matchDate    = sch.scheduled_date?.includes(q);
+            if (!matchVaccine && !matchHousing && !matchAnimal && !matchNotes && !matchDate) {
+                return false;
+            }
+        }
 
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                            <View style={[styles.chip, { backgroundColor: specColor + '12' }]}>
-                                <Text style={[textStyles.label, { color: specColor, fontSize: 11 }]}>
-                                    {vax.species === 'both' ? 'Chicken & Pig' : vax.species.charAt(0).toUpperCase() + vax.species.slice(1)}
-                                </Text>
-                            </View>
-                            <View style={[styles.chip, { backgroundColor: '#F59E0B' + '12' }]}>
-                                <MaterialIcons name="timer" size={12} color="#F59E0B" />
-                                <Text style={[textStyles.label, { color: '#F59E0B', fontSize: 11 }]}>{vax.withdrawal_days}d withdrawal</Text>
-                            </View>
-                            <View style={[styles.chip, { backgroundColor: colors.primary + '12' }]}>
-                                <Text style={[textStyles.label, { color: colors.primary, fontSize: 11 }]}>{vax.route}</Text>
-                            </View>
-                            {isLow && (
-                                <View style={[styles.chip, { backgroundColor: '#EF4444' + '12' }]}>
-                                    <MaterialIcons name="warning" size={12} color="#EF4444" />
-                                    <Text style={[textStyles.label, { color: '#EF4444', fontSize: 11 }]}>Low stock</Text>
-                                </View>
-                            )}
-                        </View>
+        return true;
+    });
 
-                        {vax.storage_temp && (
-                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 8 }]}>
-                                🌡 Store at {vax.storage_temp}
-                            </Text>
-                        )}
-                    </View>
-                );
-            })}
-        </ScrollView>
-    );
+    const dateDisplayValue = schDate
+        ? new Date(schDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        : 'Select Scheduled Date';
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Render
-    // ─────────────────────────────────────────────────────────────────────────
-
-    const fabAction = activeTab === 'records'   ? () => setShowRecModal(true)
-                    : activeTab === 'schedule'  ? () => setShowSchModal(true)
-                    : () => setShowInvModal(true);
+    const isSaveDisabled = savingSch || !schVaccineId || !schDate || schDate < TODAY;
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
 
                 {/* Header */}
                 <View style={styles.header}>
                     <View style={{ width: 44, height: 44 }}>
-                        <BackButton fallbackRoute="/(dashboard)/HomeScreen" />
+                        <BackButton fallbackRoute="/(animals)/HealthRecordsScreen" />
                     </View>
                     <Text style={[textStyles.h1, { fontSize: 20, color: colors.primary, textAlign: 'center', flex: 1 }]}>
                         Vaccines
@@ -945,278 +615,1073 @@ export default function VaccineScreen() {
                     <View style={{ width: 44, height: 44 }} />
                 </View>
 
-                {/* Summary chips */}
-                {!isLoading && (overdueCount > 0 || dueSoonCount > 0 || lowStockCount > 0) && (
-                    <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingTop: 12, flexWrap: 'wrap' }}>
-                        {overdueCount > 0 && (
-                            <View style={[styles.chip, { backgroundColor: '#EF4444' + '12', paddingHorizontal: 10, paddingVertical: 6 }]}>
-                                <MaterialIcons name="error" size={14} color="#EF4444" />
-                                <Text style={[textStyles.label, { color: '#EF4444', fontSize: 12 }]}>{overdueCount} Overdue</Text>
+                {/* Search Bar & Calendar Toggle */}
+                <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10, flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                    <View style={{
+                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: colors.surface,
+                        borderRadius: 24,
+                        borderWidth: 1.5,
+                        borderColor: colors.stroke,
+                        paddingHorizontal: 14,
+                        height: 46,
+                    }}>
+                        <MaterialIcons name="search" size={20} color={colors.textGrey} style={{ marginRight: 8 }} />
+                        <TextInput
+                            value={searchQuery}
+                            onChangeText={setSearchQuery}
+                            placeholder="Search vaccine, housing, notes..."
+                            placeholderTextColor={colors.textGrey}
+                            style={[textStyles.body, { flex: 1, color: colors.text, fontSize: 13, padding: 0 }]}
+                        />
+                        {searchQuery ? (
+                            <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <MaterialIcons name="close" size={18} color={colors.textGrey} />
+                            </TouchableOpacity>
+                        ) : null}
+                    </View>
+
+                    <TouchableOpacity
+                        onPress={() => setShowCalendar(prev => !prev)}
+                        style={{
+                            height: 46,
+                            paddingHorizontal: 14,
+                            borderRadius: 24,
+                            backgroundColor: showCalendar ? colors.primary + '18' : colors.surface,
+                            borderWidth: 1.5,
+                            borderColor: showCalendar ? colors.primary : colors.stroke,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                        }}
+                        activeOpacity={0.7}
+                    >
+                        <MaterialIcons name="calendar-month" size={20} color={showCalendar ? colors.primary : colors.textGrey} />
+                        <Text style={[textStyles.label, { color: showCalendar ? colors.primary : colors.textGrey, fontSize: 12 }]}>
+                            Calendar
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* On-Page Interactive Calendar View */}
+                {showCalendar && (
+                    <View style={{
+                        marginHorizontal: 20,
+                        marginTop: 2,
+                        marginBottom: 12,
+                        backgroundColor: colors.surface,
+                        borderRadius: 20,
+                        padding: 14,
+                        borderWidth: 1,
+                        borderColor: colors.stroke,
+                        ...Platform.select({
+                            web: { boxShadow: '0px 2px 8px rgba(0,0,0,0.04)' },
+                            default: { elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6 }
+                        })
+                    }}>
+                        {/* Month Navigation */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <TouchableOpacity
+                                onPress={prevPageCalMonth}
+                                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}
+                            >
+                                <MaterialIcons name="chevron-left" size={20} color={colors.text} />
+                            </TouchableOpacity>
+
+                            <View style={{ alignItems: 'center' }}>
+                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.text }}>
+                                    {MONTH_NAMES[pageCalMonth]} {pageCalYear}
+                                </Text>
                             </View>
-                        )}
-                        {dueSoonCount > 0 && (
-                            <View style={[styles.chip, { backgroundColor: '#F97316' + '12', paddingHorizontal: 10, paddingVertical: 6 }]}>
-                                <MaterialIcons name="schedule" size={14} color="#F97316" />
-                                <Text style={[textStyles.label, { color: '#F97316', fontSize: 12 }]}>{dueSoonCount} Due Soon</Text>
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setPageCalYear(todayObj.getFullYear());
+                                        setPageCalMonth(todayObj.getMonth());
+                                        const mm = String(todayObj.getMonth() + 1).padStart(2, '0');
+                                        const dd = String(todayObj.getDate()).padStart(2, '0');
+                                        setSelectedFilterDate(`${todayObj.getFullYear()}-${mm}-${dd}`);
+                                    }}
+                                    style={{
+                                        paddingHorizontal: 9,
+                                        paddingVertical: 4,
+                                        borderRadius: 12,
+                                        backgroundColor: colors.cardFill,
+                                    }}
+                                >
+                                    <Text style={[textStyles.label, { fontSize: 10, color: colors.textGrey }]}>Today</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={nextPageCalMonth}
+                                    style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center' }}
+                                >
+                                    <MaterialIcons name="chevron-right" size={20} color={colors.text} />
+                                </TouchableOpacity>
                             </View>
-                        )}
-                        {lowStockCount > 0 && (
-                            <View style={[styles.chip, { backgroundColor: '#F59E0B' + '12', paddingHorizontal: 10, paddingVertical: 6 }]}>
-                                <MaterialIcons name="warning" size={14} color="#F59E0B" />
-                                <Text style={[textStyles.label, { color: '#F59E0B', fontSize: 12 }]}>{lowStockCount} Low Stock</Text>
+                        </View>
+
+                        {/* Days of week */}
+                        <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+                            {DAY_NAMES.map(d => (
+                                <View key={d} style={{ flex: 1, alignItems: 'center' }}>
+                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 11, color: colors.textGrey }}>{d}</Text>
+                                </View>
+                            ))}
+                        </View>
+
+                        {/* Calendar Grid */}
+                        {Array.from({ length: pageCalCells.length / 7 }, (_, row) => (
+                            <View key={row} style={{ flexDirection: 'row', marginBottom: 2 }}>
+                                {pageCalCells.slice(row * 7, row * 7 + 7).map((day, col) => {
+                                    if (day === null) {
+                                        return <View key={col} style={{ flex: 1, height: 36 }} />;
+                                    }
+
+                                    const mm = String(pageCalMonth + 1).padStart(2, '0');
+                                    const dd = String(day).padStart(2, '0');
+                                    const dateKey = `${pageCalYear}-${mm}-${dd}`;
+
+                                    const isSelected = selectedFilterDate === dateKey;
+                                    const isToday = todayObj.getFullYear() === pageCalYear &&
+                                        todayObj.getMonth() === pageCalMonth &&
+                                        todayObj.getDate() === day;
+                                    const dots = getDateScheduleDots(pageCalYear, pageCalMonth, day);
+
+                                    return (
+                                        <View key={col} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                                            <TouchableOpacity
+                                                onPress={() => {
+                                                    setSelectedFilterDate(prev => prev === dateKey ? null : dateKey);
+                                                }}
+                                                activeOpacity={0.7}
+                                                style={{
+                                                    width: 36,
+                                                    height: 36,
+                                                    borderRadius: 18,
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    backgroundColor: isSelected ? colors.primary : isToday ? colors.primary + '18' : dots.length > 0 ? colors.cardFill : 'transparent',
+                                                    borderWidth: isToday && !isSelected ? 1.5 : 0,
+                                                    borderColor: colors.primary,
+                                                }}
+                                            >
+                                                <Text style={{
+                                                    fontFamily: isSelected || isToday ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                                                    fontSize: 12,
+                                                    color: isSelected ? '#FFF' : isToday ? colors.primary : colors.text,
+                                                    marginBottom: dots.length > 0 ? 2 : 0,
+                                                }}>
+                                                    {day}
+                                                </Text>
+                                                {dots.length > 0 && (
+                                                    <View style={{ flexDirection: 'row', gap: 2, alignItems: 'center', justifyContent: 'center' }}>
+                                                        {dots.map((dotColor, dotIdx) => (
+                                                            <View
+                                                                key={dotIdx}
+                                                                style={{
+                                                                    width: 4,
+                                                                    height: 4,
+                                                                    borderRadius: 2,
+                                                                    backgroundColor: isSelected ? '#FFF' : dotColor,
+                                                                }}
+                                                            />
+                                                        ))}
+                                                    </View>
+                                                )}
+                                            </TouchableOpacity>
+                                        </View>
+                                    );
+                                })}
                             </View>
-                        )}
+                        ))}
+
+                        {/* Legend / Dots guide */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.stroke }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#EF4444' }} />
+                                <Text style={{ fontSize: 10, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>Overdue</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#F97316' }} />
+                                <Text style={{ fontSize: 10, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>Due Soon</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#3B82F6' }} />
+                                <Text style={{ fontSize: 10, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>Pending</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' }} />
+                                <Text style={{ fontSize: 10, color: colors.textGrey, fontFamily: 'Poppins-Regular' }}>Done</Text>
+                            </View>
+                        </View>
                     </View>
                 )}
 
-                {/* Tab Bar */}
-                <View style={styles.tabBar}>
-                    {renderTab('records',   'Records')}
-                    {renderTab('schedule',  'Schedule', overdueCount + dueSoonCount || undefined)}
-                    {renderTab('inventory', 'Inventory', lowStockCount || undefined)}
+                {/* Active Date Filter Chip Banner */}
+                {selectedFilterDate && (
+                    <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginHorizontal: 20,
+                        marginTop: 2,
+                        marginBottom: 4,
+                        paddingHorizontal: 14,
+                        paddingVertical: 7,
+                        borderRadius: 12,
+                        backgroundColor: colors.primary + '15',
+                        borderWidth: 1,
+                        borderColor: colors.primary + '30',
+                    }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <MaterialIcons name="filter-alt" size={16} color={colors.primary} />
+                            <Text style={[textStyles.body, { color: colors.primary, fontSize: 12, fontFamily: 'Poppins-Medium' }]}>
+                                Date: {formatDate(selectedFilterDate)}
+                            </Text>
+                        </View>
+                        <TouchableOpacity
+                            onPress={() => setSelectedFilterDate(null)}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                        >
+                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 11 }]}>Clear Date</Text>
+                            <MaterialIcons name="close" size={14} color={colors.primary} />
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* ── Collapsible Wrapping Filters (Pill Round Shaped) ── */}
+                <View style={{
+                    marginHorizontal: 20,
+                    marginBottom: 10,
+                    backgroundColor: colors.surface,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: colors.stroke,
+                    overflow: 'hidden',
+                }}>
+                    {/* Header Toggle */}
+                    <TouchableOpacity
+                        activeOpacity={0.75}
+                        onPress={() => setFiltersCollapsed(prev => !prev)}
+                        style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            paddingHorizontal: 12,
+                            paddingVertical: 10,
+                        }}
+                    >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, marginRight: 8 }}>
+                            <MaterialIcons name="tune" size={16} color={isFiltered ? colors.primary : colors.textGrey} style={{ flexShrink: 0 }} />
+                            <Text
+                                numberOfLines={1}
+                                style={{ fontFamily: 'Poppins-SemiBold', fontSize: 12, color: colors.text, flexShrink: 0 }}
+                            >
+                                Filters
+                            </Text>
+                            <View style={{
+                                flexDirection: 'row', alignItems: 'center',
+                                backgroundColor: isFiltered ? colors.primary + '18' : colors.cardFill,
+                                paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999,
+                                flexShrink: 1, minWidth: 0,
+                            }}>
+                                <Text
+                                    style={{ fontFamily: isFiltered ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: isFiltered ? colors.primary : colors.textGrey }}
+                                    numberOfLines={1}
+                                    ellipsizeMode="tail"
+                                >
+                                    {activeFilterSummary}
+                                </Text>
+                            </View>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                            {isFiltered && (
+                                <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    onPress={() => {
+                                        setFilter('pending');
+                                        setFilterHousingId('all');
+                                        setSelectedFilterDate(null);
+                                        setSearchQuery('');
+                                    }}
+                                    style={{
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 3,
+                                        borderRadius: 999,
+                                        backgroundColor: colors.primary + '12',
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.primary }}>
+                                        Reset
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                            <MaterialIcons
+                                name={filtersCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
+                                size={20}
+                                color={colors.textGrey}
+                            />
+                        </View>
+                    </TouchableOpacity>
+
+                    {/* Body: wrapped multi-line chips (pill round shaped), no sliding */}
+                    {!filtersCollapsed && (
+                        <View style={{ paddingHorizontal: 12, paddingBottom: 10, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.stroke + '40' }}>
+                            {/* Housing Filter Row */}
+                            {housings.length > 0 && (
+                                <View style={{ marginBottom: 10 }}>
+                                    <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.textGrey, letterSpacing: 0.6, marginBottom: 6, textTransform: 'uppercase' }}>
+                                        Housing / Pen
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                        {[{ id: 'all', name: 'All Housings' } as any, ...housings].map(h => {
+                                            const isSel = filterHousingId === h.id;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={h.id}
+                                                    activeOpacity={0.75}
+                                                    onPress={() => setFilterHousingId(h.id)}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        paddingHorizontal: 14,
+                                                        paddingVertical: 6,
+                                                        borderRadius: 999,
+                                                        borderWidth: 1.5,
+                                                        borderColor: isSel ? colors.primary : colors.stroke,
+                                                        backgroundColor: isSel ? colors.primary + '18' : colors.surface,
+                                                    }}
+                                                >
+                                                    <MaterialIcons
+                                                        name="home"
+                                                        size={13}
+                                                        color={isSel ? colors.primary : colors.textGrey}
+                                                        style={{ marginRight: 5 }}
+                                                    />
+                                                    <Text style={{ fontFamily: isSel ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11.5, color: isSel ? colors.primary : colors.textGrey }}>
+                                                        {h.name}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                </View>
+                            )}
+
+                            {/* Status Filter Row */}
+                            <View>
+                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.textGrey, letterSpacing: 0.6, marginBottom: 6, textTransform: 'uppercase' }}>
+                                    Schedule Status
+                                </Text>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                    {[
+                                        { id: 'all', label: `All (${schedules.length})`, icon: null, color: colors.primary },
+                                        ...(overdueCount > 0 ? [{ id: 'overdue', label: `Overdue (${overdueCount})`, icon: 'error', color: '#EF4444' }] : []),
+                                        { id: 'pending', label: `Pending (${pendingCount})`, icon: 'schedule', color: '#3B82F6' },
+                                        ...(completedCount > 0 ? [{ id: 'completed', label: `Completed (${completedCount})`, icon: 'check-circle', color: '#10B981' }] : []),
+                                    ].map(st => {
+                                        const isSel = filter === st.id;
+                                        return (
+                                            <TouchableOpacity
+                                                key={st.id}
+                                                activeOpacity={0.75}
+                                                onPress={() => setFilter(st.id as any)}
+                                                style={{
+                                                    flexDirection: 'row',
+                                                    alignItems: 'center',
+                                                    paddingHorizontal: 14,
+                                                    paddingVertical: 6,
+                                                    borderRadius: 999,
+                                                    borderWidth: 1.5,
+                                                    borderColor: isSel ? st.color : colors.stroke,
+                                                    backgroundColor: isSel ? st.color + '18' : colors.surface,
+                                                }}
+                                            >
+                                                {st.icon && (
+                                                    <MaterialIcons
+                                                        name={st.icon as any}
+                                                        size={13}
+                                                        color={isSel ? st.color : colors.textGrey}
+                                                        style={{ marginRight: 5 }}
+                                                    />
+                                                )}
+                                                <Text style={{ fontFamily: isSel ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11.5, color: isSel ? st.color : colors.textGrey }}>
+                                                    {st.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </View>
+                        </View>
+                    )}
                 </View>
 
-                {/* Tab Content */}
+                {/* Schedules List */}
                 {isLoading ? (
                     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                         <ActivityIndicator size="large" color={colors.primary} />
                     </View>
-                ) : activeTab === 'records'   ? <RecordsTab />
-                  : activeTab === 'schedule'  ? <ScheduleTab />
-                  : <InventoryTab />}
+                ) : (
+                    <ScrollView
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}
+                        refreshControl={
+                            <RefreshControl
+                                refreshing={refreshing}
+                                onRefresh={onRefresh}
+                                tintColor={colors.primary}
+                                colors={[colors.primary]}
+                            />
+                        }
+                    >
+                        {filteredSchedules.length === 0 ? (
+                            <View style={styles.emptyState}>
+                                <View style={[styles.emptyIcon, { backgroundColor: colors.primary + '15' }]}>
+                                    <MaterialIcons name="event" size={32} color={colors.primary} />
+                                </View>
+                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>
+                                    {filter === 'all' ? 'No Schedules Yet' : `No ${filter} Schedules`}
+                                </Text>
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, textAlign: 'center', maxWidth: 260 }]}>
+                                    {filter === 'all' ? 'Tap the + button below to schedule upcoming vaccinations.' : 'Try changing your filter to view other schedules.'}
+                                </Text>
+                            </View>
+                        ) : (
+                            filteredSchedules.map(sch => {
+                                const color       = scheduleColor(sch.status, sch.scheduled_date);
+                                const d           = daysUntil(sch.scheduled_date);
+                                const isCompleted = sch.status === 'completed';
+                                const isOverdue   = sch.status === 'overdue' || (!isCompleted && d < 0);
 
-                {/* FAB */}
+                                const dLabel = isCompleted ? 'Completed'
+                                    : isOverdue ? `${Math.abs(d)}d overdue`
+                                    : d === 0 ? 'Due Today'
+                                    : d === 1 ? 'Due Tomorrow'
+                                    : `Due in ${d} days`;
+
+                                const statusBg = isCompleted ? '#10B98115'
+                                    : isOverdue ? '#EF444415'
+                                    : d <= 2 ? '#F9731615'
+                                    : '#3B82F615';
+
+                                const statusBorder = isCompleted ? '#10B98130'
+                                    : isOverdue ? '#EF444430'
+                                    : d <= 2 ? '#F9731630'
+                                    : '#3B82F630';
+
+                                return (
+                                    <View
+                                        key={sch.id}
+                                        style={[
+                                            styles.card,
+                                            {
+                                                backgroundColor: colors.surface,
+                                                borderColor: isOverdue ? '#EF444435' : colors.stroke,
+                                            }
+                                        ]}
+                                    >
+                                        {/* Top Row: Icon, Vaccine Title & Status Pill */}
+                                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, flex: 1, minWidth: 160 }}>
+                                                <View
+                                                    style={{
+                                                        width: 44,
+                                                        height: 44,
+                                                        borderRadius: 14,
+                                                        backgroundColor: color + '15',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        flexShrink: 0,
+                                                    }}
+                                                >
+                                                    <MaterialIcons
+                                                        name={isCompleted ? 'check-circle' : 'vaccines'}
+                                                        size={24}
+                                                        color={color}
+                                                    />
+                                                </View>
+
+                                                <View style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center' }}>
+                                                    <Text
+                                                        style={[
+                                                            textStyles.h3,
+                                                            {
+                                                                color: colors.text,
+                                                                fontSize: 16,
+                                                                textDecorationLine: isCompleted ? 'line-through' : 'none',
+                                                                opacity: isCompleted ? 0.75 : 1,
+                                                            }
+                                                        ]}
+                                                    >
+                                                        {sch.vaccine_name}
+                                                    </Text>
+                                                    {sch.housing?.animal_type ? (
+                                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, textTransform: 'capitalize' }]}>
+                                                            {sch.housing.animal_type} Vaccination
+                                                        </Text>
+                                                    ) : null}
+                                                </View>
+                                            </View>
+
+                                            {/* Status Pill */}
+                                            <View
+                                                style={{
+                                                    flexDirection: 'row',
+                                                    alignItems: 'center',
+                                                    gap: 5,
+                                                    paddingHorizontal: 10,
+                                                    paddingVertical: 5,
+                                                    borderRadius: 12,
+                                                    backgroundColor: statusBg,
+                                                    borderWidth: 1,
+                                                    borderColor: statusBorder,
+                                                    alignSelf: 'flex-start',
+                                                    flexShrink: 0,
+                                                }}
+                                            >
+                                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+                                                <Text style={[textStyles.label, { color, fontSize: 11 }]}>
+                                                    {dLabel}
+                                                </Text>
+                                            </View>
+                                        </View>
+
+                                        {/* Info Badges Row: Date, Housing Location, Repeat Cadence */}
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                                            {/* Scheduled Date */}
+                                            <View style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 5,
+                                                backgroundColor: colors.cardFill,
+                                                paddingHorizontal: 10,
+                                                paddingVertical: 5,
+                                                borderRadius: 8,
+                                            }}>
+                                                <MaterialIcons name="calendar-today" size={13} color={colors.primary} />
+                                                <Text style={[textStyles.body, { color: colors.text, fontSize: 12, fontFamily: 'Poppins-Medium' }]}>
+                                                    {formatDate(sch.scheduled_date)}
+                                                </Text>
+                                            </View>
+
+                                            {/* Housing / Pen */}
+                                            {sch.housing?.name ? (
+                                                <View style={{
+                                                    flexDirection: 'row',
+                                                    alignItems: 'center',
+                                                    gap: 5,
+                                                    backgroundColor: colors.cardFill,
+                                                    paddingHorizontal: 10,
+                                                    paddingVertical: 5,
+                                                    borderRadius: 8,
+                                                }}>
+                                                    <MaterialIcons name="home" size={14} color={colors.textGrey} />
+                                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 12 }]}>
+                                                        {sch.housing.name}
+                                                    </Text>
+                                                </View>
+                                            ) : (
+                                                <View style={{
+                                                    flexDirection: 'row',
+                                                    alignItems: 'center',
+                                                    gap: 5,
+                                                    backgroundColor: colors.cardFill,
+                                                    paddingHorizontal: 10,
+                                                    paddingVertical: 5,
+                                                    borderRadius: 8,
+                                                }}>
+                                                    <MaterialIcons name="public" size={14} color={colors.textGrey} />
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                                        Farm-wide
+                                                    </Text>
+                                                </View>
+                                            )}
+
+                                            {/* Recurrence Interval */}
+                                            {sch.interval_days ? (
+                                                <View style={{
+                                                    flexDirection: 'row',
+                                                    alignItems: 'center',
+                                                    gap: 5,
+                                                    backgroundColor: colors.cardFill,
+                                                    paddingHorizontal: 10,
+                                                    paddingVertical: 5,
+                                                    borderRadius: 8,
+                                                }}>
+                                                    <MaterialIcons name="repeat" size={13} color={colors.textGrey} />
+                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                                        Every {sch.interval_days}d
+                                                    </Text>
+                                                </View>
+                                            ) : null}
+                                        </View>
+
+                                        {/* Notes container if present */}
+                                        {sch.notes ? (
+                                            <View
+                                                style={{
+                                                    marginTop: 10,
+                                                    backgroundColor: colors.cardFill,
+                                                    borderRadius: 10,
+                                                    paddingHorizontal: 12,
+                                                    paddingVertical: 8,
+                                                    flexDirection: 'row',
+                                                    alignItems: 'flex-start',
+                                                    gap: 6,
+                                                }}
+                                            >
+                                                <MaterialIcons name="sticky-note-2" size={15} color={colors.textGrey} style={{ marginTop: 1 }} />
+                                                <Text style={[textStyles.body, { color: colors.text, fontSize: 12, flex: 1 }]}>
+                                                    {sch.notes}
+                                                </Text>
+                                            </View>
+                                        ) : null}
+
+                                        {/* Action Footer */}
+                                        <View style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            marginTop: 14,
+                                            paddingTop: 12,
+                                            borderTopWidth: 1,
+                                            borderTopColor: colors.stroke,
+                                            gap: 10,
+                                        }}>
+                                            {isCompleted ? (
+                                                <>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                                                        <MaterialIcons name="check-circle" size={16} color="#10B981" />
+                                                        <Text style={[textStyles.body, { color: '#10B981', fontSize: 12, fontFamily: 'Poppins-Medium' }]}>
+                                                            Completed
+                                                        </Text>
+                                                    </View>
+
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                        <TouchableOpacity
+                                                            onPress={() => handleUndoComplete(sch)}
+                                                            style={{
+                                                                flexDirection: 'row',
+                                                                alignItems: 'center',
+                                                                gap: 5,
+                                                                paddingHorizontal: 14,
+                                                                paddingVertical: 7,
+                                                                borderRadius: 20,
+                                                                backgroundColor: colors.cardFill,
+                                                                borderWidth: 1,
+                                                                borderColor: colors.stroke,
+                                                            }}
+                                                            activeOpacity={0.7}
+                                                        >
+                                                            <MaterialIcons name="undo" size={15} color={colors.text} />
+                                                            <Text style={[textStyles.label, { color: colors.text, fontSize: 12 }]}>
+                                                                Undo
+                                                            </Text>
+                                                        </TouchableOpacity>
+
+                                                        <TouchableOpacity
+                                                            onPress={() => confirmDeleteSchedule(sch)}
+                                                            style={{
+                                                                padding: 7,
+                                                                borderRadius: 20,
+                                                                backgroundColor: '#EF444415',
+                                                                borderWidth: 1,
+                                                                borderColor: '#EF444430',
+                                                            }}
+                                                            activeOpacity={0.7}
+                                                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                                        >
+                                                            <MaterialIcons name="delete-outline" size={16} color="#EF4444" />
+                                                        </TouchableOpacity>
+                                                    </View>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <TouchableOpacity
+                                                        onPress={() => handleMarkDone(sch)}
+                                                        style={{
+                                                            flex: 1,
+                                                            flexDirection: 'row',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            gap: 6,
+                                                            paddingVertical: 10,
+                                                            backgroundColor: '#10B981',
+                                                            borderRadius: 20,
+                                                            ...Platform.select({
+                                                                web: { boxShadow: '0px 2px 6px rgba(16,185,129,0.3)' },
+                                                                default: { elevation: 2, shadowColor: '#10B981', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 }
+                                                            })
+                                                        }}
+                                                        activeOpacity={0.8}
+                                                    >
+                                                        <MaterialIcons name="check" size={18} color="#FFF" />
+                                                        <Text style={[textStyles.label, { color: '#FFF', fontSize: 13, fontFamily: 'Poppins-SemiBold' }]}>
+                                                            Mark as Completed
+                                                        </Text>
+                                                    </TouchableOpacity>
+
+                                                    <TouchableOpacity
+                                                        onPress={() => confirmDeleteSchedule(sch)}
+                                                        style={{
+                                                            padding: 10,
+                                                            borderRadius: 20,
+                                                            backgroundColor: colors.cardFill,
+                                                            borderWidth: 1,
+                                                            borderColor: colors.stroke,
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                        }}
+                                                        activeOpacity={0.7}
+                                                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                                    >
+                                                        <MaterialIcons name="delete-outline" size={18} color={colors.textGrey} />
+                                                    </TouchableOpacity>
+                                                </>
+                                            )}
+                                        </View>
+                                    </View>
+                                );
+                            })
+                        )}
+                    </ScrollView>
+                )}
+
+                {/* Circular Floating Action Add Button */}
                 <TouchableOpacity
-                    style={[styles.fab, { backgroundColor: colors.primary }]}
-                    onPress={fabAction}
+                    style={[
+                        styles.fab,
+                        {
+                            backgroundColor: colors.primary,
+                            width: 56,
+                            height: 56,
+                            borderRadius: 28,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            ...Platform.select({
+                                web: { boxShadow: `0px 4px 12px ${colors.primary}66` },
+                                default: { elevation: 6, shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8 }
+                            })
+                        }
+                    ]}
+                    onPress={() => setShowSchModal(true)}
                     activeOpacity={0.85}
                 >
-                    <MaterialIcons name="add" size={26} color="#FFF" />
+                    <MaterialIcons name="add" size={28} color="#FFF" />
                 </TouchableOpacity>
             </View>
 
-            {/* ── Log Vaccination Modal ─────────────────────────────────────── */}
-            <Modal visible={showRecModal} transparent animationType="fade" onRequestClose={handleCloseRecModal}>
-                <KeyboardAvoidingView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-                    <TouchableOpacity
-                        activeOpacity={1}
-                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                        onPress={() => !savingRec && handleCloseRecModal()}
-                    />
-                    <Animated.View {...panRecResponder.panHandlers} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '90%', transform: [{ translateY: Animated.add(slideRec, panYRec) }] }}>
-                        {/* Draggable Header */}
-                        <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
-                            <View style={styles.modalHandle} />
-                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, textAlign: 'center', marginTop: 4 }]}>Log Vaccination</Text>
-                        </View>
-                        <ScrollView
-                            onScroll={(e) => {
-                                isScrollAtTopRec.current = e.nativeEvent.contentOffset.y <= 0;
-                            }}
-                            scrollEventThrottle={16}
-                            contentContainerStyle={{ paddingHorizontal: 28, paddingBottom: 60, gap: 16 }}
-                            showsVerticalScrollIndicator={false}
-                        >
-                            <VaccineSelect value={recVaccineId} onChange={v => {
-                                setRecVaccineId(v);
-                                const item = inventory.find(i => i.id === v);
-                                if (item?.dose_per_animal) setRecDose(String(item.dose_per_animal));
-                            }} />
-                            <BatchSelect value={recBatchId} onChange={v => {
-                                setRecBatchId(v);
-                                const b = batches.find(x => x.id === v);
-                                if (b) setRecAnimals(String(b.current_count));
-                            }} />
-                            <FormInput label="Date *" value={recDate} onChange={setRecDate} placeholder="YYYY-MM-DD" />
-                            <FormInput label="Animals Vaccinated" value={recAnimals} onChange={setRecAnimals} placeholder="e.g. 120" keyboardType="numeric" />
-                            <FormInput label="Dose per Animal" value={recDose} onChange={setRecDose} placeholder="e.g. 1" keyboardType="decimal-pad" />
-                            <FormInput label="Lot Number" value={recLot} onChange={setRecLot} placeholder="e.g. LOT2024-001" />
-                            <FormInput label="Vaccine Expiry Date" value={recExpiry} onChange={setRecExpiry} placeholder="YYYY-MM-DD" />
-                            <FormInput label="Administered By" value={recBy} onChange={setRecBy} placeholder="Name or staff ID" />
-                            <FormInput label="Notes" value={recNotes} onChange={setRecNotes} placeholder="Optional remarks..." />
-
-                            {/* Withdrawal preview */}
-                            {recDate && recVaccineId && (() => {
-                                const vax = inventory.find(v => v.id === recVaccineId);
-                                if (!vax || vax.withdrawal_days === 0) return null;
-                                const endDate = addDays(recDate, vax.withdrawal_days);
-                                return (
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, backgroundColor: '#F59E0B' + '10', borderRadius: 12, borderWidth: 1, borderColor: '#F59E0B' + '30' }}>
-                                        <MaterialIcons name="timer" size={16} color="#F59E0B" />
-                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, flex: 1 }]}>
-                                            Withdrawal ends <Text style={{ color: '#F59E0B', fontFamily: 'Poppins-SemiBold' }}>{formatDate(endDate)}</Text> ({vax.withdrawal_days} days)
-                                        </Text>
-                                    </View>
-                                );
-                            })()}
-
-                            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-                                <TouchableOpacity onPress={handleCloseRecModal} disabled={savingRec}
-                                    style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.cardFill, borderWidth: 1, borderColor: colors.stroke, alignItems: 'center' }}
-                                    activeOpacity={0.7}>
-                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={handleLogVaccination} disabled={savingRec || !recVaccineId}
-                                    style={{ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: recVaccineId ? colors.primary : colors.primary + '50', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-                                    activeOpacity={0.85}>
-                                    {savingRec ? <ActivityIndicator size="small" color="#FFF" /> : <>
-                                        <MaterialIcons name="vaccines" size={18} color="#FFF" />
-                                        <Text style={[textStyles.label, { color: '#FFF', fontSize: 14 }]}>Log Vaccination</Text>
-                                    </>}
-                                </TouchableOpacity>
-                            </View>
-                        </ScrollView>
-                    </Animated.View>
-                </KeyboardAvoidingView>
-            </Modal>
-
-            {/* ── Add Schedule Modal ────────────────────────────────────────── */}
+            {/* ── Main Add Schedule Modal (Same exact structure & design as ManageHousingsScreen) ── */}
             <Modal visible={showSchModal} transparent animationType="fade" onRequestClose={handleCloseSchModal}>
-                <KeyboardAvoidingView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+                >
                     <TouchableOpacity
                         activeOpacity={1}
+                        onPress={handleCloseSchModal}
                         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                        onPress={() => !savingSch && handleCloseSchModal()}
                     />
-                    <Animated.View {...panSchResponder.panHandlers} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '90%', transform: [{ translateY: Animated.add(slideSch, panYSch) }] }}>
-                        {/* Draggable Header */}
-                        <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
-                            <View style={styles.modalHandle} />
-                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, textAlign: 'center', marginTop: 4 }]}>Add Vaccine Schedule</Text>
-                        </View>
-                        <ScrollView
-                            onScroll={(e) => {
-                                isScrollAtTopSch.current = e.nativeEvent.contentOffset.y <= 0;
-                            }}
-                            scrollEventThrottle={16}
-                            contentContainerStyle={{ paddingHorizontal: 28, paddingBottom: 60, gap: 16 }}
-                            showsVerticalScrollIndicator={false}
-                        >
-                            <VaccineSelect value={schVaccineId} onChange={setSchVaccineId} />
-                            <BatchSelect  value={schBatchId}   onChange={setSchBatchId} />
-                            <FormInput label="Scheduled Date *" value={schDate} onChange={setSchDate} placeholder="YYYY-MM-DD" />
-                            <FormInput label="Repeat Every (days)" value={schInterval} onChange={setSchInterval} placeholder="Leave blank for one-time" keyboardType="numeric" />
-                            <FormInput label="Notes" value={schNotes} onChange={setSchNotes} placeholder="Optional..." />
+                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden' }}>
+                        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+                            {/* Top Icon */}
+                            <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                <MaterialIcons name="event" size={32} color={colors.primary} />
+                            </View>
 
-                            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-                                <TouchableOpacity onPress={handleCloseSchModal} disabled={savingSch}
-                                    style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.cardFill, borderWidth: 1, borderColor: colors.stroke, alignItems: 'center' }}
-                                    activeOpacity={0.7}>
-                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                            {/* Title & Subtitle */}
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
+                                Add Vaccine Schedule
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                Enter details for this vaccination schedule.
+                            </Text>
+
+                            {/* Pill-Shaped Form Fields */}
+                            <View style={{ width: '100%', gap: 14 }}>
+
+                                {/* Vaccine Pill Selector */}
+                                <View style={{ width: '100%' }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                            borderRadius: 30,
+                                            paddingHorizontal: 16,
+                                            height: 58,
+                                            backgroundColor: colors.surface,
+                                        }}
+                                        onPress={() => {
+                                            setShowSchModal(false);
+                                            setVaccineModalVisible(true);
+                                        }}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                            <MaterialIcons name="vaccines" size={20} color={colors.primary} style={{ marginRight: 12 }} />
+                                            <Text style={[textStyles.body, { color: schVaccineName ? colors.text : colors.textGrey }]} numberOfLines={1}>
+                                                {schVaccineName || 'Select Vaccine *'}
+                                            </Text>
+                                        </View>
+                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Housing Pill Selector */}
+                                <View style={{ width: '100%' }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                            borderRadius: 30,
+                                            paddingHorizontal: 16,
+                                            height: 58,
+                                            backgroundColor: colors.surface,
+                                        }}
+                                        onPress={() => {
+                                            setShowSchModal(false);
+                                            setHousingModalVisible(true);
+                                        }}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                            <MaterialIcons name="home" size={20} color={colors.primary} style={{ marginRight: 12 }} />
+                                            <Text style={[textStyles.body, { color: schHousingName ? colors.text : colors.textGrey }]} numberOfLines={1}>
+                                                {schHousingName || 'Housing / Pen (optional)'}
+                                            </Text>
+                                        </View>
+                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Scheduled Date Pill Selector */}
+                                <View style={{ width: '100%' }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                            borderRadius: 30,
+                                            paddingHorizontal: 16,
+                                            height: 58,
+                                            backgroundColor: colors.surface,
+                                        }}
+                                        onPress={openDatePickerModal}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                            <MaterialIcons name="calendar-today" size={18} color={colors.primary} style={{ marginRight: 12 }} />
+                                            <Text style={[textStyles.body, { color: schDate ? colors.text : colors.textGrey, fontSize: 13, flex: 1 }]}>
+                                                {dateDisplayValue}
+                                            </Text>
+                                        </View>
+                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Repeat Every (days) Pill Input */}
+                                <View style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    borderWidth: 1.5,
+                                    borderColor: colors.stroke,
+                                    borderRadius: 30,
+                                    paddingHorizontal: 16,
+                                    height: 58,
+                                    backgroundColor: colors.surface,
+                                }}>
+                                    <MaterialIcons name="repeat" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
+                                    <TextInput
+                                        value={schInterval}
+                                        onChangeText={(t) => {
+                                            const clean = t.replace(/[^0-9]/g, '');
+                                            setSchInterval(clean);
+                                        }}
+                                        placeholder="Repeat Every (days) — optional"
+                                        placeholderTextColor={colors.textGrey}
+                                        keyboardType="number-pad"
+                                        maxLength={4}
+                                        style={[textStyles.body, { flex: 1, color: colors.text, fontSize: 14, padding: 0 }]}
+                                    />
+                                    {schInterval ? (
+                                        <TouchableOpacity onPress={() => setSchInterval('')}>
+                                            <MaterialIcons name="close" size={18} color={colors.textGrey} />
+                                        </TouchableOpacity>
+                                    ) : null}
+                                </View>
+
+                                {/* Notes / Instructions Pill Input */}
+                                <View style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    borderWidth: 1.5,
+                                    borderColor: colors.stroke,
+                                    borderRadius: 30,
+                                    paddingHorizontal: 16,
+                                    height: 58,
+                                    backgroundColor: colors.surface,
+                                    marginBottom: 10,
+                                }}>
+                                    <MaterialIcons name="notes" size={20} color={colors.textGrey} style={{ marginRight: 12 }} />
+                                    <TextInput
+                                        value={schNotes}
+                                        onChangeText={setSchNotes}
+                                        placeholder="Notes / instructions — optional"
+                                        placeholderTextColor={colors.textGrey}
+                                        style={[textStyles.body, { flex: 1, color: colors.text, fontSize: 14, padding: 0 }]}
+                                    />
+                                </View>
+                            </View>
+
+                            {/* Bottom Action Buttons */}
+                            <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: colors.cardFill,
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center',
+                                    }}
+                                    onPress={handleCloseSchModal}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity onPress={handleAddSchedule} disabled={savingSch || !schVaccineId}
-                                    style={{ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: schVaccineId ? colors.primary : colors.primary + '50', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-                                    activeOpacity={0.85}>
-                                    {savingSch ? <ActivityIndicator size="small" color="#FFF" /> : <>
-                                        <MaterialIcons name="event" size={18} color="#FFF" />
-                                        <Text style={[textStyles.label, { color: '#FFF', fontSize: 14 }]}>Add Schedule</Text>
-                                    </>}
+
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: isSaveDisabled ? colors.cardFill : colors.primary,
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center',
+                                        flexDirection: 'row',
+                                        justifyContent: 'center',
+                                        gap: 6,
+                                    }}
+                                    onPress={handleAddSchedule}
+                                    disabled={isSaveDisabled}
+                                    activeOpacity={isSaveDisabled ? 1 : 0.7}
+                                >
+                                    {savingSch ? (
+                                        <ActivityIndicator size="small" color="#FFF" />
+                                    ) : (
+                                        <Text style={[textStyles.h3, { color: isSaveDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>
+                                            Save
+                                        </Text>
+                                    )}
                                 </TouchableOpacity>
                             </View>
                         </ScrollView>
-                    </Animated.View>
+                    </View>
                 </KeyboardAvoidingView>
             </Modal>
 
-            {/* ── Add Vaccine (Inventory) Modal ─────────────────────────────── */}
-            <Modal visible={showInvModal} transparent animationType="fade" onRequestClose={handleCloseInvModal}>
-                <KeyboardAvoidingView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-                    <TouchableOpacity
-                        activeOpacity={1}
-                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                        onPress={() => !savingInv && handleCloseInvModal()}
-                    />
-                    <Animated.View {...panInvResponder.panHandlers} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '90%', transform: [{ translateY: Animated.add(slideInv, panYInv) }] }}>
-                        {/* Draggable Header */}
-                        <View style={{ paddingVertical: 14, alignItems: 'center', width: '100%' }}>
-                            <View style={styles.modalHandle} />
-                            <Text style={[textStyles.h2, { color: colors.text, fontSize: 20, textAlign: 'center', marginTop: 4 }]}>Add Vaccine</Text>
-                        </View>
-                        <ScrollView
-                            onScroll={(e) => {
-                                isScrollAtTopInv.current = e.nativeEvent.contentOffset.y <= 0;
-                            }}
-                            scrollEventThrottle={16}
-                            contentContainerStyle={{ paddingHorizontal: 28, paddingBottom: 60, gap: 16 }}
-                            showsVerticalScrollIndicator={false}
-                        >
-                            <FormInput label="Vaccine Name *" value={invName} onChange={setInvName} placeholder="e.g. Newcastle Disease Vaccine" />
-                            <FormInput label="Type / Category" value={invType} onChange={setInvType} placeholder="e.g. Live Attenuated, Killed" />
+            {/* ── Selection Modal: Vaccine (Native AniGrow SelectionModal) ── */}
+            <SelectionModal
+                visible={vaccineModalVisible}
+                onClose={() => {
+                    setVaccineModalVisible(false);
+                    setShowSchModal(true);
+                }}
+                onSelect={val => {
+                    const item = vaccineList.find(v => v.name === val);
+                    if (item) {
+                        setSchVaccineId(item.id);
+                        setSchVaccineName(item.name);
+                    }
+                    setVaccineModalVisible(false);
+                    setShowSchModal(true);
+                }}
+                title="Select Vaccine"
+                description="Choose a registered vaccine for this schedule."
+                icon="vaccines"
+                options={Array.from(new Set(vaccineList.map(v => v.name).filter(Boolean)))}
+                selectedValue={schVaccineName}
+                requireConfirm={false}
+                enableSearch={true}
+            />
 
-                            {/* Species */}
-                            <View>
-                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 8 }]}>Species</Text>
-                                <View style={styles.segmentBar}>
-                                    {(['chicken', 'pig', 'both'] as const).map(s => (
-                                        <TouchableOpacity key={s} onPress={() => setInvSpecies(s)}
-                                            style={[styles.segmentBtn, { borderColor: invSpecies === s ? colors.primary : colors.stroke, backgroundColor: invSpecies === s ? colors.primary + '15' : 'transparent' }]}
-                                            activeOpacity={0.7}>
-                                            <Text style={[textStyles.label, { color: invSpecies === s ? colors.primary : colors.textGrey, fontSize: 12 }]}>
-                                                {s === 'both' ? 'Both' : s.charAt(0).toUpperCase() + s.slice(1)}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </View>
+            {/* ── Selection Modal: Housing (Native AniGrow SelectionModal) ── */}
+            <SelectionModal
+                visible={housingModalVisible}
+                onClose={() => {
+                    setHousingModalVisible(false);
+                    setShowSchModal(true);
+                }}
+                onSelect={val => {
+                    if (val === '— None / Farm-wide —') {
+                        setSchHousingId('');
+                        setSchHousingName('');
+                    } else {
+                        const h = housings.find(x => x.name === val);
+                        if (h) {
+                            setSchHousingId(h.id);
+                            setSchHousingName(h.name);
+                        }
+                    }
+                    setHousingModalVisible(false);
+                    setShowSchModal(true);
+                }}
+                title="Select Housing / Pen"
+                description="Choose the housing location for this vaccination schedule."
+                icon="home"
+                options={['— None / Farm-wide —', ...Array.from(new Set(housings.map(h => h.name).filter(Boolean)))]}
+                selectedValue={schHousingName || '— None / Farm-wide —'}
+                requireConfirm={false}
+                enableSearch={false}
+            />
 
-                            <FormInput label="Initial Stock" value={invStock} onChange={setInvStock} placeholder="e.g. 100" keyboardType="numeric" />
+            {/* ── Single Active Calendar Modal (Transitions back seamlessly to Add Schedule) ── */}
+            <CalendarPickerModal
+                visible={dateModalVisible}
+                onClose={closeDatePickerModal}
+                onSelect={(dateStr) => {
+                    setSchDate(dateStr);
+                    closeDatePickerModal();
+                }}
+                title="Select Scheduled Date"
+                selectedDate={schDate || undefined}
+                minDate={TODAY}
+            />
 
-                            {/* Unit */}
-                            <View>
-                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 8 }]}>Unit</Text>
-                                <View style={styles.segmentBar}>
-                                    {(['dose', 'ml', 'vial'] as const).map(u => (
-                                        <TouchableOpacity key={u} onPress={() => setInvUnit(u)}
-                                            style={[styles.segmentBtn, { borderColor: invUnit === u ? colors.primary : colors.stroke, backgroundColor: invUnit === u ? colors.primary + '15' : 'transparent' }]}
-                                            activeOpacity={0.7}>
-                                            <Text style={[textStyles.label, { color: invUnit === u ? colors.primary : colors.textGrey, fontSize: 12 }]}>{u}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </View>
-
-                            <FormInput label="Dose per Animal" value={invDose} onChange={setInvDose} placeholder="e.g. 1" keyboardType="decimal-pad" />
-                            <FormInput label="Withdrawal Days" value={invWithdrawal} onChange={setInvWithdrawal} placeholder="Days before safe for sale" keyboardType="numeric" />
-                            <FormInput label="Reorder Alert Threshold" value={invReorder} onChange={setInvReorder} placeholder="e.g. 10" keyboardType="numeric" />
-
-                            {/* Route */}
-                            <View>
-                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginBottom: 8 }]}>Route of Administration</Text>
-                                <View style={styles.segmentBar}>
-                                    {['injection', 'oral', 'spray', 'eye_drop'].map(r => (
-                                        <TouchableOpacity key={r} onPress={() => setInvRoute(r)}
-                                            style={[styles.segmentBtn, { borderColor: invRoute === r ? colors.primary : colors.stroke, backgroundColor: invRoute === r ? colors.primary + '15' : 'transparent' }]}
-                                            activeOpacity={0.7}>
-                                            <Text style={[textStyles.label, { color: invRoute === r ? colors.primary : colors.textGrey, fontSize: 12 }]}>
-                                                {r === 'eye_drop' ? 'Eye Drop' : r.charAt(0).toUpperCase() + r.slice(1)}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </View>
-
-                            <FormInput label="Storage Temperature" value={invTemp} onChange={setInvTemp} placeholder="e.g. 2–8 °C" />
-                            <FormInput label="Notes" value={invNotes} onChange={setInvNotes} placeholder="Optional..." />
-
-                            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-                                <TouchableOpacity onPress={handleCloseInvModal} disabled={savingInv}
-                                    style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.cardFill, borderWidth: 1, borderColor: colors.stroke, alignItems: 'center' }}
-                                    activeOpacity={0.7}>
-                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={handleAddVaccine} disabled={savingInv || !invName.trim()}
-                                    style={{ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: invName.trim() ? colors.primary : colors.primary + '50', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-                                    activeOpacity={0.85}>
-                                    {savingInv ? <ActivityIndicator size="small" color="#FFF" /> : <>
-                                        <MaterialIcons name="medication" size={18} color="#FFF" />
-                                        <Text style={[textStyles.label, { color: '#FFF', fontSize: 14 }]}>Add Vaccine</Text>
-                                    </>}
-                                </TouchableOpacity>
-                            </View>
-                        </ScrollView>
-                    </Animated.View>
-                </KeyboardAvoidingView>
-            </Modal>
+            {/* ── Delete Confirmation ActionModal (Same exact modal as ManageHousingsScreen) ── */}
+            <ActionModal
+                visible={deleteModalVisible}
+                type="warning"
+                title="Delete Schedule?"
+                message={
+                    scheduleToDelete
+                        ? `Are you sure you want to delete the schedule for "${scheduleToDelete.vaccine_name}"? This action cannot be undone.`
+                        : 'Are you sure you want to delete this schedule?'
+                }
+                confirmText="Delete"
+                cancelText="Cancel"
+                onConfirm={executeDeleteSchedule}
+                onCancel={() => {
+                    if (!isDeleting) {
+                        setDeleteModalVisible(false);
+                        setScheduleToDelete(null);
+                    }
+                }}
+                isLoading={isDeleting}
+            />
 
             <Snackbar
                 visible={snackVisible}
@@ -1224,6 +1689,6 @@ export default function VaccineScreen() {
                 type={snackType}
                 onDismiss={() => setSnackVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

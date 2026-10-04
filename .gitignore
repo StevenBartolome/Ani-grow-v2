@@ -16,6 +16,8 @@ node_modules/
 .expo/
 dist/
 web-build/
+android/
+ios/
 
 # IDE files
 .vscode/
@@ -29,3 +31,6 @@ node_modules
 node_modules
 node_modules
 node_modules
+
+# Supabase CLI local cache (project-ref, version pins, etc.) — machine-local, not source
+supabase/.temp/

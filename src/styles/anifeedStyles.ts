@@ -162,15 +162,19 @@ export const useAniFeedStyles = () => {
             justifyContent: 'space-between',
             alignItems: 'center',
             marginTop: 16,
+            paddingHorizontal: 8,
         },
         liveStatItem: {
             alignItems: 'center',
+            justifyContent: 'center',
             flex: 1,
+            paddingHorizontal: 8,
         },
         liveStatDivider: {
             width: 1,
-            height: 30,
+            height: 38,
             backgroundColor: colors.stroke,
+            marginHorizontal: 16,
         },
         logsSection: {
             marginTop: 8,

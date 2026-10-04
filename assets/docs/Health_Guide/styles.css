@@ -1,0 +1,483 @@
+/* ==========================================================================
+   Ani-Grow™ Official Printable Health & Vaccination User Guide
+   Design: Formal A4 Printable Document / Booklet Style
+   Theme: Sharp Edges (No Curves), Deep Green (#006400) & Gold (#D8B800)
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --primary: #006400;         /* Deep Green */
+  --primary-dark: #004d00;    /* Darker Green */
+  --primary-light: #f0fdf4;   /* Soft Green Tint */
+  --primary-border: #006400;
+
+  --gold: #D8B800;            /* Gold */
+  --gold-dark: #b59a00;       /* Dark Gold */
+  --gold-light: #fffdf0;      /* Soft Gold Tint */
+  --gold-border: #D8B800;
+
+  --text-main: #0f172a;
+  --text-body: #334155;
+  --text-muted: #64748b;
+  
+  --bg-desk: #cbd5e1;
+  --bg-page: #ffffff;
+  --border-color: #e2e8f0;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border-radius: 0 !important;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-desk);
+  color: var(--text-body);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  padding: 30px 0;
+}
+
+/* --------------------------------------------------------------------------
+   A4 Page Sheet Layout
+   -------------------------------------------------------------------------- */
+.paper-page {
+  background: var(--bg-page);
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto 30px auto;
+  padding: 24mm 20mm 20mm 20mm;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid var(--border-color);
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 8px;
+  margin-bottom: 24px;
+}
+
+.header-logo-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border-top: 2px solid var(--gold);
+  padding-top: 12px;
+  margin-top: 32px;
+}
+
+.page-content {
+  flex-grow: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Cover Page
+   -------------------------------------------------------------------------- */
+.cover-page {
+  justify-content: space-between;
+  border-top: 10px solid var(--primary);
+  border-bottom: 10px solid var(--gold);
+}
+
+.cover-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+  margin-bottom: 40px;
+}
+
+.cover-brand-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+
+.cover-brand-title {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: var(--primary);
+  letter-spacing: -0.5px;
+}
+
+.cover-brand-subtitle {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.cover-title-box {
+  border-left: 6px solid var(--primary);
+  padding-left: 24px;
+  margin-bottom: 40px;
+}
+
+.cover-doc-type {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--gold-dark);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 8px;
+}
+
+.cover-title {
+  font-size: 2.6rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text-main);
+  margin-bottom: 12px;
+}
+
+.cover-subtitle {
+  font-size: 1.15rem;
+  color: var(--text-body);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.cover-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  background: var(--primary-light);
+  border: 1px solid var(--primary);
+  padding: 20px;
+  margin-bottom: 40px;
+}
+
+.meta-item-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--primary-dark);
+  margin-bottom: 4px;
+}
+
+.meta-item-value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.cover-security-notice {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
+  text-align: justify;
+}
+
+/* --------------------------------------------------------------------------
+   Typography & Sections
+   -------------------------------------------------------------------------- */
+h1.section-title {
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: var(--primary);
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 6px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+h1.section-title .sec-num {
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 2px 10px;
+}
+
+h2.sub-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-top: 22px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+h2.sub-title::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 18px;
+  background: var(--gold);
+}
+
+p.lead-text {
+  font-size: 0.98rem;
+  color: var(--text-body);
+  margin-bottom: 16px;
+}
+
+p.body-text {
+  font-size: 0.9rem;
+  color: var(--text-body);
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+
+/* Callouts */
+.callout {
+  padding: 14px 18px;
+  margin: 16px 0;
+  border-left: 4px solid;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.callout-info {
+  background: var(--primary-light);
+  border-left-color: var(--primary);
+  color: #064e3b;
+}
+
+.callout-warning {
+  background: #fffbeb;
+  border-left-color: #d97706;
+  color: #78350f;
+}
+
+.callout-tip {
+  background: var(--gold-light);
+  border-left-color: var(--gold);
+  color: #713f12;
+}
+
+.callout-title {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Procedure Steps */
+.procedure-steps {
+  list-style: none;
+  margin: 16px 0;
+  counter-reset: step-counter;
+}
+
+.procedure-steps li {
+  counter-increment: step-counter;
+  position: relative;
+  padding-left: 42px;
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+}
+
+.procedure-steps li::before {
+  content: counter(step-counter);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  background: var(--primary);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step-heading {
+  font-weight: 700;
+  color: var(--text-main);
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* Photo Slots */
+.figure-container {
+  margin: 18px 0;
+  border: 1px solid var(--border-color);
+  background: #f8fafc;
+  padding: 12px;
+  text-align: center;
+}
+
+.figure-img {
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  display: block;
+  margin: 0 auto 8px auto;
+}
+
+.figure-placeholder {
+  width: 100%;
+  height: 220px;
+  background: #e2e8f0;
+  border: 2px dashed #94a3b8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  margin-bottom: 8px;
+  color: #475569;
+}
+
+.figure-placeholder svg {
+  margin-bottom: 8px;
+  stroke: #64748b;
+}
+
+.figure-placeholder-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.figure-placeholder-sub {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.figure-caption {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.figure-caption span {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* Tables & Badges */
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 0.85rem;
+}
+
+.doc-table th {
+  background: var(--primary);
+  color: #ffffff;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid var(--primary-dark);
+}
+
+.doc-table td {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  vertical-align: top;
+}
+
+.doc-table tr:nth-child(even) td {
+  background: #f8fafc;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.badge-pending {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+}
+
+.badge-overdue {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #ef4444;
+}
+
+.badge-completed {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #22c55e;
+}
+
+/* Print Controls */
+.no-print {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  gap: 10px;
+}
+
+.btn-print-manual {
+  background: var(--primary);
+  color: #ffffff;
+  border: 1px solid var(--primary-dark);
+  padding: 8px 16px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+
+@media print {
+  body {
+    background: transparent;
+    padding: 0;
+  }
+  .paper-page {
+    margin: 0;
+    box-shadow: none;
+    border: none;
+    page-break-after: always;
+    min-height: 100vh;
+    padding: 15mm 15mm 15mm 15mm;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

@@ -1,0 +1,19 @@
+# Dependencies & Caches
+node_modules/
+.expo/
+dist/
+web-build/
+android/
+ios/
+
+# Tools, local data & metadata
+.git/
+.vscode/
+.idea/
+.claude/
+supabase/
+scripts/
+
+# Temporary files
+*.log
+*.tmp

@@ -1,12 +1,14 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { useTextStyles } from '@/constants/textStyles';
@@ -17,6 +19,10 @@ import { supabase } from '@/lib/supabase';
 interface WeighLogEntry {
     id: string;
     weight_g: number;
+    gross_weight_g?: number;
+    chick_count?: number;
+    weigh_mode?: string;
+    animal_label?: string;
     status: 'underweight' | 'normal' | 'overweight';
     timestamp: number;
     animal: string;
@@ -55,6 +61,8 @@ export default function RecentLogsScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useDevicesStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
     const farmId = activeFarmIds[0] || (profile as any)?.farm_id || '';
@@ -63,7 +71,9 @@ export default function RecentLogsScreen() {
     type StatusFilter = 'all' | 'underweight' | 'normal' | 'overweight';
     type AnimalFilter = 'all' | 'Pig' | 'Chicken';
 
+    const [deviceName, setDeviceName] = useState<string | null>(null);
     const [logs, setLogs] = useState<WeighLogEntry[]>([]);
+    const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
     const [housingOptions, setHousingOptions] = useState<HousingOption[]>([]);
     const [loading, setLoading] = useState(true);
     // Ref so the realtime callback always has the latest device→housing map without stale closures
@@ -74,6 +84,8 @@ export default function RecentLogsScreen() {
     const [showFilters, setShowFilters] = useState(true);
     const [page, setPage] = useState(1);
     const pageSize = 10;
+
+    const isSpecificDevice = Boolean(deviceId && deviceId !== 'undefined');
 
     const fetchLogs = useCallback(async () => {
         if (!farmId) { setLoading(false); return; }
@@ -97,8 +109,16 @@ export default function RecentLogsScreen() {
                 const hId = d.housing_id ?? null;
                 const hName = (d.housings as any)?.name ?? 'Unassigned';
                 deviceMap[d.id] = { name: d.name, housingId: hId, housingName: hName };
-                if (hId && !housingMap[hId]) housingMap[hId] = hName;
+                if (isSpecificDevice) {
+                    if (d.id === deviceId && hId && !housingMap[hId]) housingMap[hId] = hName;
+                } else {
+                    if (hId && !housingMap[hId]) housingMap[hId] = hName;
+                }
             });
+
+            if (isSpecificDevice && deviceMap[deviceId as string]) {
+                setDeviceName(deviceMap[deviceId as string].name);
+            }
 
             // Keep ref in sync so realtime callback always has the latest map
             deviceMapRef.current = deviceMap;
@@ -108,13 +128,14 @@ export default function RecentLogsScreen() {
 
             // Determine which device IDs to query
             const allFarmDeviceIds = Object.keys(deviceMap);
-            // If we came from a specific device screen, scope to that device but still show its housing
-            const targetDeviceIds = deviceId ? [deviceId as string] : allFarmDeviceIds;
+            // If we came from a specific device screen, scope strictly to that device
+            const targetDeviceIds = isSpecificDevice ? [deviceId as string] : allFarmDeviceIds;
 
             const { data, error } = await supabase
                 .from('weigh_sessions')
-                .select('id, net_weight_grams, status, animal_type, recorded_at, device_id')
+                .select('id, net_weight_grams, animal_count, avg_weight_grams, status, animal_type, weigh_mode, animal_label, recorded_at, device_id')
                 .in('device_id', targetDeviceIds)
+                .neq('status', 'invalid')  // ghost/test readings marked invalid, not deleted — see migration_006
                 .order('recorded_at', { ascending: false })
                 .limit(200);
 
@@ -122,12 +143,21 @@ export default function RecentLogsScreen() {
 
             const mapped: WeighLogEntry[] = (data ?? []).map((s: any) => {
                 const dev = deviceMap[s.device_id];
+                const isBatch = s.weigh_mode === 'batch' || s.animal_type === 'chicks' || (s.animal_count && s.animal_count >= 1 && (s.weigh_mode === 'batch' || s.animal_label === 'Tray'));
+                const perChickWeight = isBatch && s.animal_count > 0 
+                    ? (s.avg_weight_grams ? Number(s.avg_weight_grams) : Math.round(s.net_weight_grams / s.animal_count))
+                    : s.net_weight_grams;
+
                 return {
                     id: s.id,
-                    weight_g: s.net_weight_grams,
+                    weight_g: perChickWeight,
+                    gross_weight_g: s.net_weight_grams,
+                    chick_count: s.animal_count ?? 1,
+                    weigh_mode: s.weigh_mode,
+                    animal_label: s.animal_label,
                     status: s.status,
                     timestamp: new Date(s.recorded_at).getTime(),
-                    animal: s.animal_type === 'pig' ? 'Pig' : 'Chicken',
+                    animal: isBatch ? `Chicks (${s.animal_label || 'Tray'})` : (s.animal_type === 'pig' ? 'Pig' : 'Chicken'),
                     housingId: dev?.housingId ?? null,
                     housingName: dev?.housingName ?? 'Unassigned',
                     deviceId: s.device_id,
@@ -167,14 +197,23 @@ export default function RecentLogsScreen() {
                     const dev = map[row.device_id];
                     if (!dev) return;
 
+                    const isBatch = row.weigh_mode === 'batch' || row.animal_type === 'chicks' || (row.animal_count && row.animal_count >= 1 && (row.weigh_mode === 'batch' || row.animal_label === 'Tray'));
+                    const perChickWeight = isBatch && row.animal_count > 0 
+                        ? (row.avg_weight_grams ? Number(row.avg_weight_grams) : Math.round(row.net_weight_grams / row.animal_count))
+                        : row.net_weight_grams;
+
                     const newEntry: WeighLogEntry = {
                         id: row.id,
-                        weight_g: row.net_weight_grams,
+                        weight_g: perChickWeight,
+                        gross_weight_g: row.net_weight_grams,
+                        chick_count: row.animal_count ?? 1,
+                        weigh_mode: row.weigh_mode,
+                        animal_label: row.animal_label,
                         status: row.status ?? 'normal',
                         timestamp: row.recorded_at
                             ? new Date(row.recorded_at).getTime()
                             : Date.now(),
-                        animal: row.animal_type === 'pig' ? 'Pig' : 'Chicken',
+                        animal: isBatch ? `Chicks (${row.animal_label || 'Tray'})` : (row.animal_type === 'pig' ? 'Pig' : 'Chicken'),
                         housingId: dev.housingId,
                         housingName: dev.housingName,
                         deviceId: row.device_id,
@@ -214,23 +253,39 @@ export default function RecentLogsScreen() {
 
     const activeFilterCount = (filterStatus !== 'all' ? 1 : 0) + (filterAnimal !== 'all' ? 1 : 0) + (filterHousingId !== 'all' ? 1 : 0);
 
+    const activeFilterSummary = useMemo(() => {
+        const parts: string[] = [];
+        if (filterStatus !== 'all') {
+            parts.push(filterStatus.charAt(0).toUpperCase() + filterStatus.slice(1));
+        }
+        if (filterAnimal !== 'all') {
+            parts.push(filterAnimal);
+        }
+        if (filterHousingId !== 'all') {
+            const h = housingOptions.find(opt => opt.id === filterHousingId);
+            if (h) parts.push(h.name);
+        }
+        if (parts.length === 0) return 'All Logs';
+        return parts.join(' · ');
+    }, [filterStatus, filterAnimal, filterHousingId, housingOptions]);
+
     return (
-        <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgLight }]}>
+        <View style={[styles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
 
             {/* ── Header ─────────────────────────────────────────────── */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14 }}>
                 <View style={{ width: 40 }}>
                     <BackButton fallbackRoute="/(devices)/DevicesScreen" />
                 </View>
                 <View style={{ alignItems: 'center' }}>
                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 17 }]}>Weight Logs</Text>
                     <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
-                        {isFiltered ? `${filteredLogs.length} of ${logs.length} entries` : `${logs.length} entries`}
+                        {deviceName ? `${deviceName} · ` : ''}{isFiltered ? `${filteredLogs.length} of ${logs.length} entries` : `${logs.length} entries`}
                     </Text>
                 </View>
                 <TouchableOpacity
                     activeOpacity={0.7}
-                    style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: showFilters ? colors.primary + '15' : 'transparent' }}
+                    style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 999, backgroundColor: showFilters ? colors.primary + '15' : 'transparent' }}
                     onPress={() => setShowFilters(v => !v)}
                 >
                     <MaterialIcons name="tune" size={22} color={activeFilterCount > 0 || showFilters ? colors.primary : colors.textGrey} />
@@ -240,77 +295,178 @@ export default function RecentLogsScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* ── Filter Panel ────────────────────────────────────────── */}
+            {/* ── Filter Panel (Collapsible, Wrapping, Pill Round Shaped) ── */}
             {showFilters && (
-                <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke, paddingTop: 12, paddingBottom: 12, gap: 8 }}>
+                <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, gap: 12 }}>
 
-                    {/* Status row */}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, flexDirection: 'row', gap: 8 }}>
-                        {(['all', 'underweight', 'normal', 'overweight'] as StatusFilter[]).map(s => {
-                            const active = filterStatus === s;
-                            const c = s === 'underweight' ? colors.warning : s === 'overweight' ? colors.error : s === 'normal' ? colors.primary : colors.textGrey;
-                            const icon: any = s === 'underweight' ? 'arrow-downward' : s === 'overweight' ? 'arrow-upward' : s === 'normal' ? 'check-circle' : 'monitor-weight';
-                            return (
-                                <TouchableOpacity key={s} onPress={() => setFilterStatus(s)} activeOpacity={0.75}
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: active ? c : colors.bgLight, borderWidth: 1, borderColor: active ? c : colors.stroke }}>
-                                    <MaterialIcons name={icon} size={13} color={active ? '#fff' : colors.textGrey} />
-                                    <Text style={[textStyles.label, { fontSize: 12, color: active ? '#fff' : colors.textGrey }]}>
-                                        {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-                                    </Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </ScrollView>
+                    {/* Summary bar + Reset button */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            backgroundColor: activeFilterCount > 0 ? colors.primary + '18' : colors.cardFill,
+                            paddingHorizontal: 10,
+                            paddingVertical: 3,
+                            borderRadius: 999,
+                        }}>
+                            <Text style={{ fontFamily: activeFilterCount > 0 ? 'Poppins-SemiBold' : 'Poppins-Regular', fontSize: 11, color: activeFilterCount > 0 ? colors.primary : colors.textGrey }}>
+                                {activeFilterSummary}
+                            </Text>
+                        </View>
 
-                    {/* Divider */}
-                    <View style={{ height: 1, backgroundColor: colors.stroke, marginHorizontal: 16 }} />
+                        {activeFilterCount > 0 && (
+                            <TouchableOpacity
+                                onPress={() => { setFilterStatus('all'); setFilterAnimal('all'); setFilterHousingId('all'); }}
+                                activeOpacity={0.7}
+                                style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 3,
+                                    borderRadius: 999,
+                                    backgroundColor: colors.primary + '12',
+                                }}
+                            >
+                                <MaterialIcons name="close" size={12} color={colors.primary} />
+                                <Text style={{ fontFamily: 'Poppins-Medium', color: colors.primary, fontSize: 11 }}>Reset</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
 
-                    {/* Animal + Housing row */}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                        {(['all', 'Pig', 'Chicken'] as AnimalFilter[]).map(a => {
-                            const active = filterAnimal === a;
-                            const c = a === 'Pig' ? colors.pig : a === 'Chicken' ? colors.chicken : colors.textGrey;
-                            return (
-                                <TouchableOpacity key={a} onPress={() => setFilterAnimal(a)} activeOpacity={0.75}
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: active ? c : colors.bgLight, borderWidth: 1, borderColor: active ? c : colors.stroke }}>
-                                    {a !== 'all' && <AnimalIcon type={a.toLowerCase() as any} size={12} color={active ? '#fff' : colors.textGrey} />}
-                                    {a === 'all' && <MaterialIcons name="pets" size={13} color={active ? '#fff' : colors.textGrey} />}
-                                    <Text style={[textStyles.label, { fontSize: 12, color: active ? '#fff' : colors.textGrey }]}>
-                                        {a === 'all' ? 'All Animals' : a}
-                                    </Text>
-                                </TouchableOpacity>
-                            );
-                        })}
+                    {/* Status row (wrapped pills) */}
+                    <View>
+                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.textGrey, letterSpacing: 0.6, marginBottom: 6, textTransform: 'uppercase' }}>
+                            Weight Status
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                            {(['all', 'underweight', 'normal', 'overweight'] as StatusFilter[]).map(s => {
+                                const active = filterStatus === s;
+                                const c = s === 'underweight' ? colors.warning : s === 'overweight' ? colors.error : s === 'normal' ? colors.primary : colors.textGrey;
+                                const icon: any = s === 'underweight' ? 'arrow-downward' : s === 'overweight' ? 'arrow-upward' : s === 'normal' ? 'check-circle' : 'monitor-weight';
+                                return (
+                                    <TouchableOpacity
+                                        key={s}
+                                        onPress={() => setFilterStatus(s)}
+                                        activeOpacity={0.75}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            gap: 5,
+                                            paddingHorizontal: 14,
+                                            paddingVertical: 6,
+                                            borderRadius: 999,
+                                            backgroundColor: active ? (s === 'all' ? colors.primary + '18' : c + '18') : colors.surface,
+                                            borderWidth: 1.5,
+                                            borderColor: active ? (s === 'all' ? colors.primary : c) : colors.stroke,
+                                        }}
+                                    >
+                                        <MaterialIcons name={icon} size={13} color={active ? (s === 'all' ? colors.primary : c) : colors.textGrey} />
+                                        <Text style={{
+                                            fontFamily: active ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                                            fontSize: 11.5,
+                                            color: active ? (s === 'all' ? colors.primary : c) : colors.textGrey,
+                                        }}>
+                                            {s === 'all' ? 'All Statuses' : s.charAt(0).toUpperCase() + s.slice(1)}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    </View>
 
-                        {housingOptions.length > 1 && (
-                            <>
-                                <View style={{ width: 1, height: 20, backgroundColor: colors.stroke }} />
+                    {/* Animal row (wrapped pills) */}
+                    <View>
+                        <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.textGrey, letterSpacing: 0.6, marginBottom: 6, textTransform: 'uppercase' }}>
+                            Animal Type
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                            {(['all', 'Pig', 'Chicken'] as AnimalFilter[]).map(a => {
+                                const active = filterAnimal === a;
+                                const c = a === 'Pig' ? colors.pig : a === 'Chicken' ? colors.chicken : colors.primary;
+                                return (
+                                    <TouchableOpacity
+                                        key={a}
+                                        onPress={() => setFilterAnimal(a)}
+                                        activeOpacity={0.75}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            gap: 5,
+                                            paddingHorizontal: 14,
+                                            paddingVertical: 6,
+                                            borderRadius: 999,
+                                            backgroundColor: active ? (a === 'all' ? colors.primary + '18' : c + '18') : colors.surface,
+                                            borderWidth: 1.5,
+                                            borderColor: active ? (a === 'all' ? colors.primary : c) : colors.stroke,
+                                        }}
+                                    >
+                                        {a !== 'all' && <AnimalIcon type={a.toLowerCase() as any} size={12} color={active ? c : colors.textGrey} />}
+                                        {a === 'all' && (
+                                            <Image
+                                                source={require('../../assets/icons/animals-filled.svg')}
+                                                style={{ width: 14, height: 14 }}
+                                                contentFit="contain"
+                                            />
+                                        )}
+                                        <Text style={{
+                                            fontFamily: active ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                                            fontSize: 11.5,
+                                            color: active ? (a === 'all' ? colors.primary : c) : colors.textGrey,
+                                        }}>
+                                            {a === 'all' ? 'All Animals' : a}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    </View>
+
+                    {/* Housing row (wrapped pills) */}
+                    {housingOptions.length > 0 && (
+                        <View>
+                            <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.textGrey, letterSpacing: 0.6, marginBottom: 6, textTransform: 'uppercase' }}>
+                                Housing
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                                 {[{ id: 'all', name: 'All Housings' }, ...housingOptions].map(h => {
                                     const active = filterHousingId === h.id;
                                     return (
-                                        <TouchableOpacity key={h.id} onPress={() => setFilterHousingId(h.id)} activeOpacity={0.75}
-                                            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: active ? colors.info : colors.bgLight, borderWidth: 1, borderColor: active ? colors.info : colors.stroke }}>
-                                            <MaterialIcons name="home" size={13} color={active ? '#fff' : colors.textGrey} />
-                                            <Text style={[textStyles.label, { fontSize: 12, color: active ? '#fff' : colors.textGrey }]}>{h.name}</Text>
+                                        <TouchableOpacity
+                                            key={h.id}
+                                            onPress={() => setFilterHousingId(h.id)}
+                                            activeOpacity={0.75}
+                                            style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 5,
+                                                paddingHorizontal: 14,
+                                                paddingVertical: 6,
+                                                borderRadius: 999,
+                                                backgroundColor: active ? colors.info + '18' : colors.surface,
+                                                borderWidth: 1.5,
+                                                borderColor: active ? colors.info : colors.stroke,
+                                            }}
+                                        >
+                                            <MaterialIcons name="home" size={13} color={active ? colors.info : colors.textGrey} />
+                                            <Text style={{
+                                                fontFamily: active ? 'Poppins-SemiBold' : 'Poppins-Regular',
+                                                fontSize: 11.5,
+                                                color: active ? colors.info : colors.textGrey,
+                                            }}>
+                                                {h.name}
+                                            </Text>
                                         </TouchableOpacity>
                                     );
                                 })}
-                            </>
-                        )}
-                    </ScrollView>
-
-                    {activeFilterCount > 0 && (
-                        <TouchableOpacity onPress={() => { setFilterStatus('all'); setFilterAnimal('all'); setFilterHousingId('all'); }} activeOpacity={0.7}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16 }}>
-                            <MaterialIcons name="close" size={13} color={colors.error} />
-                            <Text style={[textStyles.label, { color: colors.error, fontSize: 11 }]}>Clear all filters</Text>
-                        </TouchableOpacity>
+                            </View>
+                        </View>
                     )}
                 </View>
             )}
 
             {/* ── Log List ─────────────────────────────────────────────── */}
-            <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }} showsVerticalScrollIndicator={false}
+            <ScrollView contentContainerStyle={{ padding: 14, gap: 8, paddingBottom: 24 }} showsVerticalScrollIndicator={false}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
 
                 {loading ? (
@@ -321,25 +477,25 @@ export default function RecentLogsScreen() {
 
                 ) : logs.length === 0 ? (
                     <View style={{ alignItems: 'center', marginTop: 60 }}>
-                        <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-                            <MaterialIcons name="monitor-weight" size={34} color={colors.textGrey} />
+                        <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                            <AniWeighIcon size={30} />
                         </View>
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 6 }]}>No Logs Yet</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40 }]}>
+                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 17, marginBottom: 5 }]}>No Logs Yet</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40, fontSize: 13 }]}>
                             Weight sessions recorded by your AniWeigh devices will appear here.
                         </Text>
                     </View>
 
                 ) : filteredLogs.length === 0 ? (
                     <View style={{ alignItems: 'center', marginTop: 60 }}>
-                        <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-                            <MaterialIcons name="search-off" size={34} color={colors.textGrey} />
+                        <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: colors.cardFill, alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                            <MaterialIcons name="search-off" size={30} color={colors.textGrey} />
                         </View>
-                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 6 }]}>No Matches</Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40, marginBottom: 20 }]}>Try adjusting your filters.</Text>
+                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 17, marginBottom: 5 }]}>No Matches</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', paddingHorizontal: 40, marginBottom: 16, fontSize: 13 }]}>Try adjusting your filters.</Text>
                         <TouchableOpacity onPress={() => { setFilterStatus('all'); setFilterAnimal('all'); setFilterHousingId('all'); }} activeOpacity={0.7}
-                            style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary, borderRadius: 10 }}>
-                            <Text style={[textStyles.label, { color: '#fff', fontSize: 13 }]}>Clear Filters</Text>
+                            style={{ paddingHorizontal: 20, paddingVertical: 8, backgroundColor: colors.primary, borderRadius: 999 }}>
+                            <Text style={[textStyles.label, { color: '#fff', fontSize: 12.5 }]}>Clear Filters</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -348,79 +504,163 @@ export default function RecentLogsScreen() {
                         {pagedLogs.map((log, index) => {
                             const statusColor = log.status === 'underweight' ? colors.warning : log.status === 'overweight' ? colors.error : colors.primary;
                             const statusIcon: any = log.status === 'underweight' ? 'arrow-downward' : log.status === 'overweight' ? 'arrow-upward' : 'check';
-                            const kg = (log.weight_g / 1000).toFixed(2);
+                            const isPig = log.animal.toLowerCase().includes('pig');
+                            const isTray = !isPig && (
+                                log.weigh_mode === 'batch' ||
+                                (log.chick_count != null && log.chick_count >= 1 && (log.animal.toLowerCase().includes('chick') || log.weigh_mode === 'batch')) ||
+                                log.animal.toLowerCase().includes('tray') ||
+                                (log.animal.toLowerCase().includes('chick') && !log.animal.toLowerCase().includes('chicken'))
+                            );
+                            const isExpanded = expandedLogId === (log.id ?? String(index));
+
+                            const displayVal = isPig 
+                                ? `${(log.weight_g / 1000).toFixed(2)}` 
+                                : `${Math.round(log.weight_g)}`;
+                            const displayUnit = isPig ? 'kg' : (isTray ? 'g / chick' : 'g');
+                            const grossWeight = log.gross_weight_g ?? (log.weight_g * (log.chick_count || 1));
 
                             return (
-                                <View key={log.id ?? index} style={{ backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.stroke, overflow: 'hidden' }}>
-                                    {/* Thin status bar across top */}
-                                    <View style={{ height: 3, backgroundColor: statusColor }} />
+                                <TouchableOpacity
+                                    key={log.id ?? index}
+                                    activeOpacity={0.85}
+                                    onPress={() => isTray && setExpandedLogId(isExpanded ? null : (log.id ?? String(index)))}
+                                    style={{
+                                        backgroundColor: colors.surface,
+                                        borderRadius: 16,
+                                        borderWidth: 1,
+                                        borderColor: isExpanded ? colors.primary : colors.stroke,
+                                        marginBottom: 10,
+                                        overflow: 'hidden',
+                                        flexDirection: 'column',
+                                    }}
+                                >
+                                    <View style={{ flexDirection: 'row' }}>
+                                        {/* Left accent strip */}
+                                        <View style={{ width: 4, backgroundColor: statusColor }} />
 
-                                    <View style={{ flexDirection: 'row', padding: 14, gap: 14, alignItems: 'center' }}>
-                                        {/* Status icon box */}
-                                        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: statusColor + '18', alignItems: 'center', justifyContent: 'center' }}>
-                                            <MaterialIcons name={statusIcon} size={26} color={statusColor} />
-                                        </View>
-
-                                        {/* Main content */}
-                                        <View style={{ flex: 1 }}>
-                                            {/* Weight + status badge */}
-                                            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 5 }}>
-                                                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
-                                                    <Text style={[textStyles.h1, { color: colors.text, fontSize: 26, lineHeight: 30 }]}>{kg}</Text>
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>kg</Text>
+                                        {/* Card content */}
+                                        <View style={{ flex: 1, padding: 12 }}>
+                                            {/* Top row: housing label + weight */}
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                                                <View style={{ flex: 1, marginRight: 12 }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
+                                                        <MaterialIcons name="home" size={13} color={colors.textGrey} />
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 12, marginLeft: 3 }]} numberOfLines={1}>{log.housingName}</Text>
+                                                    </View>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: statusColor + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                                                        <MaterialIcons name={statusIcon} size={11} color={statusColor} />
+                                                        <Text style={[textStyles.label, { color: statusColor, fontSize: 11, marginLeft: 3, fontWeight: '700' }]}>
+                                                            {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
+                                                        </Text>
+                                                    </View>
                                                 </View>
-                                                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: statusColor + '18' }}>
-                                                    <Text style={[textStyles.label, { color: statusColor, fontSize: 11 }]}>
-                                                        {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
-                                                    </Text>
+                                                <View style={{ alignItems: 'flex-end' }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+                                                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 22, lineHeight: 26 }]}>{displayVal}</Text>
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11 }]}>{displayUnit}</Text>
+                                                    </View>
+                                                    {isTray && (
+                                                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, marginTop: 2 }]}>
+                                                            Gross: {grossWeight.toLocaleString()}g
+                                                        </Text>
+                                                    )}
                                                 </View>
                                             </View>
 
-                                            {/* Housing · Animal */}
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
-                                                <MaterialIcons name="home" size={12} color={colors.textGrey} />
-                                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontFamily: 'Poppins-Medium', flex: 1 }]} numberOfLines={1}>{log.housingName}</Text>
-                                                <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: colors.stroke }} />
-                                                <AnimalIcon type={log.animal as any} size={12} color={colors.textGrey} />
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>{log.animal}</Text>
-                                            </View>
+                                            {/* Bottom chips */}
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, flexShrink: 1, minWidth: 0 }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, maxWidth: 150 }}>
+                                                        <AnimalIcon type={isPig ? 'pig' : 'chicken'} size={11} color={colors.textGrey} />
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]} numberOfLines={1} ellipsizeMode="tail">{log.animal}</Text>
+                                                    </View>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, flexShrink: 0 }}>
+                                                        <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
+                                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]}>{formatLogTime(log.timestamp)}</Text>
+                                                    </View>
+                                                    {log.deviceName && (
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardFill, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, maxWidth: 130 }}>
+                                                            <AniWeighIcon size={11} />
+                                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, marginLeft: 3 }]} numberOfLines={1}>{log.deviceName}</Text>
+                                                        </View>
+                                                    )}
+                                                </View>
 
-                                            {/* Time · Device */}
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                    <MaterialIcons name="access-time" size={11} color={colors.textGrey} />
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>{formatLogTime(log.timestamp)}</Text>
-                                                </View>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                                    <MaterialIcons name="monitor-weight" size={11} color={colors.textGrey} />
-                                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>{log.deviceName}</Text>
-                                                </View>
+                                                {isTray && (
+                                                    <View style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        gap: 2,
+                                                        backgroundColor: colors.primary + '14',
+                                                        paddingHorizontal: 8,
+                                                        paddingVertical: 3.5,
+                                                        borderRadius: 6,
+                                                        flexShrink: 0,
+                                                    }}>
+                                                        <Text style={[textStyles.label, { color: colors.primary, fontSize: 10.5, fontWeight: '600' }]} numberOfLines={1}>
+                                                            {isExpanded ? 'Hide details' : 'Tap tray details'}
+                                                        </Text>
+                                                        <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={15} color={colors.primary} />
+                                                    </View>
+                                                )}
                                             </View>
                                         </View>
                                     </View>
-                                </View>
+
+                                    {/* Folded Tray Breakdown Drawer */}
+                                    {isTray && isExpanded && (
+                                        <View style={{
+                                            backgroundColor: colors.primary + '0D',
+                                            borderTopWidth: 1,
+                                            borderTopColor: colors.primary + '25',
+                                            padding: 12,
+                                        }}>
+                                            <Text style={[textStyles.label, { color: colors.primary, fontWeight: '700', fontSize: 12, marginBottom: 8 }]}>
+                                                Folded Tray Breakdown ({log.chick_count} chicks)
+                                            </Text>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Total Gross Tray Weight:</Text>
+                                                <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 11 }]}>{grossWeight.toLocaleString()} g</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Head Count in Tray:</Text>
+                                                <Text style={[textStyles.body, { color: colors.text, fontWeight: '700', fontSize: 11 }]}>{log.chick_count} chicks</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>Evaluated Per-Chick Average:</Text>
+                                                <Text style={[textStyles.body, { color: colors.primary, fontWeight: '700', fontSize: 11 }]}>{Math.round(log.weight_g)} g / chick</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, flexShrink: 0 }]}>Status Determination:</Text>
+                                                <Text style={[textStyles.body, { color: statusColor, fontWeight: '700', fontSize: 11, flexShrink: 1, textAlign: 'right' }]} numberOfLines={2}>
+                                                    {log.status.toUpperCase()} ({Math.round(log.weight_g)}g/chick)
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
                             );
                         })}
 
                         {/* ── Pagination ──────────────────────────────────── */}
                         {filteredLogs.length > pageSize && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8 }}>
                                 <TouchableOpacity activeOpacity={0.7} onPress={() => setPage(p => Math.max(1, p - 1))} disabled={safePage <= 1}
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, opacity: safePage <= 1 ? 0.4 : 1 }}>
-                                    <MaterialIcons name="chevron-left" size={18} color={colors.text} />
-                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 13 }]}>Prev</Text>
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, opacity: safePage <= 1 ? 0.4 : 1 }}>
+                                    <MaterialIcons name="chevron-left" size={16} color={colors.text} />
+                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 12 }]}>Prev</Text>
                                 </TouchableOpacity>
                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>Page {safePage} of {totalPages}</Text>
                                 <TouchableOpacity activeOpacity={0.7} onPress={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, opacity: safePage >= totalPages ? 0.4 : 1 }}>
-                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 13 }]}>Next</Text>
-                                    <MaterialIcons name="chevron-right" size={18} color={colors.text} />
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, opacity: safePage >= totalPages ? 0.4 : 1 }}>
+                                    <Text style={[textStyles.label, { color: colors.text, fontSize: 12 }]}>Next</Text>
+                                    <MaterialIcons name="chevron-right" size={16} color={colors.text} />
                                 </TouchableOpacity>
                             </View>
                         )}
                     </>
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }

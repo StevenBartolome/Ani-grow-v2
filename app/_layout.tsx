@@ -24,14 +24,31 @@ import { Stack } from "expo-router";
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
-import { useEffect } from 'react';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import React, { useEffect } from 'react';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { LogBox, Platform } from 'react-native';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
-import { FarmFilterProvider } from '@/context/FarmFilterContext';
+import { FarmFilterProvider, useFarmFilter } from '@/context/FarmFilterContext';
 import { AniBotFAB } from '@/components/AniBotFAB';
+import { OfflineSyncBanner } from '@/components/OfflineSyncBanner';
+import { NotificationWatcher } from '@/components/NotificationWatcher';
+import { registerForPushNotificationsAsync } from '@/lib/pushToken';
+import { useAuth } from '@/context/AuthContext';
 import { ThemeProvider as NavigationThemeProvider, DefaultTheme, DarkTheme } from '@react-navigation/native';
+
+function PushTokenRegistrar() {
+  const { user } = useAuth();
+  const { activeFarmIds } = useFarmFilter();
+
+  useEffect(() => {
+    if (user?.id) {
+      registerForPushNotificationsAsync(user.id, activeFarmIds[0]);
+    }
+  }, [user?.id, activeFarmIds]);
+
+  return null;
+}
 
 // Silence non-critical deprecation and third-party package warnings
 LogBox.ignoreLogs([
@@ -40,7 +57,9 @@ LogBox.ignoreLogs([
   'props.pointerEvents is deprecated',
 ]);
 
-SplashScreen.preventAutoHideAsync();
+export { ErrorBoundary } from 'expo-router';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function RootNavigator() {
   const { colors, isDark } = useTheme();
@@ -73,6 +92,7 @@ function RootNavigator() {
         <Stack.Screen name="(dashboard)/VetDashboardScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(devices)/DevicesScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(animals)/AnimalsScreen" options={{ animation: 'none' }} />
+        <Stack.Screen name="(animals)/BatchHistoryScreen" />
         <Stack.Screen name="(animals)/HealthRecordsScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(analytics)/AnalyticsScreen" options={{ animation: 'none' }} />
         <Stack.Screen name="(guide)/GuideScreen" options={{ animation: 'none' }} />
@@ -83,6 +103,7 @@ function RootNavigator() {
         <Stack.Screen name="(auth)/ResetPasswordScreen" />
         <Stack.Screen name="(auth)/SetupAccountScreen" />
         <Stack.Screen name="(settings)/PrivacyPolicyScreen" />
+        <Stack.Screen name="(settings)/UserManualScreen" />
         <Stack.Screen name="(auth)/TermsOfServiceScreen" />
         <Stack.Screen name="(auth)/MFAChallengeScreen" />
       </Stack>
@@ -110,12 +131,15 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <ThemeProvider>
         <AuthProvider>
           <FarmFilterProvider>
             <RootNavigator />
             <AniBotFAB />
+            <OfflineSyncBanner />
+            <NotificationWatcher />
+            <PushTokenRegistrar />
           </FarmFilterProvider>
         </AuthProvider>
       </ThemeProvider>

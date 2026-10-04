@@ -1,8 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, ScrollView, TouchableOpacity, View, Modal, KeyboardAvoidingView, Platform } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
@@ -14,9 +14,12 @@ import { useSettingsSubPageStyles } from '@/styles/settingsSubPageStyles';
 import { useDevicesStyles } from '@/styles/devicesStyles';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AnimalIcon } from '@/components/AnimalIcon';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
 import { supabase } from '@/lib/supabase';
+import { getQueuedActions, isNetworkError, queueAction } from '@/lib/offlineQueue';
+import { checkHousingConnectedData } from '@/lib/dataProtection';
 
 interface HousingItem {
     id: string;
@@ -25,6 +28,9 @@ interface HousingItem {
     capacity: number;
     current_count: number;
     status: string;
+    /** Set locally when this row was queued offline and hasn't synced to the
+     *  server yet — replaced by the real row once fetchHousings() runs again. */
+    _pendingSync?: boolean;
 }
 
 type FilterType = 'All' | 'Chickens' | 'Pigs';
@@ -37,6 +43,8 @@ export default function ManageHousingsScreen() {
     const textStyles = useTextStyles();
     const { colors } = useTheme();
     const deviceStyles = useDevicesStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile } = useAuth();
     const { activeFarmIds } = useFarmFilter();
 
@@ -46,7 +54,9 @@ export default function ManageHousingsScreen() {
     const filters: FilterType[] = ['All', 'Chickens', 'Pigs'];
 
     const [housings, setHousings] = useState<HousingItem[]>([]);
+    const [deletableHousingIds, setDeletableHousingIds] = useState<Set<string>>(new Set());
     const [isLoading, setIsLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     // ── Fetch ─────────────────────────────────────────────────────
     const fetchHousings = useCallback(async () => {
@@ -59,7 +69,71 @@ export default function ManageHousingsScreen() {
                 .eq('farm_id', farmId)
                 .order('name', { ascending: true });
             if (error) throw error;
-            setHousings(data ?? []);
+
+            // Keep any still-unsynced offline additions visible (with their
+            // Pending Sync badge) rather than letting them disappear the
+            // moment this refetch runs, before the queue has actually
+            // flushed them for real.
+            const queued = await getQueuedActions();
+            const pendingHousings: HousingItem[] = queued
+                .filter(a => a.table === 'housings' && a.operation === 'insert')
+                .map(a => ({
+                    id: `pending-${a.id}`,
+                    name: a.data.name,
+                    animal_type: a.data.animal_type,
+                    capacity: a.data.capacity ?? 0,
+                    current_count: 0,
+                    status: a.data.status ?? 'Active',
+                    _pendingSync: true,
+                }));
+
+            const allHousings = [...(data ?? []), ...pendingHousings];
+            setHousings(allHousings);
+
+            // Determine which housings are deletable with a single parallel batch query
+            const realHousings = data ?? [];
+            const housingIds = realHousings.map(h => h.id);
+            const deletableSet = new Set<string>();
+
+            if (housingIds.length > 0) {
+                const [
+                    batchesRes,
+                    devicesRes,
+                    healthRes,
+                    dispenseRes,
+                    feedSchedRes,
+                    weighingRes,
+                    weighRes,
+                ] = await Promise.all([
+                    supabase.from('batches').select('housing_id').in('housing_id', housingIds),
+                    supabase.from('devices').select('housing_id').in('housing_id', housingIds),
+                    supabase.from('health_records').select('housing_id').in('housing_id', housingIds).is('deleted_at', null),
+                    supabase.from('dispense_records').select('housing_id').in('housing_id', housingIds),
+                    supabase.from('feed_schedules').select('housing_id').in('housing_id', housingIds),
+                    supabase.from('weighing_sessions').select('housing_id').in('housing_id', housingIds),
+                    supabase.from('weigh_sessions').select('housing_id').in('housing_id', housingIds),
+                ]);
+
+                const busyHousingIds = new Set<string>();
+                [
+                    ...(batchesRes.data ?? []),
+                    ...(devicesRes.data ?? []),
+                    ...(healthRes.data ?? []),
+                    ...(dispenseRes.data ?? []),
+                    ...(feedSchedRes.data ?? []),
+                    ...(weighingRes.data ?? []),
+                    ...(weighRes.data ?? []),
+                ].forEach((r: any) => {
+                    if (r.housing_id) busyHousingIds.add(r.housing_id);
+                });
+
+                realHousings.forEach(h => {
+                    if (!busyHousingIds.has(h.id)) {
+                        deletableSet.add(h.id);
+                    }
+                });
+            }
+            setDeletableHousingIds(deletableSet);
         } catch (err: any) {
             showSnackbar(err.message || 'Failed to load housings.', 'error');
         } finally {
@@ -68,6 +142,12 @@ export default function ManageHousingsScreen() {
     }, [farmId]);
 
     useEffect(() => { fetchHousings(); }, [fetchHousings]);
+
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await fetchHousings();
+        setRefreshing(false);
+    }, [fetchHousings]);
 
     const filteredHousings = activeFilter === 'All'
         ? housings
@@ -102,11 +182,25 @@ export default function ManageHousingsScreen() {
         setSnackbarVisible(true);
     };
 
+    // ── Form Draft Checkpointing ──────────────────────────────────
+    const {
+        clearDraft,
+    } = useFormDraft(
+        `add_housing_${farmId}`,
+        { tempHousingName, tempHousingType, tempCapacity },
+        {
+            enabled: editModalVisible && !editingHousingId,
+            onRestore: (draft) => {
+                if (draft.tempHousingName) setTempHousingName(draft.tempHousingName);
+                if (draft.tempHousingType) setTempHousingType(draft.tempHousingType);
+                if (draft.tempCapacity) setTempCapacity(draft.tempCapacity);
+            },
+        }
+    );
+
     const openAddModal = () => {
         setEditingHousingId(null);
-        setTempHousingName('');
-        setTempHousingType('Pigs');
-        setTempCapacity('');
+        // If there is no restored draft, values remain as-is or blank
         setCapacityError(null);
         setEditModalVisible(true);
     };
@@ -125,14 +219,13 @@ export default function ManageHousingsScreen() {
 
     const confirmDelete = (id: string) => {
         const h = housings.find(x => x.id === id);
-        if (h) {
-            setHousingToDelete(id);
-            setConfirmAction('delete');
-            setConfirmModalType('warning');
-            setConfirmModalTitle('Delete Housing?');
-            setConfirmModalMessage(`Are you sure you want to delete "${h.name}"? All related batches will also be removed.`);
-            setConfirmModalVisible(true);
-        }
+        if (!h) return;
+        setHousingToDelete(id);
+        setConfirmAction('delete');
+        setConfirmModalType('warning');
+        setConfirmModalTitle('Delete Housing?');
+        setConfirmModalMessage(`Are you sure you want to delete "${h.name}"? This empty housing has no connected records and will be permanently removed.`);
+        setConfirmModalVisible(true);
     };
 
     const validateCapacity = (val: string, type: 'Chickens' | 'Pigs') => {
@@ -217,12 +310,36 @@ export default function ManageHousingsScreen() {
                         .from('housings')
                         .insert({ ...payload, farm_id: farmId });
                     if (error) throw error;
+                    await clearDraft();
                     showSnackbar('New housing added successfully.', 'success');
                 }
             }
             await fetchHousings();
         } catch (err: any) {
-            showSnackbar(err.message || 'Action failed.', 'error');
+            // A genuine network failure (WiFi dropped mid-submit) queues the
+            // save instead of losing it — it'll retry automatically (see
+            // OfflineSyncBanner) and this list already shows it as pending
+            // via fetchHousings()'s queued-item merge above.
+            if (confirmAction === 'save' && isNetworkError(err)) {
+                const payload = {
+                    name: tempHousingName.trim(),
+                    animal_type: LABEL_TO_DB[tempHousingType] as 'chicken' | 'pig',
+                    capacity: parseInt(tempCapacity || '0', 10),
+                    updated_at: new Date().toISOString(),
+                    ...(editingHousingId ? {} : { farm_id: farmId }),
+                };
+                await queueAction({
+                    table: 'housings',
+                    operation: editingHousingId ? 'update' : 'insert',
+                    data: payload,
+                    matchId: editingHousingId ?? undefined,
+                    label: payload.name,
+                });
+                showSnackbar(`You're offline — "${payload.name}" will be saved automatically once you're back online.`, 'info');
+                await fetchHousings();
+            } else {
+                showSnackbar(err.message || 'Action failed.', 'error');
+            }
         } finally {
             setIsSaving(false);
             setConfirmModalVisible(false);
@@ -230,7 +347,7 @@ export default function ManageHousingsScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 <View style={styles.header}>
                     <View style={{ width: 44, height: 44 }}>
@@ -242,7 +359,18 @@ export default function ManageHousingsScreen() {
                     <View style={{ width: 44, height: 44 }} />
                 </View>
 
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 100 }}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                        />
+                    }
+                >
                     <View style={styles.section}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, marginTop: -8 }}>
                             <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Registered Housings</Text>
@@ -289,25 +417,36 @@ export default function ManageHousingsScreen() {
                                         borderBottomWidth: index < filteredHousings.length - 1 ? 1 : 0,
                                         borderBottomColor: colors.stroke,
                                     }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                                             <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                                                 <MaterialIcons name="home" size={20} color={colors.primary} />
                                             </View>
-                                            <View>
-                                                <Text style={[textStyles.h3, { color: colors.text }]}>{housing.name}</Text>
+                                            <View style={{ flex: 1 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                    <Text style={[textStyles.h3, { color: colors.text }]}>{housing.name}</Text>
+                                                    {housing._pendingSync && (
+                                                        <View style={{ backgroundColor: colors.warning + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                                            <Text style={[textStyles.label, { color: colors.warning, fontSize: 9 }]}>PENDING SYNC</Text>
+                                                        </View>
+                                                    )}
+                                                </View>
                                                 <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
                                                     {ANIMAL_TYPE_LABEL[housing.animal_type]} · {housing.current_count}/{housing.capacity > 0 ? housing.capacity : '—'} heads
                                                 </Text>
                                             </View>
                                         </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                                            <TouchableOpacity onPress={() => openEditModal(housing.id)}>
-                                                <MaterialIcons name="edit" size={22} color={colors.textGrey} />
-                                            </TouchableOpacity>
-                                            <TouchableOpacity onPress={() => confirmDelete(housing.id)}>
-                                                <MaterialIcons name="delete-outline" size={22} color={colors.error} />
-                                            </TouchableOpacity>
-                                        </View>
+                                        {!housing._pendingSync && (
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                                <TouchableOpacity onPress={() => openEditModal(housing.id)}>
+                                                    <MaterialIcons name="edit" size={22} color={colors.textGrey} />
+                                                </TouchableOpacity>
+                                                {deletableHousingIds.has(housing.id) && (
+                                                    <TouchableOpacity onPress={() => confirmDelete(housing.id)}>
+                                                        <MaterialIcons name="delete-outline" size={22} color={colors.error} />
+                                                    </TouchableOpacity>
+                                                )}
+                                            </View>
+                                        )}
                                     </View>
                                 ))
                             )}
@@ -317,130 +456,133 @@ export default function ManageHousingsScreen() {
             </View>
 
             {/* Add / Edit Modal */}
-            <Modal visible={editModalVisible} transparent animationType="fade">
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        style={{ width: '100%', maxWidth: 340, maxHeight: '90%' }}
-                    >
-                        <View style={{ backgroundColor: colors.surface, width: '100%', borderRadius: 24, padding: 24, overflow: 'hidden' }}>
-                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
-                                <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
-                                    <MaterialIcons name={editingHousingId ? 'edit' : 'add-home'} size={32} color={colors.primary} />
-                                </View>
-                                <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
-                                    {editingHousingId ? 'Edit Housing' : 'Add Housing'}
-                                </Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
-                                    Enter the details for this housing location.
-                                </Text>
+            <Modal visible={editModalVisible} transparent animationType="fade" onRequestClose={() => setEditModalVisible(false)}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+                >
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                        onPress={() => setEditModalVisible(false)}
+                    />
+                    <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden' }}>
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ alignItems: 'center' }}>
+                            <View style={{ backgroundColor: colors.primary + '1A', padding: 16, borderRadius: 24, marginBottom: 16 }}>
+                                <MaterialIcons name={editingHousingId ? 'edit' : 'add-home'} size={32} color={colors.primary} />
+                            </View>
+                            <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 8, fontSize: 20 }]}>
+                                {editingHousingId ? 'Edit Housing' : 'Add Housing'}
+                            </Text>
+                            <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 24 }]}>
+                                Enter the details for this housing location.
+                            </Text>
 
-                                <View style={{ width: '100%' }}>
-                                    <FloatingLabelInput label="Housing Name" icon="home" value={tempHousingName} onChangeText={setTempHousingName} backgroundColor={colors.surface} />
-                                </View>
+                            <View style={{ width: '100%' }}>
+                                <FloatingLabelInput label="Housing Name" icon="home" value={tempHousingName} onChangeText={setTempHousingName} backgroundColor={colors.surface} />
+                            </View>
 
-                                <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                                    <View style={{ flex: 1 }}>
-                                        <FloatingLabelInput
-                                            label="Capacity (heads)"
-                                            icon="format-list-numbered"
-                                            value={tempCapacity}
-                                            onChangeText={t => {
-                                                const clean = t.replace(/[^0-9]/g, '');
-                                                setTempCapacity(clean);
-                                                validateCapacity(clean, tempHousingType);
-                                            }}
-                                            keyboardType="numeric"
-                                            backgroundColor={colors.surface}
-                                            error={capacityError ?? undefined}
-                                        />
-                                    </View>
-
-                                    <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const current = parseInt(tempCapacity || '0', 10);
-                                                const maxCap = tempHousingType === 'Pigs' ? 100 : 500;
-                                                const next = Math.min(maxCap, current + 1);
-                                                setTempCapacity(String(next));
-                                                validateCapacity(String(next), tempHousingType);
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                            activeOpacity={0.7}
-                                            style={{
-                                                width: 44,
-                                                height: 27,
-                                                borderRadius: 8,
-                                                backgroundColor: colors.cardFill,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                borderWidth: 1.5,
-                                                borderColor: colors.stroke,
-                                            }}
-                                            onPress={() => {
-                                                const current = parseInt(tempCapacity || '0', 10);
-                                                const next = Math.max(0, current - 1);
-                                                setTempCapacity(String(next));
-                                                validateCapacity(String(next), tempHousingType);
-                                            }}
-                                        >
-                                            <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-
-                                <View style={{ width: '100%', marginBottom: 28 }}>
-                                    <TouchableOpacity
-                                        activeOpacity={0.8}
-                                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30, paddingHorizontal: 16, height: 58, backgroundColor: colors.surface }}
-                                        onPress={() => { setEditModalVisible(false); setHousingTypeModalVisible(true); }}
-                                    >
-                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                            <AnimalIcon type={tempHousingType === 'Pigs' ? 'pig' : 'chicken'} size={20} color={colors.icon} style={{ marginRight: 12 }} />
-                                            <Text style={[textStyles.body, { color: colors.text }]}>{tempHousingType}</Text>
-                                        </View>
-                                        <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
-                                    </TouchableOpacity>
-                                </View>
-
-                                <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
-                                    <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditModalVisible(false)} activeOpacity={0.7}>
-                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={{
-                                            flex: 1,
-                                            backgroundColor: isSaveDisabled ? colors.cardFill : colors.primary,
-                                            paddingVertical: 14,
-                                            borderRadius: 30,
-                                            alignItems: 'center'
+                            <View style={{ width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                    <FloatingLabelInput
+                                        label="Capacity (heads)"
+                                        icon="format-list-numbered"
+                                        value={tempCapacity}
+                                        onChangeText={t => {
+                                            const clean = t.replace(/[^0-9]/g, '');
+                                            setTempCapacity(clean);
+                                            validateCapacity(clean, tempHousingType);
                                         }}
-                                        onPress={handleSaveClick}
-                                        disabled={isSaveDisabled}
-                                        activeOpacity={isSaveDisabled ? 1 : 0.7}
+                                        keyboardType="numeric"
+                                        backgroundColor={colors.surface}
+                                        error={capacityError ?? undefined}
+                                    />
+                                </View>
+
+                                <View style={{ flexDirection: 'column', gap: 4, height: 58 }}>
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const current = parseInt(tempCapacity || '0', 10);
+                                            const maxCap = tempHousingType === 'Pigs' ? 100 : 500;
+                                            const next = Math.min(maxCap, current + 1);
+                                            setTempCapacity(String(next));
+                                            validateCapacity(String(next), tempHousingType);
+                                        }}
                                     >
-                                        <Text style={[textStyles.h3, { color: isSaveDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Save</Text>
+                                        <MaterialIcons name="keyboard-arrow-up" size={18} color={colors.text} />
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        style={{
+                                            width: 44,
+                                            height: 27,
+                                            borderRadius: 8,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        onPress={() => {
+                                            const current = parseInt(tempCapacity || '0', 10);
+                                            const next = Math.max(0, current - 1);
+                                            setTempCapacity(String(next));
+                                            validateCapacity(String(next), tempHousingType);
+                                        }}
+                                    >
+                                        <MaterialIcons name="keyboard-arrow-down" size={18} color={colors.text} />
                                     </TouchableOpacity>
                                 </View>
-                            </ScrollView>
-                        </View>
-                    </KeyboardAvoidingView>
-                </View>
+                            </View>
+
+                            <View style={{ width: '100%', marginBottom: 28 }}>
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.stroke, borderRadius: 30, paddingHorizontal: 16, height: 58, backgroundColor: colors.surface }}
+                                    onPress={() => { setEditModalVisible(false); setHousingTypeModalVisible(true); }}
+                                >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <AnimalIcon type={tempHousingType === 'Pigs' ? 'pig' : 'chicken'} size={20} color={colors.icon} style={{ marginRight: 12 }} />
+                                        <Text style={[textStyles.body, { color: colors.text }]}>{tempHousingType}</Text>
+                                    </View>
+                                    <MaterialIcons name="arrow-drop-down" size={24} color={colors.textGrey} />
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
+                                <TouchableOpacity style={{ flex: 1, backgroundColor: colors.cardFill, paddingVertical: 14, borderRadius: 30, alignItems: 'center' }} onPress={() => setEditModalVisible(false)} activeOpacity={0.7}>
+                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 14 }]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={{
+                                        flex: 1,
+                                        backgroundColor: isSaveDisabled ? colors.cardFill : colors.primary,
+                                        paddingVertical: 14,
+                                        borderRadius: 30,
+                                        alignItems: 'center'
+                                    }}
+                                    onPress={handleSaveClick}
+                                    disabled={isSaveDisabled}
+                                    activeOpacity={isSaveDisabled ? 1 : 0.7}
+                                >
+                                    <Text style={[textStyles.h3, { color: isSaveDisabled ? colors.textGrey : colors.onPrimary, fontSize: 14 }]}>Save</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             <SelectionModal
@@ -468,14 +610,14 @@ export default function ManageHousingsScreen() {
                 type={confirmModalType}
                 title={confirmModalTitle}
                 message={confirmModalMessage}
-                confirmText={confirmAction === 'delete' ? 'Delete' : 'Confirm'}
+                confirmText={confirmAction === 'delete' ? 'Delete' : confirmAction === 'save' ? 'Confirm' : 'Got it'}
                 cancelText="Cancel"
-                onConfirm={executeAction}
+                onConfirm={confirmAction ? executeAction : () => setConfirmModalVisible(false)}
                 onCancel={() => setConfirmModalVisible(false)}
                 isLoading={isSaving}
             />
 
             <Snackbar visible={snackbarVisible} message={snackbarMessage} type={snackbarType} onDismiss={() => setSnackbarVisible(false)} />
-        </SafeAreaView>
+        </View>
     );
 }

@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect, useRef } from 'react';
-import { ScrollView, TouchableOpacity, View, TextInput, ActivityIndicator } from 'react-native';
+import { ScrollView, TouchableOpacity, View, TextInput, ActivityIndicator, Platform } from 'react-native';
 import { Text } from '@/components/Text';
 import { MaterialIcons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useTextStyles } from '@/constants/textStyles';
@@ -25,6 +25,8 @@ type VerificationMethod = 'email' | 'sms' | 'authenticator';
 export default function ChangePhoneScreen() {
     const styles = useSettingsSubPageStyles();
     const textStyles = useTextStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { colors } = useTheme();
     const router = useRouter();
     const { profile, getMFAFactors, verifyMFA, refreshProfile } = useAuth();
@@ -33,8 +35,33 @@ export default function ChangePhoneScreen() {
     const currentPhone = profile?.phone || (profile as any)?.phoneNumber || '';
     const hasCurrentPhone = !!currentPhone.trim();
 
-    const [newPhone, setNewPhone] = useState('');
+    const [newPhone, setNewPhone] = useState('+63');
     const [newPhoneError, setNewPhoneError] = useState('');
+
+    const handlePhoneChange = (val: string) => {
+        let cleaned = val.replace(/[^\d+]/g, '');
+        if (cleaned === '' || cleaned === '+') {
+            setNewPhone('+63');
+            setNewPhoneError('');
+            return;
+        }
+        if (!cleaned.startsWith('+63')) {
+            if (cleaned.startsWith('63')) {
+                cleaned = '+' + cleaned;
+            } else if (cleaned.startsWith('09')) {
+                cleaned = '+63' + cleaned.substring(1);
+            } else if (cleaned.startsWith('9')) {
+                cleaned = '+63' + cleaned;
+            } else {
+                cleaned = '+63' + cleaned.replace(/^\+?63?/, '');
+            }
+        }
+        if (cleaned.length > 13) {
+            cleaned = cleaned.substring(0, 13);
+        }
+        setNewPhone(cleaned);
+        setNewPhoneError('');
+    };
 
     // Step state
     const [step, setStep] = useState<Step>('input');
@@ -281,6 +308,7 @@ export default function ChangePhoneScreen() {
     const handleBack = () => {
         if (step === 'otp_new') {
             setOtpCode('');
+            setStep('input');
         } else if (step === 'otp_current') {
             setOtpCode('');
             setMfaChallengeId(null);
@@ -302,7 +330,7 @@ export default function ChangePhoneScreen() {
 
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -371,8 +399,9 @@ export default function ChangePhoneScreen() {
                                         label="New Phone Number"
                                         icon="phone"
                                         value={newPhone}
-                                        onChangeText={(t) => { setNewPhone(t); setNewPhoneError(''); }}
+                                        onChangeText={handlePhoneChange}
                                         keyboardType="phone-pad"
+                                        placeholder="+639XXXXXXXXX"
                                         backgroundColor={colors.surface}
                                     />
                                     {!!newPhoneError && (
@@ -638,12 +667,21 @@ export default function ChangePhoneScreen() {
                             {isLoading ? (
                                 <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 20 }} />
                             ) : (
-                                <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-                                    <Text style={[textStyles.body, { color: colors.textGrey }]}>Didn't receive code? </Text>
-                                    <TouchableOpacity disabled={timer > 0} onPress={sendNewPhoneOtp}>
-                                        <Text style={[textStyles.label, { color: timer > 0 ? colors.textGrey : colors.primary }]}>
-                                            {timer > 0 ? `Resend in ${timer}s` : 'Resend Code'}
-                                        </Text>
+                                <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 12 }}>
+                                        <Text style={[textStyles.body, { color: colors.textGrey }]}>Didn't receive code? </Text>
+                                        <TouchableOpacity disabled={timer > 0} onPress={sendNewPhoneOtp}>
+                                            <Text style={[textStyles.label, { color: timer > 0 ? colors.textGrey : colors.primary }]}>
+                                                {timer > 0 ? `Resend in ${timer}s` : 'Resend Code'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={{ paddingVertical: 6 }}
+                                        onPress={handleBack}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[textStyles.label, { color: colors.primary }]}>Change phone number</Text>
                                     </TouchableOpacity>
                                 </View>
                             )}
@@ -659,6 +697,6 @@ export default function ChangePhoneScreen() {
                 type={snackbarType}
                 onDismiss={() => setSnackbarVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

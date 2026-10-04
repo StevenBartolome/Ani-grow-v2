@@ -1,11 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useState, useEffect, useCallback } from 'react';
-import { ActivityIndicator, ScrollView, TouchableOpacity, View, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ActivityIndicator, Animated, Platform, ScrollView, TouchableOpacity, View, RefreshControl } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -32,8 +32,134 @@ const ANIMAL_IMAGES: Record<string, any> = {
     chicken: require('../../assets/images/animals/chickens.png'),
 };
 
-export default function AnimalsScreen() {
+const HousingCard = ({
+    housing,
+    index = 0,
+    shouldAnimate = false,
+    pigColor,
+    chickenColor,
+    onPress,
+}: {
+    housing: HousingSummary;
+    index?: number;
+    shouldAnimate?: boolean;
+    pigColor: string;
+    chickenColor: string;
+    onPress: () => void;
+}) => {
     const { colors } = useTheme();
+    const textStyles = useTextStyles();
+    const styles = useAnimalStyles();
+
+    const isPig = housing.animal_type === 'pig';
+    const accent = isPig ? pigColor : chickenColor;
+    const bgColor = accent + '1A';
+    const imgSrc = ANIMAL_IMAGES[housing.animal_type];
+
+    const fadeAnim = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
+    const translateYAnim = useRef(new Animated.Value(shouldAnimate ? 12 : 0)).current;
+
+    useEffect(() => {
+        if (!shouldAnimate) {
+            fadeAnim.setValue(1);
+            translateYAnim.setValue(0);
+            return;
+        }
+
+        fadeAnim.setValue(0);
+        translateYAnim.setValue(12);
+
+        const delay = Math.min(index * 40, 240);
+        const timer = setTimeout(() => {
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.spring(translateYAnim, {
+                    toValue: 0,
+                    damping: 18,
+                    stiffness: 220,
+                    mass: 0.8,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }, delay);
+
+        return () => clearTimeout(timer);
+    }, [shouldAnimate, housing.id]);
+
+    return (
+        <Animated.View
+            style={{
+                width: '100%',
+                opacity: fadeAnim,
+                transform: [{ translateY: translateYAnim }],
+            }}
+        >
+            <TouchableOpacity
+                activeOpacity={0.7}
+                style={[
+                    styles.deviceCard,
+                    {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.stroke,
+                        padding: 0,
+                        overflow: 'hidden',
+                        width: '100%',
+                        marginBottom: 12,
+                        flexDirection: 'row',
+                        alignItems: 'stretch',
+                    },
+                ]}
+                onPress={onPress}
+            >
+                <Image
+                    source={imgSrc}
+                    style={{ width: 110, height: 'auto', minHeight: 110, backgroundColor: bgColor }}
+                    contentFit="cover"
+                />
+                <View style={{ flex: 1, padding: 14, justifyContent: 'center' }}>
+                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 17, marginBottom: 6 }]}>
+                        {housing.name}
+                    </Text>
+                    <View style={{ gap: 4 }}>
+                        {housing.active_batch_name ? (
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                Live heads:{' '}
+                                <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
+                                    {housing.current_count}
+                                    {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
+                                </Text>
+                            </Text>
+                        ) : (
+                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
+                                No batch yet
+                            </Text>
+                        )}
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                            <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+                                <Text style={{ color: accent, fontSize: 11, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }}>
+                                    {isPig ? 'Pigs' : 'Chickens'}
+                                </Text>
+                            </View>
+                        </View>
+                    </View>
+                </View>
+                <View style={{ justifyContent: 'center', paddingRight: 12 }}>
+                    <MaterialIcons name="chevron-right" size={24} color={colors.textGrey} />
+                </View>
+            </TouchableOpacity>
+        </Animated.View>
+    );
+};
+
+export default function AnimalsScreen() {
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
+    const { colors, isDark } = useTheme();
     const textStyles = useTextStyles();
     const styles = useAnimalStyles();
     const router = useRouter();
@@ -54,7 +180,24 @@ export default function AnimalsScreen() {
     }, [authLoading, role, permissions]);
 
     const [housings, setHousings] = useState<HousingSummary[]>([]);
+    const [completedBatchCount, setCompletedBatchCount] = useState<number>(0);
     const [isLoading, setIsLoading] = useState(true);
+    const [shouldAnimateCards, setShouldAnimateCards] = useState(false);
+    const hasInitialAnimatedRef = useRef(false);
+
+    useEffect(() => {
+        if (!farmId) return;
+        supabase
+            .from('batches')
+            .select('*', { count: 'exact', head: true })
+            .eq('farm_id', farmId)
+            .eq('status', 'completed')
+            .then(({ count, error }) => {
+                if (!error && typeof count === 'number') {
+                    setCompletedBatchCount(count);
+                }
+            });
+    }, [farmId]);
 
     const calculateAge = (arrivalDateStr: string | null, ageAtArrivalDays: number, animalType: 'chicken' | 'pig') => {
         if (!arrivalDateStr) return '';
@@ -85,11 +228,12 @@ export default function AnimalsScreen() {
     };
 
     const [refreshing, setRefreshing] = useState(false);
+    const housingsLoadedRef = React.useRef(false);
 
     const fetchHousings = useCallback(async (isRefresh = false) => {
         if (!farmId) { setIsLoading(false); return; }
         if (isRefresh) setRefreshing(true);
-        else setIsLoading(true);
+        else if (!housingsLoadedRef.current) setIsLoading(true);
         try {
             // Fetch housings + their active batch (if any) in one query
             const { data, error } = await supabase
@@ -132,6 +276,14 @@ export default function AnimalsScreen() {
                 };
             });
             setHousings(mapped);
+            housingsLoadedRef.current = true;
+
+            // Only trigger fade-in animation on initial mount or manual pull-to-refresh
+            if (!hasInitialAnimatedRef.current || isRefresh) {
+                hasInitialAnimatedRef.current = true;
+                setShouldAnimateCards(true);
+                setTimeout(() => setShouldAnimateCards(false), 600);
+            }
         } catch (err) {
             console.error('[AnimalsScreen] fetch error:', err);
         } finally {
@@ -142,15 +294,23 @@ export default function AnimalsScreen() {
 
     useFocusEffect(
         useCallback(() => {
-            fetchHousings();
+            fetchHousings(false);
         }, [fetchHousings])
     );
 
     useEffect(() => {
         if (!farmId) return;
 
+        let debounceTimer: any = null;
+        const triggerSync = () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                fetchHousings(false);
+            }, 300);
+        };
+
         const channel = supabase
-            .channel(`animals-live-${farmId}`)
+            .channel(`animals-live-${farmId}-${Date.now()}`)
             .on(
                 'postgres_changes',
                 {
@@ -159,9 +319,7 @@ export default function AnimalsScreen() {
                     table: 'housings',
                     filter: `farm_id=eq.${farmId}`
                 },
-                () => {
-                    fetchHousings();
-                }
+                triggerSync
             )
             .on(
                 'postgres_changes',
@@ -171,13 +329,12 @@ export default function AnimalsScreen() {
                     table: 'batches',
                     filter: `farm_id=eq.${farmId}`
                 },
-                () => {
-                    fetchHousings();
-                }
+                triggerSync
             )
             .subscribe();
 
         return () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
             supabase.removeChannel(channel);
         };
     }, [farmId, fetchHousings]);
@@ -186,15 +343,15 @@ export default function AnimalsScreen() {
     const chickenColor = (colors as any).chicken ?? '#F1C40F';
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.container}>
                 {/* Header */}
                 <Header />
 
-                <View style={styles.headerContainer}>
+                <View style={[styles.headerContainer, { marginBottom: 14 }]}>
                     <View style={styles.headerTextContainer}>
-                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 32 }]}>Animals</Text>
-                        <Text style={[textStyles.body, styles.headerSubtitle, { color: colors.textGrey, fontSize: 16 }]}>
+                        <Text style={[textStyles.h1, { color: colors.text, fontSize: 24, fontFamily: 'Poppins-Bold' }]}>Animals</Text>
+                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13, marginTop: 2, fontFamily: 'Poppins-Regular' }]}>
                             Track livestock head counts by housing
                         </Text>
                     </View>
@@ -213,6 +370,126 @@ export default function AnimalsScreen() {
                         />
                     }
                 >
+                    {/* Quick Actions Feature Cards: Target Weights & Batch History */}
+                    <View style={{
+                        paddingHorizontal: (styles.sectionTitleRow as any)?.paddingHorizontal ?? 20,
+                        marginBottom: 18,
+                        flexDirection: 'row',
+                        gap: 12,
+                    }}>
+                        {/* Target Weights */}
+                        <TouchableOpacity
+                            activeOpacity={0.75}
+                            style={{
+                                flex: 1,
+                                backgroundColor: colors.surface,
+                                borderColor: colors.stroke,
+                                borderWidth: 1.5,
+                                borderRadius: 16,
+                                padding: 14,
+                                minHeight: 128,
+                                justifyContent: 'space-between',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: isDark ? 0.25 : 0.04,
+                                shadowRadius: 6,
+                                elevation: 2,
+                            }}
+                            onPress={() => router.push('/(animals)/TargetWeightScreen' as any)}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+                                <View style={{
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: 12,
+                                    backgroundColor: colors.primary + '18',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}>
+                                    <MaterialIcons name="scale" size={20} color={colors.primary} />
+                                </View>
+                                <View style={{ backgroundColor: colors.primary + '1F', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
+                                    <Text style={{ color: colors.primary, fontSize: 10, fontFamily: 'Poppins-Bold' }}>AUTO</Text>
+                                </View>
+                            </View>
+                            <View style={{ marginTop: 8 }}>
+                                <Text
+                                    style={[textStyles.h3, { color: colors.text, fontSize: 14, fontFamily: 'Poppins-Bold', lineHeight: 18 }]}
+                                    numberOfLines={2}
+                                    adjustsFontSizeToFit
+                                >
+                                    Target Weights
+                                </Text>
+                                <Text
+                                    style={{ color: colors.textGrey, fontSize: 11.5, fontFamily: 'Poppins-Regular', marginTop: 2, lineHeight: 15 }}
+                                    numberOfLines={2}
+                                >
+                                    Weekly growth ranges
+                                </Text>
+                            </View>
+                        </TouchableOpacity>
+
+                        {/* Batch History */}
+                        <TouchableOpacity
+                            activeOpacity={0.75}
+                            style={{
+                                flex: 1,
+                                backgroundColor: colors.surface,
+                                borderColor: colors.stroke,
+                                borderWidth: 1.5,
+                                borderRadius: 16,
+                                padding: 14,
+                                minHeight: 128,
+                                justifyContent: 'space-between',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: isDark ? 0.25 : 0.04,
+                                shadowRadius: 6,
+                                elevation: 2,
+                            }}
+                            onPress={() => router.push('/(animals)/BatchHistoryScreen' as any)}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+                                <View style={{
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: 12,
+                                    backgroundColor: '#10B98118',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}>
+                                    <MaterialIcons name="history" size={20} color="#10B981" />
+                                </View>
+                                {completedBatchCount > 0 ? (
+                                    <View style={{ backgroundColor: '#10B9811F', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
+                                        <Text style={{ color: '#10B981', fontSize: 10, fontFamily: 'Poppins-Bold' }}>
+                                            {completedBatchCount} {completedBatchCount === 1 ? 'BATCH' : 'BATCHES'}
+                                        </Text>
+                                    </View>
+                                ) : (
+                                    <View style={{ backgroundColor: colors.cardFill || colors.stroke + '40', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
+                                        <Text style={{ color: colors.textGrey, fontSize: 10, fontFamily: 'Poppins-Medium' }}>ARCHIVE</Text>
+                                    </View>
+                                )}
+                            </View>
+                            <View style={{ marginTop: 8 }}>
+                                <Text
+                                    style={[textStyles.h3, { color: colors.text, fontSize: 14, fontFamily: 'Poppins-Bold', lineHeight: 18 }]}
+                                    numberOfLines={2}
+                                    adjustsFontSizeToFit
+                                >
+                                    Batch History
+                                </Text>
+                                <Text
+                                    style={{ color: colors.textGrey, fontSize: 11.5, fontFamily: 'Poppins-Regular', marginTop: 2, lineHeight: 15 }}
+                                    numberOfLines={2}
+                                >
+                                    Completed cycles
+                                </Text>
+                            </View>
+                        </TouchableOpacity>
+                    </View>
+
                     <View style={[styles.sectionTitleRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }]}>
                         <View>
                             <Text style={[textStyles.h2, { color: colors.text, fontSize: 20 }]}>Housings</Text>
@@ -245,7 +522,7 @@ export default function AnimalsScreen() {
                     </View>
 
                     <View style={styles.gridContainer}>
-                        {isLoading ? (
+                        {isLoading && housings.length === 0 ? (
                             <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 32, width: '100%' }} />
                         ) : housings.length === 0 ? (
                             <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', paddingVertical: 48, paddingHorizontal: 24, marginTop: 24 }}>
@@ -278,58 +555,20 @@ export default function AnimalsScreen() {
                                 </TouchableOpacity>
                             </View>
                         ) : (
-                            housings.map(housing => {
-                                const isPig = housing.animal_type === 'pig';
-                                const accent = isPig ? pigColor : chickenColor;
-                                const bgColor = accent + '1A';
-                                const imgSrc = ANIMAL_IMAGES[housing.animal_type];
-
-                                return (
-                                    <TouchableOpacity
-                                        key={housing.id}
-                                        activeOpacity={0.7}
-                                        style={[
-                                            styles.deviceCard,
-                                            { backgroundColor: colors.surface, borderColor: colors.stroke, padding: 0, overflow: 'hidden', width: '100%', marginBottom: 12, flexDirection: 'row', alignItems: 'stretch' }
-                                        ]}
-                                        onPress={() => router.push({
-                                            pathname: '/(animals)/AnimalDetails',
-                                            params: { housingId: housing.id },
-                                        })}
-                                    >
-                                        <Image
-                                            source={imgSrc}
-                                            style={{ width: 110, height: 'auto', minHeight: 110, backgroundColor: bgColor }}
-                                            contentFit="cover"
-                                        />
-                                        <View style={{ flex: 1, padding: 14, justifyContent: 'center' }}>
-                                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 17, marginBottom: 6 }]}>
-                                                {housing.name}
-                                            </Text>
-                                            <View style={{ gap: 4 }}>
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 13 }]}>
-                                                    Live heads:{' '}
-                                                    <Text style={{ color: colors.text, fontFamily: 'Poppins-SemiBold' }}>
-                                                        {housing.current_count}
-                                                        {housing.capacity > 0 ? ` / ${housing.capacity}` : ''}
-                                                    </Text>
-                                                </Text>
-
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                                                    <View style={{ backgroundColor: accent + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
-                                                        <Text style={{ color: accent, fontSize: 11, fontFamily: 'Poppins-SemiBold', textTransform: 'capitalize' }}>
-                                                            {isPig ? 'Pigs' : 'Chickens'}
-                                                        </Text>
-                                                    </View>
-                                                </View>
-                                            </View>
-                                        </View>
-                                        <View style={{ justifyContent: 'center', paddingRight: 12 }}>
-                                            <MaterialIcons name="chevron-right" size={24} color={colors.textGrey} />
-                                        </View>
-                                    </TouchableOpacity>
-                                );
-                            })
+                            housings.map((housing, idx) => (
+                                <HousingCard
+                                    key={housing.id}
+                                    housing={housing}
+                                    index={idx}
+                                    shouldAnimate={shouldAnimateCards}
+                                    pigColor={pigColor}
+                                    chickenColor={chickenColor}
+                                    onPress={() => router.push({
+                                        pathname: '/(animals)/AnimalDetails',
+                                        params: { housingId: housing.id },
+                                    })}
+                                />
+                            ))
                         )}
                     </View>
 
@@ -338,7 +577,7 @@ export default function AnimalsScreen() {
             </View>
 
             <FloatingNavBar />
-        </SafeAreaView>
+        </View>
     );
 }
 

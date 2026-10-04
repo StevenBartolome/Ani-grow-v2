@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Modal } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
@@ -11,14 +11,20 @@ import { BackButton } from '@/components/BackButton';
 import FloatingLabelInput from '@/components/FloatingLabelInput';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
 import { useDevicesStyles } from '@/styles/devicesStyles';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
+import { DeviceIcon } from '@/components/DeviceIcon';
 import { supabase } from '@/lib/supabase';
 
 type DeviceType = 'AniFeed' | 'AniWeigh' | null;
 
 export default function AddDeviceScreen() {
-    const { colors } = useTheme();
+    const { colors, language } = useTheme();
+    const isFilipino = language === 'fil';
     const textStyles = useTextStyles();
     const styles = useDevicesStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const router = useRouter();
 
     // When opened from an existing device's cloud icon, these params are passed
@@ -37,6 +43,7 @@ export default function AddDeviceScreen() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSendingConfig, setIsSendingConfig] = useState(false);
     const [hardwareDeviceId, setHardwareDeviceId] = useState<string | null>(null);
+    const [helpModalVisible, setHelpModalVisible] = useState(false);
     // After /save succeeds the phone is still on the ESP hotspot (no internet).
     // We park here and wait for the user to switch back before calling Supabase.
     const [waitingReconnect, setWaitingReconnect] = useState(false);
@@ -189,7 +196,7 @@ export default function AddDeviceScreen() {
     };
 
     return (
-        <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgLight }]}>
+        <View style={[styles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
             <View style={styles.headerTopRow}>
                 <View style={{ width: 44, height: 44 }}>
@@ -206,12 +213,33 @@ export default function AddDeviceScreen() {
                         }
                     }} />
                 </View>
-                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>
+                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, textAlign: 'center', flex: 1 }]}>
                     {isExistingDevice
                         ? (step === 2 ? `Connect ${existingName}` : step === 3 ? `Setup ${existingName}` : `${existingName}`)
                         : (step === 1 ? 'Add New Device' : step === 2 ? `Connect to ${selectedType}` : step === 3 ? `Setup ${selectedType}` : 'Name Device')}
                 </Text>
-                <View style={{ width: 44, height: 44 }} />
+                <TouchableOpacity
+                    style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 22,
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: colors.stroke,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        elevation: 2,
+                        shadowColor: colors.text,
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.08,
+                        shadowRadius: 3,
+                    }}
+                    onPress={() => setHelpModalVisible(true)}
+                    activeOpacity={0.8}
+                    accessibilityLabel="Connection Guide & Help"
+                >
+                    <MaterialIcons name="help-outline" size={22} color={colors.primary} />
+                </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
@@ -237,7 +265,7 @@ export default function AddDeviceScreen() {
                                 onPress={() => setSelectedType('AniFeed')}
                             >
                                 <View style={[styles.iconBox, { backgroundColor: colors.secondary + '1A' }]}>
-                                    <MaterialIcons name="grain" size={32} color={colors.secondary} />
+                                    <AniFeedIcon size={32} />
                                 </View>
                                 <View style={styles.optionTextContainer}>
                                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 4 }]}>AniFeed</Text>
@@ -258,7 +286,7 @@ export default function AddDeviceScreen() {
                                 onPress={() => setSelectedType('AniWeigh')}
                             >
                                 <View style={[styles.iconBox, { backgroundColor: colors.smartScale + '1A' }]}>
-                                    <MaterialIcons name="monitor-weight" size={32} color={colors.smartScale} />
+                                    <AniWeighIcon size={32} />
                                 </View>
                                 <View style={styles.optionTextContainer}>
                                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 4 }]}>AniWeigh</Text>
@@ -280,10 +308,9 @@ export default function AddDeviceScreen() {
                             backgroundColor: selectedType === 'AniWeigh' ? colors.smartScale + '1A' : colors.secondary + '1A',
                             paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, marginBottom: 20,
                         }}>
-                            <MaterialIcons
-                                name={selectedType === 'AniWeigh' ? 'monitor-weight' : 'grain'}
+                            <DeviceIcon
+                                type={selectedType}
                                 size={16}
-                                color={selectedType === 'AniWeigh' ? colors.smartScale : colors.secondary}
                             />
                             <Text style={[textStyles.label, { color: selectedType === 'AniWeigh' ? colors.smartScale : colors.secondary, fontSize: 13 }]}>
                                 {selectedType ?? 'Device'}
@@ -515,12 +542,284 @@ export default function AddDeviceScreen() {
                 </View>
             )}
 
+            {/* Connection Guide & Tutorial Modal */}
+            <Modal
+                visible={helpModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setHelpModalVisible(false)}
+            >
+                <View style={{
+                    flex: 1,
+                    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    paddingHorizontal: 20,
+                    paddingVertical: 32,
+                }}>
+                    <View style={{
+                        width: '100%',
+                        maxWidth: 480,
+                        maxHeight: '90%',
+                        backgroundColor: colors.surface,
+                        borderRadius: 24,
+                        borderWidth: 1.5,
+                        borderColor: colors.stroke,
+                        overflow: 'hidden',
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 8 },
+                        shadowOpacity: 0.15,
+                        shadowRadius: 16,
+                        elevation: 8,
+                    }}>
+                        {/* Modal Header */}
+                        <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            paddingHorizontal: 20,
+                            paddingTop: 18,
+                            paddingBottom: 14,
+                            borderBottomWidth: 1,
+                            borderBottomColor: colors.stroke,
+                            backgroundColor: colors.surface,
+                        }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                                <View style={{
+                                    width: 40,
+                                    height: 40,
+                                    borderRadius: 12,
+                                    backgroundColor: colors.primary + '18',
+                                    borderWidth: 1,
+                                    borderColor: colors.primary + '30',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}>
+                                    <MaterialIcons name="wifi-tethering" size={22} color={colors.primary} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 16 }]}>
+                                        {isFilipino ? 'Gabay sa Pagkonekta' : 'Device Connection Guide'}
+                                    </Text>
+                                    <Text style={[textStyles.label, { color: colors.primary, fontSize: 11 }]}>
+                                        {isFilipino ? 'Hakbang-hakbang na Gabay sa Wi-Fi' : 'Step-by-step Hardware Wi-Fi Setup'}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <TouchableOpacity
+                                onPress={() => setHelpModalVisible(false)}
+                                style={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: 18,
+                                    backgroundColor: colors.bgLight,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <MaterialIcons name="close" size={20} color={colors.text} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Modal Scrollable Tutorial Content */}
+                        <ScrollView
+                            style={{ maxHeight: 460 }}
+                            contentContainerStyle={{ padding: 20, gap: 14 }}
+                            showsVerticalScrollIndicator={false}
+                        >
+                            {/* Step 1 */}
+                            <View style={{
+                                flexDirection: 'row',
+                                gap: 12,
+                                backgroundColor: colors.bgLight,
+                                padding: 14,
+                                borderRadius: 14,
+                                borderWidth: 1,
+                                borderColor: colors.stroke,
+                            }}>
+                                <View style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    backgroundColor: colors.primary,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}>
+                                    <Text style={{ color: '#FFFFFF', fontFamily: 'Poppins-Bold', fontSize: 13 }}>1</Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, marginBottom: 2 }]}>
+                                        {isFilipino ? 'Buhayin ang Hardware Device' : 'Power On the Hardware Device'}
+                                    </Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, lineHeight: 18 }]}>
+                                        {isFilipino
+                                            ? 'Isaksak ang kuryente ng AniFeed o AniWeigh unit. Tiyaking umiilaw o kumikislap ang LED indicator sa microcontroller board (Setup mode).'
+                                            : 'Plug in or switch on your AniFeed or AniWeigh unit. Ensure the status LED on the microcontroller board is active (Setup mode).'}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {/* Step 2 */}
+                            <View style={{
+                                flexDirection: 'row',
+                                gap: 12,
+                                backgroundColor: colors.bgLight,
+                                padding: 14,
+                                borderRadius: 14,
+                                borderWidth: 1,
+                                borderColor: colors.stroke,
+                            }}>
+                                <View style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    backgroundColor: colors.primary,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}>
+                                    <Text style={{ color: '#FFFFFF', fontFamily: 'Poppins-Bold', fontSize: 13 }}>2</Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, marginBottom: 2 }]}>
+                                        {isFilipino ? 'Sumali sa AniGrow Setup Hotspot' : 'Connect to the AniGrow Setup Hotspot'}
+                                    </Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, lineHeight: 18 }]}>
+                                        {isFilipino
+                                            ? 'Pumunta sa Wi-Fi Settings ng iyong cellphone at kumonekta sa network na may pangalang "AniGrow_Setup_XXXX" (Walang password).'
+                                            : 'Open your phone\'s Wi-Fi Settings and connect to the network broadcasting "AniGrow_Setup_XXXX" (No password required).'}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {/* Step 3 */}
+                            <View style={{
+                                flexDirection: 'row',
+                                gap: 12,
+                                backgroundColor: colors.bgLight,
+                                padding: 14,
+                                borderRadius: 14,
+                                borderWidth: 1,
+                                borderColor: colors.stroke,
+                            }}>
+                                <View style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    backgroundColor: colors.primary,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}>
+                                    <Text style={{ color: '#FFFFFF', fontFamily: 'Poppins-Bold', fontSize: 13 }}>3</Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, marginBottom: 2 }]}>
+                                        {isFilipino ? 'Ipasok ang Farm Wi-Fi Credentials' : 'Enter Your Farm Wi-Fi Details'}
+                                    </Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, lineHeight: 18 }]}>
+                                        {isFilipino
+                                            ? 'Bumalik sa Ani-Grow app. Ilagay ang Wi-Fi Name (SSID) at Password ng inyong sakahan (2.4 GHz network) at pindutin ang "Connect Device".'
+                                            : 'Return to this app. Input your local farm Wi-Fi name (SSID) and password (must be 2.4 GHz), then tap "Connect Device".'}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {/* Step 4 */}
+                            <View style={{
+                                flexDirection: 'row',
+                                gap: 12,
+                                backgroundColor: colors.bgLight,
+                                padding: 14,
+                                borderRadius: 14,
+                                borderWidth: 1,
+                                borderColor: colors.stroke,
+                            }}>
+                                <View style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    backgroundColor: colors.primary,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}>
+                                    <Text style={{ color: '#FFFFFF', fontFamily: 'Poppins-Bold', fontSize: 13 }}>4</Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 14, marginBottom: 2 }]}>
+                                        {isFilipino ? 'Bumalik sa Regular Wi-Fi' : 'Switch Phone Back & Verify'}
+                                    </Text>
+                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, lineHeight: 18 }]}>
+                                        {isFilipino
+                                            ? 'Ibalik ang Wi-Fi ng iyong cellphone sa inyong farm Wi-Fi. Magiging berde (Online) ang estado ng device sa app!'
+                                            : 'Reconnect your phone to your regular farm Wi-Fi with internet. The device status will automatically update to green (Online)!'}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {/* Helpful Tips Box */}
+                            <View style={{
+                                backgroundColor: '#FEF3C7',
+                                borderWidth: 1,
+                                borderColor: '#FDE68A',
+                                borderRadius: 14,
+                                padding: 14,
+                                gap: 6,
+                            }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    <MaterialIcons name="lightbulb" size={18} color="#D97706" />
+                                    <Text style={[textStyles.h3, { color: '#92400E', fontSize: 13 }]}>
+                                        {isFilipino ? 'Mahahalagang Paalala' : 'Pro-Tips for Seamless Pairing'}
+                                    </Text>
+                                </View>
+                                <Text style={[textStyles.body, { color: '#78350F', fontSize: 11.5, lineHeight: 17 }]}>
+                                    {isFilipino
+                                        ? '• Tiyaking 2.4 GHz ang Wi-Fi (hindi suportado ang 5 GHz).\n• Pansamantalang i-off ang Mobile Data sa cellphone habang nagpapares.\n• Manatiling malapit sa device (1–3 metro) habang nagseset-up.'
+                                        : '• Ensure you are using a 2.4 GHz Wi-Fi network (5 GHz is not supported by microcontrollers).\n• Temporarily turn OFF Mobile/Cellular Data on your phone during setup.\n• Stay within 1–3 meters of the device during the pairing process.'}
+                                </Text>
+                            </View>
+                        </ScrollView>
+
+                        {/* Modal Footer */}
+                        <View style={{
+                            paddingHorizontal: 20,
+                            paddingVertical: 14,
+                            borderTopWidth: 1,
+                            borderTopColor: colors.stroke,
+                            backgroundColor: colors.surface,
+                        }}>
+                            <TouchableOpacity
+                                style={{
+                                    backgroundColor: colors.primary,
+                                    paddingVertical: 12,
+                                    borderRadius: 12,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}
+                                onPress={() => setHelpModalVisible(false)}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={[textStyles.btnLabel, { color: '#FFFFFF', fontSize: 14 }]}>
+                                    {isFilipino ? 'Naintindihan' : 'Got It'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
             <Snackbar
                 visible={snackbarVisible}
                 message={snackbarMessage}
                 type={snackbarType}
                 onDismiss={() => setSnackbarVisible(false)}
             />
-        </SafeAreaView>
+        </View>
     );
 }

@@ -302,7 +302,7 @@ export default function SetupAccountScreen() {
                 farm_id: inviteCodeData.farm_id,
                 role: inviteCodeData.role,
                 permissions: inviteCodeData.permissions,
-                status: 'active',
+                status: 'Active',
                 updated_at: new Date().toISOString(),
             };
 
@@ -613,6 +613,20 @@ export default function SetupAccountScreen() {
                                                     <MaterialIcons name="check" size={20} color="#FFF" />
                                                 </View>
                                             )}
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            style={{ alignSelf: 'center', marginTop: 16, padding: 8 }}
+                                            onPress={() => {
+                                                setIsOtpSent(false);
+                                                setOtpCode('');
+                                                setOtpError('');
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={{ color: colors.primary, fontFamily: 'Poppins-Medium', fontSize: 13 }}>
+                                                Incorrect phone number? Edit Details
+                                            </Text>
                                         </TouchableOpacity>
                                     </>
                                 )}

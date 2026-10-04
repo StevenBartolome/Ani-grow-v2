@@ -47,6 +47,7 @@ interface FarmFilterContextType {
     clearAll: () => void;
     switchToFarm: (id: string) => void;   // select ONLY this farm (used from FarmsScreen)
     addManagedFarm: (farm: ManagedFarm) => void; // called after creating a new farm
+    refreshFarms: () => Promise<void>;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -63,6 +64,7 @@ const FarmFilterContext = createContext<FarmFilterContextType>({
     clearAll: () => {},
     switchToFarm: () => {},
     addManagedFarm: () => {},
+    refreshFarms: async () => {},
 });
 
 export const useFarmFilter = () => useContext(FarmFilterContext);
@@ -258,7 +260,8 @@ export const FarmFilterProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         clearAll,
         switchToFarm,
         addManagedFarm,
-    }), [managedFarms, selectedFarmIds, activeFarmIds, isFarmAdmin, isMultiFarm, isLoaded, toggleFarm, selectAll, clearAll, switchToFarm, addManagedFarm]);
+        refreshFarms: loadFarms,
+    }), [managedFarms, selectedFarmIds, activeFarmIds, isFarmAdmin, isMultiFarm, isLoaded, toggleFarm, selectAll, clearAll, switchToFarm, addManagedFarm, loadFarms]);
 
     return (
         <FarmFilterContext.Provider value={value}>

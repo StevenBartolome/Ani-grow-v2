@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -13,8 +14,10 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '@/components/BackButton';
+import { AniFeedIcon } from '@/components/AniFeedIcon';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { Text } from '@/components/Text';
 import { useTextStyles } from '@/constants/textStyles';
 import { useAuth } from '@/context/AuthContext';
@@ -222,11 +225,19 @@ function PermissionCategoryRow({ category, permissions, onBatchChange, onToggle,
                     backgroundColor: activeCount > 0 ? colors.primary + '0D' : colors.bgLight,
                 }}
             >
-                <MaterialIcons
-                    name={category.icon as any}
-                    size={20}
-                    color={activeCount > 0 ? colors.primary : colors.textGrey}
-                />
+                {category.icon === 'pets' ? (
+                    <Image
+                        source={require('../../assets/icons/animals-filled.svg')}
+                        style={{ width: 20, height: 20 }}
+                        contentFit="contain"
+                    />
+                ) : (
+                    <MaterialIcons
+                        name={category.icon as any}
+                        size={20}
+                        color={activeCount > 0 ? colors.primary : colors.textGrey}
+                    />
+                )}
                 <Text style={{
                     flex: 1, fontFamily: 'Poppins-SemiBold', fontSize: 14,
                     color: activeCount > 0 ? colors.text : colors.textGrey,
@@ -275,7 +286,13 @@ function PermissionCategoryRow({ category, permissions, onBatchChange, onToggle,
                                     backgroundColor: active ? colors.primary + '06' : 'transparent',
                                 }}
                             >
-                                <MaterialIcons name={p.icon as any} size={17} color={active ? colors.primary : colors.textGrey} />
+                                {p.key === 'aniweigh:control' ? (
+                                    <AniWeighIcon size={17} />
+                                ) : p.key === 'anifeed:dispense' ? (
+                                    <AniFeedIcon size={17} />
+                                ) : (
+                                    <MaterialIcons name={p.icon as any} size={17} color={active ? colors.primary : colors.textGrey} />
+                                )}
                                 <Text style={{
                                     flex: 1, fontFamily: 'Poppins-Medium', fontSize: 13,
                                     color: active ? colors.text : colors.textGrey,
@@ -303,6 +320,8 @@ function PermissionCategoryRow({ category, permissions, onBatchChange, onToggle,
 export default function InviteCodesScreen() {
     const { colors }    = useTheme();
     const textStyles    = useTextStyles();
+    const insets        = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { profile }   = useAuth();
     const farmId        = (profile as any)?.farm_id;
     const userId        = (profile as any)?.id;
@@ -465,7 +484,15 @@ export default function InviteCodesScreen() {
                             paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100,
                             backgroundColor: colors.bgLight, borderWidth: 1, borderColor: colors.stroke,
                         }}>
-                            <MaterialIcons name={cat.icon as any} size={11} color={colors.textGrey} />
+                            {cat.icon === 'pets' ? (
+                                <Image
+                                    source={require('../../assets/icons/animals-filled.svg')}
+                                    style={{ width: 11, height: 11 }}
+                                    contentFit="contain"
+                                />
+                            ) : (
+                                <MaterialIcons name={cat.icon as any} size={11} color={colors.textGrey} />
+                            )}
                             <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>
                                 {cat.shortLabel} {cat.activeCount}/{cat.permissions.length}
                             </Text>
@@ -505,12 +532,11 @@ export default function InviteCodesScreen() {
     const expiredCodes = codes.filter(c => c.status === 'expired');
 
     return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bgLight }}>
+        <View style={{ flex: 1, backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }}>
             {/* Header */}
             <View style={{
                 flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                 paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16,
-                backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.stroke,
             }}>
                 <View style={{ width: 44, height: 44 }}>
                     <BackButton fallbackRoute="/(dashboard)/HomeScreen" />
@@ -665,6 +691,6 @@ export default function InviteCodesScreen() {
                     </Animated.View>
                 </View>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 }

@@ -31,9 +31,6 @@ export const useSettingsStyles = () => {
             paddingHorizontal: hPad,
             paddingTop: 16,
             paddingBottom: 16,
-            backgroundColor: colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.stroke,
         },
 
         // ─── Profile ────────────────────────────────────────────────────────────

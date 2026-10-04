@@ -1,11 +1,12 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
+import { AniWeighIcon } from '@/components/AniWeighIcon';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAniWeighStyles } from '@/styles/aniweighStyles';
@@ -39,11 +40,14 @@ export default function SegregationRecordsScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
     const styles = useAniWeighStyles();
+    const insets = useSafeAreaInsets();
+    const isAndroid3ButtonNav = Platform.OS === 'android' && insets.bottom > 20;
     const { deviceId } = useLocalSearchParams();
 
     const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
     const [stats, setStats] = useState<SegregationStat[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [dateRangeLabel, setDateRangeLabel] = useState('—');
 
     const toggleCard = (id: string) => {
@@ -58,6 +62,7 @@ export default function SegregationRecordsScreen() {
                 .from('weigh_sessions')
                 .select('id, status, recorded_at')
                 .eq('device_id', deviceId as string)
+                .neq('status', 'invalid')  // ghost/test readings marked invalid, not deleted — see migration_006
                 .order('recorded_at', { ascending: false })
                 .limit(500);
             if (error) throw error;
@@ -121,6 +126,12 @@ export default function SegregationRecordsScreen() {
 
     useEffect(() => { fetchRecords(); }, [fetchRecords]);
 
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await fetchRecords();
+        setRefreshing(false);
+    }, [fetchRecords]);
+
     const renderStatsCard = (stat: SegregationStat) => {
         const isExpanded = !!expandedCards[stat.id];
         return (
@@ -172,7 +183,7 @@ export default function SegregationRecordsScreen() {
     };
 
     return (
-        <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgLight }]}>
+        <View style={[styles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             <View style={styles.header}>
                 <View style={{ width: 44, height: 44 }}>
                     <BackButton fallbackRoute="/(devices)/DevicesScreen" />
@@ -189,15 +200,26 @@ export default function SegregationRecordsScreen() {
                 </View>
             </View>
 
-            <ScrollView contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
-                {loading ? (
+            <ScrollView
+                contentContainerStyle={styles.contentContainer}
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        tintColor={colors.primary}
+                        colors={[colors.primary]}
+                    />
+                }
+            >
+                {loading && !refreshing ? (
                     <View style={{ alignItems: 'center', marginTop: 40 }}>
                         <ActivityIndicator size="large" color={colors.primary} />
                         <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 12 }]}>Crunching segregation data...</Text>
                     </View>
                 ) : stats.length === 0 ? (
                     <View style={{ alignItems: 'center', marginTop: 40, paddingHorizontal: 20 }}>
-                        <MaterialIcons name="monitor-weight" size={48} color={colors.textGrey} />
+                        <AniWeighIcon size={48} />
                         <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginTop: 16 }]}>No Records Found</Text>
                         <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginTop: 8 }]}>
                             This device hasn't recorded any weigh events yet. When livestock step on the scale, their historical breakdown will appear here.
@@ -207,6 +229,6 @@ export default function SegregationRecordsScreen() {
                     stats.map(renderStatsCard)
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
