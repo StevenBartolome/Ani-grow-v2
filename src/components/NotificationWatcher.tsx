@@ -443,8 +443,8 @@ export function NotificationWatcher() {
                         }
                     }
 
-                    // Missed / Failed scheduled dispense when device is offline at scheduled time (0 to 10 minutes past time)
-                    if (diff <= 0 && diff >= -10) {
+                    // Missed / Failed scheduled dispense when device is offline at scheduled time (any past scheduled time today)
+                    if (diff <= 0) {
                         if (isOffline) {
                             const key = `feed_dispense_missed_offline_${sch.id}_${t}_${today}`;
                             if (!(await alreadyAlerted(key))) {

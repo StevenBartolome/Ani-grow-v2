@@ -595,7 +595,7 @@ export default function AniFeedScreen() {
                         animal_type: animalType.toLowerCase(),
                         feed_id: f.id,
                         times_per_day: 3, // default
-                        grams_per_dispense: 1000, // default — 1 dispense cycle (the feeder's fixed unit)
+                        grams_per_dispense: 1500, // default — 1 dispense cycle (1.5 kg fixed unit)
                         dispense_times: ['08:00', '12:00', '18:00'], // default
                         adjusted_at: new Date().toISOString(),
                     };
@@ -604,7 +604,7 @@ export default function AniFeedScreen() {
                     setSchedule({
                         id: (data as any)?.id ?? null,
                         timesPerDay: 3,
-                        gramsPerDispense: 1000,
+                        gramsPerDispense: 1500,
                         feedId: f.id,
                         batchId: selectedBatchId ?? null,
                         feedBrand: wholeFeedName,

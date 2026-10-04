@@ -130,7 +130,7 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
     const [scheduleId, setScheduleId] = useState<string | null>(null);
     const [view, setView] = useState<'schedule' | 'timePicker'>('schedule');
     const [tempTimesPerDay, setTempTimesPerDay] = useState('3');
-    const [tempGrams, setTempGrams] = useState('1000');
+    const [tempGrams, setTempGrams] = useState('1500');
     const [tempTimes, setTempTimes] = useState<string[]>([]);
 
     const [activeTimeIdx, setActiveTimeIdx] = useState<number | null>(null);
@@ -158,7 +158,7 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
             const timesPerDay = row?.times_per_day ?? 3;
             const dbTimes: string[] = row?.dispense_times ?? ['08:00', '12:00', '18:00'];
             setTempTimesPerDay(String(timesPerDay));
-            setTempGrams(String(row?.grams_per_dispense ?? 1000));
+            setTempGrams(String(row?.grams_per_dispense ?? 1500));
             setTempTimes(dbTimes.map(format24to12));
             setIsLoading(false);
         })();
@@ -183,10 +183,10 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
     };
 
     const handleSaveSchedule = async () => {
-        const timesPerDay = parseInt(tempTimesPerDay);
-        const gramsPerDispense = parseInt(tempGrams);
-        if (isNaN(timesPerDay) || isNaN(gramsPerDispense) || timesPerDay < 1 || gramsPerDispense < 1) {
-            showSnackbar('Enter valid numbers for both fields.', 'error');
+        const timesPerDay = parseInt(tempTimesPerDay, 10);
+        const gramsPerDispense = parseInt(tempGrams, 10);
+        if (isNaN(timesPerDay) || isNaN(gramsPerDispense) || timesPerDay < 1) {
+            showSnackbar('Enter valid numbers for all fields.', 'error');
             return;
         }
 
@@ -195,17 +195,20 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
             return;
         }
 
-        // The feeder's actuator only dispenses in fixed 1kg cycles — it has
-        // no way to release a partial kilo. A value like 500g or 2500g would
-        // silently come out as 1000g or 3000g on the actual hardware, so
-        // this is caught here rather than letting the mismatch reach the
-        // feeder at all.
-        if (gramsPerDispense % 1000 !== 0) {
-            showSnackbar('Amount per dispense must be a whole number of kilograms (e.g. 1000, 2000, 3000) — the feeder dispenses in fixed 1kg cycles.', 'error');
+        // AniFeed's physical actuator only dispenses in fixed 1.5kg (1500g) cycles.
+        // Minimum is 1.5kg and all amounts must be whole multiples of 1.5kg.
+        if (gramsPerDispense < 1500) {
+            showSnackbar('Minimum portion per dispense is 1,500g (1.5 kg) — AniFeed dispenses in 1.5 kg cycles.', 'error');
             return;
         }
-        if (gramsPerDispense > 10000) {
-            showSnackbar('Amount per dispense cannot exceed 10kg per scheduled time.', 'error');
+
+        if (gramsPerDispense % 1500 !== 0) {
+            showSnackbar('Amount per dispense must be a multiple of 1.5 kg (e.g. 1500g, 3000g, 4500g, 6000g) — AniFeed dispenses in fixed 1.5 kg cycles.', 'error');
+            return;
+        }
+
+        if (gramsPerDispense > 15000) {
+            showSnackbar('Amount per dispense cannot exceed 15 kg (15,000g) per scheduled time.', 'error');
             return;
         }
 
@@ -507,21 +510,54 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                     </View>
                                 </View>
 
-                                {/* 3. Grams Per Dispense */}
+                                {/* 3. Grams Per Dispense (Fixed 1.5kg increments) */}
                                 <View style={{ width: '100%', marginBottom: 14 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' }]}>
+                                            Portion Per Dispense
+                                        </Text>
+                                        <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 }}>
+                                            <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, fontWeight: '700' }]}>
+                                                {((parseInt(tempGrams, 10) || 1500) / 1000).toFixed(1)} kg / dispense
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Full-width Input */}
                                     <FloatingLabelInput
-                                        label="Grams per dispense"
+                                        label="Grams per dispense (e.g. 1500)"
                                         icon="line-weight"
                                         value={tempGrams}
                                         onChangeText={t => setTempGrams(t.replace(/[^0-9]/g, ''))}
                                         keyboardType="numeric"
+                                        containerStyle={{ marginTop: 2, marginBottom: 10 }}
                                         backgroundColor={colors.surface}
                                     />
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: 4 }]}>
-                                        Must be a whole number of kilograms — the feeder dispenses in fixed 1kg cycles.
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
-                                        {[1000, 2000, 3000, 4000].map((amount) => {
+
+                                    {/* Stepper + 1.5kg Multiples Preset Row */}
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <TouchableOpacity
+                                            style={{
+                                                width: 38,
+                                                height: 38,
+                                                borderRadius: 10,
+                                                backgroundColor: colors.cardFill,
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}
+                                            onPress={() => {
+                                                const cur = parseInt(tempGrams, 10) || 1500;
+                                                const next = Math.max(1500, cur - 1500);
+                                                setTempGrams(String(next));
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <MaterialIcons name="remove" size={18} color={colors.text} />
+                                        </TouchableOpacity>
+
+                                        {[1500, 3000, 4500, 6000].map((amount) => {
                                             const isSelected = tempGrams === String(amount);
                                             return (
                                                 <TouchableOpacity
@@ -530,8 +566,8 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                                     activeOpacity={0.7}
                                                     style={{
                                                         flex: 1,
-                                                        paddingVertical: 6,
-                                                        borderRadius: 8,
+                                                        height: 38,
+                                                        borderRadius: 10,
                                                         backgroundColor: isSelected ? colors.primary + '18' : colors.cardFill,
                                                         borderWidth: 1,
                                                         borderColor: isSelected ? colors.primary : colors.stroke,
@@ -539,30 +575,89 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                                         justifyContent: 'center',
                                                     }}
                                                 >
-                                                    <Text style={[textStyles.label, { color: isSelected ? colors.primary : colors.textGrey, fontSize: 11, fontWeight: isSelected ? '700' : '500' }]}>
-                                                        {amount}g
+                                                    <Text style={[textStyles.label, { color: isSelected ? colors.primary : colors.textGrey, fontSize: 12, fontWeight: isSelected ? '700' : '600' }]}>
+                                                        {(amount / 1000).toFixed(1)}kg
                                                     </Text>
                                                 </TouchableOpacity>
                                             );
                                         })}
+
+                                        <TouchableOpacity
+                                            style={{
+                                                width: 38,
+                                                height: 38,
+                                                borderRadius: 10,
+                                                backgroundColor: colors.cardFill,
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}
+                                            onPress={() => {
+                                                const cur = parseInt(tempGrams, 10) || 0;
+                                                const next = Math.min(15000, cur + 1500);
+                                                setTempGrams(String(next));
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <MaterialIcons name="add" size={18} color={colors.text} />
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    {/* Simple Note on Dispensing Logic */}
+                                    <View style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'flex-start',
+                                        gap: 6,
+                                        backgroundColor: colors.primary + '0E',
+                                        borderWidth: 1,
+                                        borderColor: colors.primary + '28',
+                                        borderRadius: 10,
+                                        padding: 10,
+                                        marginTop: 10,
+                                    }}>
+                                        <MaterialIcons name="info-outline" size={15} color={colors.primary} style={{ marginTop: 1.5 }} />
+                                        <Text style={[textStyles.body, { color: colors.primary, fontSize: 11, lineHeight: 16, flex: 1 }]}>
+                                            Note: AniFeed's physical mechanism dispenses in fixed 1.5 kg (1,500g) portions per cycle. Minimum portion is 1.5 kg and all amounts must be in increments of 1.5 kg.
+                                        </Text>
                                     </View>
                                 </View>
 
-                                {/* Live Daily Feed Preview Banner */}
+                                {/* Live Daily Feed Preview Banner (Responsive Single Line) */}
                                 {(() => {
                                     const count = parseInt(tempTimesPerDay, 10) || 0;
                                     const grams = parseInt(tempGrams, 10) || 0;
-                                    const total = count * grams;
+                                    const totalGrams = count * grams;
+                                    const totalKg = (totalGrams / 1000).toFixed(1);
+                                    const singleKg = (grams / 1000).toFixed(1);
                                     return (
-                                        <View style={{ width: '100%', backgroundColor: colors.cardFill, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.stroke, marginBottom: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                <MaterialIcons name="calculate" size={18} color={colors.primary} />
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
-                                                    Daily Total
+                                        <View style={{
+                                            width: '100%',
+                                            backgroundColor: colors.cardFill,
+                                            borderRadius: 12,
+                                            paddingVertical: 10,
+                                            paddingHorizontal: 12,
+                                            borderWidth: 1,
+                                            borderColor: colors.stroke,
+                                            marginBottom: 18,
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            gap: 8,
+                                        }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                                                <MaterialIcons name="calculate" size={17} color={colors.primary} />
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, fontWeight: '600' }]} numberOfLines={1}>
+                                                    Daily Total:
                                                 </Text>
                                             </View>
-                                            <Text style={[textStyles.body, { color: colors.text, fontSize: 13, fontWeight: '700' }]}>
-                                                {count} × {grams}g = <Text style={{ color: colors.primary }}>{total.toLocaleString()}g / day</Text>
+                                            <Text
+                                                style={[textStyles.body, { color: colors.text, fontSize: 12.5, fontWeight: '700', textAlign: 'right', flex: 1 }]}
+                                                numberOfLines={1}
+                                                adjustsFontSizeToFit
+                                                minimumFontScale={0.75}
+                                            >
+                                                {count} × {singleKg}kg = <Text style={{ color: colors.primary, fontWeight: '800' }}>{totalKg} kg/day</Text>
                                             </Text>
                                         </View>
                                     );
