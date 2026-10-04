@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ani-Grow™ App User Guide: Animal & Batch Management</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Floating Print & PDF Control Bar -->
+  <div class="no-print">
+    <button onclick="window.print()" class="btn-print-manual">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      Print / Save as PDF
+    </button>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 1: COVER PAGE & DOCUMENT INDEX
+       ========================================================================== -->
+  <div class="paper-page cover-page">
+    <div class="page-content">
+      <div class="cover-header">
+        <div class="cover-brand-row">
+          <img src="../../branding/anigrow_logo.svg" alt="Ani-Grow Brand Logo" class="cover-brand-logo" onerror="this.style.display='none'" />
+          <div>
+            <div class="cover-brand-title">Ani-Grow™ Mobile App</div>
+            <div class="cover-brand-subtitle">Simple, Step-by-Step User Navigation Guide</div>
+          </div>
+        </div>
+
+        <div class="cover-title-box">
+          <div class="cover-doc-type">App User Guide</div>
+          <h1 class="cover-title">Animal & Batch Management</h1>
+          <p class="cover-subtitle">A quick, visual guide on how to navigate the Animals pages, register livestock batches, log mortality, check growth curves, and review batch harvest history.</p>
+        </div>
+
+        <div class="cover-meta-grid" style="grid-template-columns: repeat(3, 1fr);">
+          <div>
+            <div class="meta-item-label">App Module</div>
+            <div class="meta-item-value">Animals Tab (app/(animals))</div>
+          </div>
+          <div>
+            <div class="meta-item-label">Supported Animals</div>
+            <div class="meta-item-value">Poultry (Chickens) & Swine (Pigs)</div>
+          </div>
+          <div>
+            <div class="meta-item-label">Document Version</div>
+            <div class="meta-item-value">Version 2.5 (App Release)</div>
+          </div>
+        </div>
+
+        <h2 class="sub-title">Guide Table of Contents</h2>
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th style="width: 12%;">Step</th>
+              <th style="width: 63%;">What You Will Learn in This Guide</th>
+              <th style="width: 25%;">Page</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>01</strong></td>
+              <td>Navigating the Animals Screen & Housing Pens/Coops</td>
+              <td>Page 2</td>
+            </tr>
+            <tr>
+              <td><strong>02</strong></td>
+              <td>Viewing Housing Details & Registering a New Batch</td>
+              <td>Page 3</td>
+            </tr>
+            <tr>
+              <td><strong>03</strong></td>
+              <td>How to Log Deceased Animals (Mortality Recording)</td>
+              <td>Page 4</td>
+            </tr>
+            <tr>
+              <td><strong>04</strong></td>
+              <td>Checking Daily Target Weight & Growth Curve Progress</td>
+              <td>Page 5</td>
+            </tr>
+            <tr>
+              <td><strong>05</strong></td>
+              <td>Completing a Batch Harvest & Viewing Batch History</td>
+              <td>Page 6</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="cover-security-notice">
+      <strong>QUICK TIP:</strong> You can navigate to any section in the app anytime by tapping the <strong>Animals</strong> icon on the bottom navigation bar.
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 2: NAVIGATING THE ANIMALS SCREEN & HOUSING UNITS
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ App Guide</span>
+      </div>
+      <span>01: Animals Screen & Housing Units</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">01</span> Navigating the Animals Screen</h1>
+      <p class="lead-text">The <strong>Animals</strong> page is your main dashboard for seeing all housing units (pens and coops) on your farm at a single glance.</p>
+
+      <h2 class="sub-title">1.1 How to Access the Animals Screen</h2>
+      <ol class="procedure-steps">
+        <li>
+          <span class="step-heading">Open the App</span>
+          Log into your Ani-Grow account.
+        </li>
+        <li>
+          <span class="step-heading">Tap the "Animals" Icon</span>
+          On the bottom navigation bar, tap the <strong>Animals</strong> icon.
+        </li>
+        <li>
+          <span class="step-heading">Browse Your Housing Units</span>
+          You will see cards representing each Chicken Coop or Pig Pen registered on your farm.
+        </li>
+      </ol>
+
+      <h2 class="sub-title">1.2 What the Housing Cards Show</h2>
+      <table class="doc-table">
+        <thead>
+          <tr>
+            <th>Card Element</th>
+            <th>What It Means</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Housing Name</strong></td>
+            <td>The name or number of the pen/coop (e.g., "Coop 1", "Pen A").</td>
+          </tr>
+          <tr>
+            <td><strong>Animal Icon & Tag</strong></td>
+            <td>Shows <span class="badge badge-chicken">Chicken</span> or <span class="badge badge-pig">Pig</span> with corresponding theme colors.</td>
+          </tr>
+          <tr>
+            <td><strong>Live Heads vs Capacity</strong></td>
+            <td>Shows the current live animals in the pen compared to the maximum capacity (e.g., <code>100 / 120 heads</code>).</td>
+          </tr>
+          <tr>
+            <td><strong>Active Batch & Age</strong></td>
+            <td>Displays the active batch name and the animals' current age in days (e.g., <code>Day 28</code>).</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 1 -->
+        <img src="animal-housing-dashboard.png" alt="Animals Screen Housing Cards" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [animal-housing-dashboard.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of app/(animals)/AnimalsScreen showing Chicken Coop & Swine Pen cards with live counts and capacity badges.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 1.1:</span> Main Animals Screen showing all housing pens and coops with quick stats.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ App User Guide</span>
+      <span>Page 2</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 3: HOUSING DETAILS & REGISTERING A NEW BATCH
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ App Guide</span>
+      </div>
+      <span>02: Housing Details & Adding a Batch</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">02</span> Housing Details & Adding a Batch</h1>
+      <p class="lead-text">Tapping on any housing unit opens its <strong>Details Screen</strong>, where you can see detailed batch stats and register new batches when a new delivery arrives.</p>
+
+      <h2 class="sub-title">2.1 How to Register a New Batch</h2>
+      <ol class="procedure-steps">
+        <li>
+          <span class="step-heading">Select a Housing Pen/Coop</span>
+          Tap on the pen card where the new animals will be placed.
+        </li>
+        <li>
+          <span class="step-heading">Tap the "Add Batch" Button</span>
+          Tap the <strong>Add Batch</strong> button to open the intake form.
+        </li>
+        <li>
+          <span class="step-heading">Enter the Delivery Details</span>
+          Fill out the simple form fields:
+          <ul style="margin-top: 6px; margin-left: 18px; font-size: 0.85rem;">
+            <li><strong>Batch Name:</strong> Name for this group (e.g., <code>Batch 1 - Broilers</code>)</li>
+            <li><strong>Arrival Date (Arrived):</strong> <code>9/7/2026</code></li>
+            <li><strong>Age at Arrival:</strong> <code>28 days</code></li>
+            <li><strong>Supplier:</strong> <code>San Miguel</code></li>
+            <li><strong>Initial Count:</strong> <code>100 heads</code></li>
+          </ul>
+        </li>
+        <li>
+          <span class="step-heading">Tap "Save"</span>
+          The batch is now active! The app will automatically track their daily age and growth.
+        </li>
+      </ol>
+
+      <h2 class="sub-title">2.2 What the Detail Summary Tiles Show</h2>
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-card-label">Initial Count</div>
+          <div class="metric-card-val">100</div>
+          <div class="metric-card-sub">Arrived: 9/7/2026</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-card-label">Live Heads</div>
+          <div class="metric-card-val">100</div>
+          <div class="metric-card-sub">Current in Pen</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-card-label">Sold / Harvested</div>
+          <div class="metric-card-val">0</div>
+          <div class="metric-card-sub">Deceased: 0</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-card-label">Age & Supplier</div>
+          <div class="metric-card-val">28d</div>
+          <div class="metric-card-sub">San Miguel</div>
+        </div>
+      </div>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 2 -->
+        <img src="animal-details-overview.png" alt="Batch Overview Details" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [animal-details-overview.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of app/(animals)/AnimalDetails showing the KPI summary tiles (100 Initial, 100 Live, 0 Sold, 0 Deceased) and action buttons.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 2.1:</span> Animal Details view showing live batch statistics and quick action buttons.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ App User Guide</span>
+      <span>Page 3</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 4: LOGGING DECEASED ANIMALS (MORTALITY RECORDING)
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ App Guide</span>
+      </div>
+      <span>03: Logging Deceased Animals</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">03</span> Logging Deceased Animals</h1>
+      <p class="lead-text">Whenever an animal passes away, logging it in the app keeps your live inventory count 100% accurate and updates your batch survival rate automatically.</p>
+
+      <h2 class="sub-title">3.1 Step-by-Step Instructions</h2>
+      <ol class="procedure-steps">
+        <li>
+          <span class="step-heading">Open the Batch Details Screen</span>
+          Tap on the pen/coop where the incident occurred.
+        </li>
+        <li>
+          <span class="step-heading">Tap the "Deceased" Button</span>
+          Click on the <strong>Deceased</strong> button on the batch action panel.
+        </li>
+        <li>
+          <span class="step-heading">Fill Out the "Log Cause of Mortality" Modal</span>
+          Enter the number of dead animals and choose the cause:
+          <ul style="margin-top: 6px; margin-left: 18px; font-size: 0.85rem;">
+            <li><strong>Illness:</strong> Sickness, respiratory, or digestive disease.</li>
+            <li><strong>Injury:</strong> Physical accident, fracture, or smothering.</li>
+            <li><strong>Predator:</strong> Attacked or taken by rats, snakes, or stray animals.</li>
+            <li><strong>Unknown:</strong> Sudden death with no obvious symptoms.</li>
+            <li><strong>Other:</strong> Culling of runts, extreme heat, or other reasons.</li>
+          </ul>
+        </li>
+        <li>
+          <span class="step-heading">Tap "Save Record"</span>
+          The app will immediately subtract the count from your <strong>Live Heads</strong> count.
+        </li>
+      </ol>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 3 -->
+        <img src="mortality-incident-logging.png" alt="Log Cause of Mortality Modal" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [mortality-incident-logging.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of app/(animals)/AnimalDetails showing the "Log Cause of Mortality" modal with illness, injury, predator, unknown, and other options.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 3.1:</span> The Log Cause of Mortality modal for recording deceased animals and causes.</div>
+      </div>
+
+      <div class="callout callout-tip">
+        <div class="callout-title">Automatic Inventory Update</div>
+        You do not need to manually change the total count. As soon as you log a deceased animal, the Live Heads count updates in real time on both mobile and web!
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ App User Guide</span>
+      <span>Page 4</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 5: CHECKING TARGET WEIGHT & GROWTH CURVES
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ App Guide</span>
+      </div>
+      <span>04: Target Weight & Growth Curves</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">04</span> Checking Target Weight Progress</h1>
+      <p class="lead-text">The <strong>Target Weight</strong> page lets you compare your animals' real weights (captured by the AniWeigh scale) against the official standard target curve for their breed and age.</p>
+
+      <h2 class="sub-title">4.1 How to Check Growth Status</h2>
+      <p class="body-text">When you weigh animals using your connected scale or enter a sample weight, the app places a dot on the growth curve and tags the status:</p>
+
+      <table class="doc-table">
+        <thead>
+          <tr>
+            <th>Growth Tag</th>
+            <th>What It Means</th>
+            <th>What to Do</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong style="color: #dc2626;">Underweight</strong></td>
+            <td>Animals are below standard target weight.</td>
+            <td>Check feed availability, feeder schedule, and drinker water flow.</td>
+          </tr>
+          <tr>
+            <td><strong style="color: #16a34a;">Normal / On-Track</strong></td>
+            <td>Animals are growing at the ideal healthy rate.</td>
+            <td>Keep following your normal feeding schedule.</td>
+          </tr>
+          <tr>
+            <td><strong style="color: #2563eb;">Overweight / Ahead</strong></td>
+            <td>Animals are heavier than the standard age curve.</td>
+            <td>Animals may be ready for early market harvest!</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 4 -->
+        <img src="target-weight-curves.png" alt="Target Weight Growth Curve" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [target-weight-curves.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of app/(animals)/TargetWeightScreen showing the growth chart curve and actual weigh-in data points.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 4.1:</span> Target Weight Growth Curve chart showing actual weights vs the standard breed curve.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ App User Guide</span>
+      <span>Page 5</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 6: COMPLETING A BATCH HARVEST & BATCH HISTORY
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ App Guide</span>
+      </div>
+      <span>05: Harvest & Batch History</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">05</span> Harvest & Batch History</h1>
+      <p class="lead-text">When your animals reach target market weight and are sold, you can complete the harvest in the app and review your farm's performance records anytime.</p>
+
+      <h2 class="sub-title">5.1 How to Complete / Harvest a Batch</h2>
+      <ol class="procedure-steps">
+        <li>
+          <span class="step-heading">Open the Batch Details Screen</span>
+          Go to the active batch you are ready to harvest.
+        </li>
+        <li>
+          <span class="step-heading">Tap "Mark as Sold / Complete Harvest"</span>
+          Open the harvest completion modal.
+        </li>
+        <li>
+          <span class="step-heading">Enter the Final Sold Numbers</span>
+          Enter the total number of heads sold and the final total live weight (kg).
+        </li>
+        <li>
+          <span class="step-heading">Confirm & Archive</span>
+          The batch is safely archived in your history, and the coop is now empty and ready for cleaning and your next batch!
+        </li>
+      </ol>
+
+      <h2 class="sub-title">5.2 How to View Past Batch History</h2>
+      <p class="body-text">Open <strong>Batch History</strong> from the menu to see all completed cycles and review:</p>
+      <ul style="margin-left: 20px; font-size: 0.88rem; line-height: 1.8;">
+        <li><strong>Survival Rate (%):</strong> Percentage of animals that reached harvest successfully.</li>
+        <li><strong>FCR (Feed Conversion Ratio):</strong> How efficiently the animals converted feed into body weight (lower is better).</li>
+        <li><strong>Total Live Weight:</strong> Total kilograms produced for that batch.</li>
+      </ul>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 5 -->
+        <img src="batch-history-archive.png" alt="Batch History Screen" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [batch-history-archive.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of app/(animals)/BatchHistoryScreen showing completed batches, harvest totals, FCR, and survival rates.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 5.1:</span> Batch History screen showing past completed batches and overall farm performance.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ App User Guide</span>
+      <span>Page 6</span>
+    </div>
+  </div>
+
+</body>
+</html>

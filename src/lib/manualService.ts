@@ -1,5 +1,7 @@
-import { Platform, Linking } from 'react-native';
+import { Platform, Linking, Alert } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { supabase } from './supabase';
 
 export interface ManualCategory {
@@ -95,13 +97,118 @@ export async function fetchManualItems(categoryId?: string): Promise<ManualItem[
  */
 export async function incrementManualViewCount(item: ManualItem): Promise<void> {
   try {
-    // Attempt standard update
     await supabase
       .from('manual_items')
       .update({ view_count: (item.view_count || 0) + 1 })
       .eq('id', item.id);
   } catch (err) {
     console.warn('[manualService] Error updating view count:', err);
+  }
+}
+
+/**
+ * Generate formatted clean web/in-app viewer URL for an item
+ */
+export function getViewerUrl(item: ManualItem): string {
+  if (!item.content_url) return '';
+  let url = item.content_url.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url}`;
+  }
+
+  // If item is PDF and platform is Android, wrap with Google Docs Viewer for seamless in-app WebView rendering
+  const isPdf = item.item_type === 'pdf' || url.toLowerCase().endsWith('.pdf');
+  if (isPdf && Platform.OS === 'android') {
+    return `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
+/**
+ * Download / Save PDF file to device storage or trigger native share sheet
+ */
+export async function downloadManualPdf(item: ManualItem, isFilipino: boolean = false): Promise<boolean> {
+  if (!item.content_url) {
+    Alert.alert(
+      isFilipino ? 'Error' : 'Error',
+      isFilipino ? 'Walang makitang link sa dokumentong ito.' : 'No file URL found for this document.'
+    );
+    return false;
+  }
+
+  let url = item.content_url.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url}`;
+  }
+
+  // Increment view / download count
+  incrementManualViewCount(item).catch(() => {});
+
+  if (Platform.OS === 'web') {
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${item.title.replace(/[^a-zA-Z0-9_\-]/g, '_')}.pdf`;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return true;
+    } catch (e) {
+      window.open(url, '_blank');
+      return true;
+    }
+  }
+
+  try {
+    // Generate safe local filename
+    const cleanName = (item.title || 'AniGrow_Document')
+      .replace(/[^a-zA-Z0-9_\-]/g, '_')
+      .substring(0, 40);
+    const localUri = `${FileSystem.documentDirectory || FileSystem.cacheDirectory}${cleanName}_${Date.now()}.pdf`;
+
+    const downloadRes = await FileSystem.downloadAsync(url, localUri);
+
+    if (downloadRes.status !== 200) {
+      throw new Error(`Download failed with HTTP status ${downloadRes.status}`);
+    }
+
+    const canShare = await Sharing.isAvailableAsync();
+    if (canShare) {
+      await Sharing.shareAsync(downloadRes.uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: isFilipino ? `I-save: ${item.title}` : `Save: ${item.title}`,
+        UTI: 'com.adobe.pdf',
+      });
+      return true;
+    } else {
+      Alert.alert(
+        isFilipino ? 'Na-download ang File' : 'File Downloaded',
+        isFilipino
+          ? `Matagumpay na na-download ang "${item.title}".\nLokasyon: ${downloadRes.uri}`
+          : `Successfully downloaded "${item.title}".\nSaved to: ${downloadRes.uri}`
+      );
+      return true;
+    }
+  } catch (error: any) {
+    console.error('[manualService] Error downloading PDF:', error);
+    // Fallback to opening in browser or linking
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+        return true;
+      }
+    } catch (_) {}
+
+    Alert.alert(
+      isFilipino ? 'Hindi Ma-download' : 'Download Failed',
+      isFilipino
+        ? 'Hindi matapos ang pag-download. Pakisubukang buksan muli o suriin ang koneksyon.'
+        : 'Could not complete the download. Please check your connection and try again.'
+    );
+    return false;
   }
 }
 

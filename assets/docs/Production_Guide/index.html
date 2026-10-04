@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ani-Grow™ App User Guide: AI Production Guide & SOP Roadmap</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Floating Print & PDF Control Bar -->
+  <div class="no-print">
+    <button onclick="window.print()" class="btn-print-manual">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      Print / Save as PDF
+    </button>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 1: COVER PAGE & DOCUMENT INDEX
+       ========================================================================== -->
+  <div class="paper-page cover-page">
+    <div class="page-content">
+      <div class="cover-header">
+        <div class="cover-brand-row">
+          <img src="../../branding/anigrow_logo.svg" alt="Ani-Grow Brand Logo" class="cover-brand-logo" onerror="this.style.display='none'" />
+          <div>
+            <div class="cover-brand-title">Ani-Grow™ Mobile App</div>
+            <div class="cover-brand-subtitle">Simple, Step-by-Step User Navigation Guide</div>
+          </div>
+        </div>
+
+        <div class="cover-title-box">
+          <div class="cover-doc-type">App User Guide</div>
+          <h1 class="cover-title">AI Production Guide & SOP Roadmap</h1>
+          <p class="cover-subtitle">A simple guide on how to navigate phase-by-phase production roadmaps, complete daily farm SOP checklists, and apply AI growth adjustments.</p>
+        </div>
+
+        <div class="cover-meta-grid">
+          <div>
+            <div class="meta-item-label">App Module</div>
+            <div class="meta-item-value">Guide Tab (app/(guide))</div>
+          </div>
+          <div>
+            <div class="meta-item-label">Supported Animals</div>
+            <div class="meta-item-value">Poultry (Chickens) & Swine (Pigs)</div>
+          </div>
+          <div>
+            <div class="meta-item-label">Document Version</div>
+            <div class="meta-item-value">Version 2.5 (App Release)</div>
+          </div>
+        </div>
+
+        <h2 class="sub-title">Guide Table of Contents</h2>
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th style="width: 12%;">Step</th>
+              <th style="width: 63%;">What You Will Learn in This Guide</th>
+              <th style="width: 25%;">Page</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>01</strong></td>
+              <td>Navigating the Guide Screen & Selecting Batches</td>
+              <td>Page 2</td>
+            </tr>
+            <tr>
+              <td><strong>02</strong></td>
+              <td>Understanding Lifecycle Phases & Daily SOP Task Checklists</td>
+              <td>Page 3</td>
+            </tr>
+            <tr>
+              <td><strong>03</strong></td>
+              <td>Applying AniBot™ AI Growth Roadmap Adjustments</td>
+              <td>Page 4</td>
+            </tr>
+            <tr>
+              <td><strong>04</strong></td>
+              <td>Daily Farm Routine Checklist (Morning, Midday, Evening)</td>
+              <td>Page 5</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="cover-security-notice">
+      <strong>QUICK TIP:</strong> Tapping the <strong>Guide</strong> tab anytime shows today's recommended feeding, temperature, and health tasks for your active flock or herd.
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 2: NAVIGATING THE GUIDE SCREEN
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ Production Guide</span>
+      </div>
+      <span>01: Guide Screen Overview</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">01</span> Navigating the Guide Screen</h1>
+      <p class="lead-text">The <strong>Guide</strong> tab gives you a personalized, day-by-day roadmap tailored to the exact age and species of your animals.</p>
+
+      <h2 class="sub-title">1.1 How to Access the Guide</h2>
+      <ol class="procedure-steps">
+        <li>
+          <span class="step-heading">Tap the "Guide" Icon</span>
+          On the bottom navigation bar, tap the <strong>Guide</strong> icon.
+        </li>
+        <li>
+          <span class="step-heading">Select Your Active Batch</span>
+          Use the top dropdown to select the specific flock or pen you want to inspect (e.g., <code>Batch 1 - Broilers (Coop 1)</code>).
+        </li>
+        <li>
+          <span class="step-heading">Switch Species If Needed</span>
+          Toggle between <span class="badge badge-chicken">Chicken</span> and <span class="badge badge-pig">Pig</span> to load species-specific standard operating procedures.
+        </li>
+      </ol>
+
+      <h2 class="sub-title">1.2 What the Screen Header Displays</h2>
+      <table class="doc-table">
+        <thead>
+          <tr>
+            <th>Header Element</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Current Age Badge</strong></td>
+            <td>Displays the exact day number (e.g., <code>Day 28</code>) calculated automatically from arrival date.</td>
+          </tr>
+          <tr>
+            <td><strong>Lifecycle Phase</strong></td>
+            <td>Highlights the active growth phase: <span class="badge badge-phase">Brooder / Nursery</span>, <span class="badge badge-phase">Grower</span>, or <span class="badge badge-phase">Finisher</span>.</td>
+          </tr>
+          <tr>
+            <td><strong>Connected Scale / Feeder</strong></td>
+            <td>Shows linked AniWeigh scale and AniFeed dispenser status for this batch.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 1 -->
+        <img src="guide-dashboard-overview.png" alt="Guide Screen Overview" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [guide-dashboard-overview.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of app/(guide)/GuideScreen showing the active batch header, age in days, phase badges, and species switcher.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 1.1:</span> The main Production Guide screen displaying active batch lifecycle phase and age.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ Production User Guide</span>
+      <span>Page 2</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 3: PRODUCTION PHASES & DAILY SOP ACTION CHECKLISTS
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ Production Guide</span>
+      </div>
+      <span>02: Daily SOP Checklists</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">02</span> Daily SOP Task Checklists</h1>
+      <p class="lead-text">Every production phase contains daily Standard Operating Procedures (SOPs) for feeding rations, temperature management, and drinker sanitation.</p>
+
+      <h2 class="sub-title">2.1 How to Complete Daily Tasks</h2>
+      <ol class="procedure-steps">
+        <li>
+          <span class="step-heading">Locate Today's Task Cards</span>
+          Scroll through the timeline to find the cards matching today's age (e.g., <code>Day 28: Grower Feed Transition</code>).
+        </li>
+        <li>
+          <span class="step-heading">Read the Step Instructions</span>
+          Review the specific requirements (e.g., target brooder temp: 32°C, drinker cleaning, feed ration change).
+        </li>
+        <li>
+          <span class="step-heading">Tap the Checkbox (Mark as Done)</span>
+          Tap the checkbox on the right side of the card once completed. The item turns green with a checkmark.
+        </li>
+        <li>
+          <span class="step-heading">Skipping a Task If Necessary</span>
+          If an action cannot be performed, tap <strong>Skip</strong> and select a reason (e.g., <em>Weather constraints</em> or <em>Vet advised against</em>).
+        </li>
+      </ol>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 2 -->
+        <img src="sop-action-checklist.png" alt="Daily SOP Task Cards" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [sop-action-checklist.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of GuideScreen showing the day-by-day action cards with icons, descriptions, and interactive completion checkboxes.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 2.1:</span> Interactive SOP action cards with completion checkboxes and instructions.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ Production User Guide</span>
+      <span>Page 3</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 4: APPLYING ANIBOT AI ROADMAP ADJUSTMENTS
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ Production Guide</span>
+      </div>
+      <span>03: AI Roadmap Adjustments</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">03</span> AI Growth Roadmap Adjustments</h1>
+      <p class="lead-text">Ani-Grow's built-in <strong>AniBot™ AI Engine</strong> analyzes live weighing scale readings and automatically suggests adjustments when growth deviates from standard targets.</p>
+
+      <h2 class="sub-title">3.1 How AI Adjustments Work</h2>
+      <table class="doc-table">
+        <thead>
+          <tr>
+            <th>Detected Condition</th>
+            <th>AniBot™ AI Suggestion</th>
+            <th>Benefit to Farm</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Underweight Growth Lag</strong></td>
+            <td>Extends starter/grower feeding window by 3–5 days; recommends probiotic water flush.</td>
+            <td>Helps lagging chicks or piglets catch up to target harvest weight without stunted growth.</td>
+          </tr>
+          <tr>
+            <td><strong>Rapid Growth Ahead of Curve</strong></td>
+            <td>Adjusts finishing schedule and calculates earlier market haul readiness date.</td>
+            <td>Saves feed costs by harvesting at peak FCR efficiency.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 class="sub-title">3.2 Applying an AI Suggestion</h2>
+      <ol class="procedure-steps">
+        <li>
+          <span class="step-heading">Look for the "AI Insight" Banner</span>
+          When scale telemetry detects a growth anomaly, an AI adjustment banner appears at the top of the Guide screen.
+        </li>
+        <li>
+          <span class="step-heading">Tap "Review & Apply Adjustment"</span>
+          Inspect the recommended schedule change and tap <strong>Apply Adjustment</strong> to update your roadmap instantly.
+        </li>
+      </ol>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 3 -->
+        <img src="ai-roadmap-adjustment.png" alt="AI Roadmap Adjustment Card" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [ai-roadmap-adjustment.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of GuideScreen showing the AI Insight banner with recommended roadmap adjustments and the "Apply" action button.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 3.1:</span> AniBot AI dynamic adjustment card optimizing feeding and schedule milestones.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ Production User Guide</span>
+      <span>Page 4</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 5: DAILY FARM ROUTINE CHECKLIST
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ Production Guide</span>
+      </div>
+      <span>04: Daily Farm Routines</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">04</span> Daily Farm Routine Checklist</h1>
+      <p class="lead-text">To achieve maximum survival rates and peak Feed Conversion Efficiency (FCR), follow this standard three-step daily routine in the app:</p>
+
+      <h2 class="sub-title">4.1 Recommended Daily Routine</h2>
+      <table class="doc-table">
+        <thead>
+          <tr>
+            <th>Time of Day</th>
+            <th>Physical Farm Action</th>
+            <th>App Action to Perform</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Morning (6:00 AM)</strong></td>
+            <td>Check drinker water lines, feeder hopper level, and remove any mortality.</td>
+            <td>Log any deceased animals via the <strong>Deceased</strong> button; check off Morning SOP tasks in <strong>Guide</strong>.</td>
+          </tr>
+          <tr>
+            <td><strong>Midday (12:00 PM)</strong></td>
+            <td>Inspect coop ventilation, side curtains, and temperature sensors.</td>
+            <td>Verify temperature alert notifications; check sample weights on <strong>AniWeigh</strong> scale.</td>
+          </tr>
+          <tr>
+            <td><strong>Evening (6:00 PM)</strong></td>
+            <td>Confirm automated feeder night dispensing portion and secure pen perimeter.</td>
+            <td>Check off Evening SOP tasks; review daily feed consumption on <strong>Analytics</strong>.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 4 -->
+        <img src="daily-farm-routine-sop.png" alt="Daily Farm Routine SOP" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [daily-farm-routine-sop.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of GuideScreen or Dashboard showing daily scheduled tasks and morning/evening task progress indicators.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 4.1:</span> Completed daily SOP task progress bar ensuring consistent farm management.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ Production User Guide</span>
+      <span>Page 5</span>
+    </div>
+  </div>
+
+</body>
+</html>

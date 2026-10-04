@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     ActivityIndicator,
+    Modal,
     Platform,
     RefreshControl,
     ScrollView,
@@ -13,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { WebView } from 'react-native-webview';
 
 import { Text } from '@/components/Text';
 import { BackButton } from '@/components/BackButton';
@@ -22,6 +24,9 @@ import {
     fetchManualCategories,
     fetchManualItems,
     openManualItem,
+    downloadManualPdf,
+    getViewerUrl,
+    incrementManualViewCount,
     getItemTypeMeta,
     formatBytes,
     formatDuration,
@@ -57,6 +62,8 @@ export default function UserManualScreen() {
     const [searchQuery, setSearchQuery] = useState('');
     const [folderStack, setFolderStack] = useState<ManualCategory[]>([]);
     const [openingItemId, setOpeningItemId] = useState<string | null>(null);
+    const [downloadingItemId, setDownloadingItemId] = useState<string | null>(null);
+    const [activePdfViewerItem, setActivePdfViewerItem] = useState<ManualItem | null>(null);
 
     const currentFolder = folderStack.length > 0 ? folderStack[folderStack.length - 1] : null;
 
@@ -97,6 +104,31 @@ export default function UserManualScreen() {
             await openManualItem(item);
         } finally {
             setOpeningItemId(null);
+        }
+    };
+
+    const handleViewPdf = (item: ManualItem) => {
+        try {
+            if (Platform.OS !== 'web') {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }
+        } catch (_) {}
+        incrementManualViewCount(item).catch(() => {});
+        setActivePdfViewerItem(item);
+    };
+
+    const handleDownloadPdf = async (item: ManualItem) => {
+        try {
+            if (Platform.OS !== 'web') {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }
+        } catch (_) {}
+
+        setDownloadingItemId(item.id);
+        try {
+            await downloadManualPdf(item, isFilipino);
+        } finally {
+            setDownloadingItemId(null);
         }
     };
 
@@ -412,7 +444,17 @@ export default function UserManualScreen() {
                                     ) : (
                                         <View style={[styles.cardsGrid, isTabletOrWeb && styles.cardsGridResponsive]}>
                                             {searchResults.map((item) =>
-                                                renderResourceCard(item, colors, openingItemId, handleOpenItem, isFilipino, isTabletOrWeb)
+                                                renderResourceCard(
+                                                    item,
+                                                    colors,
+                                                    openingItemId,
+                                                    downloadingItemId,
+                                                    handleOpenItem,
+                                                    handleViewPdf,
+                                                    handleDownloadPdf,
+                                                    isFilipino,
+                                                    isTabletOrWeb
+                                                )
                                             )}
                                         </View>
                                     )}
@@ -497,7 +539,17 @@ export default function UserManualScreen() {
 
                                             <View style={[styles.cardsGrid, isTabletOrWeb && styles.cardsGridResponsive]}>
                                                 {currentFolderItems.map((item) =>
-                                                    renderResourceCard(item, colors, openingItemId, handleOpenItem, isFilipino, isTabletOrWeb)
+                                                    renderResourceCard(
+                                                        item,
+                                                        colors,
+                                                        openingItemId,
+                                                        downloadingItemId,
+                                                        handleOpenItem,
+                                                        handleViewPdf,
+                                                        handleDownloadPdf,
+                                                        isFilipino,
+                                                        isTabletOrWeb
+                                                    )
                                                 )}
                                             </View>
                                         </View>
@@ -523,28 +575,134 @@ export default function UserManualScreen() {
                     </ScrollView>
                 )}
             </View>
+
+            {/* In-App Interactive PDF Viewer Modal */}
+            <Modal
+                visible={Boolean(activePdfViewerItem)}
+                animationType="slide"
+                presentationStyle="fullScreen"
+                onRequestClose={() => setActivePdfViewerItem(null)}
+            >
+                {activePdfViewerItem && (
+                    <View style={[styles.modalContainer, { backgroundColor: colors.bgLight, paddingTop: insets.top }]}>
+                        {/* Modal Header Bar */}
+                        <View style={[styles.modalHeader, { backgroundColor: colors.surface, borderBottomColor: colors.stroke, paddingHorizontal: hPad }]}>
+                            <TouchableOpacity
+                                style={[styles.modalCloseButton, { backgroundColor: colors.bgLight, borderColor: colors.stroke }]}
+                                onPress={() => setActivePdfViewerItem(null)}
+                                activeOpacity={0.8}
+                                accessibilityLabel="Close PDF viewer"
+                            >
+                                <MaterialIcons name="arrow-back" size={22} color={colors.text} />
+                            </TouchableOpacity>
+
+                            <View style={styles.modalTitleCol}>
+                                <Text style={[styles.modalTitle, { color: colors.text }]} numberOfLines={1}>
+                                    {activePdfViewerItem.title}
+                                </Text>
+                                <Text style={[styles.modalSubtitle, { color: colors.primary }]} numberOfLines={1}>
+                                    {activePdfViewerItem.category?.name || (isFilipino ? 'Dokumento ng Gabay' : 'Official Document Guide')}
+                                </Text>
+                            </View>
+
+                            {/* Modal Header Actions */}
+                            <View style={styles.modalHeaderActions}>
+                                {/* Download Action */}
+                                <TouchableOpacity
+                                    style={[
+                                        styles.modalActionIconButton,
+                                        {
+                                            backgroundColor: colors.primary + '14',
+                                            borderColor: colors.primary + '30',
+                                        },
+                                    ]}
+                                    onPress={() => handleDownloadPdf(activePdfViewerItem)}
+                                    disabled={downloadingItemId === activePdfViewerItem.id}
+                                    activeOpacity={0.8}
+                                    accessibilityLabel="Download PDF"
+                                >
+                                    {downloadingItemId === activePdfViewerItem.id ? (
+                                        <ActivityIndicator size="small" color={colors.primary} />
+                                    ) : (
+                                        <MaterialIcons name="file-download" size={20} color={colors.primary} />
+                                    )}
+                                </TouchableOpacity>
+
+                                {/* Open in External App / Browser */}
+                                <TouchableOpacity
+                                    style={[
+                                        styles.modalActionIconButton,
+                                        {
+                                            backgroundColor: colors.bgLight,
+                                            borderColor: colors.stroke,
+                                        },
+                                    ]}
+                                    onPress={() => openManualItem(activePdfViewerItem)}
+                                    activeOpacity={0.8}
+                                    accessibilityLabel="Open externally"
+                                >
+                                    <MaterialIcons name="open-in-new" size={18} color={colors.text} />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        {/* Modal Body: In-App WebView PDF Viewer */}
+                        <View style={styles.modalBody}>
+                            {Platform.OS === 'web' ? (
+                                <iframe
+                                    src={activePdfViewerItem.content_url}
+                                    style={{ width: '100%', height: '100%', border: 'none' }}
+                                    title={activePdfViewerItem.title}
+                                />
+                            ) : (
+                                <WebView
+                                    source={{ uri: getViewerUrl(activePdfViewerItem) }}
+                                    style={styles.webView}
+                                    startInLoadingState={true}
+                                    renderLoading={() => (
+                                        <View style={styles.viewerLoading}>
+                                            <ActivityIndicator size="large" color={colors.primary} />
+                                            <Text style={[styles.viewerLoadingText, { color: colors.textGrey }]}>
+                                                {isFilipino ? 'Ikinakarga ang PDF...' : 'Loading PDF document...'}
+                                            </Text>
+                                        </View>
+                                    )}
+                                    javaScriptEnabled={true}
+                                    domStorageEnabled={true}
+                                    scalesPageToFit={true}
+                                />
+                            )}
+                        </View>
+                    </View>
+                )}
+            </Modal>
         </View>
     );
 }
 
 /**
- * Modern Resource Card matching Ani-Grow core app standards (Full text, no ellipsis, responsive)
+ * Modern Resource Card with dual action buttons for PDFs (View in App vs Download)
  */
 function renderResourceCard(
     item: ManualItem,
     colors: any,
     openingItemId: string | null,
+    downloadingItemId: string | null,
     handleOpenItem: (item: ManualItem) => void,
+    handleViewPdf: (item: ManualItem) => void,
+    handleDownloadPdf: (item: ManualItem) => void,
     isFilipino: boolean,
     isTabletOrWeb: boolean
 ) {
     const meta = getItemTypeMeta(item.item_type);
     const isOpening = openingItemId === item.id;
+    const isDownloading = downloadingItemId === item.id;
     const sizeStr = formatBytes(item.file_size_bytes);
     const durationStr = formatDuration(item.duration_seconds);
+    const isPdf = item.item_type === 'pdf' || (item.content_url && item.content_url.toLowerCase().endsWith('.pdf'));
 
     return (
-        <TouchableOpacity
+        <View
             key={item.id}
             style={[
                 styles.resourceCard,
@@ -554,9 +712,6 @@ function renderResourceCard(
                     borderColor: colors.stroke,
                 },
             ]}
-            activeOpacity={0.78}
-            onPress={() => handleOpenItem(item)}
-            disabled={isOpening}
         >
             {/* Top Row: Type Pill & Location Tag */}
             <View style={styles.resourceHeaderRow}>
@@ -588,7 +743,7 @@ function renderResourceCard(
                 </Text>
             )}
 
-            {/* Bottom Meta & Action Button */}
+            {/* Bottom Meta & 2 Distinct Action Buttons */}
             <View style={[styles.resourceFooter, { borderTopColor: colors.stroke }]}>
                 <View style={styles.resourceMetaRow}>
                     {Boolean(durationStr) && (
@@ -609,27 +764,72 @@ function renderResourceCard(
                     )}
                 </View>
 
-                <View style={[styles.resourceActionButton, { backgroundColor: colors.primary }]}>
-                    <Text style={styles.resourceActionButtonText}>
-                        {item.item_type === 'youtube' || item.item_type === 'video'
-                            ? isFilipino ? 'Panoorin' : 'Watch'
-                            : item.item_type === 'pdf'
-                            ? isFilipino ? 'Buksan PDF' : 'Open PDF'
-                            : isFilipino ? 'Buksan' : 'Open'}
-                    </Text>
-                    {isOpening ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" style={{ marginLeft: 5 }} />
-                    ) : (
-                        <MaterialIcons
-                            name={item.item_type === 'youtube' || item.item_type === 'video' ? 'play-arrow' : 'open-in-new'}
-                            size={14}
-                            color="#FFFFFF"
-                            style={{ marginLeft: 3 }}
-                        />
-                    )}
-                </View>
+                {isPdf ? (
+                    /* 2 OPTIONS FOR PDF: (1) View / Read in App (2) Download / Save */
+                    <View style={styles.dualPdfButtonsRow}>
+                        {/* Option 1: View in App */}
+                        <TouchableOpacity
+                            style={[styles.pdfPrimaryViewButton, { backgroundColor: colors.primary }]}
+                            onPress={() => handleViewPdf(item)}
+                            activeOpacity={0.8}
+                            disabled={isOpening || isDownloading}
+                        >
+                            <MaterialIcons name="visibility" size={15} color="#FFFFFF" style={{ marginRight: 4 }} />
+                            <Text style={styles.pdfPrimaryViewButtonText}>
+                                {isFilipino ? 'Tingnan' : 'View'}
+                            </Text>
+                        </TouchableOpacity>
+
+                        {/* Option 2: Download PDF */}
+                        <TouchableOpacity
+                            style={[
+                                styles.pdfSecondaryDownloadButton,
+                                {
+                                    backgroundColor: colors.primary + '12',
+                                    borderColor: colors.primary + '40',
+                                },
+                            ]}
+                            onPress={() => handleDownloadPdf(item)}
+                            activeOpacity={0.8}
+                            disabled={isOpening || isDownloading}
+                        >
+                            {isDownloading ? (
+                                <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 4 }} />
+                            ) : (
+                                <MaterialIcons name="file-download" size={15} color={colors.primary} style={{ marginRight: 4 }} />
+                            )}
+                            <Text style={[styles.pdfSecondaryDownloadButtonText, { color: colors.primary }]}>
+                                {isFilipino ? 'I-download' : 'Download'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    /* Standard Single Button for Videos / Links */
+                    <TouchableOpacity
+                        style={[styles.resourceActionButton, { backgroundColor: colors.primary }]}
+                        onPress={() => handleOpenItem(item)}
+                        activeOpacity={0.8}
+                        disabled={isOpening}
+                    >
+                        <Text style={styles.resourceActionButtonText}>
+                            {item.item_type === 'youtube' || item.item_type === 'video'
+                                ? isFilipino ? 'Panoorin' : 'Watch'
+                                : isFilipino ? 'Buksan' : 'Open'}
+                        </Text>
+                        {isOpening ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" style={{ marginLeft: 5 }} />
+                        ) : (
+                            <MaterialIcons
+                                name={item.item_type === 'youtube' || item.item_type === 'video' ? 'play-arrow' : 'open-in-new'}
+                                size={14}
+                                color="#FFFFFF"
+                                style={{ marginLeft: 3 }}
+                            />
+                        )}
+                    </TouchableOpacity>
+                )}
             </View>
-        </TouchableOpacity>
+        </View>
     );
 }
 
@@ -1020,6 +1220,40 @@ const styles = StyleSheet.create({
         fontSize: 10.5,
         fontFamily: 'Poppins-Regular',
     },
+
+    // ── Dual Action Buttons for PDF ──
+    dualPdfButtonsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    pdfPrimaryViewButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 6.5,
+        borderRadius: 8,
+        elevation: 1,
+    },
+    pdfPrimaryViewButtonText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontFamily: 'Poppins-SemiBold',
+    },
+    pdfSecondaryDownloadButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingVertical: 5.5,
+        borderRadius: 8,
+        borderWidth: 1,
+    },
+    pdfSecondaryDownloadButtonText: {
+        fontSize: 12,
+        fontFamily: 'Poppins-SemiBold',
+    },
+
+    // ── Standard Action Button ──
     resourceActionButton: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1053,6 +1287,71 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins-Regular',
         textAlign: 'center',
         lineHeight: 17,
+    },
+
+    // ── In-App PDF Viewer Modal Styles ──
+    modalContainer: {
+        flex: 1,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        gap: 10,
+    },
+    modalCloseButton: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        borderWidth: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalTitleCol: {
+        flex: 1,
+    },
+    modalTitle: {
+        fontSize: 14.5,
+        fontFamily: 'Poppins-Bold',
+    },
+    modalSubtitle: {
+        fontSize: 11,
+        fontFamily: 'Poppins-Medium',
+    },
+    modalHeaderActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    modalActionIconButton: {
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        borderWidth: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalBody: {
+        flex: 1,
+        position: 'relative',
+    },
+    webView: {
+        flex: 1,
+        backgroundColor: '#F8FAFC',
+    },
+    viewerLoading: {
+        ...StyleSheet.absoluteFillObject,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#FFFFFF',
+        zIndex: 10,
+    },
+    viewerLoadingText: {
+        fontSize: 13,
+        fontFamily: 'Poppins-Medium',
+        marginTop: 10,
     },
 });
 

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ani-Grow™ App User Guide: Farm Analytics & PDF Reports</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Floating Print & PDF Control Bar -->
+  <div class="no-print">
+    <button onclick="window.print()" class="btn-print-manual">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      Print / Save as PDF
+    </button>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 1: COVER PAGE & DOCUMENT INDEX
+       ========================================================================== -->
+  <div class="paper-page cover-page">
+    <div class="page-content">
+      <div class="cover-header">
+        <div class="cover-brand-row">
+          <img src="../../branding/anigrow_logo.svg" alt="Ani-Grow Brand Logo" class="cover-brand-logo" onerror="this.style.display='none'" />
+          <div>
+            <div class="cover-brand-title">Ani-Grow™ Mobile App</div>
+            <div class="cover-brand-subtitle">Simple, Step-by-Step User Navigation Guide</div>
+          </div>
+        </div>
+
+        <div class="cover-title-box">
+          <div class="cover-doc-type">App User Guide</div>
+          <h1 class="cover-title">Farm Analytics & PDF Reports</h1>
+          <p class="cover-subtitle">A simple guide on how to navigate the Analytics hub, read growth and feed reports, customize print filters, and export official PDF documents.</p>
+        </div>
+
+        <div class="cover-meta-grid">
+          <div>
+            <div class="meta-item-label">App Module</div>
+            <div class="meta-item-value">Analytics Tab (app/(analytics))</div>
+          </div>
+          <div>
+            <div class="meta-item-label">Supported Animals</div>
+            <div class="meta-item-value">Poultry (Chickens) & Swine (Pigs)</div>
+          </div>
+          <div>
+            <div class="meta-item-label">Document Version</div>
+            <div class="meta-item-value">Version 2.5 (App Release)</div>
+          </div>
+        </div>
+
+        <h2 class="sub-title">Guide Table of Contents</h2>
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th style="width: 12%;">Step</th>
+              <th style="width: 63%;">What You Will Learn in This Guide</th>
+              <th style="width: 25%;">Page</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>01</strong></td>
+              <td>Navigating the Analytics Hub & Report Types</td>
+              <td>Page 2</td>
+            </tr>
+            <tr>
+              <td><strong>02</strong></td>
+              <td>Reading Growth & Feed Dispensed Reports</td>
+              <td>Page 3</td>
+            </tr>
+            <tr>
+              <td><strong>03</strong></td>
+              <td>Reading Health & AI Prediction Forecast Reports</td>
+              <td>Page 4</td>
+            </tr>
+            <tr>
+              <td><strong>04</strong></td>
+              <td>Customizing Filters & Printing Official PDF Reports</td>
+              <td>Page 5</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="cover-security-notice">
+      <strong>QUICK TIP:</strong> You can print or save a PDF of any analytics report anytime by tapping the printer icon at the top right of each screen!
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 2: NAVIGATING THE ANALYTICS HUB
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ Analytics Guide</span>
+      </div>
+      <span>01: Analytics Hub Menu</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">01</span> The Analytics Hub</h1>
+      <p class="lead-text">The <strong>Analytics</strong> tab is your centralized reporting hub, where all weighing scale data, automatic feeder dispenses, health events, and AI forecasts are compiled into clear charts.</p>
+
+      <h2 class="sub-title">1.1 How to Access Analytics</h2>
+      <ol class="procedure-steps">
+        <li>
+          <span class="step-heading">Open the App</span>
+          Log into your Ani-Grow account.
+        </li>
+        <li>
+          <span class="step-heading">Tap the "Analytics" Icon</span>
+          On the bottom navigation bar, tap the <strong>Analytics</strong> icon.
+        </li>
+        <li>
+          <span class="step-heading">Select a Report to View</span>
+          Choose from the available farm reports:
+        </li>
+      </ol>
+
+      <table class="doc-table">
+        <thead>
+          <tr>
+            <th>Report Title</th>
+            <th>Tag</th>
+            <th>What It Covers</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Growth Report</strong></td>
+            <td><span class="badge badge-growth">Growth</span></td>
+            <td>Average Daily Gain (ADG), weight trajectories, and growth benchmark curves.</td>
+          </tr>
+          <tr>
+            <td><strong>Feed Dispensed Report</strong></td>
+            <td><span class="badge badge-feed">Feed</span></td>
+            <td>Total kilograms dispensed, hopper fill levels, and Feed Conversion Ratio (FCR).</td>
+          </tr>
+          <tr>
+            <td><strong>Health Report</strong></td>
+            <td><span class="badge badge-health">Health</span></td>
+            <td>Flock/herd wellness scores, mortality cause charts, and treatment records.</td>
+          </tr>
+          <tr>
+            <td><strong>Prediction Forecast</strong></td>
+            <td><span class="badge badge-pred">AI Forecast</span></td>
+            <td>AI-projected harvest readiness dates and estimated final market weights.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 1 -->
+        <img src="analytics-hub-menu.png" alt="Analytics Menu Screen" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [analytics-hub-menu.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of app/(analytics)/AnalyticsScreen showing the menu cards for Growth, Feed, Health, and Prediction reports.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 1.1:</span> The main Analytics menu with access to all farm reports.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ Analytics User Guide</span>
+      <span>Page 2</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 3: READING GROWTH & FEED REPORTS
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ Analytics Guide</span>
+      </div>
+      <span>02: Growth & Feed Reports</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">02</span> Growth & Feed Reports</h1>
+      <p class="lead-text">Understanding your daily animal growth and feed consumption helps you optimize feeding portions and reduce feed wastage.</p>
+
+      <h2 class="sub-title">2.1 Reading the Growth Report</h2>
+      <p class="body-text">Open <strong>Growth Report</strong> to inspect:</p>
+      <ul style="margin-left: 20px; font-size: 0.88rem; line-height: 1.8;">
+        <li><strong>Average Daily Gain (ADG):</strong> How many grams your animals are gaining per day.</li>
+        <li><strong>Weight Progression Curve:</strong> Line graph showing actual scale weights over time compared to standard breed targets.</li>
+        <li><strong>Weight Uniformity:</strong> Distribution percentage of animals within normal weight vs underweight.</li>
+      </ul>
+
+      <h2 class="sub-title">2.2 Reading the Feed Dispensed Report</h2>
+      <p class="body-text">Open <strong>Feed Dispensed Report</strong> to inspect:</p>
+      <ul style="margin-left: 20px; font-size: 0.88rem; line-height: 1.8;">
+        <li><strong>Total Feed Dispensed (kg):</strong> Cumulative feed dispensed across all coops/pens.</li>
+        <li><strong>FCR (Feed Conversion Ratio):</strong> Total feed divided by total weight gained (a lower number means higher feeding efficiency).</li>
+        <li><strong>Daily Dispense History:</strong> Bar chart showing morning, afternoon, and evening feeding portions.</li>
+      </ul>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 2 -->
+        <img src="growth-feed-reports.png" alt="Growth and Feed Reports" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [growth-feed-reports.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of GrowthReportScreen or FeedReportScreen showing the charts, ADG / FCR KPI cards, and summary stats.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 2.1:</span> Growth and Feed report screens showing weight gain trajectories and feeding efficiency.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ Analytics User Guide</span>
+      <span>Page 3</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 4: READING HEALTH & PREDICTION FORECAST REPORTS
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ Analytics Guide</span>
+      </div>
+      <span>03: Health & AI Predictions</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">03</span> Health & AI Predictions</h1>
+      <p class="lead-text">Monitor overall livestock health conditions and use AI forecasting to plan upcoming harvest schedules with precision.</p>
+
+      <h2 class="sub-title">3.1 Reading the Health Report</h2>
+      <p class="body-text">Open <strong>Health Report</strong> to review:</p>
+      <ul style="margin-left: 20px; font-size: 0.88rem; line-height: 1.8;">
+        <li><strong>Health Status Index:</strong> Overall farm wellness score (e.g., <code>98% Healthy</code>).</li>
+        <li><strong>Mortality Cause Breakdown:</strong> Visual pie chart showing causes of loss (Illness, Heat Stress, Physical Injury, Unknown).</li>
+        <li><strong>Active Treatments:</strong> Current ongoing medical or vitamin courses.</li>
+      </ul>
+
+      <h2 class="sub-title">3.2 Reading AI Prediction Forecasts</h2>
+      <p class="body-text">Open <strong>Prediction Forecast Report</strong> to review:</p>
+      <ul style="margin-left: 20px; font-size: 0.88rem; line-height: 1.8;">
+        <li><strong>Estimated Harvest Date:</strong> AI-calculated calendar date when animals will reach target market weight.</li>
+        <li><strong>Projected Final Weight (kg):</strong> Estimated average body weight at harvest.</li>
+        <li><strong>Growth Forecast Curve:</strong> Trajectory curve predicting remaining growth days.</li>
+      </ul>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 3 -->
+        <img src="health-prediction-reports.png" alt="Health and Prediction Reports" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [health-prediction-reports.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of HealthReportScreen or PredictionReportScreen showing health pie charts and AI harvest date predictions.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 3.1:</span> Health status breakdown charts and AI market harvest predictions.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ Analytics User Guide</span>
+      <span>Page 4</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       PAGE 5: CUSTOMIZING FILTERS & PRINTING PDF REPORTS
+       ========================================================================== -->
+  <div class="paper-page">
+    <div class="page-header">
+      <div class="header-logo-group">
+        <span>Ani-Grow™ Analytics Guide</span>
+      </div>
+      <span>04: Customizing & Printing</span>
+    </div>
+
+    <div class="page-content">
+      <h1 class="section-title"><span class="sec-num">04</span> Customizing & Printing Reports</h1>
+      <p class="lead-text">You can easily customize which coops, batches, and dates are included before printing or sharing official PDF reports.</p>
+
+      <h2 class="sub-title">4.1 How to Customize What to Print</h2>
+      <ol class="procedure-steps">
+        <li>
+          <span class="step-heading">Select Housing Pen or Coop</span>
+          Use the top housing dropdown to pick a specific pen/coop (e.g., <code>Coop 1 - Broilers</code>) or view all coops combined.
+        </li>
+        <li>
+          <span class="step-heading">Choose Animal Species</span>
+          Toggle between <span class="badge badge-growth">Chicken</span> and <span class="badge badge-feed">Pig</span> tabs.
+        </li>
+        <li>
+          <span class="step-heading">Pick Date Range</span>
+          Filter by <strong>Week 1–4</strong>, <strong>Last 30 Days</strong>, or set a <strong>Custom Date Range</strong>.
+        </li>
+        <li>
+          <span class="step-heading">Tap "Print / Export PDF"</span>
+          Tap the printer button on the top right. The app compiles your filtered data into an official, branded PDF document!
+        </li>
+      </ol>
+
+      <div class="figure-container">
+        <!-- PHOTO SLOT 4 -->
+        <img src="custom-filter-print-pdf.png" alt="Customizing and Printing PDF Report" class="figure-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <div class="figure-placeholder" style="display: none;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div class="figure-placeholder-text">Photo Required: [custom-filter-print-pdf.png]</div>
+          <div class="figure-placeholder-sub">Screenshot of report filtering options (housing selector, date range) and the Print / Export PDF button action.</div>
+        </div>
+        <div class="figure-caption"><span>Figure 4.1:</span> Customizing report filters and exporting an official printable PDF summary.</div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>Ani-Grow™ Analytics User Guide</span>
+      <span>Page 5</span>
+    </div>
+  </div>
+
+</body>
+</html>
