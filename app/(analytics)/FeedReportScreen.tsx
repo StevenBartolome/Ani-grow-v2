@@ -52,6 +52,94 @@ interface FeedItemBreakdown {
     percentage: number;
 }
 
+export interface PeriodOption {
+    id: string; // 'current_month' | 'this_week' | 'YYYY-MM'
+    label: string;
+    shortLabel: string;
+    isCurrentMonth: boolean;
+    isWeek: boolean;
+    year: number;
+    month: number;
+    daysInMonth: number;
+    startDate: Date;
+    endDate: Date;
+}
+
+function getPeriodOptions(availablePastMonths: string[] = []): PeriodOption[] {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth(); // 0-indexed
+
+    // 1. Current Month (Priority)
+    const curStart = new Date(currentYear, currentMonth, 1, 0, 0, 0, 0);
+    const curEnd = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
+    const curDays = curEnd.getDate();
+    const curMonthName = curStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const curMonthShort = curStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+    // 2. This Week
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - 7);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(now);
+
+    const options: PeriodOption[] = [
+        {
+            id: 'current_month',
+            label: `Current Month (${curMonthName})`,
+            shortLabel: `${curMonthShort} (Current)`,
+            isCurrentMonth: true,
+            isWeek: false,
+            year: currentYear,
+            month: currentMonth,
+            daysInMonth: curDays,
+            startDate: curStart,
+            endDate: now < curEnd ? now : curEnd,
+        },
+        {
+            id: 'this_week',
+            label: 'This Week (Last 7 Days)',
+            shortLabel: 'This Week',
+            isCurrentMonth: false,
+            isWeek: true,
+            year: currentYear,
+            month: currentMonth,
+            daysInMonth: 7,
+            startDate: weekStart,
+            endDate: weekEnd,
+        },
+    ];
+
+    // 3. Only Previous Months that have records
+    availablePastMonths.forEach(ym => {
+        const [yearStr, monthStr] = ym.split('-');
+        const y = parseInt(yearStr, 10);
+        const m = parseInt(monthStr, 10) - 1; // 0-indexed
+        if (isNaN(y) || isNaN(m)) return;
+
+        const monthStart = new Date(y, m, 1, 0, 0, 0, 0);
+        const monthEnd = new Date(y, m + 1, 0, 23, 59, 59, 999);
+        const mDays = monthEnd.getDate();
+        const mName = monthStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        const mShort = monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+        options.push({
+            id: ym,
+            label: mName,
+            shortLabel: mShort,
+            isCurrentMonth: false,
+            isWeek: false,
+            year: y,
+            month: m,
+            daysInMonth: mDays,
+            startDate: monthStart,
+            endDate: monthEnd,
+        });
+    });
+
+    return options;
+}
+
 export default function FeedReportScreen() {
     const { colors } = useTheme();
     const textStyles = useTextStyles();
@@ -95,7 +183,14 @@ export default function FeedReportScreen() {
     const [batchModalVisible, setBatchModalVisible] = useState(false);
     const [reportData, setReportData] = useState<FeedItemBreakdown[]>([]);
     const [totalDispenses, setTotalDispenses] = useState<number>(0);
-    const [timeframe, setTimeframe] = useState<'This Week' | 'This Month'>('This Week');
+    const [availablePastMonths, setAvailablePastMonths] = useState<string[]>([]);
+    const periodOptions = useMemo(() => getPeriodOptions(availablePastMonths), [availablePastMonths]);
+    const [selectedPeriodId, setSelectedPeriodId] = useState<string>('current_month');
+    const activePeriod = useMemo(() => {
+        return periodOptions.find(p => p.id === selectedPeriodId) || periodOptions[0];
+    }, [periodOptions, selectedPeriodId]);
+    const timeframe = activePeriod.label;
+    const [periodModalVisible, setPeriodModalVisible] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isConsumptionLoading, setIsConsumptionLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -377,6 +472,59 @@ export default function FeedReportScreen() {
         }
     }, [filteredBatches, animalType, selectedHousingId, saveSelectionPreference]);
 
+    // ─── Fetch Available Historical Months with Records ───────────
+    const fetchAvailablePastMonths = useCallback(async (housingId: string) => {
+        if (!housingId) {
+            setAvailablePastMonths([]);
+            return;
+        }
+        try {
+            const { data, error } = await supabase
+                .from('dispense_records')
+                .select('dispensed_at')
+                .eq('housing_id', housingId)
+                .eq('status', 'success')
+                .order('dispensed_at', { ascending: false });
+
+            if (error) throw error;
+
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth();
+            const currentMonthStart = new Date(currentYear, currentMonth, 1, 0, 0, 0, 0);
+
+            const pastSet = new Set<string>();
+            (data || []).forEach((r: any) => {
+                if (!r.dispensed_at) return;
+                const d = new Date(r.dispensed_at);
+                if (d < currentMonthStart) {
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    pastSet.add(`${y}-${m}`);
+                }
+            });
+
+            const sorted = Array.from(pastSet).sort().reverse();
+            setAvailablePastMonths(sorted);
+
+            setSelectedPeriodId(prev => {
+                if (prev === 'current_month' || prev === 'this_week') return prev;
+                return sorted.includes(prev) ? prev : 'current_month';
+            });
+        } catch (err) {
+            console.error('[FeedReportScreen] error loading available past months:', err);
+            setAvailablePastMonths([]);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (selectedHousingId) {
+            fetchAvailablePastMonths(selectedHousingId);
+        } else {
+            setAvailablePastMonths([]);
+        }
+    }, [selectedHousingId, fetchAvailablePastMonths]);
+
     // ─── Fetch Feed Consumption (Dispense Records) ───────────────
     const fetchConsumption = useCallback(async () => {
         if (!selectedHousingId) {
@@ -390,15 +538,7 @@ export default function FeedReportScreen() {
         setIsConsumptionLoading(true);
         setChartTooltip(null);
         try {
-            const now = new Date();
-            const startDate = new Date();
-            // Ensure full day coverage from midnight so morning dispenses are never missed
-            if (timeframe === 'This Week') {
-                startDate.setDate(now.getDate() - 7);
-            } else {
-                startDate.setDate(now.getDate() - 30);
-            }
-            startDate.setHours(0, 0, 0, 0);
+            const { startDate, endDate } = activePeriod;
 
             let query = supabase
                 .from('dispense_records')
@@ -421,6 +561,7 @@ export default function FeedReportScreen() {
                 .eq('housing_id', selectedHousingId)
                 .eq('status', 'success')
                 .gte('dispensed_at', startDate.toISOString())
+                .lte('dispensed_at', endDate.toISOString())
                 .order('dispensed_at', { ascending: true });
 
             if (selectedBatchId && selectedBatchId !== 'all') {
@@ -484,7 +625,8 @@ export default function FeedReportScreen() {
             const chartLabels: string[] = [];
             const chartValues: number[] = [];
 
-            if (timeframe === 'This Week') {
+            if (activePeriod.isWeek) {
+                const now = new Date();
                 for (let i = 6; i >= 0; i--) {
                     const d = new Date();
                     d.setDate(now.getDate() - i);
@@ -507,18 +649,19 @@ export default function FeedReportScreen() {
                     chartValues.push(Math.round((sumGrams / 1000) * 10) / 10); // in kg with 1 decimal
                 }
             } else {
-                for (let i = 5; i >= 0; i--) {
-                    const daysAgo = i * 5;
-                    const d = new Date();
-                    d.setDate(now.getDate() - daysAgo);
-                    const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                    chartLabels.push(label);
+                // Monthly view: divided into 6 balanced intervals across the month
+                const totalDays = activePeriod.daysInMonth;
+                const intervals = 6;
+                const daysPerInterval = Math.floor(totalDays / intervals);
 
-                    const startRange = new Date(d);
-                    startRange.setDate(d.getDate() - 4);
-                    startRange.setHours(0, 0, 0, 0);
-                    const endRange = new Date(d);
-                    endRange.setHours(23, 59, 59, 999);
+                for (let i = 0; i < intervals; i++) {
+                    const startDay = i * daysPerInterval + 1;
+                    const endDay = i === intervals - 1 ? totalDays : (i + 1) * daysPerInterval;
+                    const startRange = new Date(activePeriod.year, activePeriod.month, startDay, 0, 0, 0, 0);
+                    const endRange = new Date(activePeriod.year, activePeriod.month, endDay, 23, 59, 59, 999);
+                    const mShort = startRange.toLocaleDateString('en-US', { month: 'short' });
+                    const label = `${mShort} ${startDay}–${endDay}`;
+                    chartLabels.push(label);
 
                     const sumGrams = records.reduce((sum: number, r: any) => {
                         const rDate = new Date(r.dispensed_at);
@@ -547,7 +690,7 @@ export default function FeedReportScreen() {
         } finally {
             setIsConsumptionLoading(false);
         }
-    }, [selectedHousingId, selectedBatchId, timeframe]);
+    }, [selectedHousingId, selectedBatchId, activePeriod]);
 
     useEffect(() => {
         fetchConsumption();
@@ -580,9 +723,12 @@ export default function FeedReportScreen() {
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
         await fetchHousingsAndBatches();
+        if (selectedHousingId) {
+            await fetchAvailablePastMonths(selectedHousingId);
+        }
         await fetchConsumption();
         setRefreshing(false);
-    }, [fetchHousingsAndBatches, fetchConsumption]);
+    }, [fetchHousingsAndBatches, selectedHousingId, fetchAvailablePastMonths, fetchConsumption]);
 
     // Helpers
     const getCategoryColor = (category: string) => {
@@ -606,7 +752,11 @@ export default function FeedReportScreen() {
             return null;
         }
 
-        const daysCount = timeframe === 'This Week' ? 7 : 30;
+        const daysCount = activePeriod.isWeek
+            ? 7
+            : activePeriod.isCurrentMonth
+                ? Math.max(1, Math.min(new Date().getDate(), activePeriod.daysInMonth))
+                : activePeriod.daysInMonth;
         const avgDailyKg = totalConsumption / daysCount;
         const count = headCount > 0 ? headCount : (animalType === 'chicken' ? 30 : 10);
         const dailyIntakePerHeadGrams = Math.round((avgDailyKg * 1000) / count);
@@ -709,16 +859,16 @@ export default function FeedReportScreen() {
             estimatedRunwayDays,
             totalRemainingStock,
         };
-    }, [reportData, totalConsumption, timeframe, headCount, animalType, batchAgeDays, chartData, colors, totalDispenses]);
+    }, [reportData, totalConsumption, activePeriod, headCount, animalType, batchAgeDays, chartData, colors, totalDispenses]);
 
     // Dynamic AI Insights text for AniBot card
     const getBotAnalysis = () => {
         if (!feedAnalysis) {
-            return `No feed dispense records found for ${selectedHousing ? selectedHousing.name : 'this house'} in ${timeframe.toLowerCase()}.`;
+            return `No feed dispense records found for ${selectedHousing ? selectedHousing.name : 'this house'} in ${activePeriod.label}.`;
         }
 
         const animalLabel = animalType === 'pig' ? 'pigs' : 'chickens';
-        return `In ${selectedHousing?.name ?? 'this house'}, ${headCount} ${animalLabel} were dispensed a total of ${totalConsumption.toFixed(1)} kg over ${timeframe.toLowerCase()}. Daily feed dispense averages ${feedAnalysis.dailyIntakePerHeadGrams} g/head (${Math.round(feedAnalysis.benchmarkRatio * 100)}% of the ${feedAnalysis.targetIntakeGrams} g standard). Primary diet is ${feedAnalysis.topFeedName} (${feedAnalysis.topFeedCategory}), accounting for ${feedAnalysis.topPct}% of dispensed feed with approximately ${feedAnalysis.estimatedRunwayDays} days of storage remaining.`;
+        return `In ${selectedHousing?.name ?? 'this house'}, ${headCount} ${animalLabel} were dispensed a total of ${totalConsumption.toFixed(1)} kg during ${activePeriod.label}. Daily feed dispense averages ${feedAnalysis.dailyIntakePerHeadGrams} g/head (${Math.round(feedAnalysis.benchmarkRatio * 100)}% of the ${feedAnalysis.targetIntakeGrams} g standard). Primary diet is ${feedAnalysis.topFeedName} (${feedAnalysis.topFeedCategory}), accounting for ${feedAnalysis.topPct}% of dispensed feed with approximately ${feedAnalysis.estimatedRunwayDays} days of storage remaining.`;
     };
 
     // ─── PDF Report Builder ──────────────────────────────────────
@@ -736,7 +886,7 @@ export default function FeedReportScreen() {
 
         const feedTrendChart: ReportChart | undefined = chartData && chartData.labels.length > 0 ? {
             type: 'bar',
-            title: `Daily Feed Consumption Trend (${timeframe})`,
+            title: `Daily Feed Consumption Trend (${activePeriod.shortLabel})`,
             labels: chartData.labels,
             series: [
                 {
@@ -767,13 +917,13 @@ export default function FeedReportScreen() {
         return {
             reportTitle: 'Feed Dispensed & Nutritional Report',
             farmName,
-            subtitle: `${selectedHousing.name} · ${animalType === 'pig' ? 'Pigs' : 'Chickens'} · ${timeframe}`,
+            subtitle: `${selectedHousing.name} · ${animalType === 'pig' ? 'Pigs' : 'Chickens'} · ${activePeriod.label}`,
             meta: [
                 { label: 'Housing', value: selectedHousing.name },
                 { label: 'Batch', value: selectedBatch ? `${selectedBatch.name} (Day ${batchAgeDays ?? 'N/A'})` : (selectedBatchId === 'all' ? 'All Batches' : (activeBatch ? `${activeBatch.name} (Day ${batchAgeDays ?? 'N/A'})` : 'No Batch')) },
                 { label: 'Animal Type', value: animalType === 'pig' ? 'Pig' : 'Chicken' },
                 { label: 'Head Count', value: `${headCount} heads` },
-                { label: 'Report Period', value: timeframe },
+                { label: 'Report Period', value: activePeriod.label },
                 { label: 'Total Dispenses', value: `${totalDispenses} records` },
             ],
             sections: [
@@ -802,7 +952,7 @@ export default function FeedReportScreen() {
                 },
             ],
         };
-    }, [selectedHousing, selectedBatch, selectedBatchId, activeBatch, batchAgeDays, animalType, headCount, timeframe, totalDispenses, reportData, totalConsumption, feedAnalysis, farmName, chartData]);
+    }, [selectedHousing, selectedBatch, selectedBatchId, activeBatch, batchAgeDays, animalType, headCount, activePeriod, totalDispenses, reportData, totalConsumption, feedAnalysis, farmName, chartData]);
 
     return (
         <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
@@ -857,7 +1007,7 @@ export default function FeedReportScreen() {
                     />
 
                     {/* Filters Dropdown (House & Batch beside each other) */}
-                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
                         {/* House Filter Dropdown */}
                         <View style={{ flex: 1 }}>
                             <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
@@ -923,6 +1073,74 @@ export default function FeedReportScreen() {
                         </View>
                     </View>
 
+                    {/* Feeding Period Filter Dropdown */}
+                    <View style={{ marginBottom: 20 }}>
+                        <Text style={[textStyles.label, animalStyles.dropdownLabel, { color: colors.text, marginBottom: 6 }]}>
+                            Feeding Period
+                        </Text>
+                        <TouchableOpacity
+                            activeOpacity={0.8}
+                            style={[
+                                animalStyles.dropdownContainer,
+                                {
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1,
+                                    borderColor: colors.stroke,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 14,
+                                }
+                            ]}
+                            onPress={() => setPeriodModalVisible(true)}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                <MaterialIcons name="event" size={18} color={colors.textGrey} style={{ marginRight: 6 }} />
+                                <Text style={[textStyles.body, { color: colors.text, fontSize: 13, flex: 1 }]} numberOfLines={1}>
+                                    {activePeriod.label}
+                                </Text>
+                            </View>
+                            <MaterialIcons name="arrow-drop-down" size={20} color={colors.textGrey} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Historical Month Information Banner */}
+                    {!activePeriod.isCurrentMonth && !activePeriod.isWeek && (
+                        <View style={{
+                            backgroundColor: '#EFF6FF',
+                            borderColor: 'rgba(59, 130, 246, 0.3)',
+                            borderWidth: 1,
+                            borderRadius: 14,
+                            padding: 12,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: 16,
+                            gap: 8,
+                        }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                                <MaterialIcons name="history" size={20} color="#3B82F6" />
+                                <Text style={{ fontSize: 12, color: colors.text, flex: 1, fontFamily: 'Poppins-Medium' }}>
+                                    Viewing Historical Report for <Text style={{ color: '#2563EB', fontFamily: 'Poppins-Bold' }}>{activePeriod.label}</Text>
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => setSelectedPeriodId('current_month')}
+                                style={{
+                                    backgroundColor: colors.primary,
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 5,
+                                    borderRadius: 8,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                }}
+                            >
+                                <MaterialIcons name="arrow-back" size={14} color="#FFF" />
+                                <Text style={{ color: '#FFF', fontSize: 11, fontFamily: 'Poppins-SemiBold' }}>Current</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
+
                     {isConsumptionLoading ? (
                         <View style={{ paddingVertical: 80, alignItems: 'center', justifyContent: 'center' }}>
                             <ActivityIndicator size="large" color={colors.primary} />
@@ -954,8 +1172,26 @@ export default function FeedReportScreen() {
                             </View>
                             <Text style={[textStyles.h3, { color: colors.text, textAlign: 'center' }]}>No Feed Logs</Text>
                             <Text style={[textStyles.body, { color: colors.textGrey, marginTop: 6, textAlign: 'center', fontSize: 13 }]}>
-                                No successful feed dispense records were found for {selectedBatch ? selectedBatch.name : selectedHousing?.name} in {timeframe.toLowerCase()}.
+                                No successful feed dispense records were found for {selectedBatch ? selectedBatch.name : selectedHousing?.name} in {activePeriod.label}.
                             </Text>
+                            {!activePeriod.isCurrentMonth && (
+                                <TouchableOpacity
+                                    onPress={() => setSelectedPeriodId('current_month')}
+                                    style={{
+                                        marginTop: 14,
+                                        paddingHorizontal: 14,
+                                        paddingVertical: 8,
+                                        borderRadius: 10,
+                                        backgroundColor: colors.primary,
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                    }}
+                                >
+                                    <MaterialIcons name="calendar-today" size={15} color="#FFF" />
+                                    <Text style={{ color: '#FFF', fontSize: 12, fontFamily: 'Poppins-SemiBold' }}>Switch to Current Month</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
                     ) : (
                         /* ─── Informative Feed Dispense Content ─── */
@@ -1027,22 +1263,48 @@ export default function FeedReportScreen() {
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
                                 <View style={{ flex: 1, minWidth: 140 }}>
                                     <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Daily Feed Dispensed</Text>
+                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
+                                        {activePeriod.label}
+                                    </Text>
                                 </View>
-                                <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2, flexShrink: 0 }}>
-                                    {(['This Week', 'This Month'] as const).map(tf => (
+                                <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2, flexShrink: 0, gap: 2 }}>
+                                    <TouchableOpacity
+                                        onPress={() => setSelectedPeriodId('current_month')}
+                                        style={{
+                                            paddingHorizontal: 10,
+                                            paddingVertical: 5,
+                                            borderRadius: 6,
+                                            backgroundColor: activePeriod.isCurrentMonth ? colors.primary + '1A' : 'transparent',
+                                        }}
+                                    >
+                                        <Text style={[textStyles.label, { color: activePeriod.isCurrentMonth ? colors.primary : colors.textGrey, fontSize: 11, textAlign: 'center' }]}>Month</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        onPress={() => setSelectedPeriodId('this_week')}
+                                        style={{
+                                            paddingHorizontal: 10,
+                                            paddingVertical: 5,
+                                            borderRadius: 6,
+                                            backgroundColor: activePeriod.isWeek ? colors.primary + '1A' : 'transparent',
+                                        }}
+                                    >
+                                        <Text style={[textStyles.label, { color: activePeriod.isWeek ? colors.primary : colors.textGrey, fontSize: 11, textAlign: 'center' }]}>Week</Text>
+                                    </TouchableOpacity>
+                                    {periodOptions.length > 2 && (
                                         <TouchableOpacity
-                                            key={tf}
-                                            onPress={() => setTimeframe(tf)}
+                                            onPress={() => setPeriodModalVisible(true)}
                                             style={{
                                                 paddingHorizontal: 10,
                                                 paddingVertical: 5,
                                                 borderRadius: 6,
-                                                backgroundColor: timeframe === tf ? colors.primary + '1A' : 'transparent',
+                                                backgroundColor: (!activePeriod.isCurrentMonth && !activePeriod.isWeek) ? colors.primary + '1A' : 'transparent',
                                             }}
                                         >
-                                            <Text style={[textStyles.label, { color: timeframe === tf ? colors.primary : colors.textGrey, fontSize: 11, textAlign: 'center', textTransform: 'capitalize' }]}>{tf}</Text>
+                                            <Text style={[textStyles.label, { color: (!activePeriod.isCurrentMonth && !activePeriod.isWeek) ? colors.primary : colors.textGrey, fontSize: 11, textAlign: 'center' }]}>
+                                                {!activePeriod.isCurrentMonth && !activePeriod.isWeek ? activePeriod.shortLabel : 'History'}
+                                            </Text>
                                         </TouchableOpacity>
-                                    ))}
+                                    )}
                                 </View>
                             </View>
 
@@ -1250,7 +1512,7 @@ export default function FeedReportScreen() {
                                     {/* Detailed Narrative Explanation */}
                                     <View style={{ gap: 10 }}>
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
-                                            In <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{selectedHousing?.name}</Text>, the active flock of <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{headCount} {animalType === 'pig' ? 'pigs' : 'chickens'}</Text> {activeBatch ? `(${activeBatch.name}${batchAgeDays !== null ? `, Day ${batchAgeDays}` : ''})` : ''} was dispensed a total of <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{totalConsumption.toFixed(1)} kg</Text> of feed across {totalDispenses} automated dispenses over {timeframe.toLowerCase()}. Daily feed dispense averages <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{feedAnalysis.dailyIntakePerHeadGrams} g/head/day</Text> ({feedAnalysis.avgDailyKg.toFixed(1)} kg/day house dispense).
+                                            In <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{selectedHousing?.name}</Text>, the active flock of <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{headCount} {animalType === 'pig' ? 'pigs' : 'chickens'}</Text> {activeBatch ? `(${activeBatch.name}${batchAgeDays !== null ? `, Day ${batchAgeDays}` : ''})` : ''} was dispensed a total of <Text style={{ fontFamily: 'Poppins-SemiBold', color: colors.primary }}>{totalConsumption.toFixed(1)} kg</Text> of feed across {totalDispenses} automated dispenses during <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{activePeriod.label}</Text>. Daily feed dispense averages <Text style={{ fontFamily: 'Poppins-SemiBold' }}>{feedAnalysis.dailyIntakePerHeadGrams} g/head/day</Text> ({feedAnalysis.avgDailyKg.toFixed(1)} kg/day house dispense).
                                         </Text>
 
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.text, lineHeight: 19 }}>
@@ -1384,7 +1646,7 @@ export default function FeedReportScreen() {
                                         totalDispenses,
                                         headCount,
                                         batchAgeDays,
-                                        timeframe,
+                                        timeframe: activePeriod.label,
                                         appetiteStatus: feedAnalysis?.appetiteStatus,
                                         dailyIntakePerHeadGrams: feedAnalysis?.dailyIntakePerHeadGrams,
                                         reportSummary: reportData.map(r => ({ id: r.feedId, name: r.feedName, kg: r.consumption })),
@@ -1430,6 +1692,26 @@ export default function FeedReportScreen() {
                 icon="layers"
                 options={batchesOptions}
                 selectedValue={selectedBatchOptionStr}
+                requireConfirm={false}
+                enableSearch={false}
+            />
+
+            {/* Feeding Period Selection Modal */}
+            <SelectionModal
+                visible={periodModalVisible}
+                onClose={() => setPeriodModalVisible(false)}
+                onSelect={(val) => {
+                    const matched = periodOptions.find(p => p.label === val);
+                    if (matched) {
+                        setSelectedPeriodId(matched.id);
+                    }
+                    setPeriodModalVisible(false);
+                }}
+                title="Feeding Period"
+                description="Choose an active period or select a previous month to review."
+                icon="event"
+                options={periodOptions.map(p => p.label)}
+                selectedValue={activePeriod.label}
                 requireConfirm={false}
                 enableSearch={false}
             />
