@@ -15,7 +15,7 @@
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",
-        "foregroundImage": "./assets/branding/anigrow_app_icon.png"
+        "foregroundImage": "./assets/branding/anigrow_adaptive_foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
