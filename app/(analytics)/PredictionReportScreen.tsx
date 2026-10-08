@@ -24,7 +24,7 @@ import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
 import { AnimalIcon } from '@/components/AnimalIcon';
-import { ReportDocument, ReportStat, ReportChart } from '@/lib/pdfReport';
+import { ReportDocument, ReportStat, ReportChart, formatReportUserRole, formatReportUserName } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -1302,6 +1302,8 @@ export default function PredictionReportScreen() {
                     },
                 }] : []),
             ],
+            generatedByName: formatReportUserName(profile),
+            generatedByRole: formatReportUserRole(profile?.role),
         };
     }, [selectedBatch, selectedHousing, animalType, currentAgeDays, effectiveBaseWeightKg, dailyGainKg, isBenchmarkGain, harvestTargetKg, customTargetKg, confidencePct, daysToHarvest, estimatedHarvestDate, isHarvestReady, survivalRate, totalDeceased, forecastChartData, currentFeedStage, farmName, profile, managedFarms, selectedFarmIds, activeFarmIds, farmId]);
 

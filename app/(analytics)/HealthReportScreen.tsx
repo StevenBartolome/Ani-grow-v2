@@ -12,7 +12,7 @@ import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
-import { ReportDocument, ReportChart } from '@/lib/pdfReport';
+import { ReportDocument, ReportChart, formatReportUserRole, formatReportUserName } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -815,8 +815,10 @@ export default function HealthReportScreen() {
                     },
                 },
             ],
+            generatedByName: formatReportUserName(profile),
+            generatedByRole: formatReportUserRole(profile?.role),
         };
-    }, [selectedBatch, selectedHousing, animalType, healthRecords, vaccinationCount, routineCareCount, activeIllnesses, mortalityRate, totalDeceased, biosecurityInsights, categoryExplanation, farmName]);
+    }, [selectedBatch, selectedHousing, animalType, healthRecords, vaccinationCount, routineCareCount, activeIllnesses, mortalityRate, totalDeceased, biosecurityInsights, categoryExplanation, farmName, profile]);
 
     return (
         <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>

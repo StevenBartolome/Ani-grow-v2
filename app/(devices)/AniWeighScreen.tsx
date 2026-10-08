@@ -309,6 +309,7 @@ export default function AniWeighScreen() {
     // ─── Weighing Reminders State ──────────────────────────────────
     const [reminderConfig, setReminderConfig] = useState<WeighingReminderConfig | null>(null);
     const [reminderModalVisible, setReminderModalVisible] = useState(false);
+    const [reminderView, setReminderView] = useState<'main' | 'customTime'>('main');
     const [reminderEnabled, setReminderEnabled] = useState(true);
     const [reminderMode, setReminderMode] = useState<ReminderMode>('interval');
     const [reminderInterval, setReminderInterval] = useState<number>(7);
@@ -321,6 +322,37 @@ export default function AniWeighScreen() {
     const [reminderBatches, setReminderBatches] = useState<{ id: string; name: string; status: string; current_count: number }[]>([]);
     const [isSavingReminder, setIsSavingReminder] = useState(false);
     const [isTestingReminder, setIsTestingReminder] = useState(false);
+
+    // Custom alert time picker state
+    const [customTimeHour, setCustomTimeHour] = useState<number>(8);
+    const [customTimeMinute, setCustomTimeMinute] = useState<number>(0);
+    const [customTimeAmPm, setCustomTimeAmPm] = useState<'AM' | 'PM'>('AM');
+
+    const formatReminderTimeLabel = useCallback((timeStr: string) => {
+        if (!timeStr) return '8:00 AM';
+        const parts = timeStr.split(':');
+        let h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) || 0;
+        if (isNaN(h)) return '8:00 AM';
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12;
+        if (h === 0) h = 12;
+        return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+    }, []);
+
+    const openCustomTimePicker = useCallback(() => {
+        const parts = (reminderTime || '08:00').split(':');
+        let h = parseInt(parts[0], 10) || 8;
+        const m = parseInt(parts[1], 10) || 0;
+        const isPm = h >= 12;
+        let h12 = h % 12;
+        if (h12 === 0) h12 = 12;
+        const snappedMin = Math.round(m / 5) * 5 % 60;
+        setCustomTimeHour(h12);
+        setCustomTimeMinute(snappedMin);
+        setCustomTimeAmPm(isPm ? 'PM' : 'AM');
+        setReminderView('customTime');
+    }, [reminderTime]);
 
     const showSnackbar = (msg: string, type: SnackbarType = 'success') => {
         setSnackbarMessage(msg); setSnackbarType(type); setSnackbarVisible(true);
@@ -3422,29 +3454,62 @@ export default function AniWeighScreen() {
                             borderBottomColor: colors.stroke,
                             backgroundColor: colors.surface,
                         }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
-                                <View style={{
-                                    width: 38,
-                                    height: 38,
-                                    borderRadius: 12,
-                                    backgroundColor: colors.primary + '18',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                }}>
-                                    <MaterialIcons name="alarm" size={20} color={colors.primary} />
+                            {reminderView === 'customTime' ? (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                                    <TouchableOpacity
+                                        onPress={() => setReminderView('main')}
+                                        style={{
+                                            width: 36,
+                                            height: 36,
+                                            borderRadius: 18,
+                                            backgroundColor: colors.cardFill,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1,
+                                            borderColor: colors.stroke,
+                                        }}
+                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                        activeOpacity={0.7}
+                                    >
+                                        <MaterialIcons name="arrow-back" size={20} color={colors.text} />
+                                    </TouchableOpacity>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 16 }]} numberOfLines={1}>
+                                            Custom Alert Time
+                                        </Text>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>
+                                            Select hour, minute and period
+                                        </Text>
+                                    </View>
                                 </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 16 }]} numberOfLines={1}>
-                                        Weighing Schedule
-                                    </Text>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>
-                                        Automated push reminders for sessions
-                                    </Text>
+                            ) : (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                                    <View style={{
+                                        width: 38,
+                                        height: 38,
+                                        borderRadius: 12,
+                                        backgroundColor: colors.primary + '18',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                    }}>
+                                        <MaterialIcons name="alarm" size={20} color={colors.primary} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[textStyles.h2, { color: colors.text, fontSize: 16 }]} numberOfLines={1}>
+                                            Weighing Schedule
+                                        </Text>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]} numberOfLines={1}>
+                                            Automated push reminders for sessions
+                                        </Text>
+                                    </View>
                                 </View>
-                            </View>
+                            )}
 
                             <TouchableOpacity
-                                onPress={() => setReminderModalVisible(false)}
+                                onPress={() => {
+                                    setReminderView('main');
+                                    setReminderModalVisible(false);
+                                }}
                                 activeOpacity={0.7}
                                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                                 style={{
@@ -3462,502 +3527,733 @@ export default function AniWeighScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        {/* Responsive Scrollable Modal Body */}
-                        <ScrollView
-                            showsVerticalScrollIndicator={true}
-                            bounces={true}
-                            keyboardShouldPersistTaps="handled"
-                            style={{ width: '100%', flexShrink: 1 }}
-                            contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 22 }}
-                        >
-                            {/* Strategy Section Header */}
-                            <Text style={{
-                                fontFamily: 'Poppins-SemiBold',
-                                fontSize: 11,
-                                color: colors.textGrey,
-                                marginBottom: 8,
-                                textTransform: 'uppercase',
-                                letterSpacing: 0.8,
-                            }}>
-                                REMINDER MODE
-                            </Text>
+                        {reminderView === 'customTime' ? (
+                            /* Custom Time Picker Sub-View */
+                            <ScrollView
+                                showsVerticalScrollIndicator={true}
+                                bounces={true}
+                                keyboardShouldPersistTaps="handled"
+                                style={{ width: '100%', flexShrink: 1 }}
+                                contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 22, alignItems: 'center' }}
+                            >
+                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 12, marginBottom: 12 }]}>
+                                    Select hour, minute (5-min intervals), and period.
+                                </Text>
 
-                            {/* 2x2 Strategy Selector Cards */}
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-                                {([
-                                    { key: 'interval' as const, label: 'Every X Days', desc: 'Periodic cycle', icon: 'repeat' },
-                                    { key: 'weekly' as const, label: 'Specific Days', desc: 'Days of week', icon: 'date-range' },
-                                    { key: 'inactivity' as const, label: 'Inactivity Alert', desc: 'If unweighed', icon: 'alarm-off' },
-                                    { key: 'milestones' as const, label: 'Growth Stages', desc: 'Key age days', icon: 'trending-up' },
-                                ]).map(item => {
-                                    const isSel = reminderMode === item.key;
-                                    return (
-                                        <TouchableOpacity
-                                            key={item.key}
-                                            onPress={() => setReminderMode(item.key)}
-                                            activeOpacity={0.7}
-                                            style={{
-                                                flexBasis: '47%',
-                                                flexGrow: 1,
-                                                flexDirection: 'column',
-                                                padding: 11,
-                                                borderRadius: 14,
-                                                backgroundColor: isSel ? colors.primary + '12' : colors.cardFill,
-                                                borderWidth: 1.5,
-                                                borderColor: isSel ? colors.primary : colors.stroke,
-                                            }}
-                                        >
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                                <MaterialIcons
-                                                    name={item.icon as any}
-                                                    size={16}
-                                                    color={isSel ? colors.primary : colors.textGrey}
-                                                />
-                                                <Text style={[textStyles.h3, { color: isSel ? colors.primary : colors.text, fontSize: 12, flex: 1 }]}>
-                                                    {item.label}
-                                                </Text>
-                                            </View>
-                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>
-                                                {item.desc}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </View>
-
-                            {/* Strategy Config: Interval */}
-                            {reminderMode === 'interval' && (
+                                {/* Digital Display Card */}
                                 <View style={{
-                                    backgroundColor: colors.cardFill,
-                                    padding: 14,
+                                    backgroundColor: colors.bgLight,
                                     borderRadius: 16,
-                                    marginBottom: 14,
-                                    borderWidth: 1.5,
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 18,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    marginBottom: 12,
+                                    borderWidth: 1,
                                     borderColor: colors.stroke,
+                                    width: '100%',
+                                    flexDirection: 'row',
+                                    gap: 6,
                                 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                                        <View style={{ flex: 1, marginRight: 8 }}>
-                                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 13 }]}>
-                                                Interval Frequency
-                                            </Text>
-                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
-                                                Days between each session
-                                            </Text>
-                                        </View>
-                                        {/* Stepper controls */}
-                                        <View style={{
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            backgroundColor: colors.surface,
-                                            borderRadius: 20,
-                                            borderWidth: 1,
-                                            borderColor: colors.stroke,
-                                            padding: 2,
-                                        }}>
-                                            <TouchableOpacity
-                                                onPress={() => setReminderInterval(Math.max(1, (reminderInterval || 7) - 1))}
-                                                style={{
-                                                    width: 28,
-                                                    height: 28,
-                                                    borderRadius: 14,
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    backgroundColor: colors.cardFill,
-                                                }}
-                                                activeOpacity={0.7}
-                                            >
-                                                <MaterialIcons name="remove" size={15} color={colors.text} />
-                                            </TouchableOpacity>
-                                            <Text style={[textStyles.h3, { color: colors.primary, fontSize: 13, marginHorizontal: 8, minWidth: 44, textAlign: 'center' }]}>
-                                                {reminderInterval || 7}d
-                                            </Text>
-                                            <TouchableOpacity
-                                                onPress={() => setReminderInterval((reminderInterval || 7) + 1)}
-                                                style={{
-                                                    width: 28,
-                                                    height: 28,
-                                                    borderRadius: 14,
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    backgroundColor: colors.primary,
-                                                }}
-                                                activeOpacity={0.7}
-                                            >
-                                                <MaterialIcons name="add" size={15} color={colors.onPrimary} />
-                                            </TouchableOpacity>
-                                        </View>
-                                    </View>
-
-                                    <Text style={{
-                                        fontFamily: 'Poppins-SemiBold',
-                                        fontSize: 10,
-                                        color: colors.textGrey,
-                                        marginBottom: 6,
-                                        textTransform: 'uppercase',
-                                        letterSpacing: 0.5,
-                                    }}>
-                                        Quick Presets:
+                                    <Text style={[textStyles.h1, { color: colors.primary, fontSize: 32, fontWeight: '800', letterSpacing: 0.5 }]}>
+                                        {String(customTimeHour).padStart(2, '0')}
                                     </Text>
-                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                        {[1, 2, 3, 5, 7, 10, 14, 21, 30].map(days => {
-                                            const isSel = reminderInterval === days;
-                                            return (
-                                                <TouchableOpacity
-                                                    key={days}
-                                                    onPress={() => setReminderInterval(days)}
-                                                    activeOpacity={0.7}
-                                                    style={{
-                                                        paddingHorizontal: 10,
-                                                        paddingVertical: 5,
-                                                        borderRadius: 8,
-                                                        backgroundColor: isSel ? colors.primary : colors.surface,
-                                                        borderWidth: 1,
-                                                        borderColor: isSel ? colors.primary : colors.stroke,
-                                                    }}
-                                                >
-                                                    <Text style={[textStyles.label, { color: isSel ? colors.onPrimary : colors.text, fontSize: 11, fontWeight: isSel ? '700' : '500' }]}>
-                                                        {days}d
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            );
-                                        })}
-                                    </View>
-                                </View>
-                            )}
-
-                            {/* Strategy Config: Weekly Days */}
-                            {reminderMode === 'weekly' && (
-                                <View style={{
-                                    backgroundColor: colors.cardFill,
-                                    padding: 14,
-                                    borderRadius: 16,
-                                    marginBottom: 14,
-                                    borderWidth: 1.5,
-                                    borderColor: colors.stroke,
-                                }}>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 13, marginBottom: 2 }]}>
-                                        Select Days of the Week
+                                    <Text style={[textStyles.h1, { color: colors.primary, fontSize: 30, fontWeight: '800' }]}>:</Text>
+                                    <Text style={[textStyles.h1, { color: colors.primary, fontSize: 32, fontWeight: '800', letterSpacing: 0.5 }]}>
+                                        {String(customTimeMinute).padStart(2, '0')}
                                     </Text>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 10 }]}>
-                                        Repeats weekly on every selected day.
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 4 }}>
-                                        {[
-                                            { day: 0, label: 'Sun' },
-                                            { day: 1, label: 'Mon' },
-                                            { day: 2, label: 'Tue' },
-                                            { day: 3, label: 'Wed' },
-                                            { day: 4, label: 'Thu' },
-                                            { day: 5, label: 'Fri' },
-                                            { day: 6, label: 'Sat' },
-                                        ].map(d => {
-                                            const isSel = reminderDaysOfWeek.includes(d.day);
-                                            return (
-                                                <TouchableOpacity
-                                                    key={d.day}
-                                                    onPress={() => {
-                                                        if (isSel) {
-                                                            if (reminderDaysOfWeek.length > 1) {
-                                                                setReminderDaysOfWeek(reminderDaysOfWeek.filter(x => x !== d.day));
-                                                            }
-                                                        } else {
-                                                            setReminderDaysOfWeek([...reminderDaysOfWeek, d.day].sort());
-                                                        }
-                                                    }}
-                                                    activeOpacity={0.7}
-                                                    style={{
-                                                        flex: 1,
-                                                        minHeight: 36,
-                                                        borderRadius: 10,
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        backgroundColor: isSel ? colors.primary : colors.surface,
-                                                        borderWidth: 1.5,
-                                                        borderColor: isSel ? colors.primary : colors.stroke,
-                                                    }}
-                                                >
-                                                    <Text style={[textStyles.label, { color: isSel ? colors.onPrimary : colors.text, fontSize: 11, fontWeight: '700' }]}>
-                                                        {d.label}
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            );
-                                        })}
-                                    </View>
-                                </View>
-                            )}
-
-                            {/* Strategy Config: Inactivity */}
-                            {reminderMode === 'inactivity' && (
-                                <View style={{
-                                    backgroundColor: colors.cardFill,
-                                    padding: 14,
-                                    borderRadius: 16,
-                                    marginBottom: 14,
-                                    borderWidth: 1.5,
-                                    borderColor: colors.stroke,
-                                }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                        <View style={{ flex: 1, marginRight: 8 }}>
-                                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 13 }]}>
-                                                Inactivity Threshold
-                                            </Text>
-                                            <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
-                                                Alert if no weights recorded
-                                            </Text>
-                                        </View>
-                                        <View style={{
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            backgroundColor: colors.surface,
-                                            borderRadius: 20,
-                                            borderWidth: 1,
-                                            borderColor: colors.stroke,
-                                            padding: 2,
-                                        }}>
-                                            <TouchableOpacity
-                                                onPress={() => setReminderInactivityDays(Math.max(1, (reminderInactivityDays || 5) - 1))}
-                                                style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.cardFill }}
-                                                activeOpacity={0.7}
-                                            >
-                                                <MaterialIcons name="remove" size={15} color={colors.text} />
-                                            </TouchableOpacity>
-                                            <Text style={[textStyles.h3, { color: colors.primary, fontSize: 13, marginHorizontal: 8, minWidth: 44, textAlign: 'center' }]}>
-                                                {reminderInactivityDays || 5}d
-                                            </Text>
-                                            <TouchableOpacity
-                                                onPress={() => setReminderInactivityDays((reminderInactivityDays || 5) + 1)}
-                                                style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }}
-                                                activeOpacity={0.7}
-                                            >
-                                                <MaterialIcons name="add" size={15} color={colors.onPrimary} />
-                                            </TouchableOpacity>
-                                        </View>
-                                    </View>
-                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                                        {[2, 3, 5, 7, 10, 14, 21].map(days => {
-                                            const isSel = reminderInactivityDays === days;
-                                            return (
-                                                <TouchableOpacity
-                                                    key={days}
-                                                    onPress={() => setReminderInactivityDays(days)}
-                                                    activeOpacity={0.7}
-                                                    style={{
-                                                        paddingHorizontal: 10,
-                                                        paddingVertical: 5,
-                                                        borderRadius: 8,
-                                                        backgroundColor: isSel ? colors.primary : colors.surface,
-                                                        borderWidth: 1,
-                                                        borderColor: isSel ? colors.primary : colors.stroke,
-                                                    }}
-                                                >
-                                                    <Text style={[textStyles.label, { color: isSel ? colors.onPrimary : colors.text, fontSize: 11, fontWeight: isSel ? '700' : '500' }]}>
-                                                        {days}d
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            );
-                                        })}
-                                    </View>
-                                </View>
-                            )}
-
-                            {/* Strategy Config: Milestones */}
-                            {reminderMode === 'milestones' && (
-                                <View style={{
-                                    backgroundColor: colors.cardFill,
-                                    padding: 14,
-                                    borderRadius: 16,
-                                    marginBottom: 14,
-                                    borderWidth: 1.5,
-                                    borderColor: colors.stroke,
-                                }}>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 13, marginBottom: 2 }]}>
-                                        Growth Stage Milestones
-                                    </Text>
-                                    <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 10 }]}>
-                                        Automatic alerts as the batch reaches key growth ages.
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                        {reminderMilestoneDays.map(day => (
-                                            <View
-                                                key={day}
-                                                style={{
-                                                    flexDirection: 'row',
-                                                    alignItems: 'center',
-                                                    gap: 4,
-                                                    paddingHorizontal: 10,
-                                                    paddingVertical: 5,
-                                                    borderRadius: 8,
-                                                    backgroundColor: colors.primary + '15',
-                                                    borderWidth: 1,
-                                                    borderColor: colors.primary + '35',
-                                                }}
-                                            >
-                                                <MaterialIcons name="schedule" size={12} color={colors.primary} />
-                                                <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, fontWeight: '600' }]}>
-                                                    Day {day}
-                                                </Text>
-                                            </View>
-                                        ))}
-                                    </View>
-                                </View>
-                            )}
-
-                            {/* Target Housing & Batch */}
-                            <Text style={{
-                                fontFamily: 'Poppins-SemiBold',
-                                fontSize: 11,
-                                color: colors.textGrey,
-                                marginBottom: 8,
-                                textTransform: 'uppercase',
-                                letterSpacing: 0.8,
-                            }}>
-                                TARGET HOUSING & BATCH
-                            </Text>
-                            <View style={{
-                                backgroundColor: colors.cardFill,
-                                borderRadius: 16,
-                                padding: 12,
-                                borderWidth: 1.5,
-                                borderColor: colors.stroke,
-                                marginBottom: 14,
-                                gap: 8,
-                            }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                                        <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
-                                            <MaterialIcons name="home-work" size={15} color={colors.primary} />
-                                        </View>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]}>Housing</Text>
-                                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 12.5 }]} numberOfLines={1}>
-                                                {targetHousingName}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                </View>
-
-                                <View style={{ height: 1, backgroundColor: colors.stroke }} />
-
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}>
-                                        <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
-                                            <MaterialIcons name="inventory-2" size={15} color={colors.primary} />
-                                        </View>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]}>Target Batch</Text>
-                                            <Text style={[textStyles.h3, { color: colors.text, fontSize: 12.5 }]} numberOfLines={1}>
-                                                {targetBatchName}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                    <View style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        gap: 3,
-                                        backgroundColor: isBatchActive ? colors.primary + '18' : colors.warning + '18',
-                                        paddingHorizontal: 7,
-                                        paddingVertical: 3,
-                                        borderRadius: 6,
-                                        borderWidth: 1,
-                                        borderColor: isBatchActive ? colors.primary + '30' : colors.warning + '30',
-                                    }}>
-                                        <MaterialIcons name={isBatchActive ? "check-circle" : "warning"} size={11} color={isBatchActive ? colors.primary : colors.warning} />
-                                        <Text style={[textStyles.label, { color: isBatchActive ? colors.primary : colors.warning, fontSize: 9.5, fontWeight: '600' }]}>
-                                            {isBatchActive ? 'Active' : 'Inactive'}
+                                    <View style={{ backgroundColor: colors.primary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, marginLeft: 8 }}>
+                                        <Text style={[textStyles.label, { color: colors.onPrimary, fontSize: 13, fontWeight: '800' }]}>
+                                            {customTimeAmPm}
                                         </Text>
                                     </View>
                                 </View>
-                            </View>
 
-                            {/* Preferred Alert Time Section Header */}
-                            <Text style={{
-                                fontFamily: 'Poppins-SemiBold',
-                                fontSize: 11,
-                                color: colors.textGrey,
-                                marginBottom: 8,
-                                textTransform: 'uppercase',
-                                letterSpacing: 0.8,
-                            }}>
-                                PREFERRED ALERT TIME
-                            </Text>
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-                                {[
-                                    { time: '06:00', label: '6:00 AM' },
-                                    { time: '08:00', label: '8:00 AM' },
-                                    { time: '12:00', label: '12:00 PM' },
-                                    { time: '17:00', label: '5:00 PM' },
-                                    { time: '19:00', label: '7:00 PM' },
-                                ].map(t => {
-                                    const isSel = reminderTime === t.time;
-                                    return (
-                                        <TouchableOpacity
-                                            key={t.time}
-                                            onPress={() => setReminderTime(t.time)}
-                                            activeOpacity={0.7}
-                                            style={{
-                                                paddingHorizontal: 11,
-                                                paddingVertical: 6,
-                                                borderRadius: 8,
-                                                backgroundColor: isSel ? colors.primary : colors.cardFill,
-                                                borderWidth: 1.5,
-                                                borderColor: isSel ? colors.primary : colors.stroke,
-                                            }}
-                                        >
-                                            <Text style={[textStyles.label, { color: isSel ? colors.onPrimary : colors.text, fontSize: 11.5, fontWeight: isSel ? '700' : '500' }]}>
-                                                {t.label}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </View>
+                                {/* AM / PM Switcher */}
+                                <View style={{ flexDirection: 'row', gap: 8, width: '100%', marginBottom: 12 }}>
+                                    {(['AM', 'PM'] as const).map((period) => {
+                                        const isSelected = customTimeAmPm === period;
+                                        return (
+                                            <TouchableOpacity
+                                                key={period}
+                                                onPress={() => setCustomTimeAmPm(period)}
+                                                activeOpacity={0.7}
+                                                style={{
+                                                    flex: 1,
+                                                    height: 36,
+                                                    borderRadius: 12,
+                                                    backgroundColor: isSelected ? colors.primary : colors.cardFill,
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    borderWidth: 1,
+                                                    borderColor: isSelected ? colors.primary : colors.stroke,
+                                                }}
+                                            >
+                                                <Text style={[textStyles.label, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 13, fontWeight: '700' }]}>
+                                                    {period}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
 
+                                {/* Hours Grid (4 columns x 3 rows) */}
+                                <View style={{ width: '100%', marginBottom: 12 }}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6, textTransform: 'uppercase' }]}>
+                                        Hour
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'space-between' }}>
+                                        {Array.from({ length: 12 }).map((_, i) => {
+                                            const h = i + 1;
+                                            const isSelected = customTimeHour === h;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={h}
+                                                    onPress={() => setCustomTimeHour(h)}
+                                                    activeOpacity={0.7}
+                                                    style={{
+                                                        width: '23%',
+                                                        height: 34,
+                                                        borderRadius: 10,
+                                                        backgroundColor: isSelected ? colors.primary : colors.cardFill,
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        borderWidth: 1,
+                                                        borderColor: isSelected ? colors.primary : colors.stroke,
+                                                    }}
+                                                >
+                                                    <Text style={[textStyles.body, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 13, fontWeight: isSelected ? '700' : '600' }]}>
+                                                        {String(h).padStart(2, '0')}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                </View>
 
+                                {/* Minutes Grid (4 columns x 3 rows: 5-minute intervals only) */}
+                                <View style={{ width: '100%', marginBottom: 16 }}>
+                                    <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6, textTransform: 'uppercase' }]}>
+                                        Minute (5-min intervals)
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'space-between' }}>
+                                        {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => {
+                                            const isSelected = customTimeMinute === m;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={m}
+                                                    onPress={() => setCustomTimeMinute(m)}
+                                                    activeOpacity={0.7}
+                                                    style={{
+                                                        width: '23%',
+                                                        height: 32,
+                                                        borderRadius: 10,
+                                                        backgroundColor: isSelected ? colors.primary : colors.cardFill,
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        borderWidth: 1,
+                                                        borderColor: isSelected ? colors.primary : colors.stroke,
+                                                    }}
+                                                >
+                                                    <Text style={[textStyles.body, { color: isSelected ? colors.onPrimary : colors.text, fontSize: 12, fontWeight: isSelected ? '700' : '600' }]}>
+                                                        :{String(m).padStart(2, '0')}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                </View>
 
-                            {/* Action Buttons */}
-                            <View style={{ flexDirection: 'row', gap: 10, width: '100%', marginTop: 2 }}>
-                                <TouchableOpacity
-                                    style={{
-                                        flex: 1,
+                                {/* Action buttons */}
+                                <View style={{ flexDirection: 'row', gap: 10, width: '100%' }}>
+                                    <TouchableOpacity
+                                        style={{
+                                            flex: 1,
+                                            paddingVertical: 12,
+                                            borderRadius: 14,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                            backgroundColor: colors.cardFill,
+                                        }}
+                                        onPress={() => setReminderView('main')}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 13.5 }]}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={{
+                                            flex: 1.5,
+                                            paddingVertical: 12,
+                                            borderRadius: 14,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            backgroundColor: colors.primary,
+                                            shadowColor: colors.primary,
+                                            shadowOpacity: 0.35,
+                                            shadowRadius: 6,
+                                            shadowOffset: { width: 0, height: 3 },
+                                            elevation: 3,
+                                        }}
+                                        onPress={() => {
+                                            let h = customTimeHour;
+                                            if (customTimeAmPm === 'PM' && h < 12) h += 12;
+                                            if (customTimeAmPm === 'AM' && h === 12) h = 0;
+                                            const time24 = `${String(h).padStart(2, '0')}:${String(customTimeMinute).padStart(2, '0')}`;
+                                            setReminderTime(time24);
+                                            setReminderView('main');
+                                        }}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 13.5, fontWeight: '700' }]}>Set Alert Time</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
+                        ) : (
+                            /* Responsive Scrollable Modal Body */
+                            <ScrollView
+                                showsVerticalScrollIndicator={true}
+                                bounces={true}
+                                keyboardShouldPersistTaps="handled"
+                                style={{ width: '100%', flexShrink: 1 }}
+                                contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 22 }}
+                            >
+                                {/* Strategy Section Header */}
+                                <Text style={{
+                                    fontFamily: 'Poppins-SemiBold',
+                                    fontSize: 11,
+                                    color: colors.textGrey,
+                                    marginBottom: 8,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: 0.8,
+                                }}>
+                                    REMINDER MODE
+                                </Text>
+
+                                {/* 2x2 Strategy Selector Cards */}
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                                    {([
+                                        { key: 'interval' as const, label: 'Every X Days', desc: 'Periodic cycle', icon: 'repeat' },
+                                        { key: 'weekly' as const, label: 'Specific Days', desc: 'Days of week', icon: 'date-range' },
+                                        { key: 'inactivity' as const, label: 'Inactivity Alert', desc: 'If unweighed', icon: 'alarm-off' },
+                                        { key: 'milestones' as const, label: 'Growth Stages', desc: 'Key age days', icon: 'trending-up' },
+                                    ]).map(item => {
+                                        const isSel = reminderMode === item.key;
+                                        return (
+                                            <TouchableOpacity
+                                                key={item.key}
+                                                onPress={() => setReminderMode(item.key)}
+                                                activeOpacity={0.7}
+                                                style={{
+                                                    flexBasis: '47%',
+                                                    flexGrow: 1,
+                                                    flexDirection: 'column',
+                                                    padding: 11,
+                                                    borderRadius: 14,
+                                                    backgroundColor: isSel ? colors.primary + '12' : colors.cardFill,
+                                                    borderWidth: 1.5,
+                                                    borderColor: isSel ? colors.primary : colors.stroke,
+                                                }}
+                                            >
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                                    <MaterialIcons
+                                                        name={item.icon as any}
+                                                        size={16}
+                                                        color={isSel ? colors.primary : colors.textGrey}
+                                                    />
+                                                    <Text style={[textStyles.h3, { color: isSel ? colors.primary : colors.text, fontSize: 12, flex: 1 }]}>
+                                                        {item.label}
+                                                    </Text>
+                                                </View>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 10 }]}>
+                                                    {item.desc}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+
+                                {/* Strategy Config: Interval */}
+                                {reminderMode === 'interval' && (
+                                    <View style={{
                                         backgroundColor: colors.cardFill,
+                                        padding: 14,
+                                        borderRadius: 16,
+                                        marginBottom: 14,
                                         borderWidth: 1.5,
                                         borderColor: colors.stroke,
-                                        borderRadius: 12,
-                                        paddingVertical: 12,
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                    }}
-                                    onPress={() => setReminderModalVisible(false)}
-                                    activeOpacity={0.7}
-                                    disabled={isSavingReminder}
-                                >
-                                    <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 13.5 }]}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={{
-                                        flex: 1.5,
-                                        backgroundColor: colors.primary,
-                                        borderRadius: 12,
-                                        paddingVertical: 12,
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        shadowColor: colors.primary,
-                                        shadowOpacity: 0.35,
-                                        shadowRadius: 6,
-                                        shadowOffset: { width: 0, height: 3 },
-                                        elevation: 3,
-                                    }}
-                                    onPress={handleSaveReminder}
-                                    activeOpacity={0.7}
-                                    disabled={isSavingReminder}
-                                >
-                                    {isSavingReminder ? (
-                                        <ActivityIndicator size="small" color={colors.onPrimary} />
-                                    ) : (
-                                        <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 13.5, fontWeight: '700' }]}>Save Schedule</Text>
-                                    )}
-                                </TouchableOpacity>
-                            </View>
-                        </ScrollView>
+                                    }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                            <View style={{ flex: 1, marginRight: 8 }}>
+                                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 13 }]}>
+                                                    Interval Frequency
+                                                </Text>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                                                    Days between each session
+                                                </Text>
+                                            </View>
+                                            {/* Stepper controls */}
+                                            <View style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                backgroundColor: colors.surface,
+                                                borderRadius: 20,
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                                padding: 2,
+                                            }}>
+                                                <TouchableOpacity
+                                                    onPress={() => setReminderInterval(Math.max(1, (reminderInterval || 7) - 1))}
+                                                    style={{
+                                                        width: 28,
+                                                        height: 28,
+                                                        borderRadius: 14,
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        backgroundColor: colors.cardFill,
+                                                    }}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    <MaterialIcons name="remove" size={15} color={colors.text} />
+                                                </TouchableOpacity>
+                                                <Text style={[textStyles.h3, { color: colors.primary, fontSize: 13, marginHorizontal: 8, minWidth: 44, textAlign: 'center' }]}>
+                                                    {reminderInterval || 7}d
+                                                </Text>
+                                                <TouchableOpacity
+                                                    onPress={() => setReminderInterval((reminderInterval || 7) + 1)}
+                                                    style={{
+                                                        width: 28,
+                                                        height: 28,
+                                                        borderRadius: 14,
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        backgroundColor: colors.primary,
+                                                    }}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    <MaterialIcons name="add" size={15} color={colors.onPrimary} />
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+
+                                        <Text style={{
+                                            fontFamily: 'Poppins-SemiBold',
+                                            fontSize: 10,
+                                            color: colors.textGrey,
+                                            marginBottom: 6,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: 0.5,
+                                        }}>
+                                            Quick Presets:
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                            {[1, 2, 3, 5, 7, 10, 14, 21, 30].map(days => {
+                                                const isSel = reminderInterval === days;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={days}
+                                                        onPress={() => setReminderInterval(days)}
+                                                        activeOpacity={0.7}
+                                                        style={{
+                                                            paddingHorizontal: 10,
+                                                            paddingVertical: 5,
+                                                            borderRadius: 8,
+                                                            backgroundColor: isSel ? colors.primary : colors.surface,
+                                                            borderWidth: 1,
+                                                            borderColor: isSel ? colors.primary : colors.stroke,
+                                                        }}
+                                                    >
+                                                        <Text style={[textStyles.label, { color: isSel ? colors.onPrimary : colors.text, fontSize: 11, fontWeight: isSel ? '700' : '500' }]}>
+                                                            {days}d
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+                                )}
+
+                                {/* Strategy Config: Weekly Days */}
+                                {reminderMode === 'weekly' && (
+                                    <View style={{
+                                        backgroundColor: colors.cardFill,
+                                        padding: 14,
+                                        borderRadius: 16,
+                                        marginBottom: 14,
+                                        borderWidth: 1.5,
+                                        borderColor: colors.stroke,
+                                    }}>
+                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 13, marginBottom: 2 }]}>
+                                            Select Days of the Week
+                                        </Text>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 10 }]}>
+                                            Repeats weekly on every selected day.
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 4 }}>
+                                            {[
+                                                { day: 0, label: 'Sun' },
+                                                { day: 1, label: 'Mon' },
+                                                { day: 2, label: 'Tue' },
+                                                { day: 3, label: 'Wed' },
+                                                { day: 4, label: 'Thu' },
+                                                { day: 5, label: 'Fri' },
+                                                { day: 6, label: 'Sat' },
+                                            ].map(d => {
+                                                const isSel = reminderDaysOfWeek.includes(d.day);
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={d.day}
+                                                        onPress={() => {
+                                                            if (isSel) {
+                                                                if (reminderDaysOfWeek.length > 1) {
+                                                                    setReminderDaysOfWeek(reminderDaysOfWeek.filter(x => x !== d.day));
+                                                                }
+                                                            } else {
+                                                                setReminderDaysOfWeek([...reminderDaysOfWeek, d.day].sort());
+                                                            }
+                                                        }}
+                                                        activeOpacity={0.7}
+                                                        style={{
+                                                            flex: 1,
+                                                            minHeight: 36,
+                                                            borderRadius: 10,
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            backgroundColor: isSel ? colors.primary : colors.surface,
+                                                            borderWidth: 1.5,
+                                                            borderColor: isSel ? colors.primary : colors.stroke,
+                                                        }}
+                                                    >
+                                                        <Text style={[textStyles.label, { color: isSel ? colors.onPrimary : colors.text, fontSize: 11, fontWeight: '700' }]}>
+                                                            {d.label}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+                                )}
+
+                                {/* Strategy Config: Inactivity */}
+                                {reminderMode === 'inactivity' && (
+                                    <View style={{
+                                        backgroundColor: colors.cardFill,
+                                        padding: 14,
+                                        borderRadius: 16,
+                                        marginBottom: 14,
+                                        borderWidth: 1.5,
+                                        borderColor: colors.stroke,
+                                    }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                            <View style={{ flex: 1, marginRight: 8 }}>
+                                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 13 }]}>
+                                                    Inactivity Threshold
+                                                </Text>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                                                    Alert if no weights recorded
+                                                </Text>
+                                            </View>
+                                            <View style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                backgroundColor: colors.surface,
+                                                borderRadius: 20,
+                                                borderWidth: 1,
+                                                borderColor: colors.stroke,
+                                                padding: 2,
+                                            }}>
+                                                <TouchableOpacity
+                                                    onPress={() => setReminderInactivityDays(Math.max(1, (reminderInactivityDays || 5) - 1))}
+                                                    style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.cardFill }}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    <MaterialIcons name="remove" size={15} color={colors.text} />
+                                                </TouchableOpacity>
+                                                <Text style={[textStyles.h3, { color: colors.primary, fontSize: 13, marginHorizontal: 8, minWidth: 44, textAlign: 'center' }]}>
+                                                    {reminderInactivityDays || 5}d
+                                                </Text>
+                                                <TouchableOpacity
+                                                    onPress={() => setReminderInactivityDays((reminderInactivityDays || 5) + 1)}
+                                                    style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    <MaterialIcons name="add" size={15} color={colors.onPrimary} />
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                                            {[2, 3, 5, 7, 10, 14, 21].map(days => {
+                                                const isSel = reminderInactivityDays === days;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={days}
+                                                        onPress={() => setReminderInactivityDays(days)}
+                                                        activeOpacity={0.7}
+                                                        style={{
+                                                            paddingHorizontal: 10,
+                                                            paddingVertical: 5,
+                                                            borderRadius: 8,
+                                                            backgroundColor: isSel ? colors.primary : colors.surface,
+                                                            borderWidth: 1,
+                                                            borderColor: isSel ? colors.primary : colors.stroke,
+                                                        }}
+                                                    >
+                                                        <Text style={[textStyles.label, { color: isSel ? colors.onPrimary : colors.text, fontSize: 11, fontWeight: isSel ? '700' : '500' }]}>
+                                                            {days}d
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+                                )}
+
+                                {/* Strategy Config: Milestones */}
+                                {reminderMode === 'milestones' && (
+                                    <View style={{
+                                        backgroundColor: colors.cardFill,
+                                        padding: 14,
+                                        borderRadius: 16,
+                                        marginBottom: 14,
+                                        borderWidth: 1.5,
+                                        borderColor: colors.stroke,
+                                    }}>
+                                        <Text style={[textStyles.h3, { color: colors.text, fontSize: 13, marginBottom: 2 }]}>
+                                            Growth Stage Milestones
+                                        </Text>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginBottom: 10 }]}>
+                                            Automatic alerts as the batch reaches key growth ages.
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                            {reminderMilestoneDays.map(day => (
+                                                <View
+                                                    key={day}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        paddingHorizontal: 10,
+                                                        paddingVertical: 5,
+                                                        borderRadius: 8,
+                                                        backgroundColor: colors.primary + '15',
+                                                        borderWidth: 1,
+                                                        borderColor: colors.primary + '35',
+                                                    }}
+                                                >
+                                                    <MaterialIcons name="schedule" size={12} color={colors.primary} />
+                                                    <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, fontWeight: '600' }]}>
+                                                        Day {day}
+                                                    </Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                )}
+
+                                {/* Target Housing & Batch */}
+                                <Text style={{
+                                    fontFamily: 'Poppins-SemiBold',
+                                    fontSize: 11,
+                                    color: colors.textGrey,
+                                    marginBottom: 8,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: 0.8,
+                                }}>
+                                    TARGET HOUSING & BATCH
+                                </Text>
+                                <View style={{
+                                    backgroundColor: colors.cardFill,
+                                    borderRadius: 16,
+                                    padding: 12,
+                                    borderWidth: 1.5,
+                                    borderColor: colors.stroke,
+                                    marginBottom: 14,
+                                    gap: 8,
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                                            <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
+                                                <MaterialIcons name="home-work" size={15} color={colors.primary} />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]}>Housing</Text>
+                                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 12.5 }]} numberOfLines={1}>
+                                                    {targetHousingName}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    </View>
+
+                                    <View style={{ height: 1, backgroundColor: colors.stroke }} />
+
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}>
+                                            <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
+                                                <MaterialIcons name="inventory-2" size={15} color={colors.primary} />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 10 }]}>Target Batch</Text>
+                                                <Text style={[textStyles.h3, { color: colors.text, fontSize: 12.5 }]} numberOfLines={1}>
+                                                    {targetBatchName}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                        <View style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            gap: 3,
+                                            backgroundColor: isBatchActive ? colors.primary + '18' : colors.warning + '18',
+                                            paddingHorizontal: 7,
+                                            paddingVertical: 3,
+                                            borderRadius: 6,
+                                            borderWidth: 1,
+                                            borderColor: isBatchActive ? colors.primary + '30' : colors.warning + '30',
+                                        }}>
+                                            <MaterialIcons name={isBatchActive ? "check-circle" : "warning"} size={11} color={isBatchActive ? colors.primary : colors.warning} />
+                                            <Text style={[textStyles.label, { color: isBatchActive ? colors.primary : colors.warning, fontSize: 9.5, fontWeight: '600' }]}>
+                                                {isBatchActive ? 'Active' : 'Inactive'}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+
+                                {/* Preferred Alert Time Section Header */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                    <Text style={{
+                                        fontFamily: 'Poppins-SemiBold',
+                                        fontSize: 11,
+                                        color: colors.textGrey,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: 0.8,
+                                    }}>
+                                        PREFERRED ALERT TIME
+                                    </Text>
+                                    {(() => {
+                                        const isPreset = ['06:00', '08:00', '12:00', '17:00', '19:00'].includes(reminderTime);
+                                        if (!isPreset) {
+                                            return (
+                                                <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                                    <Text style={[textStyles.label, { color: colors.primary, fontSize: 10, fontWeight: '700' }]}>
+                                                        Custom: {formatReminderTimeLabel(reminderTime)}
+                                                    </Text>
+                                                </View>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
+                                </View>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+                                    {[
+                                        { time: '06:00', label: '6:00 AM' },
+                                        { time: '08:00', label: '8:00 AM' },
+                                        { time: '12:00', label: '12:00 PM' },
+                                        { time: '17:00', label: '5:00 PM' },
+                                        { time: '19:00', label: '7:00 PM' },
+                                    ].map(t => {
+                                        const isSel = reminderTime === t.time;
+                                        return (
+                                            <TouchableOpacity
+                                                key={t.time}
+                                                onPress={() => setReminderTime(t.time)}
+                                                activeOpacity={0.7}
+                                                style={{
+                                                    paddingHorizontal: 11,
+                                                    paddingVertical: 6,
+                                                    borderRadius: 8,
+                                                    backgroundColor: isSel ? colors.primary : colors.cardFill,
+                                                    borderWidth: 1.5,
+                                                    borderColor: isSel ? colors.primary : colors.stroke,
+                                                }}
+                                            >
+                                                <Text style={[textStyles.label, { color: isSel ? colors.onPrimary : colors.text, fontSize: 11.5, fontWeight: isSel ? '700' : '500' }]}>
+                                                    {t.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+
+                                    {/* Custom Time Button */}
+                                    {(() => {
+                                        const isPreset = ['06:00', '08:00', '12:00', '17:00', '19:00'].includes(reminderTime);
+                                        return (
+                                            <TouchableOpacity
+                                                onPress={openCustomTimePicker}
+                                                activeOpacity={0.7}
+                                                style={{
+                                                    flexDirection: 'row',
+                                                    alignItems: 'center',
+                                                    gap: 5,
+                                                    paddingHorizontal: 11,
+                                                    paddingVertical: 6,
+                                                    borderRadius: 8,
+                                                    backgroundColor: !isPreset ? colors.primary : colors.cardFill,
+                                                    borderWidth: 1.5,
+                                                    borderColor: !isPreset ? colors.primary : colors.stroke,
+                                                }}
+                                            >
+                                                <MaterialIcons
+                                                    name="access-time"
+                                                    size={14}
+                                                    color={!isPreset ? colors.onPrimary : colors.primary}
+                                                />
+                                                <Text style={[textStyles.label, { color: !isPreset ? colors.onPrimary : colors.text, fontSize: 11.5, fontWeight: !isPreset ? '700' : '600' }]}>
+                                                    {!isPreset ? `${formatReminderTimeLabel(reminderTime)} (Custom)` : '+ Custom Time'}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })()}
+                                </View>
+
+                                {/* Action Buttons */}
+                                <View style={{ flexDirection: 'row', gap: 10, width: '100%', marginTop: 2 }}>
+                                    <TouchableOpacity
+                                        style={{
+                                            flex: 1,
+                                            backgroundColor: colors.cardFill,
+                                            borderWidth: 1.5,
+                                            borderColor: colors.stroke,
+                                            borderRadius: 12,
+                                            paddingVertical: 12,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                        }}
+                                        onPress={() => {
+                                            setReminderView('main');
+                                            setReminderModalVisible(false);
+                                        }}
+                                        activeOpacity={0.7}
+                                        disabled={isSavingReminder}
+                                    >
+                                        <Text style={[textStyles.h3, { color: colors.textGrey, fontSize: 13.5 }]}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={{
+                                            flex: 1.5,
+                                            backgroundColor: colors.primary,
+                                            borderRadius: 12,
+                                            paddingVertical: 12,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            shadowColor: colors.primary,
+                                            shadowOpacity: 0.35,
+                                            shadowRadius: 6,
+                                            shadowOffset: { width: 0, height: 3 },
+                                            elevation: 3,
+                                        }}
+                                        onPress={handleSaveReminder}
+                                        activeOpacity={0.7}
+                                        disabled={isSavingReminder}
+                                    >
+                                        {isSavingReminder ? (
+                                            <ActivityIndicator size="small" color={colors.onPrimary} />
+                                        ) : (
+                                            <Text style={[textStyles.h3, { color: colors.onPrimary, fontSize: 13.5, fontWeight: '700' }]}>Save Schedule</Text>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
+                        )}
                     </View>
                 </View>
             </Modal>

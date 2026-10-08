@@ -14,7 +14,7 @@ import { SelectionModal } from '@/components/SelectionModal';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
 import Snackbar, { SnackbarType } from '@/components/Snackbar';
-import { ReportDocument, ReportSection, ReportChart } from '@/lib/pdfReport';
+import { ReportDocument, ReportSection, ReportChart, formatReportUserRole, formatReportUserName } from '@/lib/pdfReport';
 import { createNotification } from '@/lib/notify';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -794,8 +794,10 @@ export default function WeighingSessionsScreen() {
                 { label: 'Head Count', value: String(selectedBatch.current_count) },
             ],
             sections,
+            generatedByName: formatReportUserName(profile),
+            generatedByRole: formatReportUserRole(profile?.role),
         };
-    }, [selectedBatch, selectedHousing, animalType, resolvedRange, rangeTotal, rangeAvgG, rangeMinG, rangeMaxG, rangeFeedGrams, rangeUnder, rangeNormal, rangeOver, dayGroups, previousBatch, previousBatchStats, currentBatchStats, farmName]);
+    }, [selectedBatch, selectedHousing, animalType, resolvedRange, rangeTotal, rangeAvgG, rangeMinG, rangeMaxG, rangeFeedGrams, rangeUnder, rangeNormal, rangeOver, dayGroups, previousBatch, previousBatchStats, currentBatchStats, farmName, profile]);
 
     return (
         <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>

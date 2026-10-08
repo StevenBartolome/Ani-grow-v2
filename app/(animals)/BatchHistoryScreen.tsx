@@ -23,7 +23,7 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useFarmFilter } from '@/context/FarmFilterContext';
-import { exportReportPdf, ReportDocument, ReportChart } from '@/lib/pdfReport';
+import { exportReportPdf, ReportDocument, ReportChart, formatReportUserRole, formatReportUserName } from '@/lib/pdfReport';
 import { supabase } from '@/lib/supabase';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
@@ -722,7 +722,8 @@ export default function BatchHistoryScreen() {
             reportTitle: `Batch Performance Dossier: ${selectedBatch.name}`,
             farmName: (profile as any)?.farm_name || 'AniGrow Smart Livestock System',
             subtitle: `Completed Lifecycle Report • Provenance: ${selectedBatch.housings?.name || 'General Housing'}`,
-            generatedByName: (profile as any)?.first_name ? `${(profile as any).first_name} ${(profile as any).last_name || ''}` : 'Farm Admin',
+            generatedByName: formatReportUserName(profile),
+            generatedByRole: formatReportUserRole(profile?.role),
             meta: [
                 { label: 'Species', value: animalLabel },
                 { label: 'Origin Housing', value: selectedBatch.housings?.name || 'Unassigned' },

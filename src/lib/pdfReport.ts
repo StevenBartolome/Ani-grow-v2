@@ -78,6 +78,38 @@ export interface ReportDocument {
     charts?: ReportChart[];
     signatures?: ReportSignature[];
     generatedByName?: string;
+    generatedByRole?: string;
+}
+
+export function formatReportUserRole(role?: string | null): string {
+    if (!role) return 'Farm Staff';
+    const roleMap: Record<string, string> = {
+        super_admin: 'Super Admin',
+        farm_admin: 'Farm Admin',
+        admin: 'Admin',
+        caretaker: 'Caretaker',
+        veterinarian: 'Veterinarian',
+        flockman: 'Flockman',
+        manager: 'Farm Manager',
+        worker: 'Farm Worker',
+        employee: 'Employee',
+    };
+    const key = role.toLowerCase().trim();
+    if (roleMap[key]) return roleMap[key];
+    return role
+        .replace(/_/g, ' ')
+        .split(' ')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+}
+
+export function formatReportUserName(profile?: any): string {
+    if (!profile) return 'Authorized User';
+    const first = profile.firstName || profile.first_name || '';
+    const last = profile.lastName || profile.last_name || '';
+    const full = `${first} ${last}`.trim();
+    if (full) return full;
+    return profile.displayName || profile.display_name || profile.name || (profile.email ? profile.email.split('@')[0] : 'Authorized User');
 }
 
 export interface ReportExportOptions {
@@ -338,9 +370,10 @@ export function renderChartSvg(chart: ReportChart): string {
     `;
 }
 
-function renderSignatures(signatures?: ReportSignature[], generatedByName?: string): string {
+function renderSignatures(signatures?: ReportSignature[], generatedByName?: string, generatedByRole?: string): string {
+    const defaultRole = generatedByRole ? formatReportUserRole(generatedByRole) : 'Farm Staff';
     const items = signatures && signatures.length > 0 ? signatures : [
-        { title: 'PREPARED BY:', name: generatedByName || 'OPERATIONAL LEAD', role: 'Livestock Data & Telemetry', date: 'Date: ________________________' },
+        { title: 'PREPARED BY:', name: generatedByName || 'AUTHORIZED USER', role: defaultRole, date: 'Date: ________________________' },
         { title: 'REVIEWED & CERTIFIED BY:', name: '___________________________', role: 'Farm Manager / Supervising Veterinarian', date: 'Date: ________________________' }
     ];
 
@@ -862,7 +895,7 @@ export function buildReportHtml(doc: ReportDocument, options?: ReportExportOptio
     ${filteredSections.map((section, idx) => renderSection(section, idx, options)).join('')}
 
     <!-- Document Authorization Sign-off -->
-    ${options?.includeSignatures !== false ? renderSignatures(doc.signatures, doc.generatedByName) : ''}
+    ${options?.includeSignatures !== false ? renderSignatures(doc.signatures, doc.generatedByName, doc.generatedByRole) : ''}
 
     <!-- Formal Footer -->
     <div class="formal-footer">

@@ -5,14 +5,14 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { ActivityIndicator, Alert, Platform, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LineChart } from 'react-native-chart-kit';
+import { LineChart, BarChart } from 'react-native-chart-kit';
 
 import { BackButton } from '@/components/BackButton';
 import { SelectionModal } from '@/components/SelectionModal';
 import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
-import { ReportDocument, ReportChart } from '@/lib/pdfReport';
+import { ReportDocument, ReportChart, formatReportUserRole, formatReportUserName } from '@/lib/pdfReport';
 import { createNotification } from '@/lib/notify';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
@@ -154,6 +154,7 @@ export default function GrowthReportScreen() {
     const [sessionModalVisible, setSessionModalVisible] = useState(false);
     const [timeframe, setTimeframe] = useState<'Days' | 'Weeks'>('Days');
     const [selectedTab, setSelectedTab] = useState<'All' | 'Underweight' | 'Normal' | 'Overweight'>('All');
+    const [distributionViewMode, setDistributionViewMode] = useState<'bar' | 'progress'>('progress');
     
     const [isLoading, setIsLoading] = useState(true);
     const [isWeighLoading, setIsWeighLoading] = useState(false);
@@ -667,9 +668,8 @@ export default function GrowthReportScreen() {
             ? new Date(selectedBatch.arrival_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
             : '—';
 
-        const officerName = (profile as any)?.first_name
-            ? `${(profile as any).first_name} ${(profile as any).last_name ?? ''}`.trim()
-            : (profile as any)?.displayName || 'Operations Officer';
+        const officerName = formatReportUserName(profile);
+        const officerRole = formatReportUserRole(profile?.role);
 
         const selectedHousingFarmName = (selectedHousing as any)?.farms?.name;
         const selectedBatchFarmName = (selectedBatch as any)?.housings?.farms?.name;
@@ -838,7 +838,7 @@ export default function GrowthReportScreen() {
                 {
                     title: 'Prepared By (Farm Operations):',
                     name: officerName,
-                    role: 'Production Lead & Scale Telemetry Officer',
+                    role: officerRole,
                     date: `Date: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
                 },
                 {
@@ -849,6 +849,7 @@ export default function GrowthReportScreen() {
                 },
             ],
             generatedByName: officerName,
+            generatedByRole: officerRole,
         };
     }, [selectedBatch, selectedHousing, weighSessions, animalType, currentDay, farmName, managedFarms, selectedFarmIds, activeFarmIds, farmId, totalWeighs, underweightCount, normalCount, overweightCount, profile]);
 
@@ -1582,108 +1583,57 @@ export default function GrowthReportScreen() {
         }
     }, [effectiveWeighSessions, selectedTab, timeframe, colors, activeColor, OVERWEIGHT_COLOR, selectedBatch]);
 
-    // ─── Comparison Chart: Counts Comparison ─────────────────────────
-    const comparisonChartData = useMemo(() => {
-        if (effectiveWeighSessions.length === 0) {
-            return { noData: true, labels: [] as string[], datasets: [{ data: [0] }], details: [] as PointDetail[] };
-        }
-
-        if (timeframe === 'Days') {
-            const dateMap = new Map<string, { underweight: number; normal: number; overweight: number; total: number }>();
-            effectiveWeighSessions.forEach(s => {
-                const key = s.recorded_at.slice(0, 10);
-                if (!dateMap.has(key)) {
-                    dateMap.set(key, { underweight: 0, normal: 0, overweight: 0, total: 0 });
-                }
-                const counts = dateMap.get(key)!;
-                counts.total += 1;
-                if (s.status === 'underweight') counts.underweight += 1;
-                else if (s.status === 'overweight') counts.overweight += 1;
-                else counts.normal += 1;
-            });
-            const sortedDates = Array.from(dateMap.keys()).sort();
-            if (sortedDates.length < 2) {
-                return { noData: true, labels: [] as string[], datasets: [{ data: [0] }], details: [] as PointDetail[] };
-            }
-
-            const daysToUse = sortedDates.slice(-30);
-            const labels = daysToUse.map(d => {
-                const parts = d.split('-');
-                return parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
-            });
-
-            const normalCounts = daysToUse.map(d => dateMap.get(d)!.normal);
-            const underweightCounts = daysToUse.map(d => dateMap.get(d)!.underweight);
-            const overweightCounts = daysToUse.map(d => dateMap.get(d)!.overweight);
-
-            const details: PointDetail[] = daysToUse.map(d => {
-                const c = dateMap.get(d)!;
-                const parts = d.split('-');
-                const lbl = parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
-                return { label: lbl, ...c };
-            });
-
+    // ─── Latest Session Bar Chart Data (Current Growth) ─────────────────
+    const latestBarChartData = useMemo(() => {
+        if (effectiveWeighSessions.length === 0 || sessionStatsList.length === 0) {
             return {
-                noData: false,
-                labels,
-                datasets: [
-                    { data: normalCounts, color: () => colors.primary, strokeWidth: 3, key: 'Normal', label: 'Normal' },
-                    { data: underweightCounts, color: () => colors.secondary, strokeWidth: 3, key: 'Underweight', label: 'Underweight' },
-                    { data: overweightCounts, color: () => OVERWEIGHT_COLOR, strokeWidth: 3, key: 'Overweight', label: 'Overweight' },
-                ],
-                details,
-            };
-        } else {
-            const arrival = selectedBatch?.arrival_date ? new Date(selectedBatch.arrival_date) : null;
-            const weekMap = new Map<number, { underweight: number; normal: number; overweight: number; total: number }>();
-            effectiveWeighSessions.forEach(s => {
-                const recorded = new Date(s.recorded_at);
-                let weekIdx = 0;
-                if (arrival) {
-                    const diffDays = Math.floor((recorded.getTime() - arrival.getTime()) / (1000 * 60 * 60 * 24));
-                    weekIdx = Math.max(0, Math.floor(diffDays / 7)) + 1;
-                } else {
-                    const startYear = new Date(effectiveWeighSessions[0].recorded_at).getFullYear();
-                    weekIdx = Math.floor((recorded.getTime() - new Date(startYear, 0, 1).getTime()) / (1000 * 60 * 60 * 24 * 7));
-                }
-                if (!weekMap.has(weekIdx)) {
-                    weekMap.set(weekIdx, { underweight: 0, normal: 0, overweight: 0, total: 0 });
-                }
-                const counts = weekMap.get(weekIdx)!;
-                counts.total += 1;
-                if (s.status === 'underweight') counts.underweight += 1;
-                else if (s.status === 'overweight') counts.overweight += 1;
-                else counts.normal += 1;
-            });
-            const sortedWeeks = Array.from(weekMap.keys()).sort();
-            if (sortedWeeks.length < 2) {
-                return { noData: true, labels: [] as string[], datasets: [{ data: [0] }], details: [] as PointDetail[] };
-            }
-
-            const weeksToUse = sortedWeeks.slice(-30);
-            const labels = weeksToUse.map(w => `W${w}`);
-            
-            const normalCounts = weeksToUse.map(w => weekMap.get(w)!.normal);
-            const underweightCounts = weeksToUse.map(w => weekMap.get(w)!.underweight);
-            const overweightCounts = weeksToUse.map(w => weekMap.get(w)!.overweight);
-
-            const details: PointDetail[] = weeksToUse.map(w => ({
-                label: `W${w}`,
-                ...weekMap.get(w)!
-            }));
-
-            return {
-                noData: false,
-                labels,
-                datasets: [
-                    { data: normalCounts, color: () => colors.primary, strokeWidth: 3, key: 'Normal', label: 'Normal' },
-                    { data: underweightCounts, color: () => colors.secondary, strokeWidth: 3, key: 'Underweight', label: 'Underweight' },
-                    { data: overweightCounts, color: () => OVERWEIGHT_COLOR, strokeWidth: 3, key: 'Overweight', label: 'Overweight' },
-                ],
-                details,
+                noData: true,
+                labels: ['Underweight', 'Normal', 'Overweight'],
+                datasets: [{ data: [0, 0, 0] }],
+                underweight: 0,
+                normal: 0,
+                overweight: 0,
+                total: 0,
+                underweightPct: 0,
+                normalPct: 0,
+                overweightPct: 0,
+                sessionTitle: 'Latest Session',
+                sessionSubtitle: '',
+                avgWeightKg: 0,
             };
         }
-    }, [effectiveWeighSessions, timeframe, colors, selectedBatch, OVERWEIGHT_COLOR]);
+
+        const latest = sessionStatsList[sessionStatsList.length - 1];
+        const under = latest.underweightCount;
+        const norm = latest.normalCount;
+        const over = latest.overweightCount;
+        const total = latest.totalCount;
+
+        return {
+            noData: total === 0,
+            labels: ['Underweight', 'Normal Weight', 'Overweight'],
+            datasets: [
+                {
+                    data: [under, norm, over],
+                    colors: [
+                        (opacity = 1) => colors.secondary,
+                        (opacity = 1) => colors.primary,
+                        (opacity = 1) => OVERWEIGHT_COLOR,
+                    ],
+                },
+            ],
+            underweight: under,
+            normal: norm,
+            overweight: over,
+            total,
+            underweightPct: latest.underweightPct,
+            normalPct: latest.normalPct,
+            overweightPct: latest.overweightPct,
+            sessionTitle: `${latest.ordinal} Session · ${latest.dateLabel}`,
+            sessionSubtitle: latest.farmDay !== null ? `Day ${latest.farmDay}${latest.isLatest ? ' · Latest' : ''}` : (latest.isLatest ? 'Latest Session' : ''),
+            avgWeightKg: latest.avgWeightKg,
+        };
+    }, [effectiveWeighSessions, sessionStatsList, colors, OVERWEIGHT_COLOR]);
 
     // ─── Fast Local AI Recommendations ──────────────────────────────
     const getGrowthAnalysis = () => {
@@ -2164,10 +2114,15 @@ export default function GrowthReportScreen() {
                         </View>
 
                         {/* Timeframe Toggle & Chart Title */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 130 }}>
-                                <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, marginBottom: 0 }]}>Current Growth</Text>
-                            </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8 }}>
+                            <Text
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.75}
+                                style={[textStyles.h2, { color: colors.text, fontSize: 15, flex: 1, marginBottom: 0 }]}
+                            >
+                                Distribution Trend Over Time
+                            </Text>
                             <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke, padding: 2, flexShrink: 0 }}>
                                 {(['Days', 'Weeks'] as const).map(tf => (
                                     <TouchableOpacity
@@ -2178,8 +2133,8 @@ export default function GrowthReportScreen() {
                                             setCompTooltip(null);
                                         }}
                                         style={{
-                                            paddingHorizontal: 12,
-                                            paddingVertical: 6,
+                                            paddingHorizontal: 10,
+                                            paddingVertical: 5,
                                             borderRadius: 6,
                                             backgroundColor: timeframe === tf ? activeColor + '1A' : 'transparent',
                                         }}
@@ -2196,8 +2151,8 @@ export default function GrowthReportScreen() {
                                 borderRadius: 20,
                                 backgroundColor: colors.surface,
                                 paddingTop: 16,
-                                paddingBottom: 4,
-                                paddingRight: 16,
+                                paddingBottom: 8,
+                                paddingHorizontal: 6,
                                 elevation: 4,
                                 shadowColor: colors.shadow,
                                 shadowOffset: { width: 0, height: 4 },
@@ -2206,6 +2161,7 @@ export default function GrowthReportScreen() {
                                 borderWidth: 1,
                                 borderColor: colors.stroke,
                                 width: '100%',
+                                alignItems: 'center',
                             }}>
                                 {lineChartData.noData ? (
                                     <View style={{ height: 200, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
@@ -2216,7 +2172,7 @@ export default function GrowthReportScreen() {
                                         </Text>
                                     </View>
                                 ) : (() => {
-                                    const baseChartWidth = width - (hPad * 2) - 18;
+                                    const baseChartWidth = width - (hPad * 2) - 16;
                                     const pointSpacing = 68;
                                     const growthChartWidth = Math.max(baseChartWidth, (lineChartData.labels?.length || 0) * pointSpacing);
                                     const isGrowthScrollable = growthChartWidth > baseChartWidth;
@@ -2224,7 +2180,7 @@ export default function GrowthReportScreen() {
                                     return (
                                         <>
                                             {isGrowthScrollable && (
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 16, marginBottom: 6 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 12, marginBottom: 6, alignSelf: 'stretch' }}>
                                                     <MaterialIcons name="swipe" size={14} color={colors.textGrey} />
                                                     <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Scroll for full timeline</Text>
                                                 </View>
@@ -2232,7 +2188,7 @@ export default function GrowthReportScreen() {
                                             <ScrollView
                                                 horizontal
                                                 showsHorizontalScrollIndicator={false}
-                                                contentContainerStyle={{ minWidth: baseChartWidth }}
+                                                contentContainerStyle={{ minWidth: baseChartWidth, alignItems: 'center' }}
                                             >
                                                 <LineChart
                                                     data={lineChartData}
@@ -2458,7 +2414,7 @@ export default function GrowthReportScreen() {
                             )}
                         </View>
 
-                        {/* Flock Uniformity Breakdown Card */}
+                        {/* Flock Uniformity & Status Distribution Card (with Bar Graph & Progress Toggle) */}
                         {statusExplanation && (
                             <View style={{
                                 backgroundColor: colors.surface,
@@ -2473,66 +2429,195 @@ export default function GrowthReportScreen() {
                                 elevation: 2,
                                 marginBottom: 16,
                             }}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text }}>
-                                        Flock Status Distribution
-                                    </Text>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
-                                        {statusExplanation.latest.label}
-                                    </Text>
+                                {/* Card Header with Title and View Switcher */}
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+                                    <View style={{ flex: 1, minWidth: 140 }}>
+                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.text }}>
+                                            {animalType === 'pig' ? 'Herd' : 'Flock'} Status Distribution
+                                        </Text>
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 1 }}>
+                                            {statusExplanation.latest.label}
+                                        </Text>
+                                    </View>
+
+                                    {/* View Mode Toggle Switcher (Bar Graph vs Progress Bar) */}
+                                    <View style={{
+                                        flexDirection: 'row',
+                                        backgroundColor: colors.bgLight,
+                                        borderRadius: 8,
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        padding: 2,
+                                    }}>
+                                        <TouchableOpacity
+                                            activeOpacity={0.7}
+                                            onPress={() => setDistributionViewMode('bar')}
+                                            style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                paddingHorizontal: 8,
+                                                paddingVertical: 4,
+                                                borderRadius: 6,
+                                                backgroundColor: distributionViewMode === 'bar' ? colors.primary + '20' : 'transparent',
+                                            }}
+                                        >
+                                            <MaterialIcons
+                                                name="bar-chart"
+                                                size={14}
+                                                color={distributionViewMode === 'bar' ? colors.primary : colors.textGrey}
+                                            />
+                                            <Text style={{
+                                                fontFamily: 'Poppins-Medium',
+                                                fontSize: 10,
+                                                color: distributionViewMode === 'bar' ? colors.primary : colors.textGrey,
+                                            }}>
+                                                Bar Graph
+                                            </Text>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            activeOpacity={0.7}
+                                            onPress={() => setDistributionViewMode('progress')}
+                                            style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                paddingHorizontal: 8,
+                                                paddingVertical: 4,
+                                                borderRadius: 6,
+                                                backgroundColor: distributionViewMode === 'progress' ? colors.primary + '20' : 'transparent',
+                                            }}
+                                        >
+                                            <MaterialIcons
+                                                name="view-stream"
+                                                size={14}
+                                                color={distributionViewMode === 'progress' ? colors.primary : colors.textGrey}
+                                            />
+                                            <Text style={{
+                                                fontFamily: 'Poppins-Medium',
+                                                fontSize: 10,
+                                                color: distributionViewMode === 'progress' ? colors.primary : colors.textGrey,
+                                            }}>
+                                                Progress
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
                                 </View>
 
-                                {/* Segmented Proportional Progress Bar */}
-                                <View style={{
-                                    height: 14,
-                                    borderRadius: 7,
-                                    backgroundColor: colors.bgLight,
-                                    flexDirection: 'row',
-                                    overflow: 'hidden',
-                                    borderWidth: 1,
-                                    borderColor: colors.stroke,
-                                    marginBottom: 14,
-                                }}>
-                                    {statusExplanation.latest.normalPct > 0 && (
-                                        <View style={{
-                                            width: `${statusExplanation.latest.normalPct}%`,
-                                            backgroundColor: colors.primary,
-                                        }} />
-                                    )}
-                                    {statusExplanation.latest.underweightPct > 0 && (
-                                        <View style={{
-                                            width: `${statusExplanation.latest.underweightPct}%`,
-                                            backgroundColor: colors.secondary,
-                                        }} />
-                                    )}
-                                    {statusExplanation.latest.overweightPct > 0 && (
-                                        <View style={{
-                                            width: `${statusExplanation.latest.overweightPct}%`,
-                                            backgroundColor: OVERWEIGHT_COLOR,
-                                        }} />
-                                    )}
-                                </View>
+                                {distributionViewMode === 'bar' ? (
+                                    /* ── Bar Graph View ── */
+                                    latestBarChartData.noData ? (
+                                        <View style={{ height: 160, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
+                                            <MaterialIcons name="bar-chart" size={36} color={colors.textGrey} />
+                                            <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text, marginTop: 8 }}>No weigh logs recorded</Text>
+                                            <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey, marginTop: 2, textAlign: 'center' }}>
+                                                No animals recorded in the latest session.
+                                            </Text>
+                                        </View>
+                                    ) : (() => {
+                                        const chartWidth = width - (hPad * 2) - 36;
+                                        return (
+                                            <View style={{ width: '100%', alignItems: 'center', marginBottom: 12 }}>
+                                                <BarChart
+                                                    data={{
+                                                        labels: ['Underweight', 'Normal Weight', 'Overweight'],
+                                                        datasets: latestBarChartData.datasets,
+                                                    }}
+                                                    width={chartWidth}
+                                                    height={200}
+                                                    yAxisLabel=""
+                                                    yAxisSuffix=""
+                                                    fromZero={true}
+                                                    showValuesOnTopOfBars={true}
+                                                    withCustomBarColorFromData={true}
+                                                    flatColor={true}
+                                                    chartConfig={{
+                                                        backgroundColor: colors.surface,
+                                                        backgroundGradientFrom: colors.surface,
+                                                        backgroundGradientTo: colors.surface,
+                                                        decimalPlaces: 0,
+                                                        color: (opacity = 1) => colors.primary,
+                                                        labelColor: (opacity = 1) => colors.textGrey,
+                                                        fillShadowGradientFrom: colors.primary,
+                                                        fillShadowGradientTo: colors.primary,
+                                                        fillShadowGradientOpacity: 1,
+                                                        barPercentage: 0.65,
+                                                        propsForBackgroundLines: {
+                                                            stroke: colors.stroke,
+                                                            strokeDasharray: '4',
+                                                        },
+                                                        propsForLabels: {
+                                                            fontSize: 9.5,
+                                                            fontFamily: 'Poppins-Medium',
+                                                        },
+                                                    }}
+                                                    style={{
+                                                        borderRadius: 16,
+                                                        marginVertical: 2,
+                                                        alignSelf: 'center',
+                                                    }}
+                                                />
+                                            </View>
+                                        );
+                                    })()
+                                ) : (
+                                    /* ── Segmented Progress Bar View ── */
+                                    <View style={{
+                                        height: 14,
+                                        borderRadius: 7,
+                                        backgroundColor: colors.bgLight,
+                                        flexDirection: 'row',
+                                        overflow: 'hidden',
+                                        borderWidth: 1,
+                                        borderColor: colors.stroke,
+                                        marginBottom: 14,
+                                    }}>
+                                        {statusExplanation.latest.normalPct > 0 && (
+                                            <View style={{
+                                                width: `${statusExplanation.latest.normalPct}%`,
+                                                backgroundColor: colors.primary,
+                                            }} />
+                                        )}
+                                        {statusExplanation.latest.underweightPct > 0 && (
+                                            <View style={{
+                                                width: `${statusExplanation.latest.underweightPct}%`,
+                                                backgroundColor: colors.secondary,
+                                            }} />
+                                        )}
+                                        {statusExplanation.latest.overweightPct > 0 && (
+                                            <View style={{
+                                                width: `${statusExplanation.latest.overweightPct}%`,
+                                                backgroundColor: OVERWEIGHT_COLOR,
+                                            }} />
+                                        )}
+                                    </View>
+                                )}
 
-                                {/* 3 Category Breakdown Badges */}
+                                {/* 3 Category Summary Cards for Underweight, Normal Weight, Overweight */}
                                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: statusExplanation.prev ? 14 : 0 }}>
-                                    {/* Normal */}
+                                    {/* Normal Weight */}
                                     <View style={{
                                         flex: 1,
                                         backgroundColor: colors.primary + '10',
                                         borderRadius: 10,
-                                        padding: 10,
+                                        paddingVertical: 10,
+                                        paddingHorizontal: 4,
                                         borderWidth: 1,
                                         borderColor: colors.primary + '25',
                                         alignItems: 'center',
                                     }}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10, color: colors.primary }}>
-                                            NORMAL
-                                        </Text>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.primary, marginTop: 2 }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary }} />
+                                            <Text numberOfLines={1} style={{ fontFamily: 'Poppins-SemiBold', fontSize: 9, color: colors.primary, textTransform: 'uppercase' }}>
+                                                Normal Weight
+                                            </Text>
+                                        </View>
+                                        <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 16, color: colors.primary, marginTop: 2 }}>
                                             {statusExplanation.latest.normalCount}
                                         </Text>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>
-                                            {statusExplanation.latest.normalPct}% of flock
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey }}>
+                                            {statusExplanation.latest.normalPct}% of batch
                                         </Text>
                                     </View>
 
@@ -2541,19 +2626,23 @@ export default function GrowthReportScreen() {
                                         flex: 1,
                                         backgroundColor: colors.secondary + '10',
                                         borderRadius: 10,
-                                        padding: 10,
+                                        paddingVertical: 10,
+                                        paddingHorizontal: 4,
                                         borderWidth: 1,
                                         borderColor: colors.secondary + '25',
                                         alignItems: 'center',
                                     }}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10, color: colors.secondary }}>
-                                            UNDERWEIGHT
-                                        </Text>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.secondary, marginTop: 2 }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.secondary }} />
+                                            <Text numberOfLines={1} style={{ fontFamily: 'Poppins-SemiBold', fontSize: 9, color: colors.secondary, textTransform: 'uppercase' }}>
+                                                Underweight
+                                            </Text>
+                                        </View>
+                                        <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 16, color: colors.secondary, marginTop: 2 }}>
                                             {statusExplanation.latest.underweightCount}
                                         </Text>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>
-                                            {statusExplanation.latest.underweightPct}% of flock
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey }}>
+                                            {statusExplanation.latest.underweightPct}% of batch
                                         </Text>
                                     </View>
 
@@ -2562,19 +2651,23 @@ export default function GrowthReportScreen() {
                                         flex: 1,
                                         backgroundColor: OVERWEIGHT_COLOR + '10',
                                         borderRadius: 10,
-                                        padding: 10,
+                                        paddingVertical: 10,
+                                        paddingHorizontal: 4,
                                         borderWidth: 1,
                                         borderColor: OVERWEIGHT_COLOR + '25',
                                         alignItems: 'center',
                                     }}>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 10, color: OVERWEIGHT_COLOR }}>
-                                            OVERWEIGHT
-                                        </Text>
-                                        <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 16, color: OVERWEIGHT_COLOR, marginTop: 2 }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: OVERWEIGHT_COLOR }} />
+                                            <Text numberOfLines={1} style={{ fontFamily: 'Poppins-SemiBold', fontSize: 9, color: OVERWEIGHT_COLOR, textTransform: 'uppercase' }}>
+                                                Overweight
+                                            </Text>
+                                        </View>
+                                        <Text style={{ fontFamily: 'Poppins-Bold', fontSize: 16, color: OVERWEIGHT_COLOR, marginTop: 2 }}>
                                             {statusExplanation.latest.overweightCount}
                                         </Text>
-                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>
-                                            {statusExplanation.latest.overweightPct}% of flock
+                                        <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey }}>
+                                            {statusExplanation.latest.overweightPct}% of batch
                                         </Text>
                                     </View>
                                 </View>
@@ -2601,7 +2694,7 @@ export default function GrowthReportScreen() {
                                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingVertical: 4 }}>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                                                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }} />
-                                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.text }}>Normal</Text>
+                                                <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 11, color: colors.text }}>Normal Weight</Text>
                                             </View>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                 <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
@@ -2681,151 +2774,6 @@ export default function GrowthReportScreen() {
                                 )}
                             </View>
                         )}
-
-                        {/* Distribution Trend Chart Container */}
-                        <View style={{
-                            borderRadius: 20,
-                            backgroundColor: colors.surface,
-                            paddingTop: 16,
-                            paddingBottom: 4,
-                            paddingRight: comparisonChartData.noData ? 0 : 16,
-                            elevation: 4,
-                            shadowColor: colors.shadow,
-                            shadowOffset: { width: 0, height: 4 },
-                            shadowOpacity: 0.1,
-                            shadowRadius: 12,
-                            borderWidth: 1,
-                            borderColor: colors.stroke,
-                            marginBottom: 16,
-                        }}>
-                            <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
-                                <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text }}>
-                                    Distribution Trend Over Time
-                                </Text>
-                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 11, color: colors.textGrey }}>
-                                    Head count per status category across recording dates
-                                </Text>
-                            </View>
-
-                            {comparisonChartData.noData ? (
-                                <View style={{ height: 180, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
-                                    <MaterialIcons name="compare-arrows" size={40} color={colors.textGrey} />
-                                    <Text style={{ fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.text, marginTop: 12 }}>There's no comparison logs yet</Text>
-                                    <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.textGrey, marginTop: 4, textAlign: 'center' }}>
-                                        At least 2 recording sessions are needed to compare historical shifts.
-                                    </Text>
-                                </View>
-                            ) : (() => {
-                                const baseChartWidth = width - (hPad * 2) - 18;
-                                const pointSpacing = 68;
-                                const compChartWidth = Math.max(baseChartWidth, (comparisonChartData.labels?.length || 0) * pointSpacing);
-                                const isCompScrollable = compChartWidth > baseChartWidth;
-
-                                return (
-                                    <>
-                                        {isCompScrollable && (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 16, marginBottom: 6 }}>
-                                                <MaterialIcons name="swipe" size={14} color={colors.textGrey} />
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Scroll for full timeline</Text>
-                                            </View>
-                                        )}
-                                        <ScrollView
-                                            horizontal
-                                            showsHorizontalScrollIndicator={false}
-                                            contentContainerStyle={{ minWidth: baseChartWidth }}
-                                        >
-                                            <LineChart
-                                                data={comparisonChartData}
-                                                width={compChartWidth}
-                                                height={200}
-                                                yAxisLabel=""
-                                                yAxisSuffix=""
-                                                fromZero={true}
-                                                withDots={true}
-                                                withInnerLines={true}
-                                                withOuterLines={false}
-                                                withVerticalLines={false}
-                                                withHorizontalLines={true}
-                                                onDataPointClick={({ x, y, value, index, dataset }) => {
-                                                    const detail = (comparisonChartData as any).details?.[index];
-                                                    const label = detail?.label ?? comparisonChartData.labels?.[index] ?? `#${index + 1}`;
-                                                    const clickedVal = Math.round(value);
-                                                    const clickedKey = (dataset as any)?.key;
-
-                                                    const items: ChartTooltipItem[] = [];
-                                                    if (detail) {
-                                                        if (detail.underweight === clickedVal && clickedVal > 0) {
-                                                            items.push({ label: 'Underweight', count: detail.underweight, color: colors.secondary });
-                                                        }
-                                                        if (detail.normal === clickedVal && clickedVal > 0) {
-                                                            items.push({ label: 'Normal', count: detail.normal, color: colors.primary });
-                                                        }
-                                                        if (detail.overweight === clickedVal && clickedVal > 0) {
-                                                            items.push({ label: 'Overweight', count: detail.overweight, color: OVERWEIGHT_COLOR });
-                                                        }
-                                                    }
-
-                                                    if (items.length === 0 && clickedKey && detail) {
-                                                        const count = clickedKey === 'Underweight' ? detail.underweight : clickedKey === 'Overweight' ? detail.overweight : detail.normal;
-                                                        const color = clickedKey === 'Underweight' ? colors.secondary : clickedKey === 'Overweight' ? OVERWEIGHT_COLOR : colors.primary;
-                                                        if (count > 0) {
-                                                            items.push({ label: clickedKey, count, color });
-                                                        }
-                                                    }
-
-                                                    if (items.length === 0 && clickedVal > 0) {
-                                                        items.push({ label: clickedKey || 'Normal', count: clickedVal, color: colors.primary });
-                                                    }
-
-                                                    if (items.length === 0) return;
-
-                                                    setCompTooltip(prev =>
-                                                        prev && Math.abs(prev.x - x) < 5 && Math.abs(prev.y - y) < 5 ? null : { x, y, label, items }
-                                                    );
-                                                }}
-                                                decorator={() => renderChartTooltip(compTooltip, compChartWidth)}
-                                                chartConfig={{
-                                                    backgroundColor: colors.surface,
-                                                    backgroundGradientFrom: colors.surface,
-                                                    backgroundGradientTo: colors.surface,
-                                                    decimalPlaces: 0,
-                                                    color: (opacity = 1) => colors.stroke,
-                                                    labelColor: (opacity = 1) => colors.textGrey,
-                                                    strokeWidth: 2,
-                                                    fillShadowGradientFrom: colors.primary,
-                                                    fillShadowGradientFromOpacity: 0.08,
-                                                    fillShadowGradientTo: colors.primary,
-                                                    fillShadowGradientToOpacity: 0.01,
-                                                    style: { borderRadius: 16 },
-                                                    propsForDots: {
-                                                        r: '4',
-                                                        strokeWidth: '2',
-                                                        stroke: colors.surface,
-                                                    }
-                                                }}
-                                                bezier
-                                                style={{ borderRadius: 16 }}
-                                            />
-                                        </ScrollView>
-                                        {/* Comparison legend */}
-                                        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, paddingBottom: 10, paddingLeft: 16 }}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }} />
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Normal</Text>
-                                            </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.secondary }} />
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Underweight</Text>
-                                            </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: OVERWEIGHT_COLOR }} />
-                                                <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.textGrey }}>Overweight</Text>
-                                            </View>
-                                        </View>
-                                    </>
-                                );
-                            })()}
-                        </View>
 
                         {/* Status Comparison Descriptive Narrative Card */}
                         {statusExplanation && (

@@ -15,7 +15,7 @@ import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { ReportDocument, ReportChart } from '@/lib/pdfReport';
+import { ReportDocument, ReportChart, formatReportUserRole, formatReportUserName } from '@/lib/pdfReport';
 import { useAnalyticsStyles } from '@/styles/analyticsStyles';
 import { useAnimalStyles } from '@/styles/animalStyles';
 
@@ -306,6 +306,8 @@ export default function SessionReportScreen() {
                     }),
                 },
             ],
+            generatedByName: formatReportUserName(profile),
+            generatedByRole: formatReportUserRole(profile?.role),
         };
     };
 

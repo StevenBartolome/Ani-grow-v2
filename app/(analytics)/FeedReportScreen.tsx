@@ -12,7 +12,7 @@ import { AIInsightCard } from '@/components/AIInsightCard';
 import { PrintReportButton } from '@/components/PrintReportButton';
 import { AnimalTypePillSwitcher } from '@/components/AnimalTypePillSwitcher';
 import { AniFeedIcon } from '@/components/AniFeedIcon';
-import { ReportDocument, ReportChart } from '@/lib/pdfReport';
+import { ReportDocument, ReportChart, formatReportUserRole, formatReportUserName } from '@/lib/pdfReport';
 import { useTextStyles } from '@/constants/textStyles';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -951,8 +951,10 @@ export default function FeedReportScreen() {
                     },
                 },
             ],
+            generatedByName: formatReportUserName(profile),
+            generatedByRole: formatReportUserRole(profile?.role),
         };
-    }, [selectedHousing, selectedBatch, selectedBatchId, activeBatch, batchAgeDays, animalType, headCount, activePeriod, totalDispenses, reportData, totalConsumption, feedAnalysis, farmName, chartData]);
+    }, [selectedHousing, selectedBatch, selectedBatchId, activeBatch, batchAgeDays, animalType, headCount, activePeriod, totalDispenses, reportData, totalConsumption, feedAnalysis, farmName, chartData, profile]);
 
     return (
         <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
