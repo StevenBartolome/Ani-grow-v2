@@ -27,7 +27,10 @@ export const useAniFeedStyles = () => {
         },
         headerActions: {
             flexDirection: 'row',
-            gap: 12,
+            alignItems: 'center',
+            gap: 8,
+            flexShrink: 1,
+            justifyContent: 'flex-end',
         },
         actionButton: {
             width: 44,
@@ -35,6 +38,7 @@ export const useAniFeedStyles = () => {
             borderRadius: 22,
             alignItems: 'center',
             justifyContent: 'center',
+            flexShrink: 0,
         },
         contentContainer: {
             paddingHorizontal: hPad,

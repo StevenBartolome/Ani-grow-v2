@@ -927,19 +927,26 @@ export default function NotificationScreen() {
                                     }}
                                     style={{
                                         flex: 1,
+                                        minWidth: 0,
                                         paddingVertical: 8,
+                                        paddingHorizontal: 4,
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         zIndex: 2,
                                         flexDirection: 'row',
-                                        gap: 6,
+                                        gap: 4,
                                     }}
                                 >
                                     <Text
+                                        numberOfLines={1}
+                                        adjustsFontSizeToFit
+                                        minimumFontScale={0.75}
                                         style={{
-                                            fontSize: 13,
+                                            fontSize: 12.5,
                                             fontFamily: isSelected ? 'Poppins-Bold' : 'Poppins-Medium',
                                             color: isSelected ? '#FFFFFF' : colors.textGrey,
+                                            flexShrink: 1,
+                                            textAlign: 'center',
                                         }}
                                     >
                                         {opt.label}
@@ -947,15 +954,16 @@ export default function NotificationScreen() {
                                     {count > 0 && (
                                         <View
                                             style={{
-                                                paddingHorizontal: 6,
+                                                paddingHorizontal: 5,
                                                 paddingVertical: 1,
                                                 borderRadius: 999,
                                                 backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.28)' : (colors.stroke || '#E0E0E0'),
+                                                flexShrink: 0,
                                             }}
                                         >
                                             <Text
                                                 style={{
-                                                    fontSize: 10.5,
+                                                    fontSize: 10,
                                                     fontFamily: 'Poppins-Bold',
                                                     color: isSelected ? '#FFFFFF' : colors.textGrey,
                                                 }}

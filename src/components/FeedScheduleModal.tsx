@@ -15,11 +15,6 @@ import { supabase } from '@/lib/supabase';
 // board1.ino's checkFeederSchedule()), so schedule control now lives
 // alongside it rather than on the feeder's own screen.
 
-function getOrdinalLabel(n: number): string {
-    const s = ['th', 'st', 'nd', 'rd'];
-    const v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
 
 function generateDefaultTimes(count: number): string[] {
     const presets: Record<number, string[]> = {
@@ -182,9 +177,27 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
         });
     };
 
+    const snapToIncrement = (val: string) => {
+        const parsed = parseInt(val, 10);
+        if (isNaN(parsed) || parsed < 1500) {
+            setTempGrams('1500');
+            return;
+        }
+        const rounded = Math.min(15000, Math.round(parsed / 1500) * 1500);
+        setTempGrams(String(rounded));
+    };
+
+    const timesCount = parseInt(tempTimesPerDay, 10);
+    const numGrams = parseInt(tempGrams, 10) || 0;
+    const isNonMultiple = numGrams > 0 && (numGrams < 1500 || numGrams % 1500 !== 0 || numGrams > 15000);
+    const isGramsValid = !isNaN(numGrams) && numGrams >= 1500 && numGrams <= 15000 && numGrams % 1500 === 0;
+    const isTimesCountValid = !isNaN(timesCount) && timesCount >= 1 && timesCount <= 12;
+    const isTimesListValid = tempTimes.length === timesCount && tempTimes.every(t => !!t && !!parse12to24(t));
+    const isFormValid = isGramsValid && isTimesCountValid && isTimesListValid && !isLoading;
+
     const handleSaveSchedule = async () => {
         const timesPerDay = parseInt(tempTimesPerDay, 10);
-        const gramsPerDispense = parseInt(tempGrams, 10);
+        let gramsPerDispense = parseInt(tempGrams, 10);
         if (isNaN(timesPerDay) || isNaN(gramsPerDispense) || timesPerDay < 1) {
             showSnackbar('Enter valid numbers for all fields.', 'error');
             return;
@@ -198,19 +211,13 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
         // AniFeed's physical actuator only dispenses in fixed 1.5kg (1500g) cycles.
         // Minimum is 1.5kg and all amounts must be whole multiples of 1.5kg.
         if (gramsPerDispense < 1500) {
-            showSnackbar('Minimum portion per dispense is 1,500g (1.5 kg) — AniFeed dispenses in 1.5 kg cycles.', 'error');
-            return;
+            gramsPerDispense = 1500;
+        } else if (gramsPerDispense % 1500 !== 0) {
+            gramsPerDispense = Math.min(15000, Math.round(gramsPerDispense / 1500) * 1500);
+        } else if (gramsPerDispense > 15000) {
+            gramsPerDispense = 15000;
         }
-
-        if (gramsPerDispense % 1500 !== 0) {
-            showSnackbar('Amount per dispense must be a multiple of 1.5 kg (e.g. 1500g, 3000g, 4500g, 6000g) — AniFeed dispenses in fixed 1.5 kg cycles.', 'error');
-            return;
-        }
-
-        if (gramsPerDispense > 15000) {
-            showSnackbar('Amount per dispense cannot exceed 15 kg (15,000g) per scheduled time.', 'error');
-            return;
-        }
+        setTempGrams(String(gramsPerDispense));
 
         if (tempTimes.length !== timesPerDay) {
             showSnackbar('Please configure all dispense times.', 'error');
@@ -312,7 +319,7 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                     }}
                     style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
                 />
-                <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '85%', borderRadius: 24, padding: 22, overflow: 'hidden', position: 'relative' }}>
+                <View style={{ backgroundColor: colors.surface, width: '100%', maxWidth: 360, maxHeight: '88%', borderRadius: 24, padding: 20, overflow: 'hidden', position: 'relative' }}>
                         {/* Close button */}
                         <TouchableOpacity
                             style={{ position: 'absolute', top: 16, right: 16, padding: 6, zIndex: 10 }}
@@ -336,21 +343,19 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                 <Text style={[textStyles.h2, { color: colors.text, textAlign: 'center', marginBottom: 4, fontSize: 20, fontWeight: '700' }]}>
                                     Edit Schedule
                                 </Text>
-                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 18, fontSize: 13 }]}>
+                                <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', marginBottom: 16, fontSize: 13 }]}>
                                     Configure dispensing frequency and times.
                                 </Text>
 
-                                {/* Next Dispense — makes it explicit whether the next scheduled
-                                    time is today or tomorrow, since a recurring daily time alone
-                                    doesn't say that on its own. */}
+                                {/* Next Dispense Banner */}
                                 {(() => {
                                     const parsed = tempTimes.map(parse12to24).filter((t): t is string => !!t);
                                     const next = getNextDispenseInfo(parsed);
                                     if (!next) return null;
                                     return (
                                         <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.primary + '12', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12, marginBottom: 14 }}>
-                                            <MaterialIcons name="schedule" size={16} color={colors.primary} />
-                                            <Text style={[textStyles.body, { color: colors.primary, fontSize: 12, fontWeight: '600' }]}>
+                                            <MaterialIcons name="schedule" size={16} color={colors.primary} style={{ flexShrink: 0 }} />
+                                            <Text style={[textStyles.body, { color: colors.primary, fontSize: 12, fontWeight: '600', flex: 1 }]}>
                                                 Next dispense: {next.dayLabel} at {next.time12}
                                             </Text>
                                         </View>
@@ -359,11 +364,11 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
 
                                 {/* 1. Times Per Day Section */}
                                 <View style={{ width: '100%', marginBottom: 18 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' }]}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }]}>
                                             Times Per Day
                                         </Text>
-                                        <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 }}>
+                                        <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, flexShrink: 0 }}>
                                             <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, fontWeight: '700' }]}>
                                                 {tempTimesPerDay}× Daily
                                             </Text>
@@ -382,6 +387,7 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                                 borderColor: colors.stroke,
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
+                                                flexShrink: 0,
                                             }}
                                             onPress={() => {
                                                 const cur = parseInt(tempTimesPerDay, 10) || 1;
@@ -429,6 +435,7 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                                 borderColor: colors.stroke,
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
+                                                flexShrink: 0,
                                             }}
                                             onPress={() => {
                                                 const cur = parseInt(tempTimesPerDay, 10) || 1;
@@ -443,11 +450,11 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
 
                                 {/* 2. Dispense Times List */}
                                 <View style={{ width: '100%', marginBottom: 18 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' }]}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }]}>
                                             Dispense Times
                                         </Text>
-                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
+                                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, flexShrink: 0 }]}>
                                             Tap any time to adjust
                                         </Text>
                                     </View>
@@ -486,18 +493,18 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                                     paddingHorizontal: 14,
                                                 }}
                                             >
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                                    <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: colors.primary + '18', alignItems: 'center', justifyContent: 'center' }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                                                    <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: colors.primary + '18', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                                         <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, fontWeight: '700' }]}>
                                                             {idx + 1}
                                                         </Text>
                                                     </View>
-                                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 14, fontWeight: '600' }]}>
-                                                        {getOrdinalLabel(idx + 1)} Dispense
+                                                    <Text style={[textStyles.body, { color: colors.text, fontSize: 14, fontWeight: '600', flexShrink: 1 }]} numberOfLines={1}>
+                                                        Dispense #{idx + 1}
                                                     </Text>
                                                 </View>
 
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                                                     <View style={{ backgroundColor: colors.surface, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: colors.stroke }}>
                                                         <Text style={[textStyles.body, { color: colors.primary, fontSize: 13, fontWeight: '700' }]}>
                                                             {time}
@@ -512,25 +519,28 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
 
                                 {/* 3. Grams Per Dispense (Fixed 1.5kg increments) */}
                                 <View style={{ width: '100%', marginBottom: 14 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' }]}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8 }}>
+                                        <Text style={[textStyles.label, { color: colors.textGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }]}>
                                             Portion Per Dispense
                                         </Text>
-                                        <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 }}>
+                                        <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, flexShrink: 0 }}>
                                             <Text style={[textStyles.label, { color: colors.primary, fontSize: 11, fontWeight: '700' }]}>
                                                 {((parseInt(tempGrams, 10) || 1500) / 1000).toFixed(1)} kg / dispense
                                             </Text>
                                         </View>
                                     </View>
 
-                                    {/* Full-width Input */}
+                                    {/* Full-width Input with onBlur and snapping */}
                                     <FloatingLabelInput
                                         label="Grams per dispense (e.g. 1500)"
                                         icon="line-weight"
                                         value={tempGrams}
                                         onChangeText={t => setTempGrams(t.replace(/[^0-9]/g, ''))}
+                                        onBlur={() => snapToIncrement(tempGrams)}
+                                        onEndEditing={() => snapToIncrement(tempGrams)}
                                         keyboardType="numeric"
-                                        containerStyle={{ marginTop: 2, marginBottom: 10 }}
+                                        error={isNonMultiple ? 'Must be in 1,500g increments (1500, 3000, 4500...)' : undefined}
+                                        containerStyle={{ marginTop: 2, marginBottom: isNonMultiple ? 4 : 10 }}
                                         backgroundColor={colors.surface}
                                     />
 
@@ -546,10 +556,11 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                                 borderColor: colors.stroke,
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
+                                                flexShrink: 0,
                                             }}
                                             onPress={() => {
                                                 const cur = parseInt(tempGrams, 10) || 1500;
-                                                const next = Math.max(1500, cur - 1500);
+                                                const next = Math.max(1500, (Math.round(cur / 1500) - 1) * 1500);
                                                 setTempGrams(String(next));
                                             }}
                                             activeOpacity={0.7}
@@ -592,10 +603,11 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                                 borderColor: colors.stroke,
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
+                                                flexShrink: 0,
                                             }}
                                             onPress={() => {
                                                 const cur = parseInt(tempGrams, 10) || 0;
-                                                const next = Math.min(15000, cur + 1500);
+                                                const next = Math.min(15000, (Math.round(cur / 1500) + 1) * 1500);
                                                 setTempGrams(String(next));
                                             }}
                                             activeOpacity={0.7}
@@ -616,14 +628,14 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                         padding: 10,
                                         marginTop: 10,
                                     }}>
-                                        <MaterialIcons name="info-outline" size={15} color={colors.primary} style={{ marginTop: 1.5 }} />
+                                        <MaterialIcons name="info-outline" size={15} color={colors.primary} style={{ marginTop: 1.5, flexShrink: 0 }} />
                                         <Text style={[textStyles.body, { color: colors.primary, fontSize: 11, lineHeight: 16, flex: 1 }]}>
                                             Note: AniFeed's physical mechanism dispenses in fixed 1.5 kg (1,500g) portions per cycle. Minimum portion is 1.5 kg and all amounts must be in increments of 1.5 kg.
                                         </Text>
                                     </View>
                                 </View>
 
-                                {/* Live Daily Feed Preview Banner (Responsive Single Line) */}
+                                {/* Live Daily Feed Preview Banner (Responsive) */}
                                 {(() => {
                                     const count = parseInt(tempTimesPerDay, 10) || 0;
                                     const grams = parseInt(tempGrams, 10) || 0;
@@ -644,19 +656,15 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                             alignItems: 'center',
                                             justifyContent: 'space-between',
                                             gap: 8,
+                                            flexWrap: 'wrap',
                                         }}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                                                 <MaterialIcons name="calculate" size={17} color={colors.primary} />
-                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, fontWeight: '600' }]} numberOfLines={1}>
+                                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12, fontWeight: '600' }]}>
                                                     Daily Total:
                                                 </Text>
                                             </View>
-                                            <Text
-                                                style={[textStyles.body, { color: colors.text, fontSize: 12.5, fontWeight: '700', textAlign: 'right', flex: 1 }]}
-                                                numberOfLines={1}
-                                                adjustsFontSizeToFit
-                                                minimumFontScale={0.75}
-                                            >
+                                            <Text style={[textStyles.body, { color: colors.text, fontSize: 12.5, fontWeight: '700' }]}>
                                                 {count} × {singleKg}kg = <Text style={{ color: colors.primary, fontWeight: '800' }}>{totalKg} kg/day</Text>
                                             </Text>
                                         </View>
@@ -668,7 +676,9 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                     <TouchableOpacity
                                         style={{
                                             flex: 1,
-                                            paddingVertical: 13,
+                                            minHeight: 48,
+                                            paddingVertical: 10,
+                                            paddingHorizontal: 8,
                                             borderRadius: 14,
                                             alignItems: 'center',
                                             justifyContent: 'center',
@@ -682,26 +692,32 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                         }}
                                         activeOpacity={0.7}
                                     >
-                                        <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 14 }]}>Cancel</Text>
+                                        <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 13, textAlign: 'center', lineHeight: 16 }]}>
+                                            Cancel
+                                        </Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity
                                         style={{
                                             flex: 1,
-                                            paddingVertical: 13,
+                                            minHeight: 48,
+                                            paddingVertical: 10,
+                                            paddingHorizontal: 8,
                                             borderRadius: 14,
                                             alignItems: 'center',
                                             justifyContent: 'center',
                                             backgroundColor: colors.primary,
-                                            opacity: (tempTimesPerDay && tempGrams && tempTimes.length > 0) ? 1 : 0.5,
+                                            opacity: isFormValid ? 1 : 0.45,
                                         }}
                                         onPress={() => {
                                             Keyboard.dismiss();
                                             handleSaveSchedule();
                                         }}
                                         activeOpacity={0.7}
-                                        disabled={!(tempTimesPerDay && tempGrams && tempTimes.length > 0) || isLoading}
+                                        disabled={!isFormValid}
                                     >
-                                        <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 14, fontWeight: '700' }]}>Save Schedule</Text>
+                                        <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 13, fontWeight: '700', textAlign: 'center', lineHeight: 16 }]}>
+                                            Save Schedule
+                                        </Text>
                                     </TouchableOpacity>
                                 </View>
                             </ScrollView>
@@ -721,16 +737,17 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                             justifyContent: 'center',
                                             borderWidth: 1,
                                             borderColor: colors.stroke,
+                                            flexShrink: 0,
                                         }}
                                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                         activeOpacity={0.7}
                                     >
                                         <MaterialIcons name="arrow-back" size={20} color={colors.text} />
                                     </TouchableOpacity>
-                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 17, fontWeight: '700' }]}>
-                                        {activeTimeIdx !== null ? `${getOrdinalLabel(activeTimeIdx + 1)} Dispense Time` : 'Select Time'}
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 16, fontWeight: '700', textAlign: 'center', flex: 1, marginHorizontal: 8 }]} numberOfLines={1}>
+                                        {activeTimeIdx !== null ? `Dispense #${activeTimeIdx + 1} Time` : 'Select Time'}
                                     </Text>
-                                    <View style={{ width: 36 }} />
+                                    <View style={{ width: 36, flexShrink: 0 }} />
                                 </View>
 
                                 <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 12, marginBottom: 12 }]}>
@@ -871,7 +888,9 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                     <TouchableOpacity
                                         style={{
                                             flex: 1,
-                                            paddingVertical: 12,
+                                            minHeight: 46,
+                                            paddingVertical: 10,
+                                            paddingHorizontal: 8,
                                             borderRadius: 14,
                                             alignItems: 'center',
                                             justifyContent: 'center',
@@ -882,12 +901,16 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                         onPress={() => setView('schedule')}
                                         activeOpacity={0.7}
                                     >
-                                        <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 14 }]}>Cancel</Text>
+                                        <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 13, textAlign: 'center', lineHeight: 16 }]}>
+                                            Cancel
+                                        </Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity
                                         style={{
                                             flex: 1,
-                                            paddingVertical: 12,
+                                            minHeight: 46,
+                                            paddingVertical: 10,
+                                            paddingHorizontal: 8,
                                             borderRadius: 14,
                                             alignItems: 'center',
                                             justifyContent: 'center',
@@ -909,7 +932,9 @@ export default function FeedScheduleModal({ visible, onClose, deviceId, farmId, 
                                         }}
                                         activeOpacity={0.7}
                                     >
-                                        <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 14, fontWeight: '700' }]}>Set Time</Text>
+                                        <Text style={[textStyles.btnLabel, { color: colors.onPrimary, fontSize: 13, fontWeight: '700', textAlign: 'center', lineHeight: 16 }]}>
+                                            Set Time
+                                        </Text>
                                     </TouchableOpacity>
                                 </View>
                             </View>

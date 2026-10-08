@@ -141,8 +141,14 @@ export default function FloatingLabelInput({
             ]}
             value={value}
             onChangeText={onChangeText}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
+            onFocus={(e) => {
+              setIsFocused(true);
+              rest.onFocus?.(e);
+            }}
+            onBlur={(e) => {
+              setIsFocused(false);
+              rest.onBlur?.(e);
+            }}
             secureTextEntry={isPassword && !showPassword}
             placeholderTextColor="transparent"
             {...rest}

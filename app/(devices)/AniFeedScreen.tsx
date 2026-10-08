@@ -632,25 +632,39 @@ export default function AniFeedScreen() {
         <View style={[anifeedStyles.safeArea, { backgroundColor: colors.bgLight, paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>
             {/* Header */}
             <View style={anifeedStyles.header}>
-                <View style={{ width: 44, height: 44 }}>
+                <View style={{ width: 44, height: 44, flexShrink: 0 }}>
                     <BackButton fallbackRoute="/(devices)/DevicesScreen" />
                 </View>
                 <View style={anifeedStyles.headerActions}>
                     <TouchableOpacity
                         style={{
-                            height: 44,
-                            paddingHorizontal: 16,
+                            minHeight: 44,
+                            paddingHorizontal: 12,
+                            paddingVertical: 6,
                             borderRadius: 22,
                             backgroundColor: colors.surface,
                             borderWidth: 1,
                             borderColor: colors.stroke,
                             alignItems: 'center',
                             justifyContent: 'center',
+                            flexShrink: 1,
                         }}
                         onPress={() => router.push('/(devices)/ManageFeedsScreen' as any)}
                         activeOpacity={0.8}
                     >
-                        <Text style={[textStyles.btnLabel, { color: colors.text, fontSize: 13 }]}>Manage Feeds</Text>
+                        <Text
+                            style={[
+                                textStyles.btnLabel,
+                                {
+                                    color: colors.text,
+                                    fontSize: 12,
+                                    textAlign: 'center',
+                                    lineHeight: 15,
+                                }
+                            ]}
+                        >
+                            Manage Feeds
+                        </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         disabled={isLoading}
@@ -660,7 +674,8 @@ export default function AniFeedScreen() {
                                 backgroundColor: isConnected ? colors.primary + '1A' : colors.surface,
                                 borderWidth: isConnected ? 0 : 1.5,
                                 borderColor: isConnected ? 'transparent' : colors.stroke,
-                                opacity: isLoading ? 0.5 : 1
+                                opacity: isLoading ? 0.5 : 1,
+                                flexShrink: 0,
                             }
                         ]}
                         onPress={() => {
@@ -681,7 +696,7 @@ export default function AniFeedScreen() {
                         <MaterialIcons name={isConnected ? 'cloud-done' : 'cloud-off'} size={20} color={isConnected ? colors.primary : colors.textGrey} />
                     </TouchableOpacity>
                     <TouchableOpacity
-                        style={[anifeedStyles.actionButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke }]}
+                        style={[anifeedStyles.actionButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke, flexShrink: 0 }]}
                         onPress={() => router.push(`/(devices)/DeviceSettingsScreen?type=AniFeed&deviceId=${deviceId}` as any)}
                         activeOpacity={0.7}
                     >

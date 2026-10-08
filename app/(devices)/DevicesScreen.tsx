@@ -438,11 +438,11 @@ export default function DevicesScreen() {
                     ) : (
                         <View style={{ paddingHorizontal: hPad, paddingBottom: 24 }}>
                             {/* Section header */}
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18 }]}>Registered Devices</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                                <View style={{ flex: 1, minWidth: 140, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                    <Text style={[textStyles.h2, { color: colors.text, fontSize: 18, flexShrink: 1 }]}>Registered Devices</Text>
                                 </View>
-                                <View style={{ flexDirection: 'row', gap: 6 }}>
+                                <View style={{ flexDirection: 'row', gap: 6, flexShrink: 0, alignItems: 'center' }}>
                                     {[
                                         { label: 'Online', count: filteredDevices.filter(d => d.status === 'online').length, color: colors.primary },
                                         { label: 'Offline', count: filteredDevices.filter(d => d.status === 'offline').length, color: colors.textGrey },

@@ -84,6 +84,13 @@ function fixFilipinoText(text: string): string {
     return m;
   });
 
+  // Keep notification status filter labels concise and natural in Filipino
+  fixed = fixed.replace(/\bhindi pa nababasa\b/gi, 'Hindi Nabasa');
+  fixed = fixed.replace(/\bhindi nababasa\b/gi, 'Hindi Nabasa');
+  fixed = fixed.replace(/\bmga hindi nabasa\b/gi, 'Hindi Nabasa');
+  fixed = fixed.replace(/\bmga nabasa\b/gi, 'Nabasa');
+  fixed = fixed.replace(/\bnababasa\b/gi, 'Nabasa');
+
   // Preserve leading whitespace instead of stripping it when normalizing 'mga'
   const leadingMatch = fixed.match(/^(\s+)/);
   const leadingSpace = leadingMatch ? leadingMatch[1] : '';
