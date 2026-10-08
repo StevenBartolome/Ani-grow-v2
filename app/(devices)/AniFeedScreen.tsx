@@ -776,32 +776,35 @@ export default function AniFeedScreen() {
                         </View>
                         {liveSensors ? (
                             <View style={{ flexDirection: 'row', gap: 8 }}>
-                                {([['low', 'Low'], ['mid', 'Mid'], ['high', 'High']] as const).map(([key, label]) => {
-                                    const blocked = liveSensors[key];
-                                    return (
-                                        <View
-                                            key={key}
-                                            style={{
-                                                flex: 1,
-                                                alignItems: 'center',
-                                                paddingVertical: 10,
-                                                borderRadius: 10,
-                                                backgroundColor: blocked ? colors.primary + '1A' : colors.cardFill,
-                                                borderWidth: 1.5,
-                                                borderColor: blocked ? colors.primary : colors.stroke,
-                                            }}
-                                        >
-                                            <MaterialIcons
-                                                name={blocked ? 'sensors' : 'sensors-off'}
-                                                size={18}
-                                                color={blocked ? colors.primary : colors.textGrey}
-                                            />
-                                            <Text style={[textStyles.label, { color: blocked ? colors.primary : colors.textGrey, fontSize: 11, fontWeight: blocked ? '700' : '500', marginTop: 3 }]}>
-                                                {label}
-                                            </Text>
-                                        </View>
-                                    );
-                                })}
+                                {(() => {
+                                    const activeKey = liveSensors.high ? 'high' : liveSensors.mid ? 'mid' : liveSensors.low ? 'low' : null;
+                                    return ([['low', 'Low'], ['mid', 'Mid'], ['high', 'High']] as const).map(([key, label]) => {
+                                        const isLit = activeKey === key;
+                                        return (
+                                            <View
+                                                key={key}
+                                                style={{
+                                                    flex: 1,
+                                                    alignItems: 'center',
+                                                    paddingVertical: 10,
+                                                    borderRadius: 10,
+                                                    backgroundColor: isLit ? colors.primary + '1A' : colors.cardFill,
+                                                    borderWidth: 1.5,
+                                                    borderColor: isLit ? colors.primary : colors.stroke,
+                                                }}
+                                            >
+                                                <MaterialIcons
+                                                    name={isLit ? 'sensors' : 'sensors-off'}
+                                                    size={18}
+                                                    color={isLit ? colors.primary : colors.textGrey}
+                                                />
+                                                <Text style={[textStyles.label, { color: isLit ? colors.primary : colors.textGrey, fontSize: 11, fontWeight: isLit ? '700' : '500', marginTop: 3 }]}>
+                                                    {label}
+                                                </Text>
+                                            </View>
+                                        );
+                                    });
+                                })()}
                             </View>
                         ) : (
                             <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11 }]}>
