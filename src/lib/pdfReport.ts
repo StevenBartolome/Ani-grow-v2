@@ -11,6 +11,7 @@
 // - Interactive section customization & embedded vector charts
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
 export interface ReportMetaRow {
@@ -72,6 +73,7 @@ export interface ReportDocument {
     farmName: string;
     subtitle?: string;
     documentRef?: string;
+    fileName?: string;
     meta: ReportMetaRow[];
     summaryText?: string;
     sections: ReportSection[];
@@ -79,6 +81,73 @@ export interface ReportDocument {
     signatures?: ReportSignature[];
     generatedByName?: string;
     generatedByRole?: string;
+}
+
+export interface ReportExportOptions {
+    includeSummary?: boolean;
+    includeMeta?: boolean;
+    includeCharts?: boolean;
+    includeSignatures?: boolean;
+    selectedSectionHeadings?: string[];
+    fileName?: string;
+}
+
+export function generateReportFileName(doc: ReportDocument, customName?: string): string {
+    if (customName && customName.trim()) {
+        const cleanCustom = customName.trim().replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_');
+        return cleanCustom.toLowerCase().endsWith('.pdf') ? cleanCustom : `${cleanCustom}.pdf`;
+    }
+    if (doc.fileName && doc.fileName.trim()) {
+        const cleanDocName = doc.fileName.trim().replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_');
+        return cleanDocName.toLowerCase().endsWith('.pdf') ? cleanDocName : `${cleanDocName}.pdf`;
+    }
+
+    // Determine Clean Report Type
+    const titleUpper = (doc.reportTitle || '').toUpperCase();
+    let reportType = 'Report';
+    if (titleUpper.includes('GROWTH')) reportType = 'Growth_Report';
+    else if (titleUpper.includes('HEALTH') || titleUpper.includes('VACCINATION')) reportType = 'Health_Report';
+    else if (titleUpper.includes('FEED')) reportType = 'Feed_Report';
+    else if (titleUpper.includes('PREDICTION') || titleUpper.includes('HARVEST')) reportType = 'Prediction_Report';
+    else if (titleUpper.includes('SESSION') || titleUpper.includes('WEIGH')) reportType = 'Weighing_Session_Report';
+    else if (titleUpper.includes('BATCH')) reportType = 'Batch_History_Report';
+    else if (doc.reportTitle) {
+        reportType = doc.reportTitle.trim().replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
+    }
+
+    // Extract Batch Name if available
+    let batchName = '';
+    if (doc.meta) {
+        const batchMeta = doc.meta.find(m => /batch(\s+name)?/i.test(m.label));
+        if (batchMeta?.value) {
+            batchName = batchMeta.value.trim().replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_');
+        }
+    }
+    if (!batchName && doc.subtitle) {
+        const match = doc.subtitle.match(/Batch\s*["']?([^"'\·,\n]+)["']?/i);
+        if (match && match[1]) {
+            batchName = match[1].trim().replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_');
+        }
+    }
+
+    // Extract Farm Name (if meaningful)
+    let farmPrefix = '';
+    const cleanFarm = (doc.farmName || '').trim();
+    if (cleanFarm && !/^(farm operations|general farm|farm)$/i.test(cleanFarm)) {
+        farmPrefix = cleanFarm.replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_');
+    }
+
+    // Date Stamp (YYYY-MM-DD)
+    const now = new Date();
+    const dateStamp = now.toISOString().slice(0, 10);
+
+    const parts: string[] = [];
+    if (farmPrefix) parts.push(farmPrefix);
+    parts.push(reportType);
+    if (batchName) parts.push(batchName);
+    parts.push(dateStamp);
+
+    return `${parts.join('_')}.pdf`;
 }
 
 export function formatReportUserRole(role?: string | null): string {
@@ -424,8 +493,10 @@ export function buildReportHtml(doc: ReportDocument, options?: ReportExportOptio
         month: 'long', day: 'numeric', year: 'numeric',
     }) + ' ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
-    const reportId = doc.documentRef || `ANIGROW-RPT-${now.getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const reportId = doc.documentRef || `RPT-${now.getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const farmDisplayName = (doc.farmName || 'FARM OPERATIONS').trim().toUpperCase();
+    const pdfFileName = generateReportFileName(doc, options?.fileName);
+    const pdfTitle = pdfFileName.replace(/\.pdf$/i, '');
 
     // Filter sections if user specified custom selection
     let filteredSections = doc.sections || [];
@@ -437,7 +508,7 @@ export function buildReportHtml(doc: ReportDocument, options?: ReportExportOptio
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>${escapeHtml(doc.reportTitle)}</title>
+<title>${escapeHtml(pdfTitle)}</title>
 <style>
     /* ── Formal Word Document Print Layout: Pure Black Arial ─────────── */
     @page {
@@ -861,7 +932,6 @@ export function buildReportHtml(doc: ReportDocument, options?: ReportExportOptio
                     ${ANIGROW_LOGO_SVG}
                 </td>
                 <td class="letterhead-brand">
-                    <div class="brand-eyebrow">ANIGROW LIVESTOCK SYSTEMS</div>
                     <div class="farm-title">${escapeHtml(farmDisplayName)}</div>
                     <div class="system-sub">Official Biometric Records &amp; Performance Audit</div>
                 </td>
@@ -899,7 +969,7 @@ export function buildReportHtml(doc: ReportDocument, options?: ReportExportOptio
 
     <!-- Formal Footer -->
     <div class="formal-footer">
-        <span>Confidential &amp; Official Audit Document — AniGrow Livestock Management System</span>
+        <span>Confidential &amp; Official Audit Document</span>
         <span>Generated: ${escapeHtml(generatedAt)}</span>
     </div>
 </body>
@@ -914,9 +984,16 @@ export interface ExportResult {
 export async function exportReportPdf(doc: ReportDocument, options?: ReportExportOptions): Promise<ExportResult> {
     try {
         const html = buildReportHtml(doc, options);
+        const pdfFileName = generateReportFileName(doc, options?.fileName);
+        const pdfTitle = pdfFileName.replace(/\.pdf$/i, '');
 
         if (Platform.OS === 'web') {
+            const prevDocumentTitle = typeof document !== 'undefined' ? document.title : '';
             try {
+                if (typeof document !== 'undefined') {
+                    document.title = pdfTitle;
+                }
+
                 // Use a hidden iframe to isolate the formal report HTML and trigger
                 // printing of the document rather than the active browser app screen.
                 const iframe = document.createElement('iframe');
@@ -945,6 +1022,9 @@ export async function exportReportPdf(doc: ReportDocument, options?: ReportExpor
                                 if (document.body.contains(iframe)) {
                                     document.body.removeChild(iframe);
                                 }
+                                if (typeof document !== 'undefined') {
+                                    document.title = prevDocumentTitle;
+                                }
                             } catch (_) {}
                             resolve();
                         }, 1500);
@@ -962,6 +1042,9 @@ export async function exportReportPdf(doc: ReportDocument, options?: ReportExpor
                     printWin.focus();
                     setTimeout(() => {
                         printWin.print();
+                        if (typeof document !== 'undefined') {
+                            document.title = prevDocumentTitle;
+                        }
                     }, 400);
                     return { ok: true };
                 }
@@ -970,15 +1053,35 @@ export async function exportReportPdf(doc: ReportDocument, options?: ReportExpor
         }
 
         const { uri } = await Print.printToFileAsync({ html, base64: false });
+        
+        // Copy the randomly named temporary file to cache with the exact customized filename
+        let targetUri = uri;
+        try {
+            if (FileSystem.cacheDirectory) {
+                const targetFileUri = `${FileSystem.cacheDirectory}${pdfFileName}`;
+                const fileInfo = await FileSystem.getInfoAsync(targetFileUri);
+                if (fileInfo.exists) {
+                    await FileSystem.deleteAsync(targetFileUri, { idempotent: true });
+                }
+                await FileSystem.copyAsync({
+                    from: uri,
+                    to: targetFileUri,
+                });
+                targetUri = targetFileUri;
+            }
+        } catch (fsErr) {
+            console.warn('[pdfReport] FileSystem copy rename error:', fsErr);
+        }
+
         const canShare = await Sharing.isAvailableAsync();
         if (canShare) {
-            await Sharing.shareAsync(uri, {
+            await Sharing.shareAsync(targetUri, {
                 mimeType: 'application/pdf',
-                dialogTitle: doc.reportTitle,
+                dialogTitle: pdfTitle,
                 UTI: 'com.adobe.pdf',
             });
         } else {
-            await Print.printAsync({ uri });
+            await Print.printAsync({ uri: targetUri });
         }
         return { ok: true };
     } catch (err: any) {

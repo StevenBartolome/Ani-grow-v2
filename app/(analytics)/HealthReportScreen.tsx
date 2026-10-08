@@ -516,21 +516,21 @@ export default function HealthReportScreen() {
         const headCountLabel = selectedBatch ? `${selectedBatch.current_count} heads` : 'the cohort';
 
         if (total === 0) {
-            narrative = `No veterinary or health events have been recorded for ${selectedBatch ? selectedBatch.name : 'this batch'} yet. Routine immunization and baseline health checks are recommended upon cohort introduction.`;
+            narrative = `No health or veterinary logs have been recorded for ${selectedBatch ? selectedBatch.name : 'this batch'} yet. Regular vaccinations and routine health checkups are recommended to protect your animals.`;
         } else {
             const vaccineSummary = distinctVaccines.length > 0
-                ? `Core pathogen defenses include completed immunizations for ${distinctVaccines.join(', ')}.`
-                : 'Vaccination records are pending logging.';
+                ? `Vaccines given so far include: ${distinctVaccines.join(', ')}.`
+                : 'No vaccinations recorded yet.';
 
             const mortalitySentence = totalDeceased === 0
-                ? `Mortality is maintained at 0 heads (${survivalRate}% survival rate), demonstrating superior biosecurity and environmental management.`
-                : `A total of ${totalDeceased} deceased heads (${mortalityRate}% mortality) have been recorded, remaining ${parseFloat(mortalityRate) <= 3.0 ? 'within safe industry limits' : 'elevated, requiring sanitation review'}.`;
+                ? `No deaths have been recorded (${survivalRate}% survival rate), showing excellent flock health and care.`
+                : `A total of ${totalDeceased} animal deaths (${mortalityRate}% mortality rate) have been recorded, which is ${parseFloat(mortalityRate) <= 3.0 ? 'within safe normal limits' : 'higher than normal, requiring extra sanitation and health checks'}.`;
 
             const illnessSentence = activeIllnesses === 0
-                ? 'Zero acute morbidity or active infectious cases are present.'
-                : `${activeIllnesses} active case${activeIllnesses === 1 ? ' requires' : 's require'} strict isolation and symptom monitoring.`;
+                ? 'No active illnesses or sick animals are currently reported.'
+                : `${activeIllnesses} sick animal${activeIllnesses === 1 ? ' is' : 's are'} currently flagged and should be separated and cared for.`;
 
-            narrative = `The ${speciesLabel} has been on-farm for ${daysOnFarm} days (arrived on ${selectedBatch?.arrival_date || 'N/A'}, current age ~${currentAgeDays} days). ${mortalitySentence} Proactive healthcare accounts for ${proactivePct}% of all logs. ${vaccineSummary} ${illnessSentence}`;
+            narrative = `This ${speciesLabel} has been on the farm for ${daysOnFarm} days (arrived on ${selectedBatch?.arrival_date || 'N/A'}, current age ~${currentAgeDays} days). ${mortalitySentence} Preventive care (vaccines and vitamins) makes up ${proactivePct}% of all logged care. ${vaccineSummary} ${illnessSentence}`;
         }
 
         return {
@@ -562,41 +562,41 @@ export default function HealthReportScreen() {
         // Plain English assessments
         let immunizationAssessment = '';
         if (vaccinationCount >= 3) {
-            immunizationAssessment = `Robust immunization protocol: ${vaccinationCount} vaccinations administered across key growth stages. Protection covers primary endemic pathogens with full dosage compliance.`;
+            immunizationAssessment = `Strong vaccine protection: ${vaccinationCount} vaccination sessions logged across important growth stages.`;
         } else if (vaccinationCount > 0) {
-            immunizationAssessment = `Active immunization program: ${vaccinationCount} vaccination${vaccinationCount === 1 ? '' : 's'} registered. Continue tracking booster intervals and observe withdrawal dates prior to harvest.`;
+            immunizationAssessment = `Vaccination in progress: ${vaccinationCount} vaccination session${vaccinationCount === 1 ? '' : 's'} recorded. Follow veterinary schedules for remaining doses.`;
         } else {
-            immunizationAssessment = 'Zero vaccinations logged to date. Consult veterinary schedule to establish core pathogen coverage.';
+            immunizationAssessment = 'No vaccines logged yet. Check recommended vaccination schedules to protect against common diseases.';
         }
 
         let parasiteStressAssessment = '';
         if (routineCareCount > 0) {
-            parasiteStressAssessment = `Preventative maintenance confirmed: ${routineCareCount} nutritional stress pack and anti-parasite deworming interventions applied. Reduces subclinical drag and stabilizes feed conversion.`;
+            parasiteStressAssessment = `Routine preventive care confirmed: ${routineCareCount} vitamin supplements and deworming treatments given. This boosts the animals' immune system and helps them grow better.`;
         } else {
-            parasiteStressAssessment = 'No routine deworming or vitamin supplements logged. Schedule oral hydration electrolytes during high-temperature periods.';
+            parasiteStressAssessment = 'No vitamins or deworming logged yet. Adding electrolytes or vitamins during hot weather helps prevent stress.';
         }
 
         let morbidityAssessment = '';
         if (activeIllnesses === 0 && totalDeceased === 0) {
-            morbidityAssessment = 'Flock health index is optimal with 100% clean clinical surveillance. No respiratory, digestive, or locomotor disorders detected.';
+            morbidityAssessment = 'Flock health is excellent with 100% healthy animals. No signs of coughing, weakness, or digestive problems.';
         } else if (activeIllnesses > 0) {
-            morbidityAssessment = `${activeIllnesses} animal(s) flagged with moderate-to-severe symptoms. Enforce isolation pens to prevent lateral transmission to healthy pen-mates.`;
+            morbidityAssessment = `${activeIllnesses} animal(s) showing signs of illness. Keep sick animals separated into sick pens so illnesses do not spread to healthy animals.`;
         } else {
-            morbidityAssessment = `Past mortality noted (${totalDeceased} heads), but current active clinical illness is clear. Daily feed and water intake remain steady.`;
+            morbidityAssessment = `Past deaths noted (${totalDeceased} heads), but currently no active sick animals are reported. Appetite and water drinking remain normal.`;
         }
 
         let actionableRecommendation = '';
         if (animalType === 'pig') {
             if (biosecurityInsights.currentAgeDays > 75) {
-                actionableRecommendation = 'Recommendation: Verify slaughter withdrawal windows for recent injectable vaccines and ensure clean water flow in finishing pens.';
+                actionableRecommendation = 'Check withdrawal periods for any recent medicines before market sale, and ensure clean drinking water flow in finishing pens.';
             } else {
-                actionableRecommendation = 'Recommendation: Maintain strict pen disinfection, check nipple drinker flow rates (1.5-2 L/min), and monitor growth uniformity following weaner transitions.';
+                actionableRecommendation = 'Clean and disinfect pens regularly, check water nipple flow rates, and make sure smaller pigs get fair access to feeders.';
             }
         } else {
             if (biosecurityInsights.currentAgeDays > 28) {
-                actionableRecommendation = 'Recommendation: Monitor litter dryness to prevent footpad dermatitis and check drinker height as birds reach finisher weight.';
+                actionableRecommendation = 'Keep floor bedding dry and clean to protect feet, and raise drinker heights as chickens grow.';
             } else {
-                actionableRecommendation = 'Recommendation: Ensure brooding heat zones are uniform, administer post-vaccination electrolytes, and verify fresh starter crumb access.';
+                actionableRecommendation = 'Keep brooding warmth even across the pen, provide clean starter feed, and give vitamins after vaccines.';
             }
         }
 
@@ -686,6 +686,8 @@ export default function HealthReportScreen() {
             labels: last6Months,
             datasets: datasets.length > 0 ? datasets : [{ data: Array(6).fill(0), color: () => colors.stroke, strokeWidth: 1 }],
             hasRealData: showMortality || showIncidents,
+            incidentsByMonth,
+            mortalityByMonth,
         };
     }, [healthRecords, colors]);
 
@@ -716,25 +718,28 @@ export default function HealthReportScreen() {
             } catch { /* raw */ }
 
             const typeConfig = RECORD_TYPE_CONFIG[r.record_type] || { label: r.record_type };
-            const dosageInfo = r.dosage ? `${r.dosage}` : (r.affected_count ? `${r.affected_count} heads` : '—');
+            const dosageInfo = r.dosage ? `${r.dosage}` : (r.affected_count !== null && r.affected_count !== undefined ? `${r.affected_count} head` : '—');
 
             return [
                 dateLabel,
                 typeConfig.label,
                 r.title || '—',
                 dosageInfo,
-                r.severity ? r.severity.toUpperCase() : 'LOW',
+                r.severity ? r.severity.toUpperCase() : 'NORMAL',
                 r.notes || '—',
             ];
         });
 
         const recs: string[] = [];
         if (categoryExplanation?.actionableRecommendation) {
-            recs.push(categoryExplanation.actionableRecommendation.replace('Recommendation: ', ''));
+            recs.push(categoryExplanation.actionableRecommendation);
         }
-        recs.push(`Maintain biosecurity protocols and disinfect pen boundaries daily.`);
+        recs.push('Maintain daily pen cleanliness, remove damp bedding, and keep feeding areas sanitized.');
         if (biosecurityInsights.distinctVaccines.length > 0) {
-            recs.push(`Documented immunization coverage: ${biosecurityInsights.distinctVaccines.join(', ')}.`);
+            recs.push(`Vaccines recorded for this batch: ${biosecurityInsights.distinctVaccines.join(', ')}.`);
+        }
+        if (activeIllnesses > 0) {
+            recs.push(`Keep the ${activeIllnesses} sick animal(s) separated in a recovery pen until fully treated.`);
         }
 
         const selectedHousingFarmName = (selectedHousing as any)?.farms?.name;
@@ -752,73 +757,138 @@ export default function HealthReportScreen() {
             || (managedFarms.length > 0 ? managedFarms[0]?.name : '')
             || 'Farm Operations';
 
+        const batchRefName = selectedBatch.name.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const dateStamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const documentReference = `HLT-${batchRefName}-${dateStamp}`;
+
+        const summaryText = `This report provides a clear, easy-to-read summary of the health and care status for Batch "${selectedBatch.name}" (${animalType === 'pig' ? 'Pigs' : 'Chickens'}) in ${selectedHousing?.name ?? 'Assigned Housing'} at ${selectedFarmDisplayName}.
+
+Currently at Day ${biosecurityInsights.currentAgeDays} of age with ${selectedBatch.current_count} active animals (${selectedBatch.estimated_count} initial stock). The flock maintains a ${biosecurityInsights.survivalRate}% survival rate with a mortality rate of ${mortalityRate}% (${totalDeceased} total deaths). Across ${healthRecords.length} total logged events, ${biosecurityInsights.proactivePct}% represent proactive preventive care (vaccines and routine supplements). ${activeIllnesses === 0 ? 'There are currently no active sick animals reported.' : `There ${activeIllnesses === 1 ? 'is' : 'are'} ${activeIllnesses} active sick animal(s) currently being monitored.`}`;
+
+        // Chart 1: Bar chart breakdown of health events
         const healthCategoryChart: ReportChart = {
             type: 'bar',
-            title: 'Biosecurity & Health Surveillance Breakdown',
-            labels: ['Vaccinations', 'Routine Care', 'Active Illness', 'Mortality Loss'],
+            title: 'Health Care & Event Log Breakdown',
+            labels: ['Vaccines', 'Routine Care', 'Observations', 'Treatments', 'Illnesses', 'Deaths'],
             series: [
                 {
-                    name: 'Count / Events',
-                    data: [vaccinationCount, routineCareCount, activeIllnesses, totalDeceased],
+                    name: 'Logged Events',
+                    data: [vaccinationCount, routineCareCount, observationCount, treatmentCount, illnessCount, totalDeceased],
                     color: '#16492a',
                 },
             ],
             unit: 'events',
-            yAxisLabel: 'Record Count',
+            yAxisLabel: 'Count',
         };
 
+        // Chart 2: 6-Month Timeline Trend Line Chart (if real data exists)
+        const timelineChart: ReportChart | undefined = lineChartData.hasRealData ? {
+            type: 'line',
+            title: '6-Month Health Incidents & Mortality Trend',
+            labels: lineChartData.labels,
+            series: [
+                {
+                    name: 'Health Incidents (Illness & Treatments)',
+                    data: lineChartData.incidentsByMonth,
+                    color: '#16492a',
+                },
+                ...(lineChartData.mortalityByMonth.some(v => v > 0) ? [{
+                    name: 'Animal Deaths (Mortality)',
+                    data: lineChartData.mortalityByMonth,
+                    color: '#EF4444',
+                }] : []),
+            ],
+            unit: 'events',
+            yAxisLabel: 'Monthly Count',
+        } : undefined;
+
+        const sectionsList: any[] = [
+            {
+                heading: 'Flock Health Summary & Key Numbers',
+                stats: [
+                    { label: 'Survival Rate', value: `${biosecurityInsights.survivalRate}%`, accent: parseFloat(mortalityRate) === 0 ? 'good' : 'warn' },
+                    { label: 'Mortality Rate', value: `${mortalityRate}%`, accent: parseFloat(mortalityRate) > 3 ? 'bad' : 'good' },
+                    { label: 'Total Deaths', value: `${totalDeceased} head`, accent: totalDeceased > 0 ? 'warn' : 'good' },
+                    { label: 'Active Sick Animals', value: String(activeIllnesses), accent: activeIllnesses > 0 ? 'warn' : 'good' },
+                    { label: 'Vaccination Doses', value: String(vaccinationCount), accent: 'good' },
+                    { label: 'Routine Care Logs', value: String(routineCareCount), accent: 'good' },
+                    { label: 'Preventive Care Share', value: `${biosecurityInsights.proactivePct}%`, accent: 'good' },
+                    { label: 'Total Health Events', value: String(healthRecords.length) },
+                ],
+                paragraphs: [
+                    'Understanding your key health metrics:',
+                ],
+                bullets: [
+                    `Survival Rate (${biosecurityInsights.survivalRate}%): Percentage of your initial batch that is alive and healthy right now (${selectedBatch.current_count} out of ${selectedBatch.estimated_count} head).`,
+                    `Mortality Rate (${mortalityRate}%): Total death loss since arrival (${totalDeceased} head). Keeping this below 3% indicates healthy farm conditions.`,
+                    `Preventive Care (${biosecurityInsights.proactivePct}%): How much of your care consists of vaccines and vitamins before animals get sick. High preventive care reduces medicine costs and death loss.`,
+                    `Active Sick Animals (${activeIllnesses} head): Animals currently needing treatment or extra attention.`,
+                ],
+            },
+            {
+                heading: 'Health Events & Care Distribution',
+                chart: healthCategoryChart,
+                paragraphs: [
+                    `This chart shows the breakdown of all ${healthRecords.length} health activities logged for this batch across vaccines, routine supplements, treatments, observations, illnesses, and deaths.`,
+                    categoryExplanation?.immunizationAssessment || 'Vaccination status is up to date.',
+                    categoryExplanation?.parasiteStressAssessment || 'Routine vitamins and deworming care are on schedule.',
+                    categoryExplanation?.morbidityAssessment || 'No active severe cases reported.',
+                ],
+            },
+        ];
+
+        if (timelineChart) {
+            sectionsList.push({
+                heading: '6-Month Health & Mortality Trend',
+                chart: timelineChart,
+                paragraphs: [
+                    `This chart tracks health incidents and any animal deaths over the past 6 months to help you detect seasonal health patterns and verify treatment effectiveness.`,
+                ],
+            });
+        }
+
+        sectionsList.push({
+            heading: 'Practical Farm Advice & Next Steps',
+            paragraphs: [
+                'Simple recommendations based on this batch\'s current health records:',
+            ],
+            bullets: recs,
+        });
+
+        sectionsList.push({
+            heading: 'Complete Health Event Log',
+            table: {
+                headers: ['Date', 'Type of Care', 'Title / Reason', 'Dose / Head Count', 'Status', 'Notes & Details'],
+                rows: eventRows,
+                note: eventRows.length === 0 ? 'No health events recorded for this batch yet.' : 'All records are pulled directly from farm logs.',
+            },
+        });
+
         return {
-            reportTitle: 'Comprehensive Health & Biosecurity Report',
+            reportTitle: 'LIVESTOCK HEALTH & VACCINATION REPORT',
             farmName: selectedFarmDisplayName,
-            subtitle: `${selectedBatch.name} · ${selectedHousing?.name ?? 'No Housing'} · ${animalType === 'pig' ? 'Swine Herd' : 'Poultry Flock'}`,
+            subtitle: `Batch "${selectedBatch.name}" · ${selectedHousing?.name ?? 'Assigned Housing'} · ${animalType === 'pig' ? 'Pigs (Swine)' : 'Chickens (Poultry)'}`,
+            documentRef: documentReference,
+            summaryText,
             meta: [
                 { label: 'Farm / Facility', value: selectedFarmDisplayName },
                 { label: 'Batch Name', value: selectedBatch.name },
-                { label: 'Housing Unit', value: selectedHousing?.name ?? '—' },
-                { label: 'Animal Species', value: animalType === 'pig' ? 'Swine (Pig)' : 'Poultry (Chicken)' },
-                { label: 'Current Inventory', value: `${selectedBatch.current_count} heads (Initial: ${selectedBatch.estimated_count})` },
-                { label: 'Arrival Date', value: `${selectedBatch.arrival_date} (${biosecurityInsights.daysOnFarm} days on-farm)` },
-                { label: 'Cohort Age', value: `~${biosecurityInsights.currentAgeDays} days` },
+                { label: 'Housing / Pen', value: selectedHousing?.name ?? 'General Housing' },
+                { label: 'Animal Type', value: animalType === 'pig' ? 'Pig (Swine)' : 'Chicken (Poultry)' },
+                { label: 'Arrival Date', value: selectedBatch.arrival_date || '—' },
+                { label: 'Age at Arrival', value: `${selectedBatch.age_at_arrival_days || 0} days` },
+                { label: 'Current Age', value: `~${biosecurityInsights.currentAgeDays} days (${biosecurityInsights.daysOnFarm} days on farm)` },
+                { label: 'Initial Stock Count', value: `${selectedBatch.estimated_count} head` },
+                { label: 'Current Active Count', value: `${selectedBatch.current_count} head` },
+                { label: 'Total Deceased', value: `${totalDeceased} head` },
+                { label: 'Health Status Rating', value: biosecurityInsights.statusRating.toUpperCase() },
+                { label: 'Batch Status', value: (selectedBatch.status || 'Active').toUpperCase() },
             ],
-            sections: [
-                {
-                    heading: 'Executive Health Summary',
-                    stats: [
-                        { label: 'Herd Survival', value: `${biosecurityInsights.survivalRate}%`, accent: parseFloat(mortalityRate) === 0 ? 'good' : 'warn' },
-                        { label: 'Proactive Care', value: `${biosecurityInsights.proactivePct}%`, accent: 'good' },
-                        { label: 'Vaccinations', value: String(vaccinationCount), accent: 'good' },
-                        { label: 'Routine Care', value: String(routineCareCount) },
-                        { label: 'Active Illnesses', value: String(activeIllnesses), accent: activeIllnesses > 0 ? 'warn' : undefined },
-                        { label: 'Mortality Rate', value: `${mortalityRate}%`, accent: parseFloat(mortalityRate) > 3 ? 'bad' : 'good' },
-                    ],
-                    chart: healthCategoryChart,
-                    paragraphs: [
-                        biosecurityInsights.narrative,
-                        getHealthAnalysis(),
-                    ],
-                },
-                {
-                    heading: 'Clinical Findings & Surveillance',
-                    paragraphs: [
-                        categoryExplanation?.immunizationAssessment || 'Immunization status is steady.',
-                        categoryExplanation?.parasiteStressAssessment || 'Nutritional routine is stable.',
-                        categoryExplanation?.morbidityAssessment || 'No active severe cases reported.',
-                    ],
-                    bullets: recs,
-                },
-                {
-                    heading: 'Complete Health Event Ledger',
-                    table: {
-                        headers: ['Date', 'Type', 'Title', 'Dose / Heads', 'Severity', 'Clinical Notes'],
-                        rows: eventRows,
-                        note: eventRows.length === 0 ? 'No health events recorded for this batch yet.' : undefined,
-                    },
-                },
-            ],
+            sections: sectionsList,
             generatedByName: formatReportUserName(profile),
             generatedByRole: formatReportUserRole(profile?.role),
         };
-    }, [selectedBatch, selectedHousing, animalType, healthRecords, vaccinationCount, routineCareCount, activeIllnesses, mortalityRate, totalDeceased, biosecurityInsights, categoryExplanation, farmName, profile]);
+    }, [selectedBatch, selectedHousing, animalType, healthRecords, vaccinationCount, routineCareCount, observationCount, treatmentCount, illnessCount, activeIllnesses, mortalityRate, totalDeceased, biosecurityInsights, categoryExplanation, farmName, profile, managedFarms, selectedFarmIds, activeFarmIds, farmId, lineChartData]);
 
     return (
         <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: isAndroid3ButtonNav ? insets.bottom : 0 }]}>

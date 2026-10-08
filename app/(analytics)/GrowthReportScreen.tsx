@@ -688,21 +688,23 @@ export default function GrowthReportScreen() {
 
         const batchRefName = selectedBatch.name.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
         const dateStamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        const documentReference = `ANIGROW-GRW-${batchRefName}-${dateStamp}`;
+        const documentReference = `GRW-${batchRefName}-${dateStamp}`;
 
-        const summaryText = `This official livestock growth and biometric performance report documents the weighing records and weight progression for Batch "${selectedBatch.name}" (${animalType === 'pig' ? 'Swine Herd' : 'Poultry Flock'}), situated at ${selectedHousing?.name ?? 'Assigned Facility'} in ${selectedFarmDisplayName}. Current rearing age is Day ${currentDay !== null ? currentDay : 'N/A'}, with an active cohort population of ${selectedBatch.current_count} head. Across all recorded telemetry sessions, a cumulative sample of ${totalWeighs} weigh events has been logged, establishing a mean cohort live weight of ${meanWeightKg.toFixed(2)} kg. Biometric categorization demonstrates that ${normalPct}% (${normalCount} head) conform to optimal growth target standards, ${underPct}% (${underweightCount} head) are classified as underweight, and ${overPct}% (${overweightCount} head) fall into the overweight/advanced category. Overall herd uniformity is indexed at ${uniformityPct}%.`;
+        const summaryText = `This report provides a clear, easy-to-read summary of the growth performance for Batch "${selectedBatch.name}" (${animalType === 'pig' ? 'Pigs' : 'Chickens'}) in ${selectedHousing?.name ?? 'Assigned Housing'} at ${selectedFarmDisplayName}. 
 
-        // Growth Progression Chart & Classification Distribution Chart
+Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selectedBatch.current_count} active animals. Across ${totalWeighs} total weighings, the average weight is ${meanWeightKg.toFixed(2)} kg. Overall, ${normalPct}% of animals are growing right on target, ${underPct}% are lighter than expected, and ${overPct}% are heavier than target. The flock uniformity is ${uniformityPct}%, meaning ${Number(uniformityPct) >= 75 ? 'the animals are growing very evenly' : 'there is some size variation across the animals'}.`;
+
+        // 1. Average Weight Growth Line Chart
         const growthProgressionChart: ReportChart | undefined = sortedDates.length > 0 ? {
             type: 'line',
-            title: `Mean Live Weight Progression (${sortedDates.length} Monitored Points)`,
+            title: `Average Weight Growth Over Time (${sortedDates.length} Recorded Days)`,
             labels: sortedDates.map(d => {
                 const parts = d.split('-');
                 return parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
             }),
             series: [
                 {
-                    name: 'Average Live Weight (kg)',
+                    name: 'Average Weight (kg)',
                     data: sortedDates.map(d => {
                         const entry = dateMap.get(d)!;
                         const avgG = entry.weights.reduce((a, b) => a + b, 0) / entry.weights.length;
@@ -715,122 +717,143 @@ export default function GrowthReportScreen() {
             yAxisLabel: 'Live Weight (kg)',
         } : undefined;
 
-        const classificationChart: ReportChart = {
+        // 2. Distribution Trend Over Time Bar Chart (Underweight vs Normal vs Overweight)
+        const distributionTrendChart: ReportChart | undefined = sortedDates.length > 0 ? {
             type: 'bar',
-            title: 'Biometric Classification Distribution (Head Count)',
-            labels: ['Underweight', 'Normal Target', 'Overweight'],
+            title: `Weight Distribution Trend Over Time (${sortedDates.length} Recorded Days)`,
+            labels: sortedDates.map(d => {
+                const parts = d.split('-');
+                return parts.length >= 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : d;
+            }),
             series: [
                 {
-                    name: 'Head Count',
-                    data: [underweightCount, normalCount, overweightCount],
+                    name: 'Underweight (Light)',
+                    data: sortedDates.map(d => dateMap.get(d)!.underweight),
+                    color: '#F59E0B',
+                },
+                {
+                    name: 'Normal (On Target)',
+                    data: sortedDates.map(d => dateMap.get(d)!.normal),
                     color: '#16492a',
-                }
+                },
+                {
+                    name: 'Overweight (Heavy)',
+                    data: sortedDates.map(d => dateMap.get(d)!.overweight),
+                    color: '#EF4444',
+                },
             ],
             unit: 'heads',
-            yAxisLabel: 'Number of animals'
-        };
+            yAxisLabel: 'Head Count',
+        } : undefined;
 
         return {
-            reportTitle: 'LIVESTOCK GROWTH PERFORMANCE & BIOMETRIC AUDIT REPORT',
+            reportTitle: 'LIVESTOCK GROWTH PERFORMANCE REPORT',
             farmName: selectedFarmDisplayName,
-            subtitle: `Official Biometric Cohort Evaluation · Batch "${selectedBatch.name}" · ${selectedHousing?.name ?? 'Assigned Housing'} · ${animalType === 'pig' ? 'Swine Production' : 'Poultry Production'}`,
+            subtitle: `Batch "${selectedBatch.name}" · ${selectedHousing?.name ?? 'Assigned Housing'} · ${animalType === 'pig' ? 'Pigs (Swine)' : 'Chickens (Poultry)'}`,
             documentRef: documentReference,
             summaryText,
             meta: [
                 { label: 'Farm / Facility', value: selectedFarmDisplayName },
-                { label: 'Batch Identifier', value: selectedBatch.name },
-                { label: 'Housing Facility / Pen', value: selectedHousing?.name ?? 'General Housing' },
-                { label: 'Livestock Classification', value: animalType === 'pig' ? 'Swine (Grower / Finisher)' : 'Poultry (Broiler)' },
-                { label: 'Placement Date', value: arrivalLabel },
-                { label: 'Placement Age', value: `${selectedBatch.age_at_arrival_days || 0} days` },
-                { label: 'Current Cohort Age', value: currentDay !== null ? `Day ${currentDay}` : '—' },
-                { label: 'Stocking Count', value: `${selectedBatch.estimated_count ?? selectedBatch.current_count} head` },
-                { label: 'Current Live Population', value: `${selectedBatch.current_count} head` },
-                { label: 'Cumulative Weigh Events', value: `${totalWeighs} recorded measurements` },
-                { label: 'Audit Period', value: sortedDates.length > 0 ? `${sortedDates[0]} to ${sortedDates[sortedDates.length - 1]}` : 'Single Session' },
+                { label: 'Batch Name', value: selectedBatch.name },
+                { label: 'Housing / Pen', value: selectedHousing?.name ?? 'General Housing' },
+                { label: 'Animal Type', value: animalType === 'pig' ? 'Pig (Swine)' : 'Chicken (Poultry)' },
+                { label: 'Arrival Date', value: arrivalLabel },
+                { label: 'Age at Arrival', value: `${selectedBatch.age_at_arrival_days || 0} days` },
+                { label: 'Current Age', value: currentDay !== null ? `Day ${currentDay}` : '—' },
+                { label: 'Initial Stock Count', value: `${selectedBatch.estimated_count ?? selectedBatch.current_count} head` },
+                { label: 'Current Active Count', value: `${selectedBatch.current_count} head` },
+                { label: 'Total Weighings Logged', value: `${totalWeighs} measurements` },
+                { label: 'Monitored Period', value: sortedDates.length > 0 ? `${sortedDates[0]} to ${sortedDates[sortedDates.length - 1]}` : 'Single Session' },
                 { label: 'Batch Status', value: (selectedBatch.status || 'Active').toUpperCase() },
             ],
             sections: [
                 {
-                    heading: 'Statistical Key Performance Indicators',
+                    heading: 'Key Growth Numbers & What They Mean',
                     stats: [
-                        { label: 'Mean Live Weight', value: `${meanWeightKg.toFixed(2)} kg`, accent: 'good' },
-                        { label: 'Weight Range (Min - Max)', value: `${minWeightKg} - ${maxWeightKg} kg` },
-                        { label: 'Flock Uniformity (±10%)', value: `${uniformityPct}%`, accent: Number(uniformityPct) >= 75 ? 'good' : 'warn' },
-                        { label: 'Average Daily Gain (ADG)', value: adgFormatted },
-                        { label: 'Target Adherence (Normal)', value: `${normalPct}% (${normalCount} head)`, accent: 'good' },
-                        { label: 'Underweight Frequency', value: `${underPct}% (${underweightCount} head)`, accent: Number(underPct) > 15 ? 'warn' : undefined },
+                        { label: 'Average Weight', value: `${meanWeightKg.toFixed(2)} kg`, accent: 'good' },
+                        { label: 'Daily Gain (ADG)', value: adgFormatted },
+                        { label: 'Flock Uniformity', value: `${uniformityPct}%`, accent: Number(uniformityPct) >= 75 ? 'good' : 'warn' },
+                        { label: 'On Target (Normal)', value: `${normalPct}% (${normalCount} head)`, accent: 'good' },
+                        { label: 'Underweight (Light)', value: `${underPct}% (${underweightCount} head)`, accent: Number(underPct) > 15 ? 'warn' : undefined },
+                        { label: 'Overweight (Heavy)', value: `${overPct}% (${overweightCount} head)`, accent: Number(overPct) > 15 ? 'bad' : undefined },
+                        { label: 'Lightest Animal', value: `${minWeightKg} kg` },
+                        { label: 'Heaviest Animal', value: `${maxWeightKg} kg` },
+                    ],
+                    paragraphs: [
+                        `Understanding your key growth indicators:`,
+                    ],
+                    bullets: [
+                        `Average Weight (${meanWeightKg.toFixed(2)} kg): The overall typical weight of an animal in this batch right now.`,
+                        `Daily Weight Gain / ADG (${adgFormatted}): How much weight an animal gains each day on average. Steady daily gain means animals are eating well, healthy, and on track for harvest.`,
+                        `Flock Uniformity (${uniformityPct}%): Measures how evenly sized the animals are growing together. A score of 75% or higher means most animals are close in size, which makes feeding more efficient and selling more profitable. ${Number(uniformityPct) >= 75 ? 'Your current uniformity is excellent.' : 'Your uniformity shows some size spread—extra feeder space can help smaller animals catch up.'}`,
+                        `Growth Categories: ${normalCount} head (${normalPct}%) are right on target, ${underweightCount} head (${underPct}%) are lighter than expected, and ${overweightCount} head (${overPct}%) are heavier than target.`,
                     ],
                 },
                 {
-                    heading: 'Biometric Classification & Cohort Uniformity Matrix',
-                    chart: classificationChart,
+                    heading: 'Weight Distribution Trend Over Time',
+                    chart: distributionTrendChart,
+                    paragraphs: [
+                        `This chart shows how the number of Underweight (orange), Normal (green), and Overweight (red) animals has changed across each weighing session. It helps you see whether smaller animals are catching up or if size differences are growing over time.`
+                    ],
                     table: {
-                        heading: 'Cohort Weight Classification Matrix',
-                        headers: ['Classification', 'Head Sampled', 'Proportion (%)', 'Clinical Benchmark Criteria', 'Management Status & Evaluation'],
+                        heading: 'Batch Weight Breakdown by Status',
+                        headers: ['Weight Category', 'Number of Head', 'Share of Batch', 'What This Means', 'Recommended Action'],
                         rows: [
                             [
-                                'Underweight',
-                                underweightCount,
-                                `${underPct}%`,
-                                '< Lower Specification Limit (-10%)',
-                                Number(underPct) > 15
-                                    ? 'High runt frequency: Supplemental feeding & pen sorting recommended.'
-                                    : 'Acceptable: Minor runts within allowable variance.'
-                            ],
-                            [
-                                'Normal (Target Weight)',
+                                'Normal (On Target)',
                                 normalCount,
                                 `${normalPct}%`,
-                                'Optimal Genetic Growth Benchmark (±10%)',
-                                'Satisfactory: Conforms strictly to expected commercial growth trajectory.'
+                                'Animals growing at the ideal target weight for their age.',
+                                'Keep current feeding routine and schedule.'
                             ],
                             [
-                                'Overweight / Advanced',
+                                'Underweight (Light)',
+                                underweightCount,
+                                `${underPct}%`,
+                                'Animals smaller or lighter than normal.',
+                                Number(underPct) > 15
+                                    ? 'Separate lighter animals into an auxiliary pen for extra feeding.'
+                                    : 'Normal variation. Monitor on next weighing session.'
+                            ],
+                            [
+                                'Overweight (Heavy)',
                                 overweightCount,
                                 `${overPct}%`,
-                                '> Upper Specification Limit (+10%)',
+                                'Animals growing faster or heavier than standard targets.',
                                 Number(overPct) > 15
-                                    ? 'Notice: Fast-finishing cohort. Monitor energy-to-protein ratio.'
-                                    : 'Acceptable: Advanced cohort performing within expected limits.'
+                                    ? 'Fast growers approaching harvest weight early.'
+                                    : 'Animals performing well; continue standard rations.'
                             ],
-                            [
-                                'Consolidated Sample Size',
-                                totalWeighs,
-                                '100.0%',
-                                'Aggregate Monitored Batch Sample',
-                                `Cohort Uniformity Index: ${uniformityPct}% (${Number(uniformityPct) >= 75 ? 'Optimal' : 'Needs Optimization'})`
-                            ]
                         ],
                         columnAlignments: ['left', 'center', 'center', 'left', 'left'],
-                        note: 'Evaluated in accordance with standard livestock breed weight-for-age production curves.',
+                        note: 'Categories are calculated by comparing scale weights to standard breed growth curves for their age.',
                     },
                 },
                 {
-                    heading: 'Chronological Weigh-In Progression Ledger',
+                    heading: 'Average Weight Growth Over Time (Progression)',
                     chart: growthProgressionChart,
                     table: {
-                        heading: 'Day-by-Day Telemetry Log',
-                        headers: ['Calendar Date', 'Head Weighed', 'Average Weight', 'Min - Max Range', 'Session Gain', 'Under', 'Normal', 'Over'],
+                        heading: 'Day-by-Day Weighing Log',
+                        headers: ['Weigh Date', 'Animals Weighed', 'Average Weight', 'Lightest - Heaviest', 'Weight Gain', 'Underweight', 'Normal', 'Overweight'],
                         rows: chronologicalRows,
                         columnAlignments: ['left', 'center', 'center', 'center', 'center', 'center', 'center', 'center'],
-                        note: 'Weights captured via calibrated smart telemetry scale. Session Gain indicates variance relative to preceding session.',
+                        note: 'Weight gain shows the increase in average weight compared to the previous recorded session.',
                     },
                 },
                 {
-                    heading: 'Operational Insights & Nutritional Recommendations',
+                    heading: 'Practical Farm Advice & Next Steps',
                     paragraphs: [
-                        `Based on biometric evaluation of ${totalWeighs} recorded weighings for Batch "${selectedBatch.name}", the cohort demonstrates an overall health profile with a ${normalPct}% target weight conformity. The following clinical and management actions are recommended for implementation by the farm operational team:`
+                        `Simple recommendations based on this batch's current growth data:`
                     ],
                     bullets: [
                         Number(underPct) > 15
-                            ? `Nutritional Segregation: With underweight incidence elevated at ${underPct}%, establish a dedicated recovery pen with high-density starter/grower ration to reduce feeder competition.`
-                            : `Feeder Flow Calibration: Maintain standard phase feeding schedule; verify automated feeder dispensing flow rates and clean water nipple pressure daily.`,
+                            ? `Help Smaller Animals Catch Up: Since ${underPct}% of animals are lighter than target, consider placing them in a separate pen or providing extra feeder space to reduce competition.`
+                            : `Feeder Access: Maintain standard feeding schedules and verify all animals have easy access to feed pans and clean drinking water.`,
                         Number(overPct) > 15
-                            ? `Finisher Ration Management: High overweight incidence (${overPct}%) indicates rapid fat deposition; evaluate dietary crude protein and fiber ratios before harvest.`
-                            : `Microclimate Optimization: Ensure ambient pen temperature and mechanical ventilation conform to target thermal comfort zones to sustain optimal Feed Conversion Ratio (FCR).`,
-                        `Biometric Telemetry Compliance: Continue regular weight sampling schedules at 7-day intervals to verify continued progression along the target growth curve.`,
-                        `Health & Biosecurity Cross-Reference: Correlate weight progression with the health ledger to ensure all mandatory deworming, vaccination, and vitamin regimens are up to date.`,
+                            ? `Harvest Planning: With ${overPct}% of animals heavier than target, begin planning harvest or market schedules for early-finishing animals.`
+                            : `Comfort & Ventilation: Ensure proper pen temperature and ventilation so animals can convert feed into weight efficiently.`,
+                        `Regular Weighing Schedule: Continue weighing sample animals at regular 7-day intervals to catch any slowdown in growth early.`,
+                        `Health & Vaccines: Confirm that all scheduled vitamins, vaccines, and deworming treatments are up to date.`,
                     ],
                 },
             ],
