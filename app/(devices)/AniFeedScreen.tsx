@@ -280,7 +280,7 @@ export default function AniFeedScreen() {
                     (w: any) => getDeviceDisplayStatus(w.status, w.last_seen) === 'online'
                 );
 
-                setIsConnected(isGoldenWeighOnline || getDeviceDisplayStatus(info.status, info.lastSeen) === 'online');
+                setIsConnected(isGoldenWeighOnline);
             }
 
             if (scheduleResult.data) {

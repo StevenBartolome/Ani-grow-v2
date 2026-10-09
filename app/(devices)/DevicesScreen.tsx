@@ -379,8 +379,8 @@ export default function DevicesScreen() {
 
     const liveDevices: RegisteredDevice[] = devices.map(d => {
         let displayStatus = getDeviceDisplayStatus(d.status, d.lastSeen, nowTick);
-        if (d.type === 'AniFeed' && hasOnlineAniWeigh) {
-            displayStatus = 'online';
+        if (d.type === 'AniFeed') {
+            displayStatus = hasOnlineAniWeigh ? 'online' : 'offline';
         }
         return {
             ...d,
