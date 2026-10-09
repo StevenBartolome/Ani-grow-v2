@@ -486,6 +486,30 @@ export default function AniFeedScreen() {
         }
     };
 
+    // ─── Reset Dispense (Emergency Close) ──────────────────────────
+    const handleResetDispense = async () => {
+        try {
+            const code = deviceUniqueCode || 'AF-26T9PXCF';
+            const targetIp = deviceInfo?.lastIp;
+
+            // 1. Send remote command to Supabase commands table
+            await supabase.from('commands').insert({
+                chip_id: code,
+                command: 'reset_feeder',
+            });
+
+            // 2. Also try direct LAN call if device IP is known
+            if (targetIp) {
+                fetch(`http://${targetIp}/feeder?action=reset`, { method: 'GET' }).catch(() => {});
+            }
+
+            showSnackbar('Reset command sent! Retracting and closing feeder gate.');
+        } catch (err) {
+            console.error('[AniFeedScreen] reset command error:', err);
+            showSnackbar('Failed to send reset command.', 'error');
+        }
+    };
+
     // ─── Edit modal ───────────────────────────────────────────────
     const openEditModal = (target: 'Housing' | 'Brand' | 'AnimalType' | 'Batch') => {
         setEditTarget(target);
@@ -880,6 +904,43 @@ export default function AniFeedScreen() {
                                     )}
                                 </TouchableOpacity>
                             </View>
+                        </View>
+                    </View>
+
+                    {/* Feeder Controls (Manual Reset Dispense / Emergency Gate Close) */}
+                    <View style={[anifeedStyles.statsCard, { backgroundColor: colors.surface, borderColor: colors.stroke, padding: 18, borderRadius: 20, marginBottom: 16 }]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <View style={{ flex: 1, marginRight: 12 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                    <MaterialIcons name="settings-backup-restore" size={20} color={colors.error} />
+                                    <Text style={[textStyles.h3, { color: colors.text, fontSize: 16, fontWeight: '700' }]}>
+                                        Feeder Safety & Reset
+                                    </Text>
+                                </View>
+                                <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 12 }]}>
+                                    Retracts actuator and closes feeder gate if stuck mid-dispense.
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                style={{
+                                    backgroundColor: colors.error + '14',
+                                    borderColor: colors.error + '40',
+                                    borderWidth: 1,
+                                    borderRadius: 14,
+                                    paddingHorizontal: 14,
+                                    paddingVertical: 10,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                }}
+                                onPress={handleResetDispense}
+                                activeOpacity={0.7}
+                            >
+                                <MaterialIcons name="power-settings-new" size={16} color={colors.error} />
+                                <Text style={[textStyles.label, { color: colors.error, fontSize: 13, fontWeight: '700' }]}>
+                                    Reset Dispense
+                                </Text>
+                            </TouchableOpacity>
                         </View>
                     </View>
 

@@ -33,7 +33,7 @@ export function isDeviceOnline(
     lastSeen: string | null | undefined,
     now: number = Date.now(),
 ): boolean {
-    if (status === 'offline' || status === 'maintenance') return false;
+    if (status === 'maintenance') return false;
     if (!lastSeen) return false;
     const lastSeenMs = new Date(lastSeen).getTime();
     if (Number.isNaN(lastSeenMs)) return false;
