@@ -83,8 +83,14 @@ export default function AddDeviceScreen() {
                         try {
                             console.log(`[AddDevice] Config send attempt ${attempt} of ${retries}...`);
                             const res = await Promise.race([
-                                fetch(targetUrl, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
-                                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000))
+                                fetch(targetUrl, {
+                                    method: 'GET',
+                                    headers: {
+                                        'Cache-Control': 'no-cache',
+                                        'Accept': 'application/json, text/plain, */*',
+                                    },
+                                }),
+                                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 12000))
                             ]);
                             return res;
                         } catch (err) {
@@ -136,10 +142,10 @@ export default function AddDeviceScreen() {
                 }
             } catch (error) {
                 console.error('[AddDevice] send config error:', error);
-                showSnackbar(
-                    'Could not reach the device. Make sure:\n• Your phone is connected to the AniGrow_Setup hotspot\n• Mobile data is OFF\n• No VPN is active',
-                    'error'
-                );
+                const isAndroid = Platform.OS === 'android';
+                const androidErrMsg = 'Could not reach device on Android.\n\n• Please turn OFF Mobile/Cellular Data\n• Ensure phone is connected to AniGrow_Setup\n• Tap "Keep Wi-Fi Connection" if prompted by Android\n• Then tap Connect Device again';
+                const generalErrMsg = 'Could not reach the device. Make sure:\n• Your phone is connected to the AniGrow_Setup hotspot\n• Mobile data is OFF\n• No VPN is active';
+                showSnackbar(isAndroid ? androidErrMsg : generalErrMsg, 'error');
             }
             setIsSendingConfig(false);
         } else if (step === 4 && deviceName.trim()) {
@@ -341,6 +347,32 @@ export default function AddDeviceScreen() {
                         <Text style={[textStyles.body, { color: colors.textGrey, textAlign: 'center', fontSize: 16 }]}>
                             Then return to this app.
                         </Text>
+
+                        {Platform.OS === 'android' && (
+                            <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'flex-start',
+                                gap: 10,
+                                backgroundColor: '#FFFBEB',
+                                borderWidth: 1,
+                                borderColor: '#FCD34D',
+                                borderRadius: 12,
+                                padding: 14,
+                                marginTop: 20,
+                                width: '100%',
+                            }}>
+                                <MaterialIcons name="warning" size={20} color="#D97706" style={{ marginTop: 2 }} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[textStyles.h3, { color: '#92400E', fontSize: 13, marginBottom: 2 }]}>
+                                        Important for Android Users
+                                    </Text>
+                                    <Text style={[textStyles.body, { color: '#B45309', fontSize: 12, lineHeight: 18 }]}>
+                                        1. <Text style={{ fontFamily: 'Poppins-Bold' }}>Turn OFF Mobile Data</Text> on your phone while setting up.{'\n'}
+                                        2. If Android shows a notification <Text style={{ fontFamily: 'Poppins-Medium' }}>"Wi-Fi has no internet access"</Text>, tap it and select <Text style={{ fontFamily: 'Poppins-Bold' }}>"Keep Wi-Fi Connection"</Text> or <Text style={{ fontFamily: 'Poppins-Bold' }}>"YES"</Text>.
+                                    </Text>
+                                </View>
+                            </View>
+                        )}
                     </View>
                 )}
 
@@ -349,9 +381,28 @@ export default function AddDeviceScreen() {
                         <Text style={[textStyles.h1, { color: '#006400', fontSize: 26, marginBottom: 8 }]}>
                             Setup {isExistingDevice ? existingName : selectedType}
                         </Text>
-                        <Text style={[textStyles.body, { color: colors.textGrey, marginBottom: 32 }]}>
+                        <Text style={[textStyles.body, { color: colors.textGrey, marginBottom: 24 }]}>
                             Follow these steps to connect your {isExistingDevice ? existingName : selectedType} to WiFi.
                         </Text>
+
+                        {Platform.OS === 'android' && (
+                            <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 10,
+                                backgroundColor: '#FEF3C7',
+                                borderWidth: 1,
+                                borderColor: '#FDE68A',
+                                borderRadius: 10,
+                                padding: 12,
+                                marginBottom: 24,
+                            }}>
+                                <MaterialIcons name="phone-android" size={20} color="#D97706" />
+                                <Text style={[textStyles.body, { color: '#92400E', fontSize: 12, flex: 1, lineHeight: 17 }]}>
+                                    <Text style={{ fontFamily: 'Poppins-Bold' }}>Android Notice:</Text> Turn OFF Mobile/Cellular Data now so Android passes credentials directly over Wi-Fi.
+                                </Text>
+                            </View>
+                        )}
 
                         {/* Sub-step 1 */}
                         <View style={{ marginBottom: 32 }}>

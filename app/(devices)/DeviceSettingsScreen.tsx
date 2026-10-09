@@ -204,7 +204,7 @@ export default function DeviceSettingsScreen() {
 
     const fetchWithTimeout = async (url: string, timeoutMs = 2500): Promise<Response> => {
         return Promise.race([
-            fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
+            fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache', 'Accept': 'application/json, text/plain, */*' } }),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeoutMs)),
         ]);
     };
