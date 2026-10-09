@@ -1303,13 +1303,15 @@ export default function AniWeighScreen() {
             }
         }
 
-        // Send cloud remote command to commands table so Board 1 picks it up over Internet
-        const underGrams = Math.round(underKg * 1000);
-        const overGrams = Math.round(overKg * 1000);
-        supabase.from('commands').insert({
-            chip_id: uniqueCode,
-            command: `threshold_${underGrams}_${overGrams}`,
-        }).then(() => {}).catch(() => {});
+        // Send cloud remote command to device_commands table so Board 1 picks it up over Internet
+        if (deviceId) {
+            const underGrams = Math.round(underKg * 1000);
+            const overGrams = Math.round(overKg * 1000);
+            supabase.from('device_commands').insert({
+                device_id: deviceId,
+                command: `threshold_${underGrams}_${overGrams}`,
+            }).then(() => {}).catch(() => {});
+        }
 
         if (success) {
             showSnackbar(`Weight range synchronized with physical device.`);
@@ -1441,11 +1443,13 @@ export default function AniWeighScreen() {
             }
         }
 
-        // Send cloud remote command to commands table so Board 1 picks it up over Internet
-        supabase.from('commands').insert({
-            chip_id: uniqueCode,
-            command: `mode_${mode.toLowerCase()}`,
-        }).then(() => {}).catch(() => {});
+        // Send cloud remote command to device_commands table so Board 1 picks it up over Internet
+        if (deviceId) {
+            supabase.from('device_commands').insert({
+                device_id: deviceId,
+                command: `mode_${mode.toLowerCase()}`,
+            }).then(() => {}).catch(() => {});
+        }
 
         if (success) {
             showSnackbar(`Scale sorting mode synchronized to: ${mode}`);

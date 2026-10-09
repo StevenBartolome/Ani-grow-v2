@@ -489,14 +489,15 @@ export default function AniFeedScreen() {
     // ─── Reset Dispense (Emergency Close) ──────────────────────────
     const handleResetDispense = async () => {
         try {
-            const code = deviceUniqueCode || 'AF-26T9PXCF';
             const targetIp = deviceInfo?.lastIp;
 
-            // 1. Send remote command to Supabase commands table
-            await supabase.from('commands').insert({
-                chip_id: code,
-                command: 'reset_feeder',
-            });
+            // 1. Send remote command to Supabase device_commands table
+            if (deviceId) {
+                await supabase.from('device_commands').insert({
+                    device_id: deviceId as string,
+                    command: 'reset_feeder',
+                });
+            }
 
             // 2. Also try direct LAN call if device IP is known
             if (targetIp) {
