@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ActivityIndicator, Alert, Platform, RefreshControl, ScrollView, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/Text';
@@ -290,13 +290,21 @@ export default function GrowthReportScreen() {
                         .from('weighing_sessions')
                         .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                         .eq('batch_id', requestedBatch.id)
-                        .eq('status', 'completed')
+                        .neq('status', 'in_progress')
                         .gt('completed_quantity', 0)
+                        .order('farm_day', { ascending: true, nullsFirst: false })
                         .order('created_at', { ascending: true }),
                 ]);
                 if (weighRes.error) throw weighRes.error;
-                setWeighSessions((weighRes.data || []) as WeighSession[]);
-                setWeighingSessionEnvelopes((sessionRes.data || []) as WeighingSessionEnvelope[]);
+                const rawEnvelopes = (sessionRes.data || []) as WeighingSessionEnvelope[];
+                const rawWeigh = (weighRes.data || []) as WeighSession[];
+                let validWeigh = rawWeigh;
+                if (rawEnvelopes.length > 0) {
+                    const validEnvIds = new Set(rawEnvelopes.map(e => e.id));
+                    validWeigh = rawWeigh.filter(w => w.weighing_session_id && validEnvIds.has(w.weighing_session_id));
+                }
+                setWeighSessions(validWeigh);
+                setWeighingSessionEnvelopes(rawEnvelopes);
                 setSelectedSessionOption(null);
                 lastLoadedBatchIdRef.current = requestedBatch.id;
                 setIsLoading(false);
@@ -354,14 +362,22 @@ export default function GrowthReportScreen() {
                         .from('weighing_sessions')
                         .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                         .eq('batch_id', targetBatchId)
-                        .eq('status', 'completed')
+                        .neq('status', 'in_progress')
                         .gt('completed_quantity', 0)
+                        .order('farm_day', { ascending: true, nullsFirst: false })
                         .order('created_at', { ascending: true }),
                 ]);
 
                 if (weighRes.error) throw weighRes.error;
-                setWeighSessions((weighRes.data || []) as WeighSession[]);
-                setWeighingSessionEnvelopes((sessionRes.data || []) as WeighingSessionEnvelope[]);
+                const rawEnvelopes = (sessionRes.data || []) as WeighingSessionEnvelope[];
+                const rawWeigh = (weighRes.data || []) as WeighSession[];
+                let validWeigh = rawWeigh;
+                if (rawEnvelopes.length > 0) {
+                    const validEnvIds = new Set(rawEnvelopes.map(e => e.id));
+                    validWeigh = rawWeigh.filter(w => w.weighing_session_id && validEnvIds.has(w.weighing_session_id));
+                }
+                setWeighSessions(validWeigh);
+                setWeighingSessionEnvelopes(rawEnvelopes);
                 setSelectedSessionOption(null);
                 lastLoadedBatchIdRef.current = targetBatchId;
             } else {
@@ -394,14 +410,22 @@ export default function GrowthReportScreen() {
                     .from('weighing_sessions')
                     .select('id, farm_day, weigh_mode, expected_quantity, completed_quantity, status, created_at, completed_at')
                     .eq('batch_id', batchId)
-                    .eq('status', 'completed')
+                    .neq('status', 'in_progress')
                     .gt('completed_quantity', 0)
+                    .order('farm_day', { ascending: true, nullsFirst: false })
                     .order('created_at', { ascending: true }),
             ]);
 
             if (weighRes.error) throw weighRes.error;
-            setWeighSessions((weighRes.data || []) as WeighSession[]);
-            setWeighingSessionEnvelopes((sessionRes.data || []) as WeighingSessionEnvelope[]);
+            const rawEnvelopes = (sessionRes.data || []) as WeighingSessionEnvelope[];
+            const rawWeigh = (weighRes.data || []) as WeighSession[];
+            let validWeigh = rawWeigh;
+            if (rawEnvelopes.length > 0) {
+                const validEnvIds = new Set(rawEnvelopes.map(e => e.id));
+                validWeigh = rawWeigh.filter(w => w.weighing_session_id && validEnvIds.has(w.weighing_session_id));
+            }
+            setWeighSessions(validWeigh);
+            setWeighingSessionEnvelopes(rawEnvelopes);
             setSelectedSessionOption(null);
         } catch (err) {
             console.error('[GrowthReportScreen] error loading weigh sessions:', err);
@@ -552,6 +576,15 @@ export default function GrowthReportScreen() {
             supabase.removeChannel(channel);
         };
     }, [selectedBatchId, fetchWeighSessions]);
+
+    // Automatically re-fetch dynamically when returning to this screen (e.g. after deleting sessions in Weighing History)
+    useFocusEffect(
+        useCallback(() => {
+            if (selectedBatchId) {
+                fetchWeighSessions(selectedBatchId);
+            }
+        }, [selectedBatchId, fetchWeighSessions])
+    );
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -890,9 +923,9 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
     const activeColor = getTabColor(selectedTab);
 
     const sessionItems = useMemo(() => {
-        if (weighSessions.length === 0) return [];
+        if (weighSessions.length === 0 && weighingSessionEnvelopes.length === 0) return [];
 
-        const completedEnvelopes = weighingSessionEnvelopes.filter(env => env.status === 'completed');
+        const completedEnvelopes = weighingSessionEnvelopes.filter(env => env.status !== 'in_progress');
         if (completedEnvelopes.length > 0) {
             return completedEnvelopes.map((env, idx) => {
                 const num = idx + 1;
@@ -907,8 +940,9 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
 
                 const isLatest = idx === completedEnvelopes.length - 1;
                 const dayPart = env.farm_day !== null ? ` (Day ${env.farm_day})` : '';
+                const countPart = ` · ${env.completed_quantity} weighed`;
                 const latestPart = isLatest ? ' · Latest' : '';
-                const label = `${ordinal} Session · ${dateLabel}${dayPart}${latestPart}`;
+                const label = `${ordinal} Session · ${dateLabel}${dayPart}${countPart}${latestPart}`;
 
                 return {
                     id: env.id,
@@ -916,6 +950,7 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
                     index: num,
                     dateLabel,
                     farmDay: env.farm_day,
+                    animalCount: env.completed_quantity,
                     label,
                     isLatest,
                     sessionIds: [env.id],
@@ -960,8 +995,10 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
 
             const isLatest = idx === sortedDates.length - 1;
             const dayPart = farmDay !== null ? ` (Day ${farmDay})` : '';
+            const dayCount = dateMap.get(dateKey)?.length || 0;
+            const countPart = ` · ${dayCount} weighed`;
             const latestPart = isLatest ? ' · Latest' : '';
-            const label = `${ordinal} Session · ${dateLabel}${dayPart}${latestPart}`;
+            const label = `${ordinal} Session · ${dateLabel}${dayPart}${countPart}${latestPart}`;
 
             return {
                 id: dateKey,
@@ -969,6 +1006,7 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
                 index: num,
                 dateLabel,
                 farmDay,
+                animalCount: dayCount,
                 label,
                 isLatest,
                 sessionIds: [] as string[],
@@ -1064,7 +1102,7 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
                     return matched.dateKeys?.includes(dk);
                 });
                 title = `${matched.ordinal} Session Summary${matched.isLatest ? ' (Latest)' : ''}`;
-                subtitle = `Recorded on ${matched.dateLabel}${matched.farmDay !== null ? ` (Day ${matched.farmDay})` : ''}`;
+                subtitle = `Recorded on ${matched.dateLabel}${matched.farmDay !== null ? ` (Day ${matched.farmDay})` : ''} · ${targetSessions.length} weighed`;
             }
         }
 
@@ -1974,7 +2012,7 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
                                         alignSelf: 'flex-start',
                                     }}>
                                         <Text style={{ fontFamily: 'Poppins-Medium', fontSize: 10, color: colors.primary }}>
-                                            {summaryInfo.totalCount} total logs
+                                            {summaryInfo.totalCount} weighed
                                         </Text>
                                     </View>
                                 </View>
@@ -2048,7 +2086,7 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
                                             {summaryInfo.underweightCount}
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginTop: 2 }}>
-                                            logs
+                                            weighed
                                         </Text>
                                     </View>
 
@@ -2069,7 +2107,7 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
                                             {summaryInfo.normalCount}
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginTop: 2 }}>
-                                            logs
+                                            weighed
                                         </Text>
                                     </View>
 
@@ -2090,7 +2128,7 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
                                             {summaryInfo.overweightCount}
                                         </Text>
                                         <Text style={{ fontFamily: 'Poppins-Regular', fontSize: 9, color: colors.textGrey, marginTop: 2 }}>
-                                            logs
+                                            weighed
                                         </Text>
                                     </View>
                                 </View>
@@ -2124,7 +2162,7 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
                                     />
                                 </View>
                                 <View style={{ flex: 1, minWidth: 0 }}>
-                                    <Text numberOfLines={1} style={[textStyles.body, { color: colors.textGrey, fontSize: 13, lineHeight: 17 }]}>Total Weigh Logs</Text>
+                                    <Text numberOfLines={1} style={[textStyles.body, { color: colors.textGrey, fontSize: 13, lineHeight: 17 }]}>Animals Weighed</Text>
                                     <Text numberOfLines={1} style={[textStyles.h3, { color: colors.text, fontSize: 15, lineHeight: 20 }]}>{selectedTab} Group</Text>
                                 </View>
                             </View>
@@ -2132,7 +2170,7 @@ Currently at Day ${currentDay !== null ? currentDay : 'N/A'} of age with ${selec
                                 <Text style={[textStyles.h1, { color: activeColor, fontSize: 26, lineHeight: 30 }]}>
                                     {getCategoryCount(selectedTab)}
                                 </Text>
-                                <Text style={[textStyles.label, { color: activeColor, fontSize: 11, opacity: 0.8 }]}>Logs</Text>
+                                <Text style={[textStyles.label, { color: activeColor, fontSize: 11, opacity: 0.8 }]}>Heads</Text>
                             </View>
                         </View>
 
