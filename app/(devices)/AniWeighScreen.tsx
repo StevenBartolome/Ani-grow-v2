@@ -877,19 +877,13 @@ export default function AniWeighScreen() {
             setSelectedBatchId(gateBatchId);
             setHousingBatches(gateBatches);
 
-            // Synchronize physical device sorting mode and tray capacity
-            let targetModeCode = 'CHICKEN';
-            if ((gateAnimalType as string) === 'pig' || (gateAnimalType as string) === 'Pig') targetModeCode = 'PIG';
-            else if ((gateAnimalType as string) === 'piglet' || (gateAnimalType as string) === 'Piglet') targetModeCode = 'PIGLET';
-            else if (isChicksMode) targetModeCode = 'CHICK';
+            // Synchronize physical device sorting mode, weight thresholds, and tray capacity
+            await updateAndSyncThresholdsAndMode(gateAnimalType, gateBatchId);
 
-            if (deviceUniqueCode) {
-                syncModeToDevice(deviceUniqueCode, targetModeCode).catch(console.warn);
-                if (isChicksMode) {
-                    const crateUrl1 = `http://anigrow-${deviceUniqueCode}.local/crate?crate_weight=0&chick_count=${chicksTraySize}`;
-                    const crateUrl2 = `http://192.168.4.1/crate?crate_weight=0&chick_count=${chicksTraySize}`;
-                    fetch(crateUrl1).catch(() => fetch(crateUrl2)).catch(console.warn);
-                }
+            if (deviceUniqueCode && isChicksMode) {
+                const crateUrl1 = `http://anigrow-${deviceUniqueCode}.local/crate?crate_weight=0&chick_count=${chicksTraySize}`;
+                const crateUrl2 = `http://192.168.4.1/crate?crate_weight=0&chick_count=${chicksTraySize}`;
+                fetch(crateUrl1).catch(() => fetch(crateUrl2)).catch(console.warn);
             }
 
             showSnackbar(
@@ -1283,6 +1277,16 @@ export default function AniWeighScreen() {
 
     const syncThresholdToDevice = async (uniqueCode: string, underKg: number, overKg: number) => {
         if (!uniqueCode) return;
+
+        // Queue cloud command via device_commands table so board syncs over cloud even if LAN is unreachable
+        const underGrams = Math.round(underKg * 1000);
+        const overGrams = Math.round(overKg * 1000);
+        const cmdName = `threshold_${underGrams}_${overGrams}`;
+        const requestedBy = user?.id ?? (profile as any)?.id ?? (profile as any)?.uid ?? null;
+        supabase.from('device_commands').insert({ device_id: deviceId, command: cmdName, requested_by: requestedBy }).then(({ error }) => {
+            if (error) console.warn('[ThresholdSync] Error inserting cloud threshold command:', error);
+        });
+
         const urls = [
             `http://anigrow-${uniqueCode}.local/threshold?under=${underKg}&over=${overKg}`,
             `http://192.168.4.1/threshold?under=${underKg}&over=${overKg}`
@@ -1310,6 +1314,95 @@ export default function AniWeighScreen() {
             showSnackbar(`Weight range updated on cloud. Reconnect to device hotspot or local WiFi to synchronize.`, 'info');
         }
     };
+
+    const updateAndSyncThresholdsAndMode = useCallback(async (
+        targetAnimalType: string,
+        targetBatchId?: string | null
+    ) => {
+        if (!deviceId) return;
+        try {
+            const isPig = targetAnimalType.toLowerCase() === 'pig' || targetAnimalType.toLowerCase() === 'piglet';
+            const effectiveAnimal: StandardAnimalType = isPig ? 'pig' : 'chicken';
+
+            // Resolve active batch to compute week number
+            let resolvedWeek = 1;
+            const batchIdToUse = targetBatchId ?? selectedBatchId ?? gateBatchId;
+            const batchListToUse = housingBatches.length > 0 ? housingBatches : gateBatches;
+            const activeBatch = batchListToUse.find(b => b.id === batchIdToUse);
+
+            if (activeBatch?.arrival_date) {
+                const arr = new Date(activeBatch.arrival_date);
+                const now = new Date();
+                arr.setHours(0, 0, 0, 0);
+                now.setHours(0, 0, 0, 0);
+                const diffDays = Math.floor((now.getTime() - arr.getTime()) / (1000 * 60 * 60 * 24));
+                const ageDays = Math.max(0, diffDays) + (activeBatch.age_at_arrival_days || 0);
+                resolvedWeek = Math.max(1, Math.ceil(ageDays / 7));
+            }
+
+            const effectiveFarmId = farmId || (profile as any)?.farm_id || null;
+            const farmStds = await fetchTargetWeights(effectiveFarmId, effectiveAnimal);
+            const weekStd = getStandardForWeek(effectiveAnimal, resolvedWeek, farmStds);
+            setActiveRearingWeek(resolvedWeek);
+            setActiveWeekStandard(weekStd);
+
+            const finalUnder = Math.round(weekStd.underweight_max_grams);
+            const finalOver = Math.round(weekStd.overweight_min_grams);
+
+            const dbAnimalKey = targetAnimalType.toLowerCase();
+            const threshPayload = {
+                device_id: deviceId,
+                farm_id: effectiveFarmId,
+                animal_type: dbAnimalKey,
+                underweight_max_grams: finalUnder,
+                normal_min_grams: finalUnder + 1,
+                normal_max_grams: finalOver - 1,
+                overweight_min_grams: finalOver,
+                updated_at: new Date().toISOString(),
+            };
+
+            const { data: existingThresh } = await supabase
+                .from('weight_thresholds')
+                .select('id')
+                .eq('device_id', deviceId)
+                .eq('animal_type', dbAnimalKey)
+                .maybeSingle();
+
+            let thresholdId: string | null = null;
+            if (existingThresh?.id) {
+                thresholdId = existingThresh.id;
+                await supabase.from('weight_thresholds').update(threshPayload).eq('id', thresholdId);
+            } else {
+                const { data: newThresh } = await supabase.from('weight_thresholds').insert(threshPayload).select('id').single();
+                thresholdId = (newThresh as any)?.id ?? null;
+            }
+
+            const threshObj: WeightThreshold = {
+                id: thresholdId,
+                underweightMaxGrams: finalUnder,
+                normalMinGrams: finalUnder + 1,
+                normalMaxGrams: finalOver - 1,
+                overweightMinGrams: finalOver,
+            };
+            setThreshold(threshObj);
+            thresholdRef.current = threshObj;
+
+            // Sync weight thresholds and animal mode to physical device (via LAN + Cloud commands)
+            const codeToSync = deviceUniqueCode || (deviceInfo as any)?.unique_code;
+            if (codeToSync) {
+                syncThresholdToDevice(codeToSync, finalUnder / 1000, finalOver / 1000).catch(console.warn);
+
+                let targetModeCode = 'CHICKEN';
+                if (dbAnimalKey === 'pig') targetModeCode = 'PIG';
+                else if (dbAnimalKey === 'piglet') targetModeCode = 'PIGLET';
+                else if (dbAnimalKey === 'chicks') targetModeCode = 'CHICK';
+
+                syncModeToDevice(codeToSync, targetModeCode).catch(console.warn);
+            }
+        } catch (err) {
+            console.warn('[AniWeigh] updateAndSyncThresholdsAndMode error:', err);
+        }
+    }, [deviceId, farmId, profile, selectedBatchId, gateBatchId, housingBatches, gateBatches, deviceUniqueCode, deviceInfo]);
 
     const syncModeToDevice = async (uniqueCode: string, mode: string) => {
         if (!uniqueCode) return;
@@ -1465,6 +1558,9 @@ export default function AniWeighScreen() {
                     activeSessionRef.current = newSessionData as ActiveSession;
                 }
             }
+            // Ensure target animal weight thresholds & mode are synced to board before starting
+            const targetAnimalStr = deviceInfo?.animalType || animalType || 'pig';
+            await updateAndSyncThresholdsAndMode(targetAnimalStr, selectedBatchId);
 
             const currentComp = activeSession?.completed_quantity ?? 0;
             const expected = activeSession?.expected_quantity ?? 0;
@@ -2119,16 +2215,7 @@ export default function AniWeighScreen() {
                         else selectedType = 'Chicken';
                         
                         AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
-                        
-                        let modeCode = "PIGLET";
-                        if (selectedType === 'Piglet') modeCode = "PIGLET";
-                        else if (selectedType === 'Pig') modeCode = "PIG";
-                        else if (selectedType === 'Chicken') modeCode = "CHICKEN";
-                        else if (selectedType === 'Chicks') modeCode = "CHICK";
-
-                        if (deviceUniqueCode) {
-                            syncModeToDevice(deviceUniqueCode, modeCode).catch(console.warn);
-                        }
+                        updateAndSyncThresholdsAndMode(type, gateBatchId);
                     }}
                 />
             ) : (
