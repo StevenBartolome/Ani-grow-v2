@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Modal, Platform, RefreshControl, ScrollView, Switch, TextInput, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
@@ -1403,6 +1403,15 @@ export default function AniWeighScreen() {
             console.warn('[AniWeigh] updateAndSyncThresholdsAndMode error:', err);
         }
     }, [deviceId, farmId, profile, selectedBatchId, gateBatchId, housingBatches, gateBatches, deviceUniqueCode, deviceInfo]);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (deviceId) {
+                const targetAnimal = deviceInfoRef.current?.animalType || 'pig';
+                updateAndSyncThresholdsAndMode(targetAnimal, selectedBatchId);
+            }
+        }, [deviceId, selectedBatchId, updateAndSyncThresholdsAndMode])
+    );
 
     const syncModeToDevice = async (uniqueCode: string, mode: string) => {
         if (!uniqueCode) return;
