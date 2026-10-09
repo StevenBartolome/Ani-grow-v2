@@ -50,11 +50,15 @@ export default function AddDeviceScreen() {
     const [configuredSsid, setConfiguredSsid] = useState('');
 
     const getHotspotName = () => {
-        // Board 1 broadcasts: AniGrow_Setup_<chip_id>  where chip_id == unique_code
-        if (existingCode) return `AniGrow_Setup_${existingCode}`;
-        // Fallback for new-device flow (type selected but no code yet)
-        const prefix = selectedType === 'AniWeigh' ? 'AW' : 'AF';
-        return `AniGrow_Setup_${prefix}XXXXXXXXXX`;
+        // Board 1 controls Wi-Fi setup for both AniWeigh and AniFeed devices.
+        // It broadcasts: AniGrow_Setup_<aniweigh_chip_id> (e.g. AniGrow_Setup_AW-26CSQZ0C)
+        if (existingCode) {
+            if (existingCode.startsWith('AF-')) {
+                return `AniGrow_Setup_AW-26CSQZ0C`;
+            }
+            return `AniGrow_Setup_${existingCode}`;
+        }
+        return `AniGrow_Setup_AW-26CSQZ0C`;
     };
 
     // Snackbar State
