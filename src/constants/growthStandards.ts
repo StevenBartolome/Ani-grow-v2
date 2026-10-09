@@ -206,3 +206,92 @@ export async function deleteTargetWeight(id: string): Promise<boolean> {
         return false;
     }
 }
+
+/**
+ * Synchronize farm target weights to active devices when standards are updated
+ */
+export async function syncFarmTargetWeightsToDevices(
+    farmId: string,
+    animalType: AnimalType
+) {
+    if (!farmId) return;
+    try {
+        const { data: devices } = await supabase
+            .from('devices')
+            .select('id, unique_code, housing_id')
+            .eq('farm_id', farmId)
+            .eq('type', 'aniweigh');
+
+        if (!devices || devices.length === 0) return;
+
+        const farmStds = await fetchTargetWeights(farmId, animalType);
+
+        for (const dev of devices) {
+            const { data: session } = await supabase
+                .from('weighing_sessions')
+                .select('batch_id, animal_type')
+                .eq('device_id', dev.id)
+                .eq('status', 'in_progress')
+                .maybeSingle();
+
+            let batchId = session?.batch_id ?? null;
+            let resolvedWeek = 1;
+
+            if (batchId) {
+                const { data: batch } = await supabase
+                    .from('batches')
+                    .select('arrival_date, age_at_arrival_days')
+                    .eq('id', batchId)
+                    .maybeSingle();
+
+                if (batch?.arrival_date) {
+                    const arr = new Date(batch.arrival_date);
+                    const now = new Date();
+                    arr.setHours(0, 0, 0, 0);
+                    now.setHours(0, 0, 0, 0);
+                    const diffDays = Math.floor((now.getTime() - arr.getTime()) / (1000 * 60 * 60 * 24));
+                    const ageDays = Math.max(0, diffDays) + (batch.age_at_arrival_days || 0);
+                    resolvedWeek = Math.max(1, Math.ceil(ageDays / 7));
+                }
+            }
+
+            const weekStd = getStandardForWeek(animalType, resolvedWeek, farmStds);
+            const finalUnder = Math.round(weekStd.underweight_max_grams);
+            const finalOver = Math.round(weekStd.overweight_min_grams);
+
+            const dbAnimalKey = animalType.toLowerCase();
+            const threshPayload = {
+                device_id: dev.id,
+                farm_id: farmId,
+                animal_type: dbAnimalKey,
+                underweight_max_grams: finalUnder,
+                normal_min_grams: finalUnder + 1,
+                normal_max_grams: finalOver - 1,
+                overweight_min_grams: finalOver,
+                updated_at: new Date().toISOString(),
+            };
+
+            const { data: existing } = await supabase
+                .from('weight_thresholds')
+                .select('id')
+                .eq('device_id', dev.id)
+                .eq('animal_type', dbAnimalKey)
+                .maybeSingle();
+
+            if (existing?.id) {
+                await supabase.from('weight_thresholds').update(threshPayload).eq('id', existing.id);
+            } else {
+                await supabase.from('weight_thresholds').insert(threshPayload);
+            }
+
+            const cmdName = `threshold_${finalUnder}_${finalOver}`;
+            await supabase.from('device_commands').insert({
+                device_id: dev.id,
+                command: cmdName,
+            });
+        }
+    } catch (err) {
+        console.warn('[syncFarmTargetWeightsToDevices] error:', err);
+    }
+}
+
