@@ -225,6 +225,7 @@ export default function AniWeighScreen() {
     const [snackbarType, setSnackbarType] = useState<SnackbarType>('success');
 
     const [deviceUniqueCode, setDeviceUniqueCode] = useState('');
+    const animalTypeDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Live reading (from Supabase Realtime)
     const [liveWeightG, setLiveWeightG] = useState<number | null>(null);
@@ -1415,7 +1416,19 @@ export default function AniWeighScreen() {
     );
 
     const syncModeToDevice = async (uniqueCode: string, mode: string) => {
-        if (!uniqueCode) return;
+        if (!uniqueCode || !deviceId) return;
+
+        // Clear any previous unexecuted mode commands for this device to prevent command spam/backlog
+        try {
+            await supabase
+                .from('device_commands')
+                .update({ executed: true, executed_at: new Date().toISOString() })
+                .eq('device_id', deviceId)
+                .is('executed_at', null)
+                .like('command', 'mode_%');
+        } catch (clearErr) {
+            console.warn('[ModeSync] Could not clear old mode commands:', clearErr);
+        }
 
         // Queue cloud command via device_commands table so board syncs over cloud even if LAN is unreachable
         const cmdName = `mode_${mode.toLowerCase()}`;
@@ -2223,9 +2236,16 @@ export default function AniWeighScreen() {
                         else if (type === 'piglet') selectedType = 'Piglet';
                         else if (type === 'pig') selectedType = 'Pig';
                         else selectedType = 'Chicken';
-                        
+
+                        setGateAnimalType(type);
                         AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
-                        updateAndSyncThresholdsAndMode(type, gateBatchId);
+
+                        if (animalTypeDebounceTimerRef.current) {
+                            clearTimeout(animalTypeDebounceTimerRef.current);
+                        }
+                        animalTypeDebounceTimerRef.current = setTimeout(() => {
+                            updateAndSyncThresholdsAndMode(type, gateBatchId);
+                        }, 350);
                     }}
                 />
             ) : (
