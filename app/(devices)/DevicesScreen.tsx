@@ -372,10 +372,21 @@ export default function DevicesScreen() {
 
     // Resolve each device's *real* status (manual flag + heartbeat freshness)
     // against the current tick, so staleness shows up without a refetch.
-    const liveDevices: RegisteredDevice[] = devices.map(d => ({
-        ...d,
-        status: getDeviceDisplayStatus(d.status, d.lastSeen, nowTick),
-    }));
+    // If GoldenWeigh (AniWeigh) is online on this farm, keep AniFeed devices online too.
+    const hasOnlineAniWeigh = devices.some(
+        d => d.type === 'AniWeigh' && getDeviceDisplayStatus(d.status, d.lastSeen, nowTick) === 'online'
+    );
+
+    const liveDevices: RegisteredDevice[] = devices.map(d => {
+        let displayStatus = getDeviceDisplayStatus(d.status, d.lastSeen, nowTick);
+        if (d.type === 'AniFeed' && hasOnlineAniWeigh) {
+            displayStatus = 'online';
+        }
+        return {
+            ...d,
+            status: displayStatus,
+        };
+    });
 
     const filteredDevices = activeFilter === 'All'
         ? liveDevices

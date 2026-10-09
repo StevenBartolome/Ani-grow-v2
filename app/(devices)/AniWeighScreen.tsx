@@ -44,7 +44,6 @@ interface DeviceInfo {
     housingId: string | null;
     housingName: string;
     animalType: 'Pig' | 'Piglet' | 'Chicken' | 'Chicks' | 'Chicks (with caution: must be in crate)';
-    lastIp?: string | null;
 }
 
 interface WeightThreshold {
@@ -454,7 +453,7 @@ export default function AniWeighScreen() {
             const [deviceResult, housingsResult, todayStatsResult] = await Promise.all([
                 supabase
                     .from('devices')
-                    .select('id, name, unique_code, status, last_seen, weighing_active, last_ip, housing_id, housings(name, animal_type)')
+                    .select('id, name, unique_code, status, last_seen, weighing_active, housing_id, housings(name, animal_type)')
                     .eq('id', deviceId)
                     .single(),
                 supabase
@@ -477,7 +476,6 @@ export default function AniWeighScreen() {
                     housingId: d.housing_id ?? null,
                     housingName: d.housings?.name ?? 'Unassigned',
                     animalType: d.housings?.animal_type === 'pig' ? 'Pig' : 'Chicken',
-                    lastIp: d.last_ip ?? null,
                 };
 
                 const tempType = await AsyncStorage.getItem(`temp_animal_type_${deviceId}`);
@@ -1279,11 +1277,10 @@ export default function AniWeighScreen() {
 
     const syncThresholdToDevice = async (uniqueCode: string, underKg: number, overKg: number) => {
         if (!uniqueCode) return;
-        const targetIp = deviceInfoRef.current?.lastIp || (deviceInfo as any)?.lastIp;
 
         const urls = [
-            ...(targetIp ? [`http://${targetIp}/threshold?under=${underKg}&over=${overKg}`] : []),
-            `http://anigrow-${uniqueCode}.local/threshold?under=${underKg}&over=${overKg}`
+            `http://anigrow-${uniqueCode}.local/threshold?under=${underKg}&over=${overKg}`,
+            `http://192.168.4.1/threshold?under=${underKg}&over=${overKg}`
         ];
         let success = false;
         for (const url of urls) {
@@ -1291,7 +1288,7 @@ export default function AniWeighScreen() {
                 console.log(`[ThresholdSync] Sending to: ${url}`);
                 const res = await Promise.race([
                     fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
-                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1500))
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
                 ]);
                 if (res.ok) {
                     success = true;
@@ -1302,19 +1299,10 @@ export default function AniWeighScreen() {
                 console.warn(`[ThresholdSync] Failed for ${url}:`, e);
             }
         }
-
-        // Send cloud remote command to device_commands table so Board 1 picks it up over Internet
-        if (deviceId) {
-            const underGrams = Math.round(underKg * 1000);
-            const overGrams = Math.round(overKg * 1000);
-            supabase.from('device_commands').insert({
-                device_id: deviceId,
-                command: `threshold_${underGrams}_${overGrams}`,
-            }).then(() => {}).catch(() => {});
-        }
-
         if (success) {
             showSnackbar(`Weight range synchronized with physical device.`);
+        } else {
+            showSnackbar(`Weight range updated on cloud. Reconnect to device hotspot or local WiFi to synchronize.`, 'info');
         }
     };
 
@@ -1419,11 +1407,10 @@ export default function AniWeighScreen() {
 
     const syncModeToDevice = async (uniqueCode: string, mode: string) => {
         if (!uniqueCode) return;
-        const targetIp = deviceInfoRef.current?.lastIp || (deviceInfo as any)?.lastIp;
 
         const urls = [
-            ...(targetIp ? [`http://${targetIp}/mode?mode=${mode}`] : []),
-            `http://anigrow-${uniqueCode}.local/mode?mode=${mode}`
+            `http://anigrow-${uniqueCode}.local/mode?mode=${mode}`,
+            `http://192.168.4.1/mode?mode=${mode}`
         ];
         let success = false;
         for (const url of urls) {
@@ -1431,7 +1418,7 @@ export default function AniWeighScreen() {
                 console.log(`[ModeSync] Sending to: ${url}`);
                 const res = await Promise.race([
                     fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-cache' } }),
-                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1500))
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
                 ]);
                 if (res.ok) {
                     success = true;
@@ -1442,17 +1429,10 @@ export default function AniWeighScreen() {
                 console.warn(`[ModeSync] Failed for ${url}:`, e);
             }
         }
-
-        // Send cloud remote command to device_commands table so Board 1 picks it up over Internet
-        if (deviceId) {
-            supabase.from('device_commands').insert({
-                device_id: deviceId,
-                command: `mode_${mode.toLowerCase()}`,
-            }).then(() => {}).catch(() => {});
-        }
-
         if (success) {
             showSnackbar(`Scale sorting mode synchronized to: ${mode}`);
+        } else {
+            showSnackbar(`Scale mode updated on cloud (${mode}). Synchronizing with physical scale...`, 'info');
         }
     };
 

@@ -50,15 +50,11 @@ export default function AddDeviceScreen() {
     const [configuredSsid, setConfiguredSsid] = useState('');
 
     const getHotspotName = () => {
-        // Board 1 controls Wi-Fi setup for both AniWeigh and AniFeed devices.
-        // It broadcasts: AniGrow_Setup_<aniweigh_chip_id> (e.g. AniGrow_Setup_AW-26CSQZ0C)
-        if (existingCode) {
-            if (existingCode.startsWith('AF-')) {
-                return `AniGrow_Setup_AW-26CSQZ0C`;
-            }
-            return `AniGrow_Setup_${existingCode}`;
-        }
-        return `AniGrow_Setup_AW-26CSQZ0C`;
+        // Board 1 broadcasts: AniGrow_Setup_<chip_id>  where chip_id == unique_code
+        if (existingCode) return `AniGrow_Setup_${existingCode}`;
+        // Fallback for new-device flow (type selected but no code yet)
+        const prefix = selectedType === 'AniWeigh' ? 'AW' : 'AF';
+        return `AniGrow_Setup_${prefix}XXXXXXXXXX`;
     };
 
     // Snackbar State
@@ -81,37 +77,45 @@ export default function AddDeviceScreen() {
             setIsSendingConfig(true);
             try {
                 const url = `http://192.168.4.1/save?ssid=${encodeURIComponent(wifiSsid.trim())}&pass=${encodeURIComponent(wifiPassword.trim())}`;
-                let chipId = '';
-                let configSent = false;
-
-                try {
-                    console.log(`[AddDevice] Sending Wi-Fi config to device...`);
-                    const res = await Promise.race([
-                        fetch(url, {
-                            method: 'GET',
-                            headers: {
-                                'Cache-Control': 'no-cache',
-                                'Accept': 'application/json, text/plain, */*',
-                            },
-                        }),
-                        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))
-                    ]);
-                    if (res.ok) {
-                        configSent = true;
+                
+                const fetchWithRetry = async (targetUrl: string, retries = 3, delayMs = 2000): Promise<Response> => {
+                    for (let attempt = 1; attempt <= retries; attempt++) {
                         try {
-                            const data = await res.json();
-                            chipId = data?.chip_id || data?.device_id || '';
-                            if (chipId) setHardwareDeviceId(chipId);
-                        } catch { /* parse optional */ }
+                            console.log(`[AddDevice] Config send attempt ${attempt} of ${retries}...`);
+                            const res = await Promise.race([
+                                fetch(targetUrl, {
+                                    method: 'GET',
+                                    headers: {
+                                        'Cache-Control': 'no-cache',
+                                        'Accept': 'application/json, text/plain, */*',
+                                    },
+                                }),
+                                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 12000))
+                            ]);
+                            return res;
+                        } catch (err) {
+                            if (attempt === retries) {
+                                throw err;
+                            }
+                            console.warn(`[AddDevice] Send attempt ${attempt} failed. Retrying in ${delayMs}ms...`, err);
+                            await new Promise(resolve => setTimeout(resolve, delayMs));
+                        }
                     }
-                } catch (err: any) {
-                    console.warn(`[AddDevice] Config send fetch threw (device likely received creds and restarted):`, err);
-                    // Network reset / connection dropped is expected when the ESP32 receives the /save GET request, saves to NVS, and reboots.
-                    configSent = true;
-                }
+                    throw new Error('All attempts failed');
+                };
 
-                if (configSent) {
+                const res = await fetchWithRetry(url);
+
+                if (res.ok) {
+                    let chipId = '';
+                    try {
+                        const data = await res.json();
+                        chipId = data?.chip_id || data?.device_id || '';
+                        if (chipId) setHardwareDeviceId(chipId);
+                    } catch { /* parse is optional */ }
+
                     if (isExistingDevice && params.existingDeviceId) {
+                        // Verify chip_id matches registered unique_code
                         if (chipId && existingCode && chipId !== existingCode) {
                             showSnackbar(
                                 `Wrong hotspot — board ID (${chipId}) doesn't match registered code (${existingCode}). Join the correct AniGrow_Setup network.`,
@@ -120,15 +124,21 @@ export default function AddDeviceScreen() {
                             setIsSendingConfig(false);
                             return;
                         }
+
+                        // SUCCESS — but we are still on the ESP hotspot (no internet).
+                        // Show a "switch back to your WiFi" prompt; Supabase update
+                        // happens only after the user confirms they have internet again.
                         setConfiguredSsid(wifiSsid.trim());
                         setWaitingReconnect(true);
                     } else {
+                        // New-device flow: /save worked, device is restarting.
+                        // Tell user to switch back to regular WiFi before naming device.
                         setConfiguredSsid(wifiSsid.trim());
                         showSnackbar(`Config sent! Reconnect your phone to "${wifiSsid.trim()}" WiFi, then name your device.`, 'success');
                         setStep(4);
                     }
                 } else {
-                    throw new Error('Could not verify config receipt.');
+                    throw new Error('Device responded with error status.');
                 }
             } catch (error) {
                 console.error('[AddDevice] send config error:', error);
