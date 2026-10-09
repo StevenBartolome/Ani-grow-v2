@@ -1392,10 +1392,11 @@ export default function AniWeighScreen() {
             if (codeToSync) {
                 syncThresholdToDevice(codeToSync, finalUnder / 1000, finalOver / 1000).catch(console.warn);
 
-                let targetModeCode = 'CHICKEN';
-                if (dbAnimalKey === 'pig') targetModeCode = 'PIG';
-                else if (dbAnimalKey === 'piglet') targetModeCode = 'PIGLET';
-                else if (dbAnimalKey === 'chicks') targetModeCode = 'CHICK';
+                let targetModeCode = 'PIG';
+                if (dbAnimalKey === 'piglet') targetModeCode = 'PIGLET';
+                else if (dbAnimalKey === 'pig') targetModeCode = 'PIG';
+                else if (dbAnimalKey === 'chicks' || dbAnimalKey === 'chick') targetModeCode = 'CHICK';
+                else if (dbAnimalKey === 'chicken') targetModeCode = 'CHICKEN';
 
                 syncModeToDevice(codeToSync, targetModeCode).catch(console.warn);
             }
