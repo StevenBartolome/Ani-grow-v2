@@ -29,6 +29,7 @@ import {
     getDefaultStandards,
     saveTargetWeight,
     formatWeightDisplay,
+    syncFarmTargetWeightsToDevices,
 } from '@/constants/growthStandards';
 
 const getHPad = (width: number) => {
@@ -104,6 +105,7 @@ export default function TargetWeightScreen() {
                 await saveTargetWeight(std, farmId);
             }
             await loadStandards(false);
+            if (farmId) syncFarmTargetWeightsToDevices(farmId, selectedAnimal).catch(console.warn);
             showSnack('Default benchmarks loaded.', 'success');
         } catch (err: any) {
             showSnack('Failed to load defaults.', 'error');
@@ -234,6 +236,7 @@ export default function TargetWeightScreen() {
             });
 
             setModalVisible(false);
+            if (farmId) syncFarmTargetWeightsToDevices(farmId, selectedAnimal).catch(console.warn);
             showSnack(`Week ${weekNum} range saved successfully.`, 'success');
         } catch (err: any) {
             console.error('[handleSave] Error:', err);
