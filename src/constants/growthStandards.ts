@@ -283,12 +283,6 @@ export async function syncFarmTargetWeightsToDevices(
             } else {
                 await supabase.from('weight_thresholds').insert(threshPayload);
             }
-
-            const cmdName = `threshold_${finalUnder}_${finalOver}`;
-            await supabase.from('device_commands').insert({
-                device_id: dev.id,
-                command: cmdName,
-            });
         }
     } catch (err) {
         console.warn('[syncFarmTargetWeightsToDevices] error:', err);

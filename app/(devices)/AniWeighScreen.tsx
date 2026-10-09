@@ -225,7 +225,6 @@ export default function AniWeighScreen() {
     const [snackbarType, setSnackbarType] = useState<SnackbarType>('success');
 
     const [deviceUniqueCode, setDeviceUniqueCode] = useState('');
-    const animalTypeDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Live reading (from Supabase Realtime)
     const [liveWeightG, setLiveWeightG] = useState<number | null>(null);
@@ -830,7 +829,7 @@ export default function AniWeighScreen() {
                 ? Math.ceil(totalHeadCount / chicksTraySize)
                 : totalHeadCount;
 
-            const dbAnimalType = isChicksMode ? 'chicken' : ((gateAnimalType as string) === 'chicks' ? 'chicken' : gateAnimalType);
+            const dbAnimalType = (gateAnimalType === 'pig' || (gateAnimalType as string) === 'piglet') ? 'pig' : 'chicken';
 
             const { data, error } = await supabase
                 .from('weighing_sessions')
@@ -1279,15 +1278,6 @@ export default function AniWeighScreen() {
     const syncThresholdToDevice = async (uniqueCode: string, underKg: number, overKg: number) => {
         if (!uniqueCode) return;
 
-        // Queue cloud command via device_commands table so board syncs over cloud even if LAN is unreachable
-        const underGrams = Math.round(underKg * 1000);
-        const overGrams = Math.round(overKg * 1000);
-        const cmdName = `threshold_${underGrams}_${overGrams}`;
-        const requestedBy = user?.id ?? (profile as any)?.id ?? (profile as any)?.uid ?? null;
-        supabase.from('device_commands').insert({ device_id: deviceId, command: cmdName, requested_by: requestedBy }).then(({ error }) => {
-            if (error) console.warn('[ThresholdSync] Error inserting cloud threshold command:', error);
-        });
-
         const urls = [
             `http://anigrow-${uniqueCode}.local/threshold?under=${underKg}&over=${overKg}`,
             `http://192.168.4.1/threshold?under=${underKg}&over=${overKg}`
@@ -1416,26 +1406,7 @@ export default function AniWeighScreen() {
     );
 
     const syncModeToDevice = async (uniqueCode: string, mode: string) => {
-        if (!uniqueCode || !deviceId) return;
-
-        // Clear any previous unexecuted mode commands for this device to prevent command spam/backlog
-        try {
-            await supabase
-                .from('device_commands')
-                .update({ executed: true, executed_at: new Date().toISOString() })
-                .eq('device_id', deviceId)
-                .is('executed_at', null)
-                .like('command', 'mode_%');
-        } catch (clearErr) {
-            console.warn('[ModeSync] Could not clear old mode commands:', clearErr);
-        }
-
-        // Queue cloud command via device_commands table so board syncs over cloud even if LAN is unreachable
-        const cmdName = `mode_${mode.toLowerCase()}`;
-        const requestedBy = (profile as any)?.uid ?? (profile as any)?.id ?? null;
-        supabase.from('device_commands').insert({ device_id: deviceId, command: cmdName, requested_by: requestedBy }).then(({ error }) => {
-            if (error) console.warn('[ModeSync] Error inserting cloud mode command:', error);
-        });
+        if (!uniqueCode) return;
 
         const urls = [
             `http://anigrow-${uniqueCode}.local/mode?mode=${mode}`,
@@ -1566,7 +1537,7 @@ export default function AniWeighScreen() {
                         farm_id: farmId,
                         housing_id: deviceInfo.housingId,
                         batch_id: selectedBatchId,
-                        animal_type: isChicksMode ? 'chicks' : (animalType.toLowerCase() === 'piglet' ? 'piglet' : (isPigMode ? 'pig' : 'chicken')),
+                        animal_type: isPigMode ? 'pig' : 'chicken',
                         weigh_mode: isChicksMode ? 'batch' : 'individual',
                         expected_quantity: expectedQty,
                         completed_quantity: 0,
@@ -2236,16 +2207,9 @@ export default function AniWeighScreen() {
                         else if (type === 'piglet') selectedType = 'Piglet';
                         else if (type === 'pig') selectedType = 'Pig';
                         else selectedType = 'Chicken';
-
-                        setGateAnimalType(type);
+                        
                         AsyncStorage.setItem(`temp_animal_type_${deviceId}`, selectedType);
-
-                        if (animalTypeDebounceTimerRef.current) {
-                            clearTimeout(animalTypeDebounceTimerRef.current);
-                        }
-                        animalTypeDebounceTimerRef.current = setTimeout(() => {
-                            updateAndSyncThresholdsAndMode(type, gateBatchId);
-                        }, 350);
+                        updateAndSyncThresholdsAndMode(type, gateBatchId);
                     }}
                 />
             ) : (
