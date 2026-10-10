@@ -20,7 +20,7 @@
  * needs to comfortably outlast the worst-case cycle, not just a couple of
  * missed 30s beats, or an actively-weighing device flaps to "Offline".
  */
-export const DEVICE_ONLINE_THRESHOLD_MS = 180_000;
+export const DEVICE_ONLINE_THRESHOLD_MS = 75_000;
 
 export type RawDeviceStatus = 'online' | 'offline' | 'maintenance' | string | null | undefined;
 

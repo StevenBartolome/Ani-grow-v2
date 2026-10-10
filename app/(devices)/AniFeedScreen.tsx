@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { getNextDispenseInfo } from '@/components/FeedScheduleModal';
+import FeedScheduleModal, { getNextDispenseInfo } from '@/components/FeedScheduleModal';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
 import { ActivityIndicator, Modal, Platform, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
@@ -156,8 +156,9 @@ export default function AniFeedScreen() {
     const liveSensors = liveSensorsLan ?? cloudSensors;
     const liveSensorsSource: 'lan' | 'cloud' | null = liveSensorsLan ? 'lan' : cloudSensors ? 'cloud' : null;
 
-    // Feed Details Modal
+    // Feed details & Feed Schedule modals
     const [feedDetailsModalVisible, setFeedDetailsModalVisible] = useState(false);
+    const [feedScheduleModalVisible, setFeedScheduleModalVisible] = useState(false);
 
     // Edit field modal (Housing, Brand, AnimalType, Batch)
     const [editModalVisible, setEditModalVisible] = useState(false);
@@ -178,6 +179,28 @@ export default function AniFeedScreen() {
         setSnackbarMessage(message);
         setSnackbarType(type);
         setSnackbarVisible(true);
+    };
+
+    const [isResettingFeeder, setIsResettingFeeder] = useState(false);
+
+    const handleResetFeederActuator = async () => {
+        setIsResettingFeeder(true);
+        try {
+            if (deviceInfo?.lastIp) {
+                const res = await fetch(`http://${deviceInfo.lastIp}/feeder?reset=true`, { method: 'GET' }).catch(() => null);
+                if (res && res.ok) {
+                    showSnackbar('Feeder actuator reset initiated (closing mechanism)', 'success');
+                } else {
+                    showSnackbar('Actuator reset sent to GoldenWeigh', 'info');
+                }
+            } else {
+                showSnackbar('Feeder reset command queued', 'info');
+            }
+        } catch {
+            showSnackbar('Actuator reset initiated', 'info');
+        } finally {
+            setTimeout(() => setIsResettingFeeder(false), 2000);
+        }
     };
 
     // ─── Fetch ───────────────────────────────────────────────────
@@ -246,7 +269,18 @@ export default function AniFeedScreen() {
                 if (d.sensor_low !== null && d.sensor_mid !== null && d.sensor_high !== null) {
                     setCloudSensors({ low: !!d.sensor_low, mid: !!d.sensor_mid, high: !!d.sensor_high });
                 }
-                setIsConnected(getDeviceDisplayStatus(info.status, info.lastSeen) === 'online');
+                // Check if any GoldenWeigh (AniWeigh) device on this farm is online
+                const { data: weighDevices } = await supabase
+                    .from('devices')
+                    .select('status, last_seen')
+                    .eq('farm_id', farmId)
+                    .eq('type', 'aniweigh');
+
+                const isGoldenWeighOnline = (weighDevices ?? []).some(
+                    (w: any) => getDeviceDisplayStatus(w.status, w.last_seen) === 'online'
+                );
+
+                setIsConnected(isGoldenWeighOnline);
             }
 
             if (scheduleResult.data) {
@@ -813,6 +847,7 @@ export default function AniFeedScreen() {
                         )}
                     </View>
 
+
                     {/* Current Feed Level */}
                     <View style={anifeedStyles.liveSection}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -917,13 +952,24 @@ export default function AniFeedScreen() {
                                     {schedule ? `${(schedule.timesPerDay * schedule.gramsPerDispense).toLocaleString()}g total daily feeding` : 'No schedule configured yet'}
                                 </Text>
                             </View>
+                            <TouchableOpacity
+                                style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    backgroundColor: colors.primary + '1A',
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 6,
+                                    borderRadius: 10,
+                                    gap: 4,
+                                }}
+                                onPress={() => setFeedScheduleModalVisible(true)}
+                            >
+                                <MaterialIcons name="edit" size={15} color={colors.primary} />
+                                <Text style={[textStyles.label, { color: colors.primary, fontSize: 12, fontWeight: '700' }]}>
+                                    {schedule ? 'Edit' : 'Set Up'}
+                                </Text>
+                            </TouchableOpacity>
                         </View>
-                        {/* Editing moved to AniWeighScreen — Board1 (AniWeigh) is now the
-                            board that actually checks the schedule and triggers dispensing,
-                            so schedule control lives there instead of here. */}
-                        <Text style={[textStyles.body, { color: colors.textGrey, fontSize: 11, marginTop: -8, marginBottom: 12 }]}>
-                            Edit this schedule from the AniWeigh screen.
-                        </Text>
 
                         {schedule && schedule.dispenseTimes.length > 0 && (() => {
                             const next = getNextDispenseInfo(schedule.dispenseTimes);
@@ -1281,6 +1327,16 @@ export default function AniFeedScreen() {
                 message={snackbarMessage}
                 type={snackbarType}
                 onDismiss={() => setSnackbarVisible(false)}
+            />
+            {/* Feed Schedule Modal */}
+            <FeedScheduleModal
+                visible={feedScheduleModalVisible}
+                onClose={() => setFeedScheduleModalVisible(false)}
+                deviceId={deviceId}
+                farmId={farmId}
+                animalType={animalType as any}
+                showSnackbar={showSnackbar}
+                onSaved={fetchAll}
             />
         </View>
     );

@@ -3,8 +3,11 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+const DEFAULT_SUPABASE_URL = 'https://dvyclmtbmipvdonyivaw.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2eWNsbXRibWlwdmRvbnlpdmF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTM3NjYsImV4cCI6MjA5MjUyOTc2Nn0.lYPkC1YXUjhZ13BcLEtjkrk629TgJRDAHhGppuw8CLA';
+
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
 
 // Custom storage to handle SSR/Web environments safely
 const CustomStorage = {
